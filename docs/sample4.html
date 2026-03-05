@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MED-EDIT | Surgical AI Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400&family=Geist:wght@300;400;600&family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --porcelain: #ffffff;
+            --bone: #f8f9fa;
+            --surgical-blue: #2563eb;
+            --blood-warning: #dc2626;
+            --scrubs-green: #059669;
+            --scalpel-gray: #e2e8f0;
+            --ink: #1a1a1b;
+        }
+
+        body {
+            background-color: var(--porcelain);
+            color: var(--ink);
+            font-family: 'Geist', sans-serif;
+            letter-spacing: -0.01em;
+            overflow: hidden;
+        }
+
+        .surgical-grid {
+            background-image: radial-gradient(var(--scalpel-gray) 0.5px, transparent 0.5px);
+            background-size: 24px 24px;
+        }
+
+        .manuscript-font {
+            font-family: 'Playfair Display', serif;
+            line-height: 1.8;
+            font-size: 1.15rem;
+        }
+
+        .mono-ui {
+            font-family: 'Geist Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .diff-remove {
+            background-color: #fee2e2;
+            text-decoration: line-through;
+            color: #991b1b;
+            padding: 0 2px;
+        }
+
+        .diff-add {
+            background-color: #dcfce7;
+            border-bottom: 2px solid #166534;
+            color: #166534;
+            padding: 0 2px;
+        }
+
+        .floating-panel {
+            box-shadow: 0 20px 50px rgba(0,0,0,0.08);
+            border: 1px solid var(--scalpel-gray);
+            backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .btn-action {
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .btn-action:hover {
+            transform: translateY(-1px);
+            background-color: var(--bone);
+        }
+
+        .model-status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-green { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        .status-red { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
+        .status-yellow { background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+
+        .patch-card {
+            border-left: 2px solid var(--surgical-blue);
+            animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .selection-handle {
+            background: var(--surgical-blue);
+            color: white;
+            padding: 2px 8px;
+            font-size: 10px;
+            position: absolute;
+            transform: translateY(-100%);
+            border-radius: 2px 2px 0 0;
+        }
+
+        .line-marker {
+            position: absolute;
+            left: -20px;
+            font-family: 'Geist Mono';
+            color: #cbd5e1;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- Header / Navigation -->
+    <header class="h-14 border-b border-gray-100 px-6 flex items-center justify-between bg-white z-50">
+        <div class="flex items-center gap-8">
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-6 bg-blue-600"></div>
+                <span class="font-semibold text-lg tracking-tight uppercase">Sample 4 <span class="font-light text-gray-400">V1</span></span>
+            </div>
+            <nav class="flex gap-6">
+                <a href="#" class="mono-ui text-blue-600 border-b border-blue-600 pb-1">Manuscript</a>
+                <a href="#" class="mono-ui text-gray-400 hover:text-black">Sources</a>
+                <a href="#" class="mono-ui text-gray-400 hover:text-black">Settings</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded border border-gray-100">
+                <div class="model-status-indicator status-green"></div>
+                <span class="mono-ui text-[10px]">GPT-5.3-INSTANT</span>
+            </div>
+            <button class="bg-black text-white px-4 py-2 text-xs mono-ui hover:bg-gray-800 transition-colors">Export Patch</button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Sidebar: Structure -->
+        <aside class="w-64 border-r border-gray-100 bg-white p-6 overflow-y-auto custom-scrollbar">
+            <div class="mb-10">
+                <h3 class="mono-ui text-gray-400 mb-4">Chapter III</h3>
+                <h2 class="text-xl font-medium leading-tight italic">Neuroplasticity and Clinical Practice</h2>
+            </div>
+            
+            <div class="space-y-6">
+                <div>
+                    <h4 class="mono-ui text-[10px] text-gray-400 mb-2">Editor Status</h4>
+                    <div class="flex items-center gap-2 text-sm text-emerald-600 font-medium">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Strict Mode Active
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="mono-ui text-[10px] text-gray-400 mb-2">Approved Sources</h4>
+                    <ul class="space-y-2 text-xs">
+                        <li class="flex items-center justify-between text-gray-600">
+                            <span>PubMed Central</span>
+                            <span class="text-[10px] bg-gray-100 px-1 px-0.5">Whitelist</span>
+                        </li>
+                        <li class="flex items-center justify-between text-gray-600">
+                            <span>The Lancet</span>
+                            <span class="text-[10px] bg-gray-100 px-1 px-0.5">Whitelist</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="mono-ui text-[10px] text-gray-400 mb-2">Pending Diffs</h4>
+                    <div class="space-y-2">
+                        <div class="h-1 bg-gray-100 w-full rounded overflow-hidden">
+                            <div class="h-full bg-blue-600 w-1/3"></div>
+                        </div>
+                        <p class="text-[10px] text-gray-400">4 changes require review</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Editor Area -->
+        <section class="flex-1 surgical-grid relative overflow-y-auto p-12 custom-scrollbar">
+            <div class="max-w-2xl mx-auto bg-white p-16 shadow-sm border border-gray-100 relative min-h-full">
+                
+                <div class="manuscript-font text-gray-800">
+                    <p class="mb-8 relative">
+                        <span class="line-marker">021</span>
+                        Нейропластичность — это не просто способность мозга меняться, это фундаментальный механизм выживания. В контексте современной медицины мы часто рассматриваем это явление как способ реабилитации после инсультов. 
+                    </p>
+                    
+                    <!-- Editable Region with Patch -->
+                    <div class="relative mb-8 group">
+                        <span class="line-marker">028</span>
+                        <div class="selection-handle mono-ui">Selection: Local Patch</div>
+                        <p class="p-2 -m-2 bg-blue-50/30 border-l-2 border-blue-500">
+                            Однако, <span class="diff-remove">многие врачи думают</span> <span class="diff-add">последние клинические рекомендации указывают</span>, что этот процесс ограничен возрастом. На самом деле, механизмы синаптического прунинга продолжаются до глубокой старости, хотя и с меньшей интенсивностью <a href="#" class="text-blue-600 font-bold ml-1 hover:underline text-sm">[1]</a>.
+                        </p>
+                    </div>
+
+                    <p class="mb-8 relative">
+                        <span class="line-marker">034</span>
+                        Важно понимать различие между структурной и функциональной пластичностью. Первая относится к физическим изменениям в сером веществе, в то время как вторая описывает способность мозга перераспределять функции между различными зонами в ответ на повреждение.
+                    </p>
+
+                    <p class="mb-8 relative opacity-50 italic">
+                        <span class="line-marker">041</span>
+                        [Продолжите текст здесь или выделите фрагмент для AI-правки...]
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel: Diff Context -->
+        <aside class="w-80 border-l border-gray-100 bg-white p-6 overflow-y-auto custom-scrollbar">
+            <h3 class="mono-ui text-gray-400 mb-6">Active Operations</h3>
+            
+            <div class="space-y-4">
+                <!-- Patch Card -->
+                <div class="patch-card bg-gray-50 p-4 border border-gray-100">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-[10px] font-bold text-blue-600 mono-ui">Clarification</span>
+                        <span class="text-[10px] text-gray-400 mono-ui">Lines 028-031</span>
+                    </div>
+                    <p class="text-xs text-gray-700 leading-relaxed mb-4">
+                        "Замена субъективного мнения ('многие врачи') на ссылку к клиническим рекомендациям для повышения научного авторитета."
+                    </p>
+                    <div class="flex gap-2">
+                        <button class="flex-1 bg-white border border-gray-200 py-1.5 text-[10px] mono-ui hover:bg-red-50 hover:text-red-600 btn-action">Reject</button>
+                        <button class="flex-1 bg-blue-600 text-white py-1.5 text-[10px] mono-ui hover:bg-blue-700 btn-action">Accept</button>
+                    </div>
+                </div>
+
+                <!-- Source Verification Card -->
+                <div class="p-4 border border-gray-100 bg-emerald-50/50">
+                    <div class="flex items-center gap-2 mb-2">
+                        <svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 4.804A7.994 7.994 0 002 12a8 8 0 1016 0 7.994 7.994 0 00-7-7.196V4a1 1 0 00-2 0v.804z"></path></svg>
+                        <span class="text-[10px] font-bold text-emerald-700 mono-ui">Source Verified</span>
+                    </div>
+                    <p class="text-[11px] text-emerald-900 leading-tight">
+                        [1] Evidence found in: <br>
+                        <span class="italic">"Journal of Neuro-Aging, Vol 42, 2025"</span>
+                    </p>
+                    <div class="mt-2 pt-2 border-t border-emerald-100 flex justify-between items-center">
+                        <span class="text-[9px] text-emerald-600 uppercase">Strict mode: Match</span>
+                        <button class="text-[9px] text-emerald-700 underline font-bold">Details</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-auto pt-12">
+                <div class="p-4 rounded border border-dashed border-gray-200 text-center">
+                    <p class="text-[10px] text-gray-400 mono-ui">Highlight any text to <br>start a surgical edit</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Floating Command Panel -->
+    <div id="commandPanel" class="fixed bottom-8 right-8 w-96 floating-panel rounded-lg overflow-hidden transition-all duration-300">
+        <div class="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
+            <span class="mono-ui text-[10px] font-semibold">Custom Request</span>
+            <button onclick="togglePanel()" class="text-gray-400 hover:text-black">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>
+        <div class="p-4">
+            <div class="relative">
+                <textarea 
+                    class="w-full h-24 bg-transparent text-sm resize-none focus:outline-none placeholder:text-gray-300" 
+                    placeholder="e.g., 'Simplify this terminology for a general audience' or 'Check if this claim needs a footnote'"></textarea>
+                <div class="absolute bottom-2 right-2 flex items-center gap-3">
+                    <span class="text-[9px] text-gray-400">⌘ + ENTER</span>
+                    <button class="bg-blue-600 text-white p-1.5 rounded-full hover:bg-blue-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="px-4 pb-3 flex gap-2">
+            <button class="text-[9px] mono-ui px-2 py-1 bg-gray-100 rounded text-gray-500 hover:bg-gray-200">Fact-Check</button>
+            <button class="text-[9px] mono-ui px-2 py-1 bg-gray-100 rounded text-gray-500 hover:bg-gray-200">Tone Adjust</button>
+            <button class="text-[9px] mono-ui px-2 py-1 bg-gray-100 rounded text-gray-500 hover:bg-gray-200">Shorten</button>
+        </div>
+    </div>
+
+    <!-- Quick Settings Trigger -->
+    <div class="fixed bottom-8 left-8">
+        <button class="w-10 h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors group">
+            <svg class="w-5 h-5 group-hover:rotate-45 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        </button>
+    </div>
+
+    <script>
+        function togglePanel() {
+            const panel = document.getElementById('commandPanel');
+            if (panel.style.height === '40px') {
+                panel.style.height = 'auto';
+                panel.querySelector('svg').style.transform = 'rotate(0deg)';
+            } else {
+                panel.style.height = '40px';
+                panel.querySelector('svg').style.transform = 'rotate(180deg)';
+            }
+        }
+
+        // Simulate Model Validation on load
+        window.onload = () => {
+            console.log("MedEdit V1: Engine Warm Up...");
+            setTimeout(() => {
+                // Flash animation for the patch highlight
+                const highlight = document.querySelector('.diff-add');
+                highlight.style.transition = 'all 1s';
+                highlight.style.backgroundColor = '#86efac';
+                setTimeout(() => highlight.style.backgroundColor = '#dcfce7', 1000);
+            }, 800);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "orest-edit",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @orest/web",
+    "build": "npm run build -w @orest/web",
+    "start": "npm run start -w @orest/web",
+    "typecheck": "npm run typecheck -w @orest/web",
+    "test": "npm run test -w @orest/web"
+  }
+}
