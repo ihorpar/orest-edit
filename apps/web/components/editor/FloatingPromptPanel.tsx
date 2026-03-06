@@ -85,7 +85,7 @@ export function FloatingPromptPanel({
               className="floating-textarea"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Напишіть локальну інструкцію для виділеного фрагмента"
+              placeholder="Що зробити ШІ?"
               disabled={loading}
               rows={1}
             />
@@ -100,16 +100,20 @@ export function FloatingPromptPanel({
                 aria-label="Надіслати кастомні правки"
                 disabled={loading || !trimmedPrompt}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M5 12h14M12 5l7 7-7 7"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                {loading ? (
+                  <span className="button-spinner send-spinner" aria-hidden="true" />
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M5 12h14M12 5l7 7-7 7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
@@ -123,9 +127,16 @@ export function FloatingPromptPanel({
         </div>
       ) : (
         <div className="floating-panel-collapsed-bar">
-          <button type="button" className="floating-panel-inline-action" onClick={() => setIsCollapsed(false)}>
-            Відкрити промпт
-          </button>
+          {loading ? (
+            <div className="floating-panel-loading" role="status" aria-live="polite">
+              <span className="button-spinner floating-panel-loading-spinner" aria-hidden="true" />
+              <span className="floating-panel-loading-copy">ШІ готує правки…</span>
+            </div>
+          ) : (
+            <button type="button" className="floating-panel-inline-action" onClick={() => setIsCollapsed(false)}>
+              Відкрити промпт
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -3,7 +3,6 @@
 import { startTransition, useEffect, useState } from "react";
 import { EditorCanvas, type AppliedDiffMarker } from "../../components/editor/EditorCanvas";
 import { FloatingPromptPanel } from "../../components/editor/FloatingPromptPanel";
-import { LeftSidebarConfig } from "../../components/layout/LeftSidebarConfig";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { TopBar } from "../../components/layout/TopBar";
@@ -59,6 +58,7 @@ export default function EditorPage() {
   const [activeReviewItem, setActiveReviewItem] = useState<EditorialReviewItem | null>(null);
   const [selectionRevealKey, setSelectionRevealKey] = useState(0);
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
+  const [suppressFloatingPrompt, setSuppressFloatingPrompt] = useState(false);
 
   useEffect(() => {
     setSettings(readEditorSettings());
@@ -84,7 +84,7 @@ export default function EditorPage() {
 
   const hasActiveSelection = hasSelection(selection);
   const isAnyRequestInFlight = isPatchRequestInFlight || isReviewRequestInFlight;
-  const showRightRail =
+  const hasRailDetailContent =
     isAnyRequestInFlight ||
     operations.length > 0 ||
     reviewItems.length > 0 ||
@@ -229,12 +229,16 @@ export default function EditorPage() {
       setAppliedDiffs([]);
     }
 
+    setSuppressFloatingPrompt(false);
     setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
   }
 
   function handleTextChange(nextText: string, nextSelection: PatchSelection) {
     setText(nextText);
     setSelection(clampSelection(nextText, nextSelection.start, nextSelection.end));
+    if (!hasSelection(nextSelection)) {
+      setSuppressFloatingPrompt(false);
+    }
     setAppliedDiffs([]);
     setActiveReviewItem(null);
     setReviewItems([]);
@@ -271,13 +275,29 @@ export default function EditorPage() {
       setActiveReviewItem(null);
       setReviewItems([]);
       setReviewDiagnostics(null);
-      setFeedback({ message: "Правку застосовано до Редактору.", tone: "info" });
+      setSuppressFloatingPrompt(false);
+      setFeedback({ message: "Правку застосовано в редакторі.", tone: "info" });
     });
   }
 
   function handleReject(id: string) {
     setOperations((current) => current.filter((item) => item.id !== id));
     setFeedback({ message: "Правку відхилено. Текст у Редакторі не змінено.", tone: "info" });
+  }
+
+  function handleAppliedDiffChange(id: string, newText: string) {
+    const target = appliedDiffs.find((item) => item.id === id);
+
+    if (!target) {
+      return;
+    }
+
+    const nextText = text.slice(0, target.start) + newText + text.slice(target.end);
+    const nextSelection = { start: target.start + newText.length, end: target.start + newText.length };
+
+    setText(nextText);
+    setSelection(nextSelection);
+    setAppliedDiffs((current) => rebaseAppliedDiffMarkers(current, id, newText));
   }
 
   function handleAcceptAll() {
@@ -302,6 +322,7 @@ export default function EditorPage() {
       setActiveReviewItem(null);
       setReviewItems([]);
       setReviewDiagnostics(null);
+      setSuppressFloatingPrompt(false);
       setFeedback({
         message:
           skippedCount > 0
@@ -326,6 +347,7 @@ export default function EditorPage() {
       setActiveReviewItem(item);
       setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
       setSelectionRevealKey((current) => current + 1);
+      setSuppressFloatingPrompt(false);
     });
   }
 
@@ -342,32 +364,36 @@ export default function EditorPage() {
       setFeedback({ message: "Чернетку очищено. Редактор повернуто до початкового стану.", tone: "info" });
       setActiveReviewItem(null);
       setSelectionRevealKey(0);
+      setSuppressFloatingPrompt(false);
     });
 
     clearEditorDraftState();
   }
 
+  function requestClearDraft() {
+    if (!canClearDraft) {
+      return;
+    }
+
+    if (window.confirm("Очистити всю чернетку й прибрати правки, огляд і локальну історію?")) {
+      handleClearDraft();
+    }
+  }
+
   return (
     <main className="app-shell">
-      <TopBar pendingCount={operations.length} activePath="/editor" />
+      <TopBar activePath="/editor" />
       <ThreePaneShell
-        left={
-          <LeftSidebarConfig
-            canClear={canClearDraft}
-            pendingCount={operations.length}
-            reviewCount={reviewItems.length}
-            reviewLoading={isReviewRequestInFlight}
-            onClear={handleClearDraft}
-            onRequestReview={() => {
-              void requestEditorialReview();
-            }}
-          />
-        }
+        rightState={hasRailDetailContent ? "active" : "idle"}
         center={
           <EditorCanvas
             activeReviewItem={activeReviewItem}
             appliedDiffs={appliedDiffs}
+            canClearDraft={canClearDraft}
             loading={isAnyRequestInFlight}
+            onClearDraft={requestClearDraft}
+            onAppliedDiffChange={handleAppliedDiffChange}
+            onMarkdownFormat={() => setSuppressFloatingPrompt(true)}
             onDiscardAppliedDiffs={() => setAppliedDiffs([])}
             onDismissAppliedDiffs={() => setAppliedDiffs([])}
             onDismissReviewItem={() => setActiveReviewItem(null)}
@@ -378,29 +404,31 @@ export default function EditorPage() {
             onTextChange={handleTextChange}
           />
         }
-        rightCollapsed={!showRightRail}
         right={
-          showRightRail ? (
-            <RightOperationsRail
-              patchDiagnostics={patchDiagnostics}
-              reviewDiagnostics={reviewDiagnostics}
-              history={history}
-              patchLoading={isPatchRequestInFlight}
-              reviewLoading={isReviewRequestInFlight}
-              operations={operations}
-              reviewItems={reviewItems}
-              statusMessage={feedback?.message}
-              statusTone={feedback?.tone}
-              onAccept={handleAccept}
-              onAcceptAll={handleAcceptAll}
-              onFocusReviewItem={handleFocusReviewItem}
-              onReject={handleReject}
-              onRejectAll={handleRejectAll}
-            />
-          ) : null
+          <RightOperationsRail
+            canRequestReview={!isAnyRequestInFlight}
+            isIdle={!hasRailDetailContent}
+            patchDiagnostics={patchDiagnostics}
+            reviewDiagnostics={reviewDiagnostics}
+            history={history}
+            onRequestReview={() => {
+              void requestEditorialReview();
+            }}
+            patchLoading={isPatchRequestInFlight}
+            reviewLoading={isReviewRequestInFlight}
+            operations={operations}
+            reviewItems={reviewItems}
+            statusMessage={feedback?.message}
+            statusTone={feedback?.tone}
+            onAccept={handleAccept}
+            onAcceptAll={handleAcceptAll}
+            onFocusReviewItem={handleFocusReviewItem}
+            onReject={handleReject}
+            onRejectAll={handleRejectAll}
+          />
         }
       />
-      {hasActiveSelection && activeReviewItem === null ? (
+      {hasActiveSelection && activeReviewItem === null && !suppressFloatingPrompt ? (
         <FloatingPromptPanel
           loading={isAnyRequestInFlight}
           onSubmit={(prompt) => {
@@ -513,6 +541,39 @@ function createAppliedDiffMarkers(operations: PatchOperation[]): AppliedDiffMark
       oldText: operation.oldText,
       newText: operation.newText,
       reason: operation.reason
+    };
+  });
+}
+
+function rebaseAppliedDiffMarkers(markers: AppliedDiffMarker[], updatedId: string, newText: string): AppliedDiffMarker[] {
+  const target = markers.find((marker) => marker.id === updatedId);
+
+  if (!target) {
+    return markers;
+  }
+
+  const currentLength = target.end - target.start;
+  const delta = newText.length - currentLength;
+  let hasReachedTarget = false;
+
+  return markers.map((marker) => {
+    if (marker.id === updatedId) {
+      hasReachedTarget = true;
+      return {
+        ...marker,
+        end: marker.start + newText.length,
+        newText
+      };
+    }
+
+    if (!hasReachedTarget || delta === 0) {
+      return marker;
+    }
+
+    return {
+      ...marker,
+      start: marker.start + delta,
+      end: marker.end + delta
     };
   });
 }

@@ -96,7 +96,7 @@ test("generateEditorialReview sends Gemini structured output config in the docum
   let requestBody: Record<string, unknown> | undefined;
 
   await generateEditorialReview(
-    { ...createRequest("gemini", "gemini-2.5-flash", text), apiKey: "gem-review-test" },
+    { ...createRequest("gemini", "gemini-3.1-flash-lite-preview", text), apiKey: "gem-review-test" },
     {
       now: () => "2026-03-06T03:40:00.000Z",
       fetchImpl: async (_input, init) => {

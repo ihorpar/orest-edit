@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { TopBar } from "../../components/layout/TopBar";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -10,74 +9,188 @@ import { StatusDot } from "../../components/ui/StatusDot";
 import { Textarea } from "../../components/ui/Textarea";
 import {
   CUSTOM_MODEL_OPTION,
+  DEFAULT_BASE_PROMPT,
   DEFAULT_EDITOR_SETTINGS,
   findProviderModelPreset,
   getDefaultProviderModelId,
-  getProviderModelPresets,
+  getProviderEnvKey,
   getProviderLabel,
+  getProviderModelPresets,
+  normalizeModelId,
   normalizeProvider,
   readEditorSettings,
   validateModelId,
   writeEditorSettings,
-  type EditorSettings
+  type EditorSettings,
+  type ProviderId,
+  type SettingsConnectionState,
+  type SettingsKeySource,
+  type SettingsValidationResult
 } from "../../lib/editor/settings";
+
+interface ConnectionStatusSnapshot {
+  provider: ProviderId;
+  modelId: string;
+  state: SettingsConnectionState;
+  keySource: SettingsKeySource;
+  message: string;
+  validatedAt: string | null;
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
+  const [persistedSettings, setPersistedSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [validationNonce, setValidationNonce] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusSnapshot>({
+    provider: DEFAULT_EDITOR_SETTINGS.provider,
+    modelId: DEFAULT_EDITOR_SETTINGS.modelId,
+    state: "idle",
+    keySource: "missing",
+    message: "Оберіть модель, щоб перевірити підключення.",
+    validatedAt: null
+  });
 
   useEffect(() => {
-    setSettings(readEditorSettings());
+    const restored = readEditorSettings();
+    setSettings(restored);
+    setPersistedSettings(restored);
   }, []);
 
-  const modelState = validateModelId(settings.modelId);
   const providerLabel = getProviderLabel(settings.provider);
   const modelPresets = getProviderModelPresets(settings.provider);
   const selectedPreset = findProviderModelPreset(settings.provider, settings.modelId);
   const selectedModelOption = selectedPreset?.id ?? CUSTOM_MODEL_OPTION;
+  const currentModelId = selectedModelOption === CUSTOM_MODEL_OPTION ? settings.modelId.trim() : normalizeModelId(settings.provider, settings.modelId);
+  const modelState = validateModelId(currentModelId);
+  const providerEnvKey = getProviderEnvKey(settings.provider);
+  const hasUnsavedChanges = !areSettingsEqual(settings, persistedSettings);
+
+  useEffect(() => {
+    const validationKeySource: SettingsKeySource = settings.apiKey.trim() ? "api_key" : "missing";
+
+    if (modelState !== "valid") {
+      setConnectionStatus({
+        provider: settings.provider,
+        modelId: currentModelId,
+        state: modelState === "missing" ? "idle" : "model_error",
+        keySource: validationKeySource,
+        message: modelState === "missing" ? "Оберіть або введіть model id, щоб перевірити підключення." : "Model id має невалідний формат.",
+        validatedAt: null
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setConnectionStatus((current) => ({
+        provider: settings.provider,
+        modelId: currentModelId,
+        state: "checking",
+        keySource: settings.apiKey.trim() ? "api_key" : current.keySource,
+        message: "Перевіряю модель…",
+        validatedAt: current.validatedAt
+      }));
+
+      try {
+        const response = await fetch("/api/settings/validate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            provider: settings.provider,
+            modelId: currentModelId,
+            apiKey: settings.apiKey || undefined
+          }),
+          signal: controller.signal
+        });
+
+        const payload = (await response.json()) as SettingsValidationResult;
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setConnectionStatus({
+          provider: payload.provider,
+          modelId: payload.modelId,
+          state: payload.state,
+          keySource: payload.keySource,
+          message: payload.message,
+          validatedAt: payload.validatedAt
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setConnectionStatus({
+          provider: settings.provider,
+          modelId: currentModelId,
+          state: "network_error",
+          keySource: settings.apiKey.trim() ? "api_key" : "missing",
+          message: error instanceof Error ? error.message : "Не вдалося перевірити модель.",
+          validatedAt: new Date().toISOString()
+        });
+      }
+    }, 500);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [currentModelId, modelState, settings.apiKey, settings.provider, validationNonce]);
 
   return (
     <main className="app-shell">
-      <TopBar pendingCount={0} activePath="/settings" />
-      <ThreePaneShell
-        left={
-          <div className="sidebar-stack">
-            <section className="sidebar-section">
-              <p className="mono-ui chapter-kicker">Конфіг</p>
-              <h1 className="chapter-name">Налаштування редактора</h1>
-            </section>
+      <TopBar activePath="/settings" />
 
-            <section className="sidebar-section">
-              <p className="mono-ui sidebar-title">Активна модель</p>
-              <div className="status-row">
-                <span className="status-ring" aria-hidden="true" />
-                <span className="status-copy">{providerLabel}</span>
+      <section className="settings-page-shell">
+        <div className="settings-stage">
+          <section className="settings-sheet settings-sheet-focused">
+            <header className="settings-hero">
+              <div className="settings-hero-copy">
+                <p className="mono-ui sidebar-title">Налаштування</p>
+                <h1 className="settings-title">Підключення AI</h1>
               </div>
-              <p className="pending-copy">{settings.modelId.trim() || "Модель буде підставлена автоматично після збереження."}</p>
-            </section>
 
-            <section className="sidebar-section">
-              <p className="mono-ui sidebar-title">Що мінімум налаштовуємо</p>
-              <div className="source-list">
-                <div className="source-row source-row-plain">
-                  <span>Провайдер та модель</span>
-                </div>
-                <div className="source-row source-row-plain">
-                  <span>API-ключ у формі або в `.env`</span>
-                </div>
-                <div className="source-row source-row-plain">
-                  <span>Базовий редакторський промпт</span>
-                </div>
+              <div className="settings-summary-grid">
+                <article className="settings-summary-card">
+                  <p className="mono-ui settings-summary-label">Поточний провайдер</p>
+                  <p className="settings-summary-value">{providerLabel}</p>
+                  <p className="settings-summary-copy">{selectedPreset?.label ?? (currentModelId || "Буде вибрано після збереження.")}</p>
+                </article>
+
+                <article className="settings-summary-card" data-tone={connectionStatus.state}>
+                  <div className="settings-summary-head">
+                    <p className="mono-ui settings-summary-label">Перевірка моделі</p>
+                    <span className="settings-summary-status">
+                      <StatusDot state={connectionStatus.state} />
+                      <span>{getConnectionLabel(connectionStatus.state)}</span>
+                    </span>
+                  </div>
+                  <p className="settings-summary-copy">{connectionStatus.message}</p>
+                </article>
               </div>
-            </section>
-          </div>
-        }
-        center={
-          <div className="settings-stage">
-            <section className="settings-sheet">
-              <div className="settings-sheet-header">
-                <p className="mono-ui sidebar-title">Робоча конфігурація</p>
-                <h2 className="settings-title">Лише те, що впливає на роботу редактора</h2>
+            </header>
+
+            <section className="settings-section">
+              <div className="settings-section-head">
+                <div>
+                  <p className="mono-ui settings-section-kicker">Підключення</p>
+                  <h2 className="settings-section-title">Що потрібно, щоб редактор працював</h2>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={connectionStatus.state === "checking"}
+                  loadingLabel="Перевіряю…"
+                  onClick={() => setValidationNonce((current) => current + 1)}
+                >
+                  Перевірити
+                </Button>
               </div>
 
               <div className="settings-form-grid">
@@ -88,7 +201,11 @@ export default function SettingsPage() {
                     value={settings.provider}
                     onChange={(event) => {
                       const provider = normalizeProvider(event.target.value);
-                      setSettings((current) => ({ ...current, provider, modelId: getDefaultProviderModelId(provider) }));
+                      setSettings((current) => ({
+                        ...current,
+                        provider,
+                        modelId: getDefaultProviderModelId(provider)
+                      }));
                       setSaveMessage(null);
                     }}
                   >
@@ -96,6 +213,7 @@ export default function SettingsPage() {
                     <option value="gemini">Google Gemini</option>
                     <option value="anthropic">Anthropic</option>
                   </Select>
+                  <p className="settings-field-note">Виберіть той провайдер, через який редактор робитиме локальні правки та editorial review.</p>
                 </label>
 
                 <label className="settings-field" htmlFor="model-preset">
@@ -120,13 +238,9 @@ export default function SettingsPage() {
                     ))}
                     <option value={CUSTOM_MODEL_OPTION}>Ввести вручну</option>
                   </Select>
-                  <p className="pending-copy">
-                    {selectedPreset
-                      ? selectedPreset.description
-                      : "Використайте ручний model id, якщо потрібна конкретна preview або внутрішня назва моделі, якої немає у списку."}
-                  </p>
+
                   {selectedModelOption === CUSTOM_MODEL_OPTION ? (
-                    <div className="settings-input-row">
+                    <div className="settings-inline-field">
                       <Input
                         id="model"
                         error={modelState === "invalid"}
@@ -135,84 +249,153 @@ export default function SettingsPage() {
                           setSettings((current) => ({ ...current, modelId: event.target.value }));
                           setSaveMessage(null);
                         }}
+                        placeholder="Наприклад: gpt-5.4"
                       />
-                      <StatusDot state={modelState} />
+                      <span className="settings-inline-status">
+                        <StatusDot state={modelState} />
+                      </span>
                     </div>
-                  ) : (
-                    <p className="pending-copy">API id: {settings.modelId}</p>
-                  )}
-                  <p className="pending-copy">
-                    {selectedModelOption === CUSTOM_MODEL_OPTION && modelState === "missing"
-                      ? "Якщо поле порожнє, під час збереження буде підставлено типовий model id для вибраного провайдера."
-                      : selectedModelOption === CUSTOM_MODEL_OPTION && modelState === "invalid"
-                        ? "Model id містить недопустимі символи."
-                        : "Model id виглядає валідним за форматом."}
-                  </p>
+                  ) : null}
+
+                  <div className="settings-validation-row">
+                    <span className="settings-validation-status">
+                      <StatusDot state={connectionStatus.state} />
+                      <span>{getConnectionLabel(connectionStatus.state)}</span>
+                    </span>
+                    <span className="settings-validation-text">
+                      {selectedPreset ? selectedPreset.description : getManualModelHelp(modelState)}
+                    </span>
+                  </div>
                 </label>
 
                 <label className="settings-field" htmlFor="api-key">
                   <span className="mono-ui settings-label">API-ключ</span>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    value={settings.apiKey}
-                    onChange={(event) => {
-                      setSettings((current) => ({ ...current, apiKey: event.target.value }));
-                      setSaveMessage(null);
-                    }}
-                    placeholder="Залиште порожнім, щоб сервер узяв ключ із .env"
-                  />
-                  <p className="pending-copy">Порожнє поле тепер означає: використовуй `OPENAI_API_KEY` із кореневого `.env` на сервері.</p>
+                  <div className="settings-inline-field">
+                    <Input
+                      id="api-key"
+                      type={showApiKey ? "text" : "password"}
+                      value={settings.apiKey}
+                      onChange={(event) => {
+                        setSettings((current) => ({ ...current, apiKey: event.target.value }));
+                        setSaveMessage(null);
+                      }}
+                      placeholder={`Залиште порожнім, щоб сервер узяв ${providerEnvKey} із .env`}
+                    />
+                    <Button variant="secondary" size="sm" type="button" onClick={() => setShowApiKey((current) => !current)}>
+                      {showApiKey ? "Сховати" : "Показати"}
+                    </Button>
+                  </div>
+                  <p className="settings-field-note">
+                    {settings.apiKey.trim()
+                      ? "Ключ збережеться локально в браузері для цього редактора."
+                      : `Якщо поле порожнє, сервер спробує взяти \`${providerEnvKey}\` із .env.`}
+                  </p>
                 </label>
-
-                <label className="settings-field" htmlFor="base-prompt">
-                  <span className="mono-ui settings-label">Базовий редакторський промпт</span>
-                  <Textarea
-                    id="base-prompt"
-                    rows={7}
-                    value={settings.basePrompt}
-                    onChange={(event) => {
-                      setSettings((current) => ({ ...current, basePrompt: event.target.value }));
-                      setSaveMessage(null);
-                    }}
-                    className="settings-textarea"
-                  />
-                </label>
-              </div>
-
-              <div className="settings-actions">
-                <Button
-                  variant="primary"
-                  style={{ width: "fit-content" }}
-                  onClick={() => {
-                    const persisted = writeEditorSettings(settings);
-                    setSettings(persisted);
-                    setSaveMessage("Налаштування збережено локально в браузері.");
-                  }}
-                >
-                  Зберегти налаштування
-                </Button>
-                {saveMessage ? <p className="save-note">{saveMessage}</p> : null}
               </div>
             </section>
-          </div>
-        }
-        right={
-          <div>
-            <p className="mono-ui operations-title">Орієнтир</p>
-            <div className="operations-stack">
-              <section className="editor-note-card">
-                <p className="editor-note-title">Вертикальний зріз</p>
-                <p className="editor-note-copy">Редактор читає ці значення в `/editor` і відправляє їх разом із виділеним фрагментом у patch API.</p>
-              </section>
-              <section className="editor-note-card">
-                <p className="editor-note-title">Поточний шлях для ключа</p>
-                <p className="editor-note-copy">Для локальної розробки достатньо залишити поле API-ключа порожнім, якщо `OPENAI_API_KEY` уже записано в кореневому `.env`.</p>
-              </section>
+
+            <section className="settings-section settings-section-advanced">
+              <div className="settings-section-head settings-section-head-static">
+                <div>
+                  <p className="mono-ui settings-section-kicker">Поведінка редактора</p>
+                  <h2 className="settings-section-title">Базовий промпт</h2>
+                </div>
+              </div>
+
+              <label className="settings-field" htmlFor="base-prompt">
+                <span className="mono-ui settings-label">Що казати моделі перед кожним запитом</span>
+                <Textarea
+                  id="base-prompt"
+                  rows={7}
+                  value={settings.basePrompt}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, basePrompt: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Цей текст впливає і на локальні patch-запити, і на whole-text editorial review.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, basePrompt: DEFAULT_BASE_PROMPT }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий промпт
+                  </Button>
+                </div>
+              </label>
+            </section>
+
+            <div className="settings-actions-row">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSettings(DEFAULT_EDITOR_SETTINGS);
+                  setShowApiKey(false);
+                  setSaveMessage(null);
+                }}
+              >
+                Скинути до типових
+              </Button>
+
+              <Button
+                variant="primary"
+                disabled={!hasUnsavedChanges}
+                onClick={() => {
+                  const persisted = writeEditorSettings(settings);
+                  setSettings(persisted);
+                  setPersistedSettings(persisted);
+                  setSaveMessage("Налаштування збережено локально в браузері.");
+                }}
+              >
+                Зберегти налаштування
+              </Button>
             </div>
-          </div>
-        }
-      />
+
+            {saveMessage ? <p className="save-note settings-save-note">{saveMessage}</p> : null}
+          </section>
+        </div>
+      </section>
     </main>
   );
+}
+
+function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
+  return left.provider === right.provider && left.modelId === right.modelId && left.apiKey === right.apiKey && left.basePrompt === right.basePrompt;
+}
+
+function getConnectionLabel(state: SettingsConnectionState) {
+  switch (state) {
+    case "checking":
+      return "Перевіряю";
+    case "valid":
+      return "Працює";
+    case "missing_key":
+      return "Немає ключа";
+    case "auth_error":
+      return "Ключ не підходить";
+    case "model_error":
+      return "Модель недоступна";
+    case "network_error":
+      return "Мережа";
+    default:
+      return "Не перевірено";
+  }
+}
+
+function getManualModelHelp(modelState: ReturnType<typeof validateModelId>) {
+  if (modelState === "missing") {
+    return "Введіть точний model id, якщо потрібен preview або внутрішня назва моделі, якої немає в пресетах.";
+  }
+
+  if (modelState === "invalid") {
+    return "Model id містить недопустимі символи або порожній формат.";
+  }
+
+  return "Це ручний model id. Після зміни сторінка автоматично перевірить, чи модель відповідає.";
 }

@@ -60,6 +60,12 @@ This is the smallest outcome that makes the product real. It still deliberately 
 - [x] (2026-03-06 06:35Z) Reworked the floating custom-prompt panel into a centered chat-style composer with single-line default height and bounded auto-grow behavior.
 - [x] (2026-03-06 06:45Z) Removed the standalone welcome screen and made `/` redirect directly into `/editor`.
 - [x] (2026-03-06 08:05Z) Made the app responsive by restacking utility/review panels into the center flow on tablet/mobile, tightening the manuscript and floating-composer layouts, and validating desktop/mobile screenshots.
+- [x] (2026-03-06 09:10Z) Removed the low-value editor left rail, moved draft reset into the manuscript header with confirmation, and made whole-text review the permanent top action in the right rail.
+- [x] (2026-03-06 09:45Z) Removed duplicate pending status from the top bar, tightened the manuscript header, and turned the idle right rail into a slimmer review-action card.
+- [x] (2026-03-06 10:15Z) Added subtle contextual loading feedback to the review button, right-rail in-progress cards, and floating prompt instead of using a blocking overlay spinner.
+- [x] (2026-03-06 13:30Z) Rebuilt `/settings` into a single operational sheet, added provider-aware key copy plus reset/show-hide controls, and introduced live model validation with real provider requests behind `/api/settings/validate`.
+- [x] (2026-03-06 19:15Z) Added markdown formatting controls in the manuscript header, kept raw markdown as the canonical textarea source, and introduced an idle formatted preview for headings, lists, links, tables, and inline emphasis.
+- [x] (2026-03-06 19:47Z) Removed strikethrough from deleted diff text and moved green-text editability into the large manuscript diff review block so editors can tune the applied wording before leaving review mode.
 
 ## Surprises & Discoveries
 
@@ -156,11 +162,32 @@ This is the smallest outcome that makes the product real. It still deliberately 
 - Observation: Playwright CLI was available in this environment, but the bundled Linux browser could not launch because the system lacked `libnspr4`.
   Evidence: the screenshot attempt failed with `chrome-headless-shell: error while loading shared libraries: libnspr4.so`, so Windows `chrome.exe --headless` was used instead for desktop/mobile screenshot validation.
 
+- Observation: the editor left rail became weaker as the right rail and top bar accumulated real status and review controls.
+  Evidence: the same pending state was visible in the top bar, left rail, and right rail, while the left rail itself mostly contained non-actionable labels and helper copy.
+
+- Observation: once the left rail was removed, the empty desktop right rail still felt unfinished because it reserved a full review column for one button and several pale labels.
+  Evidence: the idle editor screenshot showed a cleaner center column but a visually hollow right side, which made the product feel incomplete rather than intentionally minimal.
+
+- Observation: text-only loading copy made in-flight AI requests feel static even when the product already had the correct structural loading states.
+  Evidence: during patch or review requests, the UI switched labels like `Готую локальні правки…`, but there was no motion cue in the button, right rail, or collapsed floating prompt to confirm that processing was alive.
+
+- Observation: the settings page had turned into a reused workspace shell rather than a focused operational form.
+  Evidence: the left pane clipped the heading, the right pane spent 420px on explanatory cards, and the actual form still configured only provider, model, key, and prompt.
+
+- Observation: a green “active model” treatment is actively misleading unless the app proves that the selected provider and model really answer.
+  Evidence: before the validation pass, the settings screen showed a success-colored provider block even when no live request had confirmed the chosen model or key path.
+
 - Observation: this repository had widespread text-format drift across source and docs, including BOM, CRLF, and missing-final-newline differences.
   Evidence: the first `npm run check:text` pass reported dozens of files with BOM or line-ending drift before the normalization pass rewrote them to UTF-8 without BOM and LF line endings.
 
 - Observation: the native `apply_patch` tool still failed on a one-line README edit even after text normalization, which points to a tool-path issue in this session rather than a remaining repository-format issue.
   Evidence: a direct `apply_patch` attempt against `README.md` failed silently, but the same one-line change succeeded immediately through an explicit UTF-8 rewrite.
+
+- Observation: markdown support fits the current editor only if formatted rendering stays a preview layer instead of becoming the editable source of truth.
+  Evidence: the patch contract in `apps/web/lib/editor/patch-contract.ts` and the canvas selection flow in `apps/web/components/editor/EditorCanvas.tsx` still depend on one raw string with stable offsets, so the markdown pass keeps formatting source-first and swaps only the idle render layer.
+
+- Observation: the requested editing point was not the rail card but the large manuscript comparison block shown after apply.
+  Evidence: the user-supplied screenshot and current flow both point at the `Щойно застосовано` review state in `apps/web/components/editor/EditorCanvas.tsx`, not the smaller `Правки на розгляді` cards in `apps/web/components/layout/RightOperationsRail.tsx`.
 
 ## Decision Log
 
@@ -240,6 +267,10 @@ This is the smallest outcome that makes the product real. It still deliberately 
   Rationale: whole-text review is expensive and often returns useful content with only minor schema drift, so the app should recover string offsets, aliased fields, and excerpt-anchored spans before surfacing dropped-count noise.
   Date/Author: 2026-03-06 / Codex implementation
 
+- Decision: keep markdown as plain-text source and add formatting through selection-based markdown transforms plus an idle preview layer.
+  Rationale: this adds headings, emphasis, lists, links, and tables without abandoning the existing offset-safe textarea model that patch review and apply depend on.
+  Date/Author: 2026-03-06 / Codex implementation
+
 - Decision: migrate OpenAI structured outputs to the Responses API path and parse `output/output_text` instead of legacy chat-completions content.
   Rationale: this matches OpenAI's current recommended integration path more closely and should reduce OpenAI-specific schema drift caused by the older request/response shape.
   Date/Author: 2026-03-06 / Codex implementation
@@ -292,13 +323,39 @@ This is the smallest outcome that makes the product real. It still deliberately 
   Rationale: the three-pane desktop shell reads well on wide screens, but on mobile it compresses the manuscript and hides key actions. Duplicating those panels into the main flow preserves the full workflow in one column without sacrificing the desktop layout.
   Date/Author: 2026-03-06 / Codex implementation
 
+- Decision: remove the editor left rail, move draft reset into the manuscript header, and make the right rail permanently visible on desktop with whole-text review at the top.
+  Rationale: the left rail was low-value chrome that duplicated existing status, while the document-level actions fit more naturally beside the manuscript and review output.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: remove duplicate pending-review status from the top bar and let the idle desktop right rail collapse to a narrower review-action state until real content appears.
+  Rationale: the top bar badge repeated status without helping action, and the empty full-width right rail made the editor feel sparse instead of focused.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: show AI processing through subtle local motion in the action button, right-rail loading cards, and floating prompt, rather than through a global blocking spinner.
+  Rationale: the editor should keep the manuscript readable during requests, while the exact control or panel receiving the result should communicate that work is in progress.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: turn `/settings` into a centered operational sheet instead of reusing the editor's left/right rails.
+  Rationale: configuration should optimize for quick, confident setup, not for persistent explanatory chrome or workspace symmetry with the editor surface.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: treat green model status in settings as proof of a live upstream response, not as a proxy for “the preset looks fine”.
+  Rationale: the settings page needs to distinguish selected values from validated connectivity so editors can trust what “working” means before they start sending edit requests.
+  Date/Author: 2026-03-06 / Codex implementation
+
 - Decision: enforce UTF-8 without BOM, LF line endings, and a final newline for tracked text files, and validate that state with `npm run check:text`.
   Rationale: patch-based editing is much more reliable when repository text files stay in one predictable format, especially on Windows shell tooling.
   Date/Author: 2026-03-05 / Codex implementation
 
+- Decision: make the green replacement editable only inside the large manuscript diff-review state, and sync that edit directly into the already-applied manuscript text plus `appliedDiffs` markers.
+  Rationale: this matches the editorial checkpoint the user actually works against after accept, keeps the rail card simple, and ensures the visible big diff always matches the live manuscript text underneath it.
+  Date/Author: 2026-03-06 / Codex implementation
+
 ## Outcomes & Retrospective
 
 The prototype is now a working editor slice instead of a static mock. Selection is real, requests use a stable patch contract, proposals return through an API route, each patch carries a short reason, accept updates the manuscript text, reject removes only the proposal, and saved settings are restored from local storage.
+
+The latest editor pass extends that slice into markdown-aware editing without changing the patch-first contract. Editors can now apply markdown formatting from a compact toolbar, see headings/lists/tables render in the manuscript area when the editor is idle, and drop back into raw markdown source instantly when they focus the textarea again.
 
 The follow-up passes hardened that slice instead of widening it prematurely. The app now validates provider operations more explicitly, supports grouped accept/reject for multiple safe operations, gives editors immediate diagnostics plus short request history in the right rail, and reads provider keys from the repo-root `.env` when the form key is blank.
 
@@ -324,7 +381,15 @@ The latest editorial-review pass made the recommendation UI more legible. The ra
 
 The latest responsive pass made the existing workflow usable on smaller screens instead of only technically reachable there. The desktop three-pane shell remains intact, but tablet/mobile now restack utility and review content into the center flow, the top bar wraps cleanly, the manuscript gutter and page padding scale down, the floating prompt behaves like a bottom sheet, and the settings screen no longer overflows at narrow widths.
 
-The latest persistence pass removed a major session-trust problem. Editors can now move between the editor and settings without losing the manuscript, pending local diffs, or review state, and can still intentionally reset the workspace with a single `Очистити` action in the left rail.
+The latest layout pass finally removed the weakest pane from the editor. Manuscript-level reset now sits in the manuscript header with explicit confirmation, the right rail has one clear top-level action for whole-text review, and the reclaimed left-rail space now goes directly to the reading and diff-review surface.
+
+The latest polish pass made the default desktop state feel more intentional. The top bar no longer repeats pending-review chrome, the manuscript header now groups its metadata and reset action more cleanly, and the idle right rail shrinks into a compact review card until diagnostics, history, patches, or review results actually exist.
+
+The latest loading-state pass made AI work feel alive without turning the product into a dashboard. The primary review button now animates while running, in-progress patch/review states render as small animated status cards in the right rail, and the collapsed floating prompt shows that the request is still being processed instead of reverting to a dead-looking closed state.
+
+The latest settings pass finally made configuration feel like a tool instead of a leftover shell screen. `/settings` is now one centered operational sheet with concise hierarchy, provider-aware env-key copy, inline reset/show-hide controls, and a dedicated lightweight validation route that pings the selected upstream model before the UI turns green.
+
+The latest persistence pass removed a major session-trust problem. Editors can now move between the editor and settings without losing the manuscript, pending local diffs, or review state, and can still intentionally reset the workspace with a dedicated draft-reset action.
 
 The latest caret-alignment pass addressed a deeper editing trust issue. The editor now uses one metric system for both text layers and reveals the native textarea while focused, so typed characters land where the visible caret suggests instead of drifting earlier in the paragraph.
 
@@ -333,6 +398,8 @@ The latest settings pass reduced model-selection ambiguity. Each provider now ex
 The latest review-flow pass tightened the last rough edges in the manuscript area. The right rail now has materially more room for one full-fragment diff, the accepted-diff action bar sits at the bottom of that diff instead of floating at the top of the page, `Прибрати diff` lets the user dismiss review markup without re-entering typing mode, and active editing now returns to a single native text layer to prevent visual artifacts.
 
 The latest layout polish closed the remaining spacing issue in post-apply review. Accepted-diff actions now render directly under the inline diff block instead of drifting lower in the manuscript flow, which keeps review decisions visually attached to the exact changed text.
+
+The latest diff-review pass makes the manuscript review state a better final checkpoint. Removed text now stays readable in plain red without strike-through, and the green replacement field inside the large applied-diff block can be edited in place before the editor exits diff review.
 
 The latest product pass also made the split between local editing and manuscript diagnostics much clearer. The floating selection panel is now only for explicit custom local edits, while a new whole-text `Редакторський огляд` flow scans the manuscript, surfaces editor-facing recommendations in the right rail, and can jump straight back to the relevant fragment for a local fix.
 

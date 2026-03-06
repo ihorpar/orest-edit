@@ -108,13 +108,13 @@ test("generatePatchResponse parses Gemini generateContent responses", async () =
   let apiKeyHeader = "";
   let requestBody: Record<string, unknown> | undefined;
 
-  const response = await generatePatchResponse({ ...createRequest("gemini", "gemini-2.5-flash", text), apiKey: "gem-test" }, {
+  const response = await generatePatchResponse({ ...createRequest("gemini", "gemini-3.1-flash-lite-preview", text), apiKey: "gem-test" }, {
     now: () => "2026-03-05T22:00:00.000Z",
     fetchImpl: async (input, init) => {
       apiKeyHeader = String((init?.headers as Record<string, string>)["x-goog-api-key"]);
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       assert.match(String(input), /generativelanguage.googleapis.com/);
-      assert.match(String(input), /gemini-2.5-flash:generateContent$/);
+      assert.match(String(input), /gemini-3.1-flash-lite-preview:generateContent$/);
 
       return createJsonResponse({
         candidates: [

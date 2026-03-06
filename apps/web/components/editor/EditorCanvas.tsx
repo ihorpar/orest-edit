@@ -1,13 +1,32 @@
 "use client";
 
 import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { findParagraphForOffset, getManuscriptParagraphs, type ManuscriptParagraph } from "../../lib/editor/manuscript-structure";
+import { applyMarkdownFormat, type MarkdownFormatAction } from "../../lib/editor/markdown-editor";
 import { hasSelection, type PatchSelection } from "../../lib/editor/patch-contract";
 import type { EditorialReviewItem } from "../../lib/editor/review-contract";
 import { EditorialReviewDetail } from "./EditorialReviewDetail";
 import { DiffInlineMark } from "./DiffInlineMark";
+import { Button } from "../ui/Button";
 
 const MIN_EDITOR_HEIGHT = 320;
+
+const markdownToolbarActions: Array<{ action: MarkdownFormatAction; label: string; title: string }> = [
+  { action: "bold", label: "B", title: "Жирний" },
+  { action: "italic", label: "I", title: "Курсив" },
+  { action: "heading-1", label: "H1", title: "Заголовок 1" },
+  { action: "heading-2", label: "H2", title: "Заголовок 2" },
+  { action: "heading-3", label: "H3", title: "Заголовок 3" },
+  { action: "bullet-list", label: "•", title: "Список" },
+  { action: "numbered-list", label: "1.", title: "Нумерований список" },
+  { action: "blockquote", label: ">", title: "Цитата" },
+  { action: "link", label: "[]", title: "Посилання" },
+  { action: "code", label: "<>", title: "Код" },
+  { action: "table", label: "Tbl", title: "Таблиця" },
+  { action: "divider", label: "---", title: "Роздільник" }
+];
 
 export interface AppliedDiffMarker {
   id: string;
@@ -20,8 +39,12 @@ export interface AppliedDiffMarker {
 
 export function EditorCanvas({
   appliedDiffs,
+  canClearDraft,
   loading,
   activeReviewItem,
+  onClearDraft,
+  onMarkdownFormat,
+  onAppliedDiffChange,
   onDiscardAppliedDiffs,
   onDismissAppliedDiffs,
   onDismissReviewItem,
@@ -32,8 +55,12 @@ export function EditorCanvas({
   onTextChange
 }: {
   appliedDiffs: AppliedDiffMarker[];
+  canClearDraft?: boolean;
   activeReviewItem: EditorialReviewItem | null;
   loading?: boolean;
+  onClearDraft?: () => void;
+  onMarkdownFormat: () => void;
+  onAppliedDiffChange: (id: string, newText: string) => void;
   onDiscardAppliedDiffs: () => void;
   onDismissAppliedDiffs: () => void;
   onDismissReviewItem: () => void;
@@ -48,6 +75,7 @@ export function EditorCanvas({
   const [isEditorFocused, setIsEditorFocused] = useState(false);
   const hasActiveSelection = hasSelection(selection);
   const hasAppliedDiffs = appliedDiffs.length > 0;
+  const isPreviewMode = !hasAppliedDiffs && !hasActiveSelection && !activeReviewItem && !isEditorFocused;
   const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
 
   useLayoutEffect(() => {
@@ -119,6 +147,35 @@ export function EditorCanvas({
     });
   }
 
+  function handleMarkdownAction(action: MarkdownFormatAction) {
+    if (hasAppliedDiffs || loading) {
+      return;
+    }
+
+    const liveSelection =
+      textareaRef.current
+        ? {
+            start: textareaRef.current.selectionStart,
+            end: textareaRef.current.selectionEnd
+          }
+        : selection;
+
+    onMarkdownFormat();
+    const result = applyMarkdownFormat(text, liveSelection, action);
+    onTextChange(result.text, result.selection);
+
+    requestAnimationFrame(() => {
+      const element = textareaRef.current;
+
+      if (!element) {
+        return;
+      }
+
+      element.focus();
+      element.setSelectionRange(result.selection.start, result.selection.end);
+    });
+  }
+
   const reviewFooter = (
     <div className="manuscript-review-footer">
       <div className="mono-ui manuscript-review-status">Щойно застосовано • {appliedDiffs.length} diff</div>
@@ -136,8 +193,41 @@ export function EditorCanvas({
   return (
     <div className="manuscript-page">
       <div className="manuscript-toolbar">
-        <p className="mono-ui manuscript-toolbar-kicker">Редактор</p>
-        <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
+        <div className="manuscript-toolbar-copy">
+          <p className="mono-ui manuscript-toolbar-kicker">Редактор</p>
+        </div>
+        <div className="manuscript-toolbar-meta-row">
+          <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onClearDraft}
+            disabled={!canClearDraft}
+            style={{ color: "#b42318", borderColor: "#f1d7d3", background: "#fffaf9" }}
+          >
+            Скинути чернетку
+          </Button>
+        </div>
+      </div>
+
+      <div className="markdown-toolbar-shell">
+        <div className="markdown-toolbar" role="toolbar" aria-label="Панель форматування markdown">
+          {markdownToolbarActions.map((item) => (
+            <button
+              key={item.action}
+              type="button"
+              className="markdown-toolbar-button"
+              data-action={item.action}
+              onClick={() => handleMarkdownAction(item.action)}
+              disabled={loading || hasAppliedDiffs}
+              title={item.title}
+              aria-label={item.title}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="mono-ui markdown-toolbar-mode">{isPreviewMode ? "Перегляд markdown" : "Сирий markdown"}</div>
       </div>
 
       <div
@@ -149,13 +239,19 @@ export function EditorCanvas({
       >
         {hasAppliedDiffs ? (
           <div className="manuscript-review-flow manuscript-editor-copy">
-            {renderDecoratedContent(text, selection, appliedDiffs, reviewFooter)}
+            {renderDecoratedContent(text, selection, appliedDiffs, reviewFooter, undefined, undefined, onAppliedDiffChange)}
           </div>
         ) : (
           <>
-            <div className="manuscript-render-layer manuscript-editor-copy" aria-hidden="true">
-              {renderDecoratedContent(text, selection, [], undefined, activeReviewItem, onDismissReviewItem)}
-            </div>
+            {isPreviewMode ? (
+              <div className="manuscript-render-layer manuscript-editor-copy manuscript-markdown-preview" aria-hidden="true">
+                <MarkdownPreview text={text} />
+              </div>
+            ) : (
+              <div className="manuscript-render-layer manuscript-editor-copy" aria-hidden="true">
+                {renderDecoratedContent(text, selection, [], undefined, activeReviewItem, onDismissReviewItem)}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               className="manuscript-textarea manuscript-editor-copy"
@@ -191,6 +287,20 @@ export function EditorCanvas({
   );
 }
 
+function MarkdownPreview({ text }: { text: string }) {
+  if (!text.trim()) {
+    return <span className="placeholder-line">Вставте або виділіть фрагмент для локальної правки…</span>;
+  }
+
+  return (
+    <div className="manuscript-markdown-flow">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 type CanvasDecoration =
   | {
       kind: "selection";
@@ -207,7 +317,8 @@ function renderDecoratedContent(
   appliedDiffs: AppliedDiffMarker[],
   footerAfterDiff?: ReactNode,
   activeReviewItem?: EditorialReviewItem | null,
-  onDismissReviewItem?: () => void
+  onDismissReviewItem?: () => void,
+  onAppliedDiffChange?: (id: string, newText: string) => void
 ) {
   const paragraphs = getManuscriptParagraphs(text);
   const decorations: CanvasDecoration[] =
@@ -232,7 +343,8 @@ function renderDecoratedContent(
       const paragraphContent = renderParagraphContent(paragraph, text, decorations, {
         footerAfterDiff,
         firstSelectionParagraph,
-        lastDiffId
+        lastDiffId,
+        onAppliedDiffChange
       });
 
       if (!paragraphContent.content) {
@@ -270,6 +382,7 @@ function renderParagraphContent(
     footerAfterDiff?: ReactNode;
     firstSelectionParagraph: number | null;
     lastDiffId?: string;
+    onAppliedDiffChange?: (id: string, newText: string) => void;
   }
 ) {
   const content: ReactNode[] = [];
@@ -304,7 +417,15 @@ function renderParagraphContent(
     if (decoration.start >= paragraph.start && decoration.start < paragraph.end) {
       content.push(
         <span key={decoration.id} className="manuscript-applied-diff" title={decoration.reason}>
-          <DiffInlineMark oldText={decoration.oldText} newText={decoration.newText} variant="canvas" />
+          <DiffInlineMark
+            oldText={decoration.oldText}
+            newText={decoration.newText}
+            variant="canvas"
+            editableNewText={typeof decoration.newText === "string"}
+            onNewTextChange={
+              options.onAppliedDiffChange ? (value) => options.onAppliedDiffChange?.(decoration.id, value) : undefined
+            }
+          />
         </span>
       );
 

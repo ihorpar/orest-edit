@@ -1,5 +1,7 @@
 export type ProviderId = "openai" | "gemini" | "anthropic";
-export type SettingsValidationState = "valid" | "missing" | "invalid";
+export type ModelIdValidationState = "valid" | "missing" | "invalid";
+export type SettingsConnectionState = "idle" | "checking" | "valid" | "missing_key" | "auth_error" | "model_error" | "network_error";
+export type SettingsKeySource = "api_key" | "env" | "missing";
 
 export interface ProviderModelPreset {
   id: string;
@@ -12,6 +14,15 @@ export interface EditorSettings {
   modelId: string;
   apiKey: string;
   basePrompt: string;
+}
+
+export interface SettingsValidationResult {
+  provider: ProviderId;
+  modelId: string;
+  state: Exclude<SettingsConnectionState, "idle" | "checking">;
+  keySource: SettingsKeySource;
+  message: string;
+  validatedAt: string;
 }
 
 export const EDITOR_SETTINGS_STORAGE_KEY = "orest-editor-settings-v1";
@@ -67,8 +78,8 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
       description: "Швидший preview-варіант, коли потрібен хороший редакторський результат при нижчій латентності."
     },
     {
-      id: "gemini-2.5-flash",
-      label: "Gemini 2.5 Flash",
+      id: "gemini-3.1-flash-lite-preview",
+      label: "Gemini 3.1 Flash Lite Preview",
       description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів."
     }
   ]
@@ -110,6 +121,18 @@ export function getProviderLabel(provider: ProviderId): string {
   return "OpenAI";
 }
 
+export function getProviderEnvKey(provider: ProviderId): string {
+  if (provider === "gemini") {
+    return "GEMINI_API_KEY";
+  }
+
+  if (provider === "anthropic") {
+    return "ANTHROPIC_API_KEY";
+  }
+
+  return "OPENAI_API_KEY";
+}
+
 export function normalizeModelId(provider: ProviderId, modelId: string): string {
   const trimmed = modelId.trim().replace(/\s+/g, "");
 
@@ -120,7 +143,7 @@ export function normalizeModelId(provider: ProviderId, modelId: string): string 
   return getDefaultProviderModelId(provider);
 }
 
-export function validateModelId(modelId: string): SettingsValidationState {
+export function validateModelId(modelId: string): ModelIdValidationState {
   const trimmed = modelId.trim();
 
   if (!trimmed) {

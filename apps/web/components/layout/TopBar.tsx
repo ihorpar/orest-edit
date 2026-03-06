@@ -1,10 +1,8 @@
 import Link from "next/link";
 
 export function TopBar({
-  pendingCount,
   activePath = "/editor"
 }: {
-  pendingCount: number;
   activePath?: "/editor" | "/settings";
 }) {
   return (
@@ -24,12 +22,6 @@ export function TopBar({
             {"\u041d\u0430\u043b\u0430\u0448\u0442\u0443\u0432\u0430\u043d\u043d\u044f"}
           </Link>
         </nav>
-      </div>
-      <div className="topbar-right">
-        <span className="mono-ui pending-badge">
-          <span className="pending-count">{pendingCount}</span>
-          <span className="pending-label">{"\u043d\u0430 \u0440\u043e\u0437\u0433\u043b\u044f\u0434\u0456"}</span>
-        </span>
       </div>
     </header>
   );

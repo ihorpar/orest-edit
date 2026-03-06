@@ -188,3 +188,38 @@ Reason: the editor benefits from opinionated defaults tied to official model cat
 Decision: below tablet width, the app stops relying on fixed left/right rails and instead renders utility and review panels as inline cards inside the center column.
 
 Reason: the desktop three-pane layout is useful on wide screens, but on mobile it wastes width and hides essential actions. Duplicating those panels into the center flow keeps the editor, review, and settings paths usable without horizontal compression.
+
+### No left rail in the editor
+Decision: remove the persistent left rail from `/editor`, move draft reset into the manuscript header, and place whole-text review at the top of the right rail.
+
+Reason: the left rail had no durable job, duplicated status already visible in the top bar and review rail, and spent permanent space on passive copy instead of editing or review actions.
+
+### No duplicate pending status in the top bar
+Decision: remove the editor's pending-review badge from the top bar and let the idle desktop right rail render as a narrower review-action state.
+
+Reason: the badge repeated information without enabling any action, and the full-width empty review rail felt unfinished when it had no diagnostics, history, or review output yet.
+
+### Contextual AI loading feedback
+Decision: show AI processing with subtle local animation in the relevant button or panel instead of a blocking page-level spinner.
+
+Reason: manuscript reading should stay uninterrupted during requests, and the clearest loading feedback is attached to the place where the result will appear: the review button, right rail, or floating prompt.
+
+### Settings page is a compact operational sheet
+Decision: `/settings` should use one centered configuration sheet with inline status cards instead of reusing the editor's side rails.
+
+Reason: settings is an operational form, not a workspace. The old three-pane shell spent width on explanatory chrome, clipped the heading, and diluted the main task with redundant side content.
+
+### Green model status requires a live upstream response
+Decision: changing provider or model in settings triggers a lightweight live validation request, and green status appears only after that request succeeds against the selected upstream model.
+
+Reason: a selected preset is not the same thing as a working connection. The settings screen must distinguish between “chosen”, “checking”, “valid”, “missing key”, and real provider/model failures.
+
+### Markdown stays source-first
+Decision: manuscript editing remains raw markdown in the textarea, and the formatted markdown view appears only in idle preview states.
+
+Reason: the patch-first workflow still depends on exact character offsets in one canonical source string, so a full rich-text editor would add unnecessary DOM-to-source mapping risk.
+
+### Large manuscript diff is the editable review checkpoint
+Decision: the editable green replacement lives in the large manuscript diff-review block shown after apply, not in the smaller rail card. Editing that field updates the already-applied manuscript text and the visible diff marker together.
+
+Reason: the main editorial comparison happens in the large canvas diff, and keeping editability there avoids adding two competing edit points for the same patch while keeping the rail card lightweight.

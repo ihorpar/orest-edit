@@ -19,9 +19,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
+  loadingLabel?: string;
 }
 
-export function Button({ variant = "secondary", size = "md", loading, disabled, style, children, ...rest }: ButtonProps) {
+export function Button({ variant = "secondary", size = "md", loading, loadingLabel, disabled, style, children, ...rest }: ButtonProps) {
   return (
     <button
       {...rest}
@@ -37,7 +38,14 @@ export function Button({ variant = "secondary", size = "md", loading, disabled, 
         ...style
       }}
     >
-      {loading ? "Зачекайте" : children}
+      {loading ? (
+        <span className="button-content">
+          <span className="button-spinner" aria-hidden="true" />
+          <span>{loadingLabel ?? "Зачекайте…"}</span>
+        </span>
+      ) : (
+        children
+      )}
     </button>
   );
 }

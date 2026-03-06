@@ -19,9 +19,12 @@ export interface RequestHistoryItem {
 }
 
 export function RightOperationsRail({
+  canRequestReview,
+  isIdle,
   patchDiagnostics,
   reviewDiagnostics,
   history,
+  onRequestReview,
   patchLoading,
   reviewLoading,
   onAccept,
@@ -34,9 +37,12 @@ export function RightOperationsRail({
   statusMessage,
   statusTone
 }: {
+  canRequestReview?: boolean;
+  isIdle?: boolean;
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
   history: RequestHistoryItem[];
+  onRequestReview: () => void;
   patchLoading?: boolean;
   reviewLoading?: boolean;
   onAccept: (id: string) => void;
@@ -49,13 +55,29 @@ export function RightOperationsRail({
   statusMessage?: string;
   statusTone?: "info" | "error";
 }) {
+  const shouldShowFeedback = statusMessage && statusTone === "error";
+
   return (
-    <div className="rail-stack">
-      {statusMessage ? (
-        <p className="rail-status-copy" data-tone={statusTone ?? "info"}>
-          {statusMessage}
-        </p>
-      ) : null}
+    <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
+      <section className="rail-section rail-section-primary">
+        <p className="mono-ui operations-title">Огляд рукопису</p>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onRequestReview}
+          loading={reviewLoading}
+          loadingLabel="Аналізую…"
+          disabled={!canRequestReview}
+          style={{ width: "100%" }}
+        >
+          Перевірити весь текст
+        </Button>
+        {shouldShowFeedback ? (
+          <p className="rail-status-copy" data-tone={statusTone ?? "info"}>
+            {statusMessage}
+          </p>
+        ) : null}
+      </section>
 
       {reviewLoading || reviewItems.length > 0 ? (
         <section className="rail-section">
@@ -64,7 +86,7 @@ export function RightOperationsRail({
             {reviewItems.length > 0 ? <span className="mono-ui suggestion-card-lines">{reviewItems.length} рекомендацій</span> : null}
           </div>
 
-          {reviewLoading ? <div className="operations-empty mono-ui">Готую редакторський огляд…</div> : null}
+          {reviewLoading ? <LoadingState label="Готую редакторський огляд…" /> : null}
 
           <div className="operations-stack operations-stack-compact">
             {reviewItems.map((item) => (
@@ -90,7 +112,7 @@ export function RightOperationsRail({
             ) : null}
           </div>
 
-          {patchLoading ? <div className="operations-empty mono-ui">Готую локальні правки…</div> : null}
+          {patchLoading ? <LoadingState label="Готую локальні правки…" /> : null}
 
           <div className="operations-stack">
             {operations.map((operation) => (
@@ -169,6 +191,19 @@ export function RightOperationsRail({
           </div>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+function LoadingState({ label }: { label: string }) {
+  return (
+    <div className="operations-empty loading-state-card" role="status" aria-live="polite">
+      <span className="loading-inline-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="mono-ui">{label}</span>
     </div>
   );
 }
