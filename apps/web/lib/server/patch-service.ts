@@ -11,7 +11,7 @@ import {
 } from "../editor/patch-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 
-const openAiEndpoint = "https://api.openai.com/v1/chat/completions";
+const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const requestTimeoutMs = 20000;
@@ -245,24 +245,17 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
       body: JSON.stringify({
         model: request.modelId,
         temperature: request.mode === "custom" ? 0.4 : 0.2,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
+        instructions: buildSystemPrompt(request.basePrompt),
+        input: buildUserPrompt(request, selectedText),
+        text: {
+          format: {
+            type: "json_schema",
             name: "patch_operations",
             strict: true,
             schema: openAiSchema
           }
         },
-        messages: [
-          {
-            role: "system",
-            content: buildSystemPrompt(request.basePrompt)
-          },
-          {
-            role: "user",
-            content: buildUserPrompt(request, selectedText)
-          }
-        ]
+        store: false
       }),
       signal: controller.signal
     });
@@ -312,8 +305,8 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
         ],
         generationConfig: {
           temperature: request.mode === "custom" ? 0.4 : 0.2,
-          response_mime_type: "application/json",
-          response_schema: geminiSchema
+          responseMimeType: "application/json",
+          responseJsonSchema: geminiSchema
         }
       }),
       signal: controller.signal
@@ -485,38 +478,56 @@ function readProviderErrorMessage(payload: Record<string, unknown>): string | nu
 }
 
 function readOpenAiContent(payload: Record<string, unknown>): string {
-  const choices = payload.choices;
+  const output = payload.output;
 
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error("OpenAI не повернув choices.");
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
   }
 
-  const message = (choices[0] as Record<string, unknown>).message;
-
-  if (!message || typeof message !== "object") {
-    throw new Error("OpenAI не повернув message.");
+  if (!Array.isArray(output) || output.length === 0) {
+    throw new Error("OpenAI не повернув output.");
   }
 
-  const content = (message as Record<string, unknown>).content;
+  const text = output
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return "";
+      }
 
-  if (typeof content === "string") {
-    return content;
-  }
+      const content = (item as Record<string, unknown>).content;
 
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (!part || typeof part !== "object") {
+      if (!Array.isArray(content)) {
+        return "";
+      }
+
+      return content
+        .map((part) => {
+          if (!part || typeof part !== "object") {
+            return "";
+          }
+
+          const record = part as Record<string, unknown>;
+
+          if (record.type === "output_text" && typeof record.text === "string") {
+            return record.text;
+          }
+
+          if (typeof record.text === "string") {
+            return record.text;
+          }
+
           return "";
-        }
+        })
+        .join("");
+    })
+    .join("")
+    .trim();
 
-        const record = part as Record<string, unknown>;
-        return typeof record.text === "string" ? record.text : "";
-      })
-      .join("");
+  if (text) {
+    return text;
   }
 
-  throw new Error("OpenAI повернув контент у неочікуваному форматі.");
+  throw new Error("OpenAI повернув output у неочікуваному форматі.");
 }
 
 function readGeminiErrorMessage(payload: Record<string, unknown>): string | null {

@@ -14,7 +14,17 @@ export function ThreePaneShell({
   return (
     <div className="editor-layout" data-right-collapsed={rightCollapsed ? "true" : "false"}>
       <aside className="left-pane">{left}</aside>
-      <section className="center-pane">{center}</section>
+      <section className="center-pane">
+        <div className="mobile-pane mobile-pane-left">
+          <div className="mobile-pane-card">{left}</div>
+        </div>
+        {center}
+        {!rightCollapsed ? (
+          <div className="mobile-pane mobile-pane-right">
+            <div className="mobile-pane-card">{right}</div>
+          </div>
+        ) : null}
+      </section>
       <aside className="right-pane" data-collapsed={rightCollapsed ? "true" : "false"}>
         {right}
       </aside>

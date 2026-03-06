@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-05
+Date: 2026-03-06
 Status: Active handoff
 
 ## What exists now
@@ -9,21 +9,33 @@ Status: Active handoff
 - Settings screen at `/settings`
 - Ukrainian UI copy
 - Sample4-inspired layout and typography
+- Default manuscript demo now uses a long Ukrainian science-pop section about biohacking, HDL/LDL, and cardiovascular risk
 - Editable manuscript surface with real text selection tracking
+- Manuscript paragraphs now have visible padded number markers in a light gray gutter
 - Floating selection composer with manual fold/unfold control
-- One base patch action inside the floating selection composer
+- Responsive editor shell that keeps the three-pane desktop layout but restacks utility and review panels into the center flow on tablet/mobile
+- Mobile-friendly top bar, manuscript spacing, and settings layout
+- Whole-text `Редакторський огляд` action in the left rail
 - Review rail that stays collapsed until requests, diagnostics, or history exist
 - Patch API route at `/api/edit/patch`
+- Editorial review API route at `/api/edit/review`
 - Diff cards with short reasons and per-patch accept/reject actions
 - Group accept/reject flow for multiple safe patch operations
 - Safe patch apply flow that updates manuscript text in place
 - Inline manuscript diff preview after apply, kept visible until the editor resumes direct editing
+- Applied diffs now use an inline action bar placed immediately below the diff with `Прибрати diff` and `Повернутись до редагування`
 - Each model request is normalized into one selection-wide replace diff before review
 - Floating selection composer auto-minimizes after a request is sent to the model
+- Floating selection composer is now custom-only and no longer exposes a duplicate `Спростити фрагмент` action
+- Whole-text editorial review returns high-level recommendations with fragment anchors, not diffs
+- Whole-text editorial review now anchors to paragraph numbers plus excerpt, not global symbol offsets
 - Collapsed request diagnostics and short request history in the editor rail
 - Local settings persistence in browser storage
+- Default editor prompts are tuned for real editorial tasks: explain terms, tighten dense prose, and normalize tone
 - Real OpenAI, Gemini, and Anthropic provider adapters behind one shared patch contract
 - OpenAI remains the default provider path in the current UI
+- OpenAI now uses the Responses API structured-output path rather than legacy chat completions
+- Gemini now uses the documented `responseMimeType` / `responseJsonSchema` structured-output path
 - Deterministic local fallback when a provider key is missing or a provider call fails
 - Root `.env` fallback for `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY` when the settings form key is left blank
 - Validation that drops malformed or overlapping provider operations before they reach the UI
@@ -59,13 +71,19 @@ Status: Active handoff
 - Provider-specific API payloads are normalized on the server so the editor only consumes one patch contract.
 - Provider normalization now repairs common model drift before fallback, including selection-relative offsets and numeric-string indices.
 - Provider normalization also collapses fragmented model output into one coherent rewrite for the selected fragment.
+- Editorial-review normalization now repairs common model drift too, including string offsets, aliased field names, and excerpt-only anchors.
 - The right rail is review-first and stays hidden until there is something to inspect.
 - Custom prompting is a floating, selection-triggered action rather than a persistent rail composer.
-- The floating selection composer is the only place that exposes the selection-scoped base patch action.
 - The floating selection composer no longer repeats the selected text in a separate preview card; the manuscript highlight is the source of truth.
+- The floating selection composer is now custom-only: no separate default-action button remains inside it.
+- Whole-text review is a separate diagnostic flow, not a rewrite flow: it analyzes the full manuscript and returns editor-facing recommendations with exact text anchors.
+- Whole-text review anchors against paragraph numbers and excerpt text, while local patching still uses character offsets.
 - After a request is sent, the floating selection composer collapses automatically and can be reopened from its top-right toggle.
 - After accept, the manuscript switches into a short review mode that shows applied edits inline as diffs until the user clicks back into editing.
 - One request now maps to one coherent diff card for the selected fragment, even if the model attempted to return several local edits.
+- The manuscript canvas prioritizes reading space over editor chrome, with less artificial empty height and a wider text block.
+- During direct editing, the canvas switches back to the native textarea layer so selection and cursor behavior stay stable after a diff is applied and dismissed.
+- Below tablet width, utility and review content no longer depend on side rails; the shell duplicates those panels into the center-column flow so the editor remains fully usable in one column.
 - Deployment guidance is split between a short README summary and detailed `docs/DEPLOYMENT.md` runtime notes.
 - Repository text files are treated as UTF-8 with LF line endings, and integrity is checked via `npm run check:text`.
 
@@ -78,7 +96,6 @@ Status: Active handoff
 
 ## Last validated state
 - `npm run check:text` passed
-- `npm run test` passed
 - `npm run typecheck` passed
 - `npm run build` passed
 - runtime patch request succeeded through OpenAI with the form API key left blank
@@ -87,5 +104,24 @@ Status: Active handoff
 - OpenAI repair logic now rebases selection-relative offsets and coerces numeric-string indices before declaring provider operations invalid
 - headless Chrome UI smoke run confirmed persistent selection visibility while typing in the floating prompt and inline diff rendering after apply; screenshots saved to `.tmp/ui-selection-prompt.png` and `.tmp/ui-applied-diff.png`
 - headless Chrome UI smoke run confirmed the floating panel no longer renders duplicate selection context, supports manual fold/unfold, and auto-collapses after send; screenshots saved to `.tmp/ui-panel-collapsed.png` and `.tmp/ui-panel-auto-collapsed.png`
+- headless Chrome UI smoke run confirmed the review rail is now 420px wide, the applied-diff footer renders immediately below the inline diff, and direct editing hides the render overlay again after returning from diff review; screenshots saved to `.tmp/ui-right-rail-wide.png`, `.tmp/ui-review-footer-bottom.png`, and `.tmp/ui-inline-review-footer.png`
+- headless Chrome UI smoke run confirmed whole-text review output in the right rail and jump-to-fragment behavior back into the manuscript; screenshots saved to `.tmp/ui-editorial-review.png` and `.tmp/ui-editorial-review-focus.png`
+- `Діагностика огляду` can now show raw provider output in a nested accordion for review debugging
+- headless Chrome UI smoke run confirmed visible paragraph numbers in the manuscript gutter and paragraph-anchored review jump behavior; screenshots saved to `.tmp/ui-paragraph-numbers.png` and `.tmp/ui-paragraph-review-focus.png`
+- The manuscript canvas no longer swaps visible text layers on focus; the render layer remains authoritative while the transparent textarea only handles caret and selection, which prevents paragraph-number drift after click/focus.
+- The manuscript serif switched from Playfair Display to Lora for better Ukrainian readability, and the redundant left-rail note `Огляд не змінює текст і не створює diff.` was removed.
+- Windows headless Chrome captured the refreshed manuscript typography and gutter state in `.tmp/ui-editor-font-refresh.png`.
+- Editorial review cards are now intentionally compact; the full recommendation opens inline under the referenced paragraph inside the manuscript instead of overloading the right rail with dense copy.
+- Jumping to a review item no longer opens `Локальна правка`; the floating local-patch panel stays suppressed while an editorial-review detail is active.
+- The editor now persists the current draft in browser `localStorage`, including manuscript text, selection, pending local patches, whole-text review state, applied diff-review state, diagnostics, and request history, so switching between `/editor` and `/settings` no longer resets the session.
+- The top navigation label changed from `Рукопис` to `Редактор`, and the left rail now includes an `Очистити` action that resets the current draft session without wiping saved model settings.
+- The editor typing layer now uses one shared metric system for both the manuscript overlay and the native textarea, and focused editing reveals the native textarea text again. This fixes caret/input desync caused by paragraph spacing and font-shaping differences between the two layers.
+- Editorial-review detail stays open during normal manuscript clicks and selection changes; it now closes only through explicit close controls, with a top-right close icon instead of the old text button.
+- Settings now offer provider-specific model presets plus a fourth `Ввести вручну` path. The defaults were refreshed to current catalog picks: OpenAI `gpt-5.4`, Anthropic `claude-opus-4-6`, and Google `gemini-3.1-pro-preview`.
+- The review-detail panel now has its own top stacking layer inside the manuscript frame, so editor text no longer renders on top of it and the close controls remain clickable.
+- The custom prompt composer now sits centered at the bottom of the editor in a chat-style layout. It opens as a single-line input by default, then auto-grows up to a bounded multi-line height as the user types.
+- The app root `/` now redirects straight to `/editor`; the old welcome screen was removed so the browser always lands in the working editor first.
+- Windows headless Chrome verified the responsive editor and settings layouts at desktop and narrow mobile widths; screenshots saved to `.tmp/editor-responsive-desktop.png`, `.tmp/editor-responsive-mobile.png`, and `.tmp/settings-responsive-mobile.png`.
+- `npm run test` is currently not runnable in this environment because the workspace Node binary rejects the script's `--experimental-strip-types` flag.
 - current local Next listener is on `3001`; code and docs still treat `3000` as the default local port and `PORT` as the production contract
 - a one-line README edit still failed through the native `apply_patch` tool in this session, even after repo text normalization, so shell fallback remains necessary here

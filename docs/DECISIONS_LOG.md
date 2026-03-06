@@ -118,3 +118,73 @@ Reason: the main manuscript highlight already identifies the editing target, so 
 Decision: each model request is normalized to one selection-wide `replace` diff before review.
 
 Reason: fragmented model edits made one prompt look like several unrelated answers and produced awkward partial rewrites in the manuscript; one coherent diff is easier to review and safer to trust.
+
+### Editor space over status chrome
+Decision: spend manuscript-card space on readable copy, not persistent selection counters or oversized empty area.
+
+Reason: the editor is the primary workspace, and low-value status UI should not displace the actual manuscript text.
+
+### Native textarea wins during editing
+Decision: when the editor regains focus after diff review, hide the render overlay and let the native textarea draw text, cursor, and selection by itself.
+
+Reason: overlay-based rendering is useful for persistent highlight and diff review, but native editing behavior must stay authoritative to avoid selection artifacts and cursor drift.
+
+### Separate manuscript review from local patching
+Decision: remove the redundant `Спростити фрагмент` shortcut from the floating local editor and replace it with a separate whole-text `Редакторський огляд` flow in the left rail.
+
+Reason: manuscript-level diagnostics are a different task from patching a selected fragment; splitting them into two explicit flows makes the UI clearer and uses the right rail for higher-value editor guidance instead of a duplicate shortcut.
+
+### Repair review payloads before dropping them
+Decision: whole-text editorial review runs a repair pass over provider items before counting them as invalid.
+
+Reason: manuscript review is slower and more expensive than local patching, so the app should recover minor schema drift such as string indices, aliased field names, or excerpt-only anchors instead of discarding otherwise useful recommendations.
+
+### Use OpenAI Responses API for structured outputs
+Decision: OpenAI patch generation and whole-text editorial review use the Responses API structured-output flow instead of legacy chat completions.
+
+Reason: this is closer to OpenAI's current recommended integration path for structured outputs and reduces reliance on manual extraction from `choices[].message.content`.
+
+### Keep raw review output visible in diagnostics
+Decision: `Діагностика огляду` may expose the raw provider output in a nested accordion for debugging.
+
+Reason: when structured review items partially fail normalization, the editor needs to see the exact upstream payload to distinguish provider drift from application-level validation rules.
+
+### Use paragraph anchors for manuscript review
+Decision: whole-text `Редакторський огляд` anchors to paragraph numbers and excerpt hints rather than global character offsets.
+
+Reason: paragraph-level references are much more stable for long-form editorial diagnostics, while exact symbol offsets remain necessary only for local diff/patch application.
+
+### Keep one visible manuscript layer during editing
+Decision: the manuscript render layer remains the only visible text layer during active editing; the textarea stays transparent and serves as the input/caret surface.
+
+Reason: swapping to visible textarea text on focus introduced measurable baseline drift against the gutter and paragraph rendering. One visible layer keeps paragraph numbers aligned and removes trust-breaking movement in the editor.
+
+### Keep editorial review detail in the manuscript, not the rail
+Decision: editorial-review cards stay compact in the right rail, and the full recommendation opens inline under the referenced paragraph inside the manuscript.
+
+Reason: long review rationale is hard to scan in a narrow side column and should live beside the prose it evaluates. Separating review detail from the floating local-patch composer also prevents two different editing modes from colliding.
+
+### Persist the draft, not just the settings
+Decision: the active editor session persists in browser `localStorage`, including manuscript text and review/patch progress, while the manual `Очистити` action resets only that draft state.
+
+Reason: navigating to settings should not destroy active editorial work, but draft reset and model-settings reset are different intents and should remain separate.
+
+### Native textarea is visible while typing, but only on matched metrics
+Decision: focused editing shows the native textarea text again, while the manuscript overlay remains the visible layer only outside active typing and review modes.
+
+Reason: caret and input fidelity require the browser's own text control to be visually authoritative during typing, but that only works once paragraph gaps and font shaping are aligned between both layers.
+
+### Editorial review detail closes explicitly, not on selection drift
+Decision: open editorial-review detail remains visible across ordinary manuscript clicks and selection changes, and closes only through dedicated close controls.
+
+Reason: incidental selection updates are not the same as dismiss intent; collapsing the detail on every click made the review flow feel unstable and hard to trust.
+
+### Curated model presets come before manual ids
+Decision: settings expose a short provider-specific dropdown of current recommended models and keep raw model-id input behind a separate `Ввести вручну` option.
+
+Reason: the editor benefits from opinionated defaults tied to official model catalogs, while manual ids are still necessary as an escape hatch for previews and one-off testing.
+
+### Mobile shell uses inline utility and review panels
+Decision: below tablet width, the app stops relying on fixed left/right rails and instead renders utility and review panels as inline cards inside the center column.
+
+Reason: the desktop three-pane layout is useful on wide screens, but on mobile it wastes width and hides essential actions. Duplicating those panels into the center flow keeps the editor, review, and settings paths usable without horizontal compression.

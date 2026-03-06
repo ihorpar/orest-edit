@@ -25,6 +25,22 @@ function createJsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function createOpenAiResponsesPayload(body: unknown) {
+  return {
+    output: [
+      {
+        type: "message",
+        content: [
+          {
+            type: "output_text",
+            text: JSON.stringify(body)
+          }
+        ]
+      }
+    ]
+  };
+}
+
 test("generatePatchResponse uses OPENAI_API_KEY from env when form key is blank", async () => {
   const text = "Складний фрагмент для правки.";
   let authHeader = "";
@@ -36,21 +52,13 @@ test("generatePatchResponse uses OPENAI_API_KEY from env when form key is blank"
     fetchImpl: async (input, init) => {
       authHeader = String((init?.headers as Record<string, string>).Authorization);
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      assert.match(String(input), /chat\/completions$/);
+      assert.match(String(input), /\/responses$/);
 
-      return createJsonResponse({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                operations: [
-                  { op: "replace", start: 0, end: text.length, newText: "Простіший фрагмент.", reason: "Спростив фразу.", type: "clarity" }
-                ]
-              })
-            }
-          }
-        ]
-      });
+      return createJsonResponse(
+        createOpenAiResponsesPayload({
+          operations: [{ op: "replace", start: 0, end: text.length, newText: "Простіший фрагмент.", reason: "Спростив фразу.", type: "clarity" }]
+        })
+      );
     }
   });
 
@@ -58,9 +66,11 @@ test("generatePatchResponse uses OPENAI_API_KEY from env when form key is blank"
   assert.ok(requestBody);
   const openAiRequest = requestBody;
   assert.equal(openAiRequest.model, "gpt-5.2");
-  assert.deepEqual(openAiRequest.response_format, {
-    type: "json_schema",
-    json_schema: {
+  assert.equal(openAiRequest.instructions, "Спрости фрагмент. Ти допомагаєш книжковому редактору, а не лікарю. Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ. Поверни рівно одну локальну правку. Це має бути одна операція replace, яка охоплює весь виділений фрагмент. Кожна операція повинна містити op, start, end, newText, reason і type. start та end мають бути абсолютними індексами в межах виділення. reason пиши коротко, українською, не більше 12 слів. Дозволені type: clarity, structure, terminology, source, tone. Дозволені op: replace, insert, delete. Не дроби відповідь на кілька правок.");
+  assert.equal(typeof openAiRequest.input, "string");
+  assert.deepEqual(openAiRequest.text, {
+    format: {
+      type: "json_schema",
       name: "patch_operations",
       strict: true,
       schema: {
@@ -131,8 +141,8 @@ test("generatePatchResponse parses Gemini generateContent responses", async () =
   const geminiRequest = requestBody;
   assert.deepEqual(geminiRequest.generationConfig, {
     temperature: 0.2,
-    response_mime_type: "application/json",
-    response_schema: {
+    responseMimeType: "application/json",
+    responseJsonSchema: {
       type: "OBJECT",
       properties: {
         operations: {
@@ -239,21 +249,15 @@ test("generatePatchResponse collapses multiple provider edits into one selection
     {
       now: () => "2026-03-06T00:45:00.000Z",
       fetchImpl: async () =>
-        createJsonResponse({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  operations: [
-                    { op: "replace", start: 0, end: 10, newText: "Підвищений LDL", reason: "Спростив термін.", type: "clarity" },
-                    { op: "replace", start: 13, end: 23, newText: "знижений HDL", reason: "Узгодив форму.", type: "clarity" },
-                    { op: "replace", start: 42, end: 58, newText: "трапляються разом", reason: "Спростив вислів.", type: "clarity" }
-                  ]
-                })
-              }
-            }
-          ]
-        })
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            operations: [
+              { op: "replace", start: 0, end: 10, newText: "Підвищений LDL", reason: "Спростив термін.", type: "clarity" },
+              { op: "replace", start: 13, end: 23, newText: "знижений HDL", reason: "Узгодив форму.", type: "clarity" },
+              { op: "replace", start: 42, end: 58, newText: "трапляються разом", reason: "Спростив вислів.", type: "clarity" }
+            ]
+          })
+        )
     }
   );
 
@@ -286,19 +290,11 @@ test("generatePatchResponse repairs provider operations that use selection-relat
     {
       now: () => "2026-03-06T00:30:00.000Z",
       fetchImpl: async () =>
-        createJsonResponse({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  operations: [
-                    { op: "replace", start: 0, end: selectedText.length, newText: "Простіший фрагмент.", reason: "Спростив фразу.", type: "clarity" }
-                  ]
-                })
-              }
-            }
-          ]
-        })
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            operations: [{ op: "replace", start: 0, end: selectedText.length, newText: "Простіший фрагмент.", reason: "Спростив фразу.", type: "clarity" }]
+          })
+        )
     }
   );
 
@@ -327,26 +323,20 @@ test("generatePatchResponse repairs string indices in provider operations", asyn
     {
       now: () => "2026-03-06T00:30:00.000Z",
       fetchImpl: async () =>
-        createJsonResponse({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  operations: [
-                    {
-                      op: "replace",
-                      start: String(selectionStart),
-                      end: String(selectionEnd),
-                      replacement: "Простіший фрагмент для правки.",
-                      comment: "Спростив фразу.",
-                      category: "clarity"
-                    }
-                  ]
-                })
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            operations: [
+              {
+                op: "replace",
+                start: String(selectionStart),
+                end: String(selectionEnd),
+                replacement: "Простіший фрагмент для правки.",
+                comment: "Спростив фразу.",
+                category: "clarity"
               }
-            }
-          ]
-        })
+            ]
+          })
+        )
     }
   );
 

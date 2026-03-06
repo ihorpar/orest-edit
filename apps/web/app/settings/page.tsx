@@ -9,7 +9,11 @@ import { Select } from "../../components/ui/Select";
 import { StatusDot } from "../../components/ui/StatusDot";
 import { Textarea } from "../../components/ui/Textarea";
 import {
+  CUSTOM_MODEL_OPTION,
   DEFAULT_EDITOR_SETTINGS,
+  findProviderModelPreset,
+  getDefaultProviderModelId,
+  getProviderModelPresets,
   getProviderLabel,
   normalizeProvider,
   readEditorSettings,
@@ -28,6 +32,9 @@ export default function SettingsPage() {
 
   const modelState = validateModelId(settings.modelId);
   const providerLabel = getProviderLabel(settings.provider);
+  const modelPresets = getProviderModelPresets(settings.provider);
+  const selectedPreset = findProviderModelPreset(settings.provider, settings.modelId);
+  const selectedModelOption = selectedPreset?.id ?? CUSTOM_MODEL_OPTION;
 
   return (
     <main className="app-shell">
@@ -81,7 +88,7 @@ export default function SettingsPage() {
                     value={settings.provider}
                     onChange={(event) => {
                       const provider = normalizeProvider(event.target.value);
-                      setSettings((current) => ({ ...current, provider }));
+                      setSettings((current) => ({ ...current, provider, modelId: getDefaultProviderModelId(provider) }));
                       setSaveMessage(null);
                     }}
                   >
@@ -91,24 +98,53 @@ export default function SettingsPage() {
                   </Select>
                 </label>
 
-                <label className="settings-field" htmlFor="model">
+                <label className="settings-field" htmlFor="model-preset">
                   <span className="mono-ui settings-label">Модель</span>
-                  <div className="settings-input-row">
-                    <Input
-                      id="model"
-                      error={modelState === "invalid"}
-                      value={settings.modelId}
-                      onChange={(event) => {
-                        setSettings((current) => ({ ...current, modelId: event.target.value }));
-                        setSaveMessage(null);
-                      }}
-                    />
-                    <StatusDot state={modelState} />
-                  </div>
+                  <Select
+                    id="model-preset"
+                    value={selectedModelOption}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+
+                      setSettings((current) => ({
+                        ...current,
+                        modelId: nextValue === CUSTOM_MODEL_OPTION ? (selectedPreset ? "" : current.modelId) : nextValue
+                      }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    {modelPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_MODEL_OPTION}>Ввести вручну</option>
+                  </Select>
                   <p className="pending-copy">
-                    {modelState === "missing"
+                    {selectedPreset
+                      ? selectedPreset.description
+                      : "Використайте ручний model id, якщо потрібна конкретна preview або внутрішня назва моделі, якої немає у списку."}
+                  </p>
+                  {selectedModelOption === CUSTOM_MODEL_OPTION ? (
+                    <div className="settings-input-row">
+                      <Input
+                        id="model"
+                        error={modelState === "invalid"}
+                        value={settings.modelId}
+                        onChange={(event) => {
+                          setSettings((current) => ({ ...current, modelId: event.target.value }));
+                          setSaveMessage(null);
+                        }}
+                      />
+                      <StatusDot state={modelState} />
+                    </div>
+                  ) : (
+                    <p className="pending-copy">API id: {settings.modelId}</p>
+                  )}
+                  <p className="pending-copy">
+                    {selectedModelOption === CUSTOM_MODEL_OPTION && modelState === "missing"
                       ? "Якщо поле порожнє, під час збереження буде підставлено типовий model id для вибраного провайдера."
-                      : modelState === "invalid"
+                      : selectedModelOption === CUSTOM_MODEL_OPTION && modelState === "invalid"
                         ? "Model id містить недопустимі символи."
                         : "Model id виглядає валідним за форматом."}
                   </p>

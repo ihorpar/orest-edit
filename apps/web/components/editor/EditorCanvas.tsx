@@ -1,10 +1,13 @@
 "use client";
 
-import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
-import { getSelectedText, hasSelection, type PatchSelection } from "../../lib/editor/patch-contract";
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { findParagraphForOffset, getManuscriptParagraphs, type ManuscriptParagraph } from "../../lib/editor/manuscript-structure";
+import { hasSelection, type PatchSelection } from "../../lib/editor/patch-contract";
+import type { EditorialReviewItem } from "../../lib/editor/review-contract";
+import { EditorialReviewDetail } from "./EditorialReviewDetail";
 import { DiffInlineMark } from "./DiffInlineMark";
 
-const MIN_EDITOR_HEIGHT = 540;
+const MIN_EDITOR_HEIGHT = 320;
 
 export interface AppliedDiffMarker {
   id: string;
@@ -18,24 +21,33 @@ export interface AppliedDiffMarker {
 export function EditorCanvas({
   appliedDiffs,
   loading,
+  activeReviewItem,
+  onDiscardAppliedDiffs,
   onDismissAppliedDiffs,
+  onDismissReviewItem,
+  selectionRevealKey,
   selection,
   text,
   onSelectionChange,
   onTextChange
 }: {
   appliedDiffs: AppliedDiffMarker[];
+  activeReviewItem: EditorialReviewItem | null;
   loading?: boolean;
+  onDiscardAppliedDiffs: () => void;
   onDismissAppliedDiffs: () => void;
+  onDismissReviewItem: () => void;
+  selectionRevealKey?: number;
   selection: PatchSelection;
   text: string;
   onSelectionChange: (selection: PatchSelection) => void;
   onTextChange: (text: string, selection: PatchSelection) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const hasActiveSelection = hasSelection(selection);
   const hasAppliedDiffs = appliedDiffs.length > 0;
-  const selectedText = getSelectedText(text, selection);
   const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
 
   useLayoutEffect(() => {
@@ -77,6 +89,21 @@ export function EditorCanvas({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  useEffect(() => {
+    if (!selectionRevealKey || hasAppliedDiffs) {
+      return;
+    }
+
+    const anchor =
+      frameRef.current?.querySelector('[data-review-detail-anchor="true"]') ??
+      frameRef.current?.querySelector(".manuscript-selection-anchor") ??
+      frameRef.current?.querySelector('[data-selection-anchor="true"]');
+
+    if (anchor instanceof HTMLElement) {
+      anchor.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }
+  }, [hasAppliedDiffs, selectionRevealKey, selection.start, selection.end]);
+
   function handleResumeEditing() {
     onDismissAppliedDiffs();
 
@@ -92,6 +119,20 @@ export function EditorCanvas({
     });
   }
 
+  const reviewFooter = (
+    <div className="manuscript-review-footer">
+      <div className="mono-ui manuscript-review-status">Щойно застосовано • {appliedDiffs.length} diff</div>
+      <div className="manuscript-review-actions">
+        <button type="button" className="manuscript-review-secondary" onClick={onDiscardAppliedDiffs}>
+          Скасувати
+        </button>
+        <button type="button" className="manuscript-review-toggle" onClick={handleResumeEditing}>
+          Готово
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="manuscript-page">
       <div className="manuscript-toolbar">
@@ -99,60 +140,52 @@ export function EditorCanvas({
         <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
       </div>
 
-      {hasAppliedDiffs ? (
-        <div className="selection-preview-card selection-preview-card-applied">
-          <div className="selection-preview-head">
-            <span className="mono-ui">Щойно застосовано</span>
-            <span className="mono-ui">{appliedDiffs.length} diff</span>
-          </div>
-          <p className="selection-note selection-note-applied">Показано вбудований diff. Натисніть у рукопис, щоб повернутися до звичайного редагування.</p>
-        </div>
-      ) : null}
-
-      <div className="manuscript-editor-frame" data-review-mode={hasAppliedDiffs ? "true" : "false"} data-has-selection={hasActiveSelection ? "true" : "false"}>
-        <div className="manuscript-render-layer manuscript-editor-copy" aria-hidden="true">
-          {renderDecoratedContent(text, selection, appliedDiffs)}
-        </div>
-
+      <div
+        ref={frameRef}
+        className="manuscript-editor-frame"
+        data-review-mode={hasAppliedDiffs ? "true" : "false"}
+        data-has-selection={hasActiveSelection ? "true" : "false"}
+        data-editor-focused={isEditorFocused ? "true" : "false"}
+      >
         {hasAppliedDiffs ? (
-          <button type="button" className="manuscript-review-toggle" onClick={handleResumeEditing}>
-            Повернутись до редагування
-          </button>
+          <div className="manuscript-review-flow manuscript-editor-copy">
+            {renderDecoratedContent(text, selection, appliedDiffs, reviewFooter)}
+          </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            className="manuscript-textarea manuscript-editor-copy"
-            value={text}
-            onChange={(event) => {
-              const nextSelection = {
-                start: event.currentTarget.selectionStart,
-                end: event.currentTarget.selectionEnd
-              } satisfies PatchSelection;
+          <>
+            <div className="manuscript-render-layer manuscript-editor-copy" aria-hidden="true">
+              {renderDecoratedContent(text, selection, [], undefined, activeReviewItem, onDismissReviewItem)}
+            </div>
+            <textarea
+              ref={textareaRef}
+              className="manuscript-textarea manuscript-editor-copy"
+              value={text}
+              onChange={(event) => {
+                const nextSelection = {
+                  start: event.currentTarget.selectionStart,
+                  end: event.currentTarget.selectionEnd
+                } satisfies PatchSelection;
 
-              onTextChange(event.currentTarget.value, nextSelection);
-            }}
-            onSelect={(event) => {
-              onSelectionChange({
-                start: event.currentTarget.selectionStart,
-                end: event.currentTarget.selectionEnd
-              });
-            }}
-            onFocus={() => {
-              if (hasAppliedDiffs) {
-                onDismissAppliedDiffs();
-              }
-            }}
-            spellCheck={false}
-            disabled={loading}
-            aria-label="Редактор для локального редагування"
-          />
+                onTextChange(event.currentTarget.value, nextSelection);
+              }}
+              onSelect={(event) => {
+                onSelectionChange({
+                  start: event.currentTarget.selectionStart,
+                  end: event.currentTarget.selectionEnd
+                });
+              }}
+              onFocus={() => {
+                setIsEditorFocused(true);
+              }}
+              onBlur={() => {
+                setIsEditorFocused(false);
+              }}
+              spellCheck={false}
+              disabled={loading}
+              aria-label="Редактор для локального редагування"
+            />
+          </>
         )}
-      </div>
-
-      <div className="manuscript-meta-row">
-        <div className="mono-ui manuscript-toolbar-meta">
-          {hasAppliedDiffs ? `Показано ${appliedDiffs.length} застосовані diff` : hasActiveSelection ? `Виділено ${selectedText.length} символів` : "Без виділення"}
-        </div>
       </div>
     </div>
   );
@@ -168,7 +201,15 @@ type CanvasDecoration =
       kind: "diff";
     });
 
-function renderDecoratedContent(text: string, selection: PatchSelection, appliedDiffs: AppliedDiffMarker[]) {
+function renderDecoratedContent(
+  text: string,
+  selection: PatchSelection,
+  appliedDiffs: AppliedDiffMarker[],
+  footerAfterDiff?: ReactNode,
+  activeReviewItem?: EditorialReviewItem | null,
+  onDismissReviewItem?: () => void
+) {
+  const paragraphs = getManuscriptParagraphs(text);
   const decorations: CanvasDecoration[] =
     appliedDiffs.length > 0
       ? appliedDiffs
@@ -179,39 +220,108 @@ function renderDecoratedContent(text: string, selection: PatchSelection, applied
         ? [{ kind: "selection", start: selection.start, end: selection.end }]
         : [];
 
+  if (paragraphs.length === 0) {
+    return <span className="placeholder-line">Вставте або виділіть фрагмент для локальної правки…</span>;
+  }
+
+  const lastDiffId = appliedDiffs.at(-1)?.id;
+  const firstSelectionParagraph = hasSelection(selection) ? findParagraphForOffset(text, selection.start) : null;
+
+  return paragraphs
+    .map((paragraph) => {
+      const paragraphContent = renderParagraphContent(paragraph, text, decorations, {
+        footerAfterDiff,
+        firstSelectionParagraph,
+        lastDiffId
+      });
+
+      if (!paragraphContent.content) {
+        return null;
+      }
+
+      const shouldRenderReviewDetail = activeReviewItem && paragraph.index === activeReviewItem.paragraphEnd && onDismissReviewItem;
+
+      return (
+        <Fragment key={paragraph.id}>
+          <p
+            className="manuscript-paragraph"
+            data-selection-anchor={firstSelectionParagraph === paragraph.index ? "true" : "false"}
+          >
+            <span className="mono-ui manuscript-paragraph-number">{paragraph.label}</span>
+            <span className="manuscript-render-text">{paragraphContent.content}</span>
+          </p>
+          {paragraphContent.footerAfterParagraph ? <div className="manuscript-review-inline-anchor">{paragraphContent.footerAfterParagraph}</div> : null}
+          {shouldRenderReviewDetail ? (
+            <div className="manuscript-review-detail-anchor" data-review-detail-anchor="true">
+              <EditorialReviewDetail item={activeReviewItem} onClose={onDismissReviewItem} />
+            </div>
+          ) : null}
+        </Fragment>
+      );
+    })
+    .filter(Boolean);
+}
+
+function renderParagraphContent(
+  paragraph: ManuscriptParagraph,
+  text: string,
+  decorations: CanvasDecoration[],
+  options: {
+    footerAfterDiff?: ReactNode;
+    firstSelectionParagraph: number | null;
+    lastDiffId?: string;
+  }
+) {
   const content: ReactNode[] = [];
-  let cursor = 0;
+  let footerAfterParagraph: ReactNode | null = null;
+  let cursor = paragraph.start;
 
   for (const decoration of decorations) {
-    if (cursor < decoration.start) {
-      content.push(<Fragment key={`text-${cursor}`}>{text.slice(cursor, decoration.start)}</Fragment>);
+    if (decoration.end <= paragraph.start || decoration.start >= paragraph.end) {
+      continue;
+    }
+
+    const overlapStart = Math.max(cursor, decoration.start, paragraph.start);
+    const overlapEnd = Math.min(decoration.end, paragraph.end);
+
+    if (cursor < overlapStart) {
+      content.push(<Fragment key={`text-${paragraph.id}-${cursor}`}>{text.slice(cursor, overlapStart)}</Fragment>);
     }
 
     if (decoration.kind === "selection") {
       content.push(
-        <mark key={`selection-${decoration.start}-${decoration.end}`} className="manuscript-persistent-selection">
-          {text.slice(decoration.start, decoration.end)}
+        <mark
+          key={`selection-${paragraph.id}-${overlapStart}-${overlapEnd}`}
+          className={`manuscript-persistent-selection${options.firstSelectionParagraph === paragraph.index ? " manuscript-selection-anchor" : ""}`}
+        >
+          {text.slice(overlapStart, overlapEnd)}
         </mark>
       );
-      cursor = decoration.end;
+      cursor = overlapEnd;
       continue;
     }
 
-    content.push(
-      <span key={decoration.id} className="manuscript-applied-diff" title={decoration.reason}>
-        <DiffInlineMark oldText={decoration.oldText} newText={decoration.newText} variant="canvas" />
-      </span>
-    );
-    cursor = decoration.end;
+    if (decoration.start >= paragraph.start && decoration.start < paragraph.end) {
+      content.push(
+        <span key={decoration.id} className="manuscript-applied-diff" title={decoration.reason}>
+          <DiffInlineMark oldText={decoration.oldText} newText={decoration.newText} variant="canvas" />
+        </span>
+      );
+
+      if (options.footerAfterDiff && decoration.id === options.lastDiffId) {
+        footerAfterParagraph = options.footerAfterDiff;
+      }
+    }
+
+    cursor = Math.max(cursor, overlapEnd);
   }
 
-  if (cursor < text.length) {
-    content.push(<Fragment key={`text-${cursor}-tail`}>{text.slice(cursor)}</Fragment>);
+  if (cursor < paragraph.end) {
+    content.push(<Fragment key={`text-${paragraph.id}-${cursor}-tail`}>{text.slice(cursor, paragraph.end)}</Fragment>);
   }
 
-  if (content.length === 0) {
-    return <span className="placeholder-line">Вставте або виділіть фрагмент для локальної правки…</span>;
-  }
-
-  return content;
+  return {
+    content: content.length > 0 ? content : null,
+    footerAfterParagraph
+  };
 }

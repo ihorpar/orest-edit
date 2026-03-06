@@ -1,6 +1,12 @@
 export type ProviderId = "openai" | "gemini" | "anthropic";
 export type SettingsValidationState = "valid" | "missing" | "invalid";
 
+export interface ProviderModelPreset {
+  id: string;
+  label: string;
+  description: string;
+}
+
 export interface EditorSettings {
   provider: ProviderId;
   modelId: string;
@@ -9,13 +15,81 @@ export interface EditorSettings {
 }
 
 export const EDITOR_SETTINGS_STORAGE_KEY = "orest-editor-settings-v1";
+export const CUSTOM_MODEL_OPTION = "__custom__";
 
 export const DEFAULT_BASE_PROMPT =
-  "Спрости складну наукову мову до зрозумілої української. Пропонуй лише локальні правки, які зберігають фактичну точність і полегшують читання.";
+  "Ти редактор українського науково-популярного рукопису. Перетворюй щільну наукову мову на ясну, природну українську без втрати змісту й авторського наміру. Працюй локально в межах виділеного фрагмента. Пріоритети: 1) пояснити терміни для широкого читача без спотворення фактів, 2) ущільнити перевантажені речення без втрати логіки, 3) вирівняти тон так, щоб текст звучав доказово, спокійно й редакторськи чисто. Не додавай нових фактів, не роби рекламних обіцянок, не підміняй наукову невизначеність категоричними висновками.";
+
+export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> = {
+  openai: [
+    {
+      id: "gpt-5.4",
+      label: "GPT-5.4",
+      description: "Найсильніша якість редагування й найкращий кандидат для складних локальних правок та editorial review."
+    },
+    {
+      id: "gpt-5.3",
+      label: "GPT-5.3",
+      description: "Трохи дешевше й швидше, коли потрібен майже той самий стиль редагування без фокусу на максимальній якості."
+    },
+    {
+      id: "gpt-5.2",
+      label: "GPT-5.2",
+      description: "Стабільний запасний варіант, якщо треба залишитися ближче до поточної інтеграції або попередніх результатів."
+    }
+  ],
+  anthropic: [
+    {
+      id: "claude-opus-4-6",
+      label: "Claude Opus 4.6",
+      description: "Найкращий варіант Anthropic для глибокого редакторського розбору і делікатного переписування щільних фрагментів."
+    },
+    {
+      id: "claude-sonnet-4-6",
+      label: "Claude Sonnet 4.6",
+      description: "Збалансований режим: якість близька до топової, але з кращою швидкістю і меншими витратами."
+    },
+    {
+      id: "claude-haiku-4-5",
+      label: "Claude Haiku 4.5",
+      description: "Найшвидший варіант для чернеткових проходів і масових локальних перевірок."
+    }
+  ],
+  gemini: [
+    {
+      id: "gemini-3.1-pro-preview",
+      label: "Gemini 3.1 Pro Preview",
+      description: "Найсильніший Gemini-профіль для довших рукописів, глобального review і складної структурної правки."
+    },
+    {
+      id: "gemini-3-flash-preview",
+      label: "Gemini 3 Flash Preview",
+      description: "Швидший preview-варіант, коли потрібен хороший редакторський результат при нижчій латентності."
+    },
+    {
+      id: "gemini-2.5-flash",
+      label: "Gemini 2.5 Flash",
+      description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів."
+    }
+  ]
+};
+
+export function getProviderModelPresets(provider: ProviderId): ProviderModelPreset[] {
+  return PROVIDER_MODEL_PRESETS[provider];
+}
+
+export function getDefaultProviderModelId(provider: ProviderId): string {
+  return PROVIDER_MODEL_PRESETS[provider][0]?.id ?? "";
+}
+
+export function findProviderModelPreset(provider: ProviderId, modelId: string): ProviderModelPreset | null {
+  const normalized = modelId.trim();
+  return PROVIDER_MODEL_PRESETS[provider].find((preset) => preset.id === normalized) ?? null;
+}
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   provider: "openai",
-  modelId: "gpt-5.2",
+  modelId: getDefaultProviderModelId("openai"),
   apiKey: "",
   basePrompt: DEFAULT_BASE_PROMPT
 };
@@ -43,15 +117,7 @@ export function normalizeModelId(provider: ProviderId, modelId: string): string 
     return trimmed;
   }
 
-  if (provider === "gemini") {
-    return "gemini-2.5-pro";
-  }
-
-  if (provider === "anthropic") {
-    return "claude-sonnet-4-5";
-  }
-
-  return "gpt-5.2";
+  return getDefaultProviderModelId(provider);
 }
 
 export function validateModelId(modelId: string): SettingsValidationState {

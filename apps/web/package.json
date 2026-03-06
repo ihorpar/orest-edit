@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types test/patch-contract.test.ts test/patch-service.test.ts"
+    "test": "node --test --experimental-strip-types test/patch-contract.test.ts test/patch-service.test.ts test/review-service.test.ts"
   },
   "dependencies": {
     "next": "15.5.12",

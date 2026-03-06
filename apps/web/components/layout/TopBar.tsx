@@ -18,7 +18,7 @@ export function TopBar({
         </div>
         <nav className="nav-links" aria-label="main navigation">
           <Link href="/editor" className="mono-ui nav-link" data-active={activePath === "/editor"}>
-            {"\u0420\u0443\u043a\u043e\u043f\u0438\u0441"}
+            {"\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440"}
           </Link>
           <Link href="/settings" className="mono-ui nav-link" data-active={activePath === "/settings"}>
             {"\u041d\u0430\u043b\u0430\u0448\u0442\u0443\u0432\u0430\u043d\u043d\u044f"}
@@ -26,7 +26,10 @@ export function TopBar({
         </nav>
       </div>
       <div className="topbar-right">
-        <span className="mono-ui pending-badge">{pendingCount} {"\u043d\u0430 \u0440\u043e\u0437\u0433\u043b\u044f\u0434\u0456"}</span>
+        <span className="mono-ui pending-badge">
+          <span className="pending-count">{pendingCount}</span>
+          <span className="pending-label">{"\u043d\u0430 \u0440\u043e\u0437\u0433\u043b\u044f\u0434\u0456"}</span>
+        </span>
       </div>
     </header>
   );
