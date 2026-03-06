@@ -1,4 +1,4 @@
-﻿export type PatchOperationKind = "replace" | "insert" | "delete";
+export type PatchOperationKind = "replace" | "insert" | "delete";
 export type PatchOperationType = "clarity" | "structure" | "terminology" | "source" | "tone";
 export type RequestMode = "default" | "custom";
 

@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import { startTransition, useEffect, useState } from "react";
-import { EditorCanvas } from "../../components/editor/EditorCanvas";
+import { EditorCanvas, type AppliedDiffMarker } from "../../components/editor/EditorCanvas";
 import { FloatingPromptPanel } from "../../components/editor/FloatingPromptPanel";
 import { LeftSidebarConfig } from "../../components/layout/LeftSidebarConfig";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
@@ -44,6 +44,7 @@ export default function EditorPage() {
   const [feedback, setFeedback] = useState<RequestFeedback | null>(null);
   const [diagnostics, setDiagnostics] = useState<PatchResponseDiagnostics | null>(null);
   const [history, setHistory] = useState<RequestHistoryItem[]>([]);
+  const [appliedDiffs, setAppliedDiffs] = useState<AppliedDiffMarker[]>([]);
 
   useEffect(() => {
     setSettings(readEditorSettings());
@@ -74,6 +75,7 @@ export default function EditorPage() {
 
     setIsRequestInFlight(true);
     setFeedback(null);
+    setAppliedDiffs([]);
 
     try {
       const response = await fetch("/api/edit/patch", {
@@ -106,12 +108,17 @@ export default function EditorPage() {
   }
 
   function handleSelectionChange(nextSelection: PatchSelection) {
+    if (appliedDiffs.length > 0) {
+      setAppliedDiffs([]);
+    }
+
     setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
   }
 
   function handleTextChange(nextText: string, nextSelection: PatchSelection) {
     setText(nextText);
     setSelection(clampSelection(nextText, nextSelection.start, nextSelection.end));
+    setAppliedDiffs([]);
 
     if (operations.length > 0) {
       setOperations([]);
@@ -134,11 +141,13 @@ export default function EditorPage() {
 
     const replacementText = getOperationReplacementText(operation);
     const nextCursor = operation.start + replacementText.length;
+    const nextAppliedDiffs = createAppliedDiffMarkers([operation]);
 
     startTransition(() => {
       setText((current) => applyPatchOperation(current, operation));
       setOperations((current) => rebasePendingOperations(current, operation));
       setSelection({ start: nextCursor, end: nextCursor });
+      setAppliedDiffs(nextAppliedDiffs);
       setFeedback({ message: "Правку застосовано до Редактору.", tone: "info" });
     });
   }
@@ -158,6 +167,7 @@ export default function EditorPage() {
       return;
     }
 
+    const nextAppliedDiffs = createAppliedDiffMarkers(applicable);
     const anchor = applicable.slice().sort((left, right) => left.start - right.start)[0];
     const nextCursor = anchor.start + getOperationReplacementText(anchor).length;
 
@@ -165,6 +175,7 @@ export default function EditorPage() {
       setText((current) => applyPatchOperations(current, applicable));
       setOperations([]);
       setSelection({ start: nextCursor, end: nextCursor });
+      setAppliedDiffs(nextAppliedDiffs);
       setFeedback({
         message:
           skippedCount > 0
@@ -181,21 +192,16 @@ export default function EditorPage() {
     setFeedback({ message: rejectedCount > 0 ? `Відхилено всі ${rejectedCount} локальні правки.` : "Немає активних правок для відхилення.", tone: "info" });
   }
 
-  function handleRequestWholeFragment() {
-    void requestPatches("default", undefined, { start: 0, end: text.length });
-  }
-
   return (
     <main className="app-shell">
       <TopBar pendingCount={operations.length} activePath="/editor" />
       <ThreePaneShell
-        left={<LeftSidebarConfig loading={isRequestInFlight} onRequestWholeFragment={handleRequestWholeFragment} pendingCount={operations.length} />}
+        left={<LeftSidebarConfig pendingCount={operations.length} />}
         center={
           <EditorCanvas
+            appliedDiffs={appliedDiffs}
             loading={isRequestInFlight}
-            onRequestDefault={() => {
-              void requestPatches("default");
-            }}
+            onDismissAppliedDiffs={() => setAppliedDiffs([])}
             selection={selection}
             text={text}
             onSelectionChange={handleSelectionChange}
@@ -274,4 +280,25 @@ function createHistoryEntry(payload: PatchResponse, feedback: RequestFeedback): 
     tone: feedback.tone,
     message: feedback.message
   };
+}
+
+function createAppliedDiffMarkers(operations: PatchOperation[]): AppliedDiffMarker[] {
+  const sorted = operations.slice().sort((left, right) => left.start - right.start || left.end - right.end);
+  let offset = 0;
+
+  return sorted.map((operation) => {
+    const replacementText = getOperationReplacementText(operation);
+    const start = operation.start + offset;
+    const end = start + replacementText.length;
+    offset += replacementText.length - (operation.end - operation.start);
+
+    return {
+      id: operation.id,
+      start,
+      end,
+      oldText: operation.oldText,
+      newText: operation.newText,
+      reason: operation.reason
+    };
+  });
 }

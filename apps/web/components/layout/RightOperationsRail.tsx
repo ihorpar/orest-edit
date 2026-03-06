@@ -1,4 +1,4 @@
-﻿import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
+import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
 import { OperationCard } from "../editor/OperationCard";
 import { Button } from "../ui/Button";
 
@@ -51,7 +51,7 @@ export function RightOperationsRail({
         <section className="rail-section">
           <div className="rail-section-head">
             <p className="mono-ui operations-title">Правки на розгляді</p>
-            {operations.length > 0 ? (
+            {operations.length > 1 ? (
               <div className="button-row">
                 <Button variant="secondary" size="sm" onClick={onRejectAll}>
                   Відхилити всі

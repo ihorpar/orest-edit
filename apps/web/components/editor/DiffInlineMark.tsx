@@ -1,8 +1,16 @@
-export function DiffInlineMark({ oldText, newText }: { oldText: string; newText?: string }) {
+export function DiffInlineMark({
+  oldText,
+  newText,
+  variant = "card"
+}: {
+  oldText: string;
+  newText?: string;
+  variant?: "card" | "canvas";
+}) {
   return (
-    <span>
-      <span style={{ background: "#fdecec", color: "#b42318", textDecoration: "line-through", padding: "0 2px" }}>{oldText}</span>
-      {newText ? <span style={{ background: "#e9f8ef", color: "#138a5a", padding: "0 2px", marginLeft: 4 }}>{newText}</span> : null}
+    <span className={`diff-inline-mark diff-inline-mark-${variant}`}>
+      {oldText ? <span className="diff-remove">{oldText}</span> : null}
+      {newText ? <span className="diff-add">{newText}</span> : null}
     </span>
   );
 }

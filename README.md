@@ -57,6 +57,7 @@ Short version:
 - `docs/EXECPLAN_MVP.md`: current implementation plan
 - `docs/CURRENT_STATE.md`: latest handoff snapshot for agents
 - `docs/DEPLOYMENT.md`: deployment and runtime notes
+- `scripts/check-text-integrity.mjs`: UTF-8, LF, and mojibake guard
 
 ## Working rule for agents
 

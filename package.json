@@ -10,6 +10,7 @@
     "build": "npm run build -w @orest/web",
     "start": "npm run start -w @orest/web",
     "typecheck": "npm run typecheck -w @orest/web",
-    "test": "npm run test -w @orest/web"
+    "test": "npm run test -w @orest/web",
+    "check:text": "node scripts/check-text-integrity.mjs"
   }
 }

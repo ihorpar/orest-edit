@@ -1,4 +1,4 @@
-﻿export type ProviderId = "openai" | "gemini" | "anthropic";
+export type ProviderId = "openai" | "gemini" | "anthropic";
 export type SettingsValidationState = "valid" | "missing" | "invalid";
 
 export interface EditorSettings {

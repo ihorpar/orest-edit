@@ -1,4 +1,5 @@
 import {
+  applyPatchOperations,
   clampSelection,
   createPatchId,
   getSelectedText,
@@ -14,7 +15,6 @@ const openAiEndpoint = "https://api.openai.com/v1/chat/completions";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const requestTimeoutMs = 20000;
-const maxReturnedOperations = 3;
 const anthropicVersion = "2023-06-01";
 
 const fallbackGlossary: Array<{
@@ -201,10 +201,7 @@ export function createFallbackOperations(request: PatchRequest): PatchOperation[
   const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
   const selectedText = getSelectedText(request.text, selection);
   const matches = collectFallbackTermOperations(selectedText, selection.start);
-
-  if (matches.length > 0) {
-    return matches.slice(0, maxReturnedOperations);
-  }
+  const rewrittenText = matches.length > 0 ? rewriteSelectionWithOperations(selectedText, selection.start, matches) : createFallbackRewrite(selectedText, request.prompt);
 
   return [
     {
@@ -213,9 +210,9 @@ export function createFallbackOperations(request: PatchRequest): PatchOperation[
       start: selection.start,
       end: selection.end,
       oldText: selectedText,
-      newText: createFallbackRewrite(selectedText, request.prompt),
-      reason: inferFallbackReason(request.prompt),
-      type: inferFallbackType(request.prompt)
+      newText: rewrittenText,
+      reason: inferCombinedReason(matches, request),
+      type: inferCombinedType(matches, request)
     }
   ];
 }
@@ -396,12 +393,28 @@ function buildNormalizedResult(
   const normalized = normalizePatchOperationsResult(request.text, selection, operations);
 
   if (normalized.operations.length === 0) {
+    const repairedOperations = repairProviderOperations(operations, selection);
+
+    if (repairedOperations) {
+      const repairedNormalized = normalizePatchOperationsResult(request.text, selection, repairedOperations);
+
+      if (repairedNormalized.operations.length > 0) {
+        return {
+          operations: [collapseOperationsToSingleRewrite(request, selection, repairedNormalized.operations)],
+          droppedOperationCount: repairedNormalized.droppedCount,
+          providerUsed
+        };
+      }
+    }
+  }
+
+  if (normalized.operations.length === 0) {
     throw new Error(`${providerDisplayName(providerUsed)} повернув порожні або невалідні локальні правки.`);
   }
 
   return {
-    operations: normalized.operations.slice(0, maxReturnedOperations),
-    droppedOperationCount: normalized.droppedCount + Math.max(0, normalized.operations.length - maxReturnedOperations),
+    operations: [collapseOperationsToSingleRewrite(request, selection, normalized.operations)],
+    droppedOperationCount: normalized.droppedCount,
     providerUsed
   };
 }
@@ -433,12 +446,14 @@ export function buildSystemPrompt(basePrompt?: string): string {
     basePrompt ?? "Спрости складну наукову мову до зрозумілої української.",
     "Ти допомагаєш книжковому редактору, а не лікарю.",
     "Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ.",
+    "Поверни рівно одну локальну правку.",
+    "Це має бути одна операція replace, яка охоплює весь виділений фрагмент.",
     "Кожна операція повинна містити op, start, end, newText, reason і type.",
     "start та end мають бути абсолютними індексами в межах виділення.",
     "reason пиши коротко, українською, не більше 12 слів.",
     "Дозволені type: clarity, structure, terminology, source, tone.",
     "Дозволені op: replace, insert, delete.",
-    "Не повертай більше трьох локальних правок."
+    "Не дроби відповідь на кілька правок."
   ].join(" ");
 }
 
@@ -582,6 +597,132 @@ function extractJsonObject(content: string): string {
   return trimmed.slice(firstBrace, lastBrace + 1);
 }
 
+function repairProviderOperations(operations: unknown, selection: { start: number; end: number }): unknown[] | null {
+  if (!Array.isArray(operations)) {
+    return null;
+  }
+
+  const selectionLength = selection.end - selection.start;
+  let changed = false;
+
+  const repaired = operations.map((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return candidate;
+    }
+
+    const record = { ...(candidate as Record<string, unknown>) };
+    const start = coerceIndex(record.start);
+    const end = coerceIndex(record.end);
+
+    if (start !== record.start && start !== null) {
+      record.start = start;
+      changed = true;
+    }
+
+    if (end !== record.end && end !== null) {
+      record.end = end;
+      changed = true;
+    }
+
+    if (typeof record.op === "string") {
+      const normalizedOp = record.op.trim().toLowerCase();
+
+      if (normalizedOp !== record.op) {
+        record.op = normalizedOp;
+        changed = true;
+      }
+    }
+
+    if (typeof record.newText !== "string") {
+      const replacement = typeof record.replacement === "string" ? record.replacement : typeof record.text === "string" ? record.text : null;
+
+      if (replacement !== null) {
+        record.newText = replacement;
+        changed = true;
+      }
+    }
+
+    if (typeof record.reason !== "string" && typeof record.comment === "string") {
+      record.reason = record.comment;
+      changed = true;
+    }
+
+    if (typeof record.type !== "string" && typeof record.category === "string") {
+      record.type = record.category;
+      changed = true;
+    }
+
+    if (typeof record.start === "number" && typeof record.end === "number") {
+      const appearsRelative =
+        record.start >= 0 &&
+        record.end >= record.start &&
+        record.end <= selectionLength &&
+        (record.start < selection.start || record.end > selection.end);
+
+      if (appearsRelative) {
+        record.start = record.start + selection.start;
+        record.end = record.end + selection.start;
+        changed = true;
+      }
+    }
+
+    return record;
+  });
+
+  return changed ? repaired : null;
+}
+
+function collapseOperationsToSingleRewrite(
+  request: PatchRequest,
+  selection: { start: number; end: number },
+  operations: PatchOperation[]
+): PatchOperation {
+  const selectedText = getSelectedText(request.text, selection);
+  const rewrittenText =
+    operations.length === 1 && operations[0]?.op === "replace" && operations[0].start === selection.start && operations[0].end === selection.end
+      ? (operations[0].newText ?? selectedText)
+      : rewriteSelectionWithOperations(selectedText, selection.start, operations);
+
+  return {
+    id: operations[0]?.id ?? createPatchId("provider"),
+    op: "replace",
+    start: selection.start,
+    end: selection.end,
+    oldText: selectedText,
+    newText: rewrittenText,
+    reason: inferCombinedReason(operations, request),
+    type: inferCombinedType(operations, request)
+  };
+}
+
+function rewriteSelectionWithOperations(selectedText: string, absoluteSelectionStart: number, operations: PatchOperation[]): string {
+  const localOperations = operations.map((operation) => ({
+    ...operation,
+    start: operation.start - absoluteSelectionStart,
+    end: operation.end - absoluteSelectionStart
+  }));
+
+  return applyPatchOperations(selectedText, localOperations);
+}
+
+function coerceIndex(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (!/^-?\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  return Number.parseInt(trimmed, 10);
+}
+
 function collectFallbackTermOperations(selectedText: string, absoluteStart: number): PatchOperation[] {
   const operations: PatchOperation[] = [];
 
@@ -672,6 +813,35 @@ function inferFallbackReason(prompt?: string): string {
   }
 
   return "Спростив фразу без втрати змісту.";
+}
+
+function inferCombinedType(operations: PatchOperation[], request: PatchRequest): PatchOperationType {
+  if (operations.length === 1) {
+    return operations[0]?.type ?? inferFallbackType(request.prompt);
+  }
+
+  const uniqueTypes = [...new Set(operations.map((operation) => operation.type))];
+  return uniqueTypes.length === 1 ? uniqueTypes[0] : inferFallbackType(request.prompt);
+}
+
+function inferCombinedReason(operations: PatchOperation[], request: PatchRequest): string {
+  if (operations.length === 1) {
+    return operations[0]?.reason ?? inferFallbackReason(request.prompt);
+  }
+
+  if (request.mode === "custom" && request.prompt) {
+    const loweredPrompt = request.prompt.toLowerCase();
+
+    if (/(скорот|коротш)/i.test(loweredPrompt)) {
+      return "Спростив і скоротив фрагмент.";
+    }
+
+    if (/(поясн|термін|читач)/i.test(loweredPrompt)) {
+      return "Пояснив фрагмент простіше.";
+    }
+  }
+
+  return "Спростив і узгодив фрагмент.";
 }
 
 function isAbortError(error: unknown): boolean {

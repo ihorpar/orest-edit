@@ -217,6 +217,141 @@ test("generatePatchResponse falls back when no provider key is available", async
 
   assert.equal(fetchCalls, 0);
   assert.equal(response.usedFallback, true);
-  assert.equal(response.operations.length > 0, true);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.start, 0);
+  assert.equal(response.operations[0]?.end, text.length);
   assert.match(response.error ?? "", /API key/);
+});
+
+test("generatePatchResponse collapses multiple provider edits into one selection-wide replace", async () => {
+  const text = "Високий LDL і низький HDL часто йдуть разом та погіршують стан судин.";
+
+  const response = await generatePatchResponse(
+    {
+      text,
+      selectionStart: 0,
+      selectionEnd: text.length,
+      mode: "default",
+      provider: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test-openai"
+    },
+    {
+      now: () => "2026-03-06T00:45:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    { op: "replace", start: 0, end: 10, newText: "Підвищений LDL", reason: "Спростив термін.", type: "clarity" },
+                    { op: "replace", start: 13, end: 23, newText: "знижений HDL", reason: "Узгодив форму.", type: "clarity" },
+                    { op: "replace", start: 42, end: 58, newText: "трапляються разом", reason: "Спростив вислів.", type: "clarity" }
+                  ]
+                })
+              }
+            }
+          ]
+        })
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.op, "replace");
+  assert.equal(response.operations[0]?.start, 0);
+  assert.equal(response.operations[0]?.end, text.length);
+  assert.equal(response.operations[0]?.oldText, text);
+  assert.match(response.operations[0]?.newText ?? "", /Підвищений LDL/);
+  assert.match(response.operations[0]?.newText ?? "", /знижений HDL/);
+});
+
+test("generatePatchResponse repairs provider operations that use selection-relative offsets", async () => {
+  const text = "Преамбула. Складний фрагмент для правки. Епілог.";
+  const selectionStart = text.indexOf("Складний");
+  const selectedText = "Складний фрагмент для правки.";
+  const selectionEnd = selectionStart + selectedText.length;
+
+  const response = await generatePatchResponse(
+    {
+      text,
+      selectionStart,
+      selectionEnd,
+      mode: "default",
+      provider: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test-openai"
+    },
+    {
+      now: () => "2026-03-06T00:30:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    { op: "replace", start: 0, end: selectedText.length, newText: "Простіший фрагмент.", reason: "Спростив фразу.", type: "clarity" }
+                  ]
+                })
+              }
+            }
+          ]
+        })
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.start, selectionStart);
+  assert.equal(response.operations[0]?.end, selectionEnd);
+  assert.equal(response.operations[0]?.oldText, selectedText);
+});
+
+test("generatePatchResponse repairs string indices in provider operations", async () => {
+  const text = "Преамбула. Складний фрагмент для правки.";
+  const selectionStart = text.indexOf("Складний");
+  const selectionEnd = text.length;
+
+  const response = await generatePatchResponse(
+    {
+      text,
+      selectionStart,
+      selectionEnd,
+      mode: "default",
+      provider: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test-openai"
+    },
+    {
+      now: () => "2026-03-06T00:30:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    {
+                      op: "replace",
+                      start: String(selectionStart),
+                      end: String(selectionEnd),
+                      replacement: "Простіший фрагмент для правки.",
+                      comment: "Спростив фразу.",
+                      category: "clarity"
+                    }
+                  ]
+                })
+              }
+            }
+          ]
+        })
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.oldText, text.slice(selectionStart, selectionEnd));
+  assert.equal(response.operations[0]?.newText, "Простіший фрагмент для правки.");
 });

@@ -26,17 +26,22 @@ This is the smallest outcome that makes the product real. It still deliberately 
 - [x] (2026-03-05 21:42Z) Applied accepted patch operations back into manuscript text safely.
 - [x] (2026-03-05 21:42Z) Persisted settings locally and restored them on reload.
 - [x] (2026-03-05 21:42Z) Added happy-path and failure-state validation for the vertical slice.
+- [x] (2026-03-05 22:05Z) Fixed local env defaulting so the server reads `OPENAI_API_KEY` from the repo-root `.env` when the form key is blank.
 - [x] (2026-03-05 22:10Z) Hardened multi-operation validation and added safe batch accept/reject handling.
 - [x] (2026-03-05 22:10Z) Added request diagnostics and short request history to the editor rail.
-- [x] (2026-03-05 22:33Z) Simplified the editor UI by consolidating request actions into one rail composer, reducing duplicate selection context, and collapsing diagnostics/history by default.
-- [x] (2026-03-05 23:05Z) Reworked the editor again into a review-first layout with a utility left rail, explicit whole-fragment base action, wider manuscript, and selection-triggered floating custom prompt.
-- [x] (2026-03-05 23:15Z) Updated README and added deployment docs to clarify the runtime contract, `PORT` usage, and the local `3000` to `3001` fallback behavior.
-- [x] (2026-03-05 23:15Z) Live-validated the Gemini env-key path and confirmed the current adapter reaches the provider but still falls back when Gemini returns unusable local edits.
 - [x] (2026-03-05 22:10Z) Removed screenshot artifacts after visual verification at the user's request.
-- [x] (2026-03-05 22:05Z) Fixed local env defaulting so the server reads `OPENAI_API_KEY` from the repo-root `.env` when the form key is blank.
-- [x] (2026-03-05 22:05Z) Removed the stale extra local server on `3001` and returned the app to a single canonical local port.
 - [x] (2026-03-05 22:30Z) Added automated tests for patch normalization, batch apply behavior, and provider env/fallback behavior.
 - [x] (2026-03-05 22:30Z) Replaced fallback-only Gemini and Anthropic branches with real provider adapters behind the shared patch contract.
+- [x] (2026-03-05 22:33Z) Simplified the editor UI by consolidating request actions into one rail composer, reducing duplicate selection context, and collapsing diagnostics/history by default.
+- [x] (2026-03-05 23:05Z) Reworked the editor into a review-first layout with a utility left rail, explicit whole-fragment base action, wider manuscript, and selection-triggered floating custom prompt.
+- [x] (2026-03-05 23:15Z) Updated README and added deployment docs to clarify the runtime contract, `PORT` usage, and the local `3000` to `3001` fallback behavior.
+- [x] (2026-03-05 23:15Z) Live-validated the Gemini env-key path and confirmed the current adapter reaches the provider but still falls back when Gemini returns unusable local edits.
+- [x] (2026-03-05 23:40Z) Added repo-level UTF-8 and LF safeguards with `.editorconfig`, `.gitattributes`, and `npm run check:text`.
+- [x] (2026-03-05 23:40Z) Normalized tracked source and docs files to UTF-8 without BOM, LF line endings, and a final newline.
+- [x] (2026-03-06 00:20Z) Reworked the editor canvas so selection stays visible while the floating prompt is focused, consolidated the base patch action into that composer, and rendered accepted edits inline as manuscript diffs until editing resumes.
+- [x] (2026-03-06 00:35Z) Hardened provider normalization so OpenAI responses with selection-relative offsets or numeric-string indices are repaired before the app falls back to deterministic local edits.
+- [x] (2026-03-06 00:50Z) Simplified the floating selection composer by removing duplicated selection copy, adding a fold/unfold toggle, and auto-collapsing the panel after a request is sent.
+- [x] (2026-03-06 01:05Z) Changed patch normalization so one model request becomes one coherent selection-wide diff instead of several fragmented local operations.
 
 ## Surprises & Discoveries
 
@@ -56,13 +61,34 @@ This is the smallest outcome that makes the product real. It still deliberately 
   Evidence: the route initially treated the root `.env` key as missing until a server-side root-env reader was added in `apps/web/lib/server/env.ts`.
 
 - Observation: OpenAI, Gemini, and Anthropic cannot share one structured-output request body even though the editor expects one patch contract.
-  Evidence: `apps/web/lib/server/patch-service.ts` now uses OpenAI `response_format.json_schema`, Gemini `generationConfig.response_schema`, and Anthropic `messages` plus `system` JSON instructions before normalizing back to the shared patch contract.
+  Evidence: `apps/web/lib/server/patch-service.ts` uses OpenAI `response_format.json_schema`, Gemini `generationConfig.response_schema`, and Anthropic `messages` plus system JSON instructions before normalizing back to the shared patch contract.
 
 - Observation: native Node test execution in this workspace required explicit `.ts` imports plus `allowImportingTsExtensions` to exercise the same server code used by the app.
-  Evidence: the automated tests run directly against `apps/web/lib/server/patch-service.ts` through `apps/web/test/*.test.ts`, and the workspace now enables this in `apps/web/tsconfig.json`.
+  Evidence: the automated tests run directly against `apps/web/lib/server/patch-service.ts` through `apps/web/test/*.test.ts`, and the workspace enables this in `apps/web/tsconfig.json`.
 
 - Observation: a live Gemini call can clear auth and transport checks but still fail the shared patch contract by returning empty or unusable local edits.
   Evidence: a real request sent through `/api/edit/patch` with `GEMINI_API_KEY` in the repo-root `.env` reached Gemini, then returned `usedFallback: true` because the resulting local operations were empty or invalid for normalization.
+
+- Observation: a pure `textarea` editor keeps offset math simple, but the browser drops the visible highlight as soon as focus moves into the floating prompt.
+  Evidence: before the UI pass, selecting text and typing into `apps/web/components/editor/FloatingPromptPanel.tsx` removed the native highlight even though `apps/web/app/editor/page.tsx` still held the selection in state.
+
+- Observation: inline post-apply diffs and direct text editing cannot share one visual layer without desynchronizing cursor layout.
+  Evidence: the accepted diff markup in `apps/web/components/editor/EditorCanvas.tsx` renders longer than the applied plain text, so the manuscript now enters a short review mode until the user clicks back into editing.
+
+- Observation: providers can obey the requested JSON shape but still return offsets relative to the selected fragment instead of absolute manuscript indices.
+  Evidence: the hardening pass added a repair stage in `apps/web/lib/server/patch-service.ts` because those responses were previously normalized to zero operations and incorrectly surfaced as fallback-only failures.
+
+- Observation: once the manuscript itself shows a stable highlight, repeating the selected text inside both the canvas header and the floating composer adds noise instead of confidence.
+  Evidence: the latest UI pass removed the duplicate selection blocks from `apps/web/components/editor/EditorCanvas.tsx` and `apps/web/components/editor/FloatingPromptPanel.tsx`, while the highlight remained visible in the manuscript.
+
+- Observation: fragmented provider operations make one simplification request look random even when each individual offset is technically valid.
+  Evidence: the reported LDL/HDL example produced several adjacent operations from one prompt, which then rendered as an incoherent chain in review and inline diff mode.
+
+- Observation: this repository had widespread text-format drift across source and docs, including BOM, CRLF, and missing-final-newline differences.
+  Evidence: the first `npm run check:text` pass reported dozens of files with BOM or line-ending drift before the normalization pass rewrote them to UTF-8 without BOM and LF line endings.
+
+- Observation: the native `apply_patch` tool still failed on a one-line README edit even after text normalization, which points to a tool-path issue in this session rather than a remaining repository-format issue.
+  Evidence: a direct `apply_patch` attempt against `README.md` failed silently, but the same one-line change succeeded immediately through an explicit UTF-8 rewrite.
 
 ## Decision Log
 
@@ -106,23 +132,51 @@ This is the smallest outcome that makes the product real. It still deliberately 
   Rationale: each vendor exposes a different structured-output API, but the UI should stay provider-agnostic and keep one review/apply path.
   Date/Author: 2026-03-05 / Codex implementation
 
+- Decision: keep the selection-scoped base patch action only inside the floating selection composer.
+  Rationale: repeating `Базова правка` across the left rail, canvas footer, and floating panel diluted scope and made the primary action harder to trust.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: after accept, show applied edits inline in the manuscript until the user clicks back into direct editing.
+  Rationale: the editor stays diff-first after apply, but the plain-text editing model still resumes cleanly once the user is ready to continue.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: try a narrow server-side repair pass for provider operations before declaring them invalid and falling back.
+  Rationale: relative offsets and stringified indices are common model drift, and they can often be recovered safely without weakening the patch-first contract.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: keep the floating selection composer collapsible and auto-minimize it immediately after send.
+  Rationale: after the request is in flight, the editor should return attention to the manuscript and right-side review output, not leave a large prompt panel open by default.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: collapse every provider response into one selection-wide `replace` operation before it reaches the review UI.
+  Rationale: one user request should produce one understandable diff; fragmented micro-edits are harder to trust and can create awkward partial rewrites even when offsets are valid.
+  Date/Author: 2026-03-06 / Codex implementation
+
+- Decision: enforce UTF-8 without BOM, LF line endings, and a final newline for tracked text files, and validate that state with `npm run check:text`.
+  Rationale: patch-based editing is much more reliable when repository text files stay in one predictable format, especially on Windows shell tooling.
+  Date/Author: 2026-03-05 / Codex implementation
+
 ## Outcomes & Retrospective
 
 The prototype is now a working editor slice instead of a static mock. Selection is real, requests use a stable patch contract, proposals return through an API route, each patch carries a short reason, accept updates the manuscript text, reject removes only the proposal, and saved settings are restored from local storage.
 
-The follow-up pass hardened that slice instead of widening it prematurely. The app now validates provider operations more explicitly, supports grouped accept/reject for multiple safe operations, and gives editors immediate diagnostics plus short request history in the right rail.
+The follow-up passes hardened that slice instead of widening it prematurely. The app now validates provider operations more explicitly, supports grouped accept/reject for multiple safe operations, gives editors immediate diagnostics plus short request history in the right rail, and reads provider keys from the repo-root `.env` when the form key is blank.
 
-The next pass removed a real local-development friction point: the app now uses the repo-root OpenAI key by default when the browser form leaves the key blank, and the duplicate local server state was cleaned up so there is a single local port again.
+The provider pass closed the next two biggest gaps without widening product scope. The server now has real OpenAI, Gemini, and Anthropic adapters behind one patch contract, and the workspace has automated tests for patch normalization, batch apply behavior, and provider env/fallback logic.
 
-The current pass closed the next two biggest gaps without widening product scope. The server now has real OpenAI, Gemini, and Anthropic adapters behind one patch contract, and the workspace has automated tests for patch normalization, batch apply behavior, and provider env/fallback logic.
+The deployment-docs pass removed ambiguity around runtime ports. The repo now documents that deployment should follow the platform-provided `PORT`, that the codebase itself does not hardcode a runtime port, and that seeing `3001` locally is just Next falling forward when `3000` was already occupied.
 
-The UI simplification pass then reduced screen noise without changing the core editing model. The request flow first moved into one right-rail composer, then tightened further into a review-first layout: the idle right rail disappears, the left rail now holds an explicit whole-fragment base action, the manuscript page is wider, and custom prompting appears as a floating selection-triggered panel. Screenshots in `.tmp/editor-ui-clean.png` and `.tmp/editor-ui-wide-dev.png` confirmed the calmer default state.
+The repo-hygiene pass tightened the text layer that patch-based editing depends on. The repository now has explicit UTF-8 and LF defaults, a text-integrity check at `npm run check:text`, and normalized tracked source and docs files so shell and patch tooling start from a consistent baseline.
 
-The deployment-docs pass then removed ambiguity around runtime ports. The repo now documents that deployment should follow the platform-provided `PORT`, that the codebase itself does not hardcode a runtime port, and that seeing `3001` locally is just Next falling forward when `3000` was already occupied.
+The latest UI pass fixed the last trust gap in the editor flow itself. Selection now remains visually anchored while the floating prompt has focus, the base patch action appears only once in the selection composer, and accepted edits stay visible inline as manuscript diffs until the editor explicitly resumes typing.
 
-Live Gemini validation also exposed the next hardening target more clearly: the key path works and the request reaches Gemini, but the current prompt and normalization path still allow provider responses that fail the local patch contract and trigger fallback.
+The latest provider-hardening pass reduced false fallback cases on the main OpenAI path. The server now retries normalization after repairing common model drift such as selection-relative offsets and numeric-string indices, so valid local edits survive more often instead of being discarded wholesale.
 
-The main remaining gaps are live non-OpenAI validation and higher-level coverage rather than core product behavior. Gemini needs contract hardening from real responses, Anthropic still needs real-key validation in this environment, and there is not yet route-level or end-to-end UI test coverage for the review flow.
+The latest floating-panel refinement reduced visual duplication in the editor. The manuscript highlight is now the only selection preview, the prompt window can be folded manually from the top-right corner, and it auto-collapses after send so review output gets attention immediately.
+
+The latest patch-normalization pass also fixed the main review-quality issue in the editor flow. The server now asks for one full-fragment rewrite and still collapses any fragmented model output into one coherent selection-wide diff before the UI renders it.
+
+The main remaining gaps are live non-OpenAI validation and higher-level coverage rather than core product behavior. Gemini needs contract hardening from real responses, Anthropic still needs real-key validation in this environment, there is not yet route-level or UI test coverage for the review flow, and the new text-integrity check is not yet wired into CI or a pre-commit hook.
 
 ## Context and Orientation
 
@@ -145,15 +199,16 @@ Current key files:
 - `C:\Projects\oboz-ai\orest-edit\apps\web\lib\server\patch-service.ts`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\test\patch-contract.test.ts`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\test\patch-service.test.ts`
+- `C:\Projects\oboz-ai\orest-edit\.editorconfig`
+- `C:\Projects\oboz-ai\orest-edit\.gitattributes`
+- `C:\Projects\oboz-ai\orest-edit\scripts\check-text-integrity.mjs`
 
 Important product context:
 - user = book editor, not doctor
 - UI language = Ukrainian
 - visual baseline = `docs/sample4.html`
 - product behavior = patch-first and diff-first
-- current implementation = single Next.js app with OpenAI defaulting, Gemini/Anthropic adapters, and local fallback
-
-In this repository, a patch means a local text operation such as replace, insert, or delete, scoped to a selected fragment. A diff means the user sees the exact textual change before accepting it.
+- current implementation = single Next.js app with OpenAI defaulting, Gemini/Anthropic adapters, local fallback, and repo-level text normalization guards
 
 ## Plan of Work
 
@@ -169,15 +224,13 @@ Fourth, one real provider path was connected through OpenAI. The route validates
 
 Fifth, patch acceptance was made real: accepting an operation updates the manuscript text and rebases or discards remaining proposals safely.
 
-Sixth, a hardening pass added response diagnostics, short request history, and grouped accept/reject for safe multi-operation batches.
+Sixth, hardening passes added response diagnostics, short request history, grouped accept/reject for safe multi-operation batches, and root-env loading for provider keys.
 
-Seventh, local env loading was hardened so the server can use the repo-root OpenAI key without requiring browser-stored secrets.
+Seventh, real Gemini and Anthropic adapters were added behind the same server patch contract using each provider's current structured-output API shape.
 
-Eighth, real Gemini and Anthropic adapters were added behind the same server patch contract using each provider's current structured-output API shape.
+Eighth, automated tests were added for patch normalization, batch apply behavior, and provider env/fallback logic.
 
-Ninth, automated tests were added for patch normalization, batch apply behavior, and provider env/fallback logic.
-
-Finally, provider settings were persisted locally and the vertical slice was validated end to end with both success and fallback/error states.
+Ninth, repo-level text hygiene was hardened through explicit UTF-8 and LF defaults, a text-integrity script, and normalization of tracked source and docs files.
 
 ## Concrete Steps
 
@@ -187,6 +240,7 @@ All commands were run from:
 
 Key implementation and validation commands:
 
+    npm run check:text
     npm run test
     npm run typecheck
     npm run build
@@ -211,27 +265,32 @@ Behavioral acceptance achieved:
 - the app handles missing API key or provider failure with a visible non-crashing fallback/error state
 - the app shows diagnostics for the last request and keeps a short in-memory request history
 - multi-operation batches can be accepted or rejected safely
-- leaving the settings API-key field blank still allows a real OpenAI request when `OPENAI_API_KEY` exists in the repo-root `.env`
-- OpenAI, Gemini, and Anthropic now each have a real adapter behind the same patch contract
+- leaving the settings API-key field blank still allows a real provider request when the matching env key exists in the repo-root `.env`
+- OpenAI, Gemini, and Anthropic each have a real adapter behind the same patch contract
 - automated tests cover patch normalization, batch apply behavior, and provider env/fallback logic
+- repo text files are checked for BOM, CRLF, missing-final-newline drift, and obvious mojibake markers through `npm run check:text`
 
 Validation commands run:
 
+    npm run check:text
     npm run test
     npm run typecheck
     npm run build
 
 Runtime validation:
-- confirmed only port `3000` remained active during the earlier single-port cleanup after removing the stale `3001` server
 - confirmed `/api/edit/patch` returned `usedFallback: false` for an OpenAI request sent without a form API key, using the root `.env` path
 - confirmed provider adapter tests normalize OpenAI, Gemini, and Anthropic responses through the same patch contract
 - confirmed a live Gemini request reached the provider through the repo-root `.env` key path, then fell back because the returned local edits were empty or invalid for normalization
-- captured and reviewed `.tmp/editor-ui.png` from a temporary local production run during the simplification pass
+- confirmed the current repository text baseline now passes `npm run check:text`
+- confirmed a one-line README edit still failed through the native `apply_patch` tool in this session, while the same change succeeded via an explicit UTF-8 rewrite
+
 ## Idempotence and Recovery
 
-The implementation remains safe to rerun incrementally. The editor UI, API route, and settings persistence are additive inside the existing Next.js app.
+The implementation remains safe to rerun incrementally. The editor UI, API route, settings persistence, and repo-level text safeguards are additive inside the existing Next.js app.
 
-If a provider path is unavailable, the editor continues to function through the local fallback behind the same patch contract. If the manuscript changes manually, pending proposals are dropped instead of risking unsafe application to stale offsets. Group accept also re-checks every pending operation against the current text before applying it. If the browser field for the API key is blank, the server now checks the appropriate server env value before falling back.
+If a provider path is unavailable, the editor continues to function through the local fallback behind the same patch contract. If the manuscript changes manually, pending proposals are dropped instead of risking unsafe application to stale offsets. Group accept also re-checks every pending operation against the current text before applying it. If the browser field for the API key is blank, the server checks the appropriate server env value before falling back.
+
+If shell-based edits are required in this environment, the repository now has explicit guardrails to catch encoding and line-ending drift before those changes are committed.
 
 ## Artifacts and Notes
 
@@ -241,6 +300,7 @@ Useful implementation artifacts maintained in code:
 - request history and grouped actions in `C:\Projects\oboz-ai\orest-edit\apps\web\app\editor\page.tsx`
 - shared multi-provider patch service in `C:\Projects\oboz-ai\orest-edit\apps\web\lib\server\patch-service.ts`
 - root-env reader for local server defaults in `C:\Projects\oboz-ai\orest-edit\apps\web\lib\server\env.ts`
+- repository text-integrity guard in `C:\Projects\oboz-ai\orest-edit\scripts\check-text-integrity.mjs`
 
 Representative patch API behavior:
 - request carries full manuscript text, absolute selection offsets, mode, prompt, provider, model id, API key, and base prompt
@@ -250,7 +310,7 @@ Representative patch API behavior:
 
 ## Interfaces and Dependencies
 
-The app now ends with a stable patch contract in:
+The app ends with a stable patch contract in:
 
     apps/web/lib/editor/patch-contract.ts
 
@@ -286,6 +346,9 @@ The first API path lives at:
 
 and accepts the working request contract described in the plan, plus an optional `basePrompt` so editor settings can shape the provider request.
 
-The real provider dependencies now include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. OpenAI remains the default provider in the current UI, and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
+The real provider dependencies include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. OpenAI remains the default provider in the current UI, and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
 
-Revision note (2026-03-05): updated this plan after adding real Gemini and Anthropic adapters, adding automated tests for the patch contract and provider path, and validating the workspace again with `npm run test`, `npm run typecheck`, and `npm run build`.
+The repo-level text dependencies now include:
+- `.editorconfig` for default UTF-8 and LF behavior
+- `.gitattributes` for Git-level text normalization expectations
+- `scripts/check-text-integrity.mjs` for BOM, CRLF, final-newline, and mojibake checks

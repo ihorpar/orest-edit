@@ -1,4 +1,4 @@
-﻿type ModelValidationState = "valid" | "missing" | "invalid" | "auth_error" | "network_error";
+type ModelValidationState = "valid" | "missing" | "invalid" | "auth_error" | "network_error";
 
 const palette: Record<ModelValidationState, string> = {
   valid: "#12a66a",

@@ -1,4 +1,4 @@
-﻿import { getSelectedText, hasSelection, type PatchSelection } from "./patch-contract";
+import { getSelectedText, hasSelection, type PatchSelection } from "./patch-contract";
 
 export type SelectionRange = PatchSelection;
 

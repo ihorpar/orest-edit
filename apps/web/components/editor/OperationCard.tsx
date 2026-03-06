@@ -1,4 +1,4 @@
-﻿import type { PatchOperation } from "../../lib/editor/patch-contract";
+import type { PatchOperation } from "../../lib/editor/patch-contract";
 import { DiffInlineMark } from "./DiffInlineMark";
 import { Button } from "../ui/Button";
 

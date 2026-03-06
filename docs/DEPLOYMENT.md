@@ -38,10 +38,10 @@ Local developer behavior:
 
 Recommended flow:
 1. Install dependencies with `npm ci`.
-2. Build with `npm run build`.
-3. Start with `npm run start`.
-4. Let the platform inject `PORT`.
-
+2. Run `npm run check:text` to verify UTF-8 and LF text integrity.
+3. Build with `npm run build`.
+4. Start with `npm run start`.
+5. Let the platform inject `PORT`.
 For container-style deployments, it is also reasonable to expose `HOSTNAME=0.0.0.0` if the platform expects binding on all interfaces.
 
 ## Current repo status

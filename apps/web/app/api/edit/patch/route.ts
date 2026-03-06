@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import type { PatchRequest, PatchResponse } from "../../../../lib/editor/patch-contract";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { generatePatchResponse } from "../../../../lib/server/patch-service";

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { Button } from "../ui/Button";
@@ -22,19 +22,46 @@ export function FloatingPromptPanel({
   selectionKey: string;
 }) {
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     setPrompt(defaultPrompt);
+    setIsCollapsed(false);
   }, [selectionKey]);
+
+  useEffect(() => {
+    if (loading) {
+      setIsCollapsed(true);
+    }
+  }, [loading]);
 
   const trimmedPrompt = prompt.trim();
 
   return (
-    <div className="floating-panel floating-panel-open">
+    <div className="floating-panel floating-panel-open" data-collapsed={isCollapsed ? "true" : "false"}>
       <div className="floating-panel-header">
-        <span className="mono-ui">Кастомні правки</span>
+        <span className="mono-ui">Локальна правка</span>
+        <button
+          type="button"
+          className="panel-toggle"
+          onClick={() => setIsCollapsed((current) => !current)}
+          aria-label={isCollapsed ? "Розгорнути локальну правку" : "Згорнути локальну правку"}
+          aria-expanded={isCollapsed ? "false" : "true"}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d={isCollapsed ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
-      <div className="floating-panel-body">
+      {!isCollapsed ? (
+        <div className="floating-panel-body">
         <textarea
           className="floating-textarea"
           value={prompt}
@@ -50,14 +77,25 @@ export function FloatingPromptPanel({
           ))}
         </div>
         <div className="floating-footer compact-floating-footer">
-          <Button variant="secondary" size="sm" disabled={loading} onClick={onRequestDefault}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading}
+            onClick={() => {
+              setIsCollapsed(true);
+              onRequestDefault();
+            }}
+          >
             Базова правка
           </Button>
           <div className="send-row">
             <button
               type="button"
               className="send-button"
-              onClick={() => onSubmit(trimmedPrompt)}
+              onClick={() => {
+                setIsCollapsed(true);
+                onSubmit(trimmedPrompt);
+              }}
               aria-label="Надіслати кастомні правки"
               disabled={loading || !trimmedPrompt}
             >
@@ -74,7 +112,25 @@ export function FloatingPromptPanel({
             </button>
           </div>
         </div>
-      </div>
+        </div>
+      ) : (
+        <div className="floating-panel-collapsed-bar">
+          <button
+            type="button"
+            className="floating-panel-inline-action"
+            disabled={loading}
+            onClick={() => {
+              setIsCollapsed(true);
+              onRequestDefault();
+            }}
+          >
+            Базова правка
+          </button>
+          <button type="button" className="floating-panel-inline-action" onClick={() => setIsCollapsed(false)}>
+            Відкрити промпт
+          </button>
+        </div>
+      )}
     </div>
   );
 }

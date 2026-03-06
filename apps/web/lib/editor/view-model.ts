@@ -1,4 +1,4 @@
-﻿import type { PatchOperation, PatchOperationType } from "./patch-contract";
+import type { PatchOperation, PatchOperationType } from "./patch-contract";
 
 export type ModelValidationState = "valid" | "missing" | "invalid" | "auth_error" | "network_error";
 export type OperationType = PatchOperationType;

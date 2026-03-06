@@ -86,3 +86,35 @@ Reason: a whole-fragment action is useful, but it must state its scope explicitl
 Decision: keep a short runtime summary in `README.md` and place detailed deployment notes in `docs/DEPLOYMENT.md`.
 
 Reason: the README should answer quick run/deploy questions, while deployment-specific operational details need a stable dedicated document.
+
+### Repository text normalization
+Decision: enforce UTF-8 without BOM, LF line endings, and a final newline for repository text files, with `npm run check:text` as the integrity guard.
+
+Reason: patch-based editing becomes unreliable when source files drift across BOM, CRLF, missing-final-newline, or mojibake states, especially on Windows shell workflows.
+
+## 2026-03-06
+
+### Selection-scoped base action
+Decision: keep `Базова правка` only inside the floating selection composer.
+
+Reason: the selection-scoped action was repeated in too many places and weakened the clarity of what exactly would be edited.
+
+### Post-apply manuscript review mode
+Decision: accepted edits render inline as manuscript diffs until the user clicks back into direct editing.
+
+Reason: the product stays diff-first even after apply, while the underlying plain-text editor can still resume without rich-text offset drift.
+
+### Provider repair before fallback
+Decision: repair common provider drift such as selection-relative offsets and numeric-string indices before declaring a response invalid.
+
+Reason: these responses can often be normalized safely, and dropping them straight to fallback hides usable OpenAI output from the editor.
+
+### Floating composer collapse model
+Decision: the floating selection composer keeps only prompt controls, supports a top-right fold/unfold toggle, and auto-collapses after send.
+
+Reason: the main manuscript highlight already identifies the editing target, so duplicate selection text is noise, and the prompt window should get out of the way once review output is incoming.
+
+### One request, one diff
+Decision: each model request is normalized to one selection-wide `replace` diff before review.
+
+Reason: fragmented model edits made one prompt look like several unrelated answers and produced awkward partial rewrites in the manuscript; one coherent diff is easier to review and safer to trust.
