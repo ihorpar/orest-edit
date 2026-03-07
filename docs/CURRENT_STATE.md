@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-06
+Date: 2026-03-07
 Status: Active handoff
 
 ## What exists now
@@ -14,7 +14,7 @@ Status: Active handoff
 - Default manuscript demo now uses a long Ukrainian science-pop section about biohacking, HDL/LDL, and cardiovascular risk
 - Editable manuscript surface with real text selection tracking
 - Markdown formatting toolbar in the manuscript header area for bold, headings, lists, links, tables, code, and dividers
-- Idle manuscript preview that renders markdown formatting in place, while focused editing still uses raw markdown source in the textarea
+- The current manuscript surface still splits between idle formatted markdown preview and focused raw markdown source in a textarea; this is now a known editor-stability problem because the two modes do not share identical hit-testing/layout geometry
 - Manuscript paragraphs now have visible padded number markers in a light gray gutter
 - Floating selection composer with manual fold/unfold control
 - Responsive editor shell that keeps the three-pane desktop layout but restacks utility and review panels into the center flow on tablet/mobile
@@ -74,6 +74,7 @@ Status: Active handoff
 - Export patch is not part of the current MVP direction.
 - Sources are not a primary navigation flow in the current MVP.
 - The editor still uses textarea-backed plain text as the canonical source, but now treats that source as markdown and renders a formatted preview only in idle view states.
+- The next manuscript-surface migration target is CodeMirror 6: one source-visible markdown editor with in-place syntax decoration, gutter-based paragraph anchors, and a synchronized recommendation lane beside the editor.
 - Pending patch proposals are invalidated when the manuscript is edited manually.
 - Patch responses now carry diagnostics so the editor can show provider/model/request status without opening dev tools.
 - For local development, leaving the settings API-key field empty uses the matching provider key from the repo-root `.env` on the server.
@@ -100,11 +101,11 @@ Status: Active handoff
 - Repository text files are treated as UTF-8 with LF line endings, and integrity is checked via `npm run check:text`.
 
 ## Highest-priority next work
-1. Harden Gemini using the live failure case where the provider responded but still produced unusable local edits for the shared patch contract.
-2. Live-validate Anthropic with a real key and harden provider-specific error handling from real responses.
-3. Add route-level and editor interaction tests around request parsing, diff review, and accept/reject flow.
-4. Wire `npm run check:text` into CI or a pre-commit hook so the text-integrity guard runs automatically.
-5. Add markdown-specific interaction coverage around toolbar actions, preview toggling, and table/list rendering without weakening the offset-based patch flow.
+1. Migrate the manuscript surface to CodeMirror 6 so the editor keeps one visible markdown source layout instead of swapping between preview and raw-edit modes.
+2. Preserve and improve whole-text recommendation UX during that migration: keep paragraph-range highlighting, add gutter anchors, and move the selected recommendation into a synchronized side lane instead of inline manuscript flow.
+3. Harden Gemini using the live failure case where the provider responded but still produced unusable local edits for the shared patch contract.
+4. Live-validate Anthropic with a real key and harden provider-specific error handling from real responses.
+5. Add route-level and editor interaction tests around request parsing, diff review, accept/reject flow, and the new CodeMirror editor behaviors.
 
 ## Last validated state
 - `npm run check:text` passed
@@ -151,6 +152,7 @@ Status: Active handoff
 - `npm run typecheck` passed after adding markdown toolbar helpers, markdown preview rendering, and source-vs-preview editor states.
 - `npm run build` passed after the same markdown-editor pass.
 - Linux Playwright smoke run confirmed the formatted idle markdown preview and the focused raw-markdown source view after injecting a markdown draft into local storage; screenshots saved to `.tmp/editor-markdown-preview.png` and `.tmp/editor-markdown-source.png`.
+- Product analysis on 2026-03-07 confirmed the preview-vs-source manuscript swap still creates click/caret drift in long documents; no fix has been implemented yet, and the agreed migration target is CodeMirror 6.
 - `npm run typecheck` passed after moving diff editability into the large manuscript review block and removing strikethrough from deleted text.
 - Windows headless Chrome captured the large manuscript diff with plain red removed text and an editable green replacement field in `.tmp/ui-big-diff-editable.png`.
 - `npm run test` is currently not runnable in this environment because the workspace Node binary rejects the script's `--experimental-strip-types` flag.

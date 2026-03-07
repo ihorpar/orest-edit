@@ -10,7 +10,11 @@ import { Textarea } from "../../components/ui/Textarea";
 import {
   CUSTOM_MODEL_OPTION,
   DEFAULT_BASE_PROMPT,
+  DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   DEFAULT_EDITOR_SETTINGS,
+  DEFAULT_IMAGE_PROMPT_TEMPLATE,
+  DEFAULT_REVIEW_LEVEL_GUIDE,
+  DEFAULT_REVIEW_PROMPT,
   findProviderModelPreset,
   getDefaultProviderModelId,
   getProviderEnvKey,
@@ -298,7 +302,7 @@ export default function SettingsPage() {
               <div className="settings-section-head settings-section-head-static">
                 <div>
                   <p className="mono-ui settings-section-kicker">Поведінка редактора</p>
-                  <h2 className="settings-section-title">Базовий промпт</h2>
+                  <h2 className="settings-section-title">Prompt templates</h2>
                 </div>
               </div>
 
@@ -326,6 +330,118 @@ export default function SettingsPage() {
                     }}
                   >
                     Типовий промпт
+                  </Button>
+                </div>
+              </label>
+
+              <label className="settings-field" htmlFor="review-prompt">
+                <span className="mono-ui settings-label">Whole-text review prompt</span>
+                <Textarea
+                  id="review-prompt"
+                  rows={10}
+                  value={settings.reviewPrompt}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, reviewPrompt: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Тут живе контракт recommendation types, suggested actions, врізок і візуалізацій.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, reviewPrompt: DEFAULT_REVIEW_PROMPT }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий prompt
+                  </Button>
+                </div>
+              </label>
+
+              <label className="settings-field" htmlFor="review-level-guide">
+                <span className="mono-ui settings-label">Маппінг рівнів 1-5</span>
+                <Textarea
+                  id="review-level-guide"
+                  rows={8}
+                  value={settings.reviewLevelGuide}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, reviewLevelGuide: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Цей блок задає поведінку рівнів від `Легкий марафет` до `Згорів сарай — гори хата`.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, reviewLevelGuide: DEFAULT_REVIEW_LEVEL_GUIDE }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий маппінг
+                  </Button>
+                </div>
+              </label>
+
+              <label className="settings-field" htmlFor="callout-prompt">
+                <span className="mono-ui settings-label">Prompt для врізок</span>
+                <Textarea
+                  id="callout-prompt"
+                  rows={8}
+                  value={settings.calloutPromptTemplate}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, calloutPromptTemplate: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Плейсхолдери: <code>{`{{calloutKind}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, calloutPromptTemplate: DEFAULT_CALLOUT_PROMPT_TEMPLATE }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий prompt
+                  </Button>
+                </div>
+              </label>
+
+              <label className="settings-field" htmlFor="image-prompt">
+                <span className="mono-ui settings-label">Prompt для image generation</span>
+                <Textarea
+                  id="image-prompt"
+                  rows={8}
+                  value={settings.imagePromptTemplate}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, imagePromptTemplate: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Плейсхолдери: <code>{`{{visualIntent}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, imagePromptTemplate: DEFAULT_IMAGE_PROMPT_TEMPLATE }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий prompt
                   </Button>
                 </div>
               </label>
@@ -366,7 +482,16 @@ export default function SettingsPage() {
 }
 
 function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
-  return left.provider === right.provider && left.modelId === right.modelId && left.apiKey === right.apiKey && left.basePrompt === right.basePrompt;
+  return (
+    left.provider === right.provider &&
+    left.modelId === right.modelId &&
+    left.apiKey === right.apiKey &&
+    left.basePrompt === right.basePrompt &&
+    left.reviewPrompt === right.reviewPrompt &&
+    left.reviewLevelGuide === right.reviewLevelGuide &&
+    left.calloutPromptTemplate === right.calloutPromptTemplate &&
+    left.imagePromptTemplate === right.imagePromptTemplate
+  );
 }
 
 function getConnectionLabel(state: SettingsConnectionState) {

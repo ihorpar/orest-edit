@@ -1,5 +1,6 @@
 import type { PatchOperation, PatchResponseDiagnostics, PatchSelection } from "./patch-contract";
-import type { EditorialReviewDiagnostics, EditorialReviewItem } from "./review-contract";
+import type { ManuscriptRevisionState } from "./manuscript-structure";
+import type { EditorialReviewDiagnostics, EditorialReviewItem, GeneratedReviewImageAsset, ReviewActionProposal, WholeTextChangeLevel } from "./review-contract";
 
 export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v1";
 
@@ -23,7 +24,7 @@ export interface PersistedHistoryItem {
   providerUsed: string;
   requestedProvider: string;
   requestedModelId: string;
-  mode: "default" | "custom" | "review";
+  mode: "default" | "custom" | "review" | "proposal" | "image";
   resultCount: number;
   droppedCount: number;
   usedFallback: boolean;
@@ -33,6 +34,7 @@ export interface PersistedHistoryItem {
 
 export interface PersistedEditorDraftState {
   text: string;
+  revision: ManuscriptRevisionState;
   selection: PatchSelection;
   operations: PatchOperation[];
   reviewItems: EditorialReviewItem[];
@@ -42,6 +44,12 @@ export interface PersistedEditorDraftState {
   appliedDiffs: PersistedAppliedDiffMarker[];
   feedback: PersistedEditorFeedback | null;
   activeReviewItemId: string | null;
+  activeProposal: ReviewActionProposal | null;
+  reviewImageAssets: Record<string, GeneratedReviewImageAsset>;
+  reviewComposer: {
+    changeLevel: WholeTextChangeLevel;
+    additionalInstructions: string;
+  };
 }
 
 export function readEditorDraftState(): PersistedEditorDraftState | null {
@@ -73,7 +81,11 @@ export function writeEditorDraftState(state: PersistedEditorDraftState) {
     return;
   }
 
-  window.localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, JSON.stringify(state));
+  try {
+    window.localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, JSON.stringify(sanitizePersistedEditorDraftState(state)));
+  } catch (error) {
+    console.warn("Не вдалося зберегти editor draft у localStorage.", error);
+  }
 }
 
 export function clearEditorDraftState() {
@@ -82,4 +94,53 @@ export function clearEditorDraftState() {
   }
 
   window.localStorage.removeItem(EDITOR_DRAFT_STORAGE_KEY);
+}
+
+function sanitizePersistedEditorDraftState(state: PersistedEditorDraftState): PersistedEditorDraftState {
+  const reviewImageAssets = Object.fromEntries(
+    Object.entries(state.reviewImageAssets).filter(([, asset]) => isPersistableEditorAsset(asset))
+  );
+  const activeProposal = sanitizePersistedProposal(state.activeProposal);
+
+  return {
+    ...state,
+    activeProposal,
+    reviewImageAssets
+  };
+}
+
+function sanitizePersistedProposal(proposal: ReviewActionProposal | null): ReviewActionProposal | null {
+  if (!proposal || proposal.kind !== "image_prompt" || !proposal.imageDraft?.generatedAsset) {
+    return proposal;
+  }
+
+  if (isPersistableEditorAsset(proposal.imageDraft.generatedAsset)) {
+    return proposal;
+  }
+
+  return {
+    ...proposal,
+    imageDraft: {
+      ...proposal.imageDraft,
+      generatedAsset: undefined
+    }
+  };
+}
+
+function isPersistableEditorAsset(asset: GeneratedReviewImageAsset): boolean {
+  if (!asset || typeof asset !== "object") {
+    return false;
+  }
+
+  const legacyDataUrl = (asset as unknown as { dataUrl?: unknown }).dataUrl;
+
+  if (typeof legacyDataUrl === "string" && legacyDataUrl.trim()) {
+    return false;
+  }
+
+  if (!asset.source || typeof asset.source !== "object") {
+    return false;
+  }
+
+  return asset.source.kind !== "data_url";
 }

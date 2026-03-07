@@ -2,10 +2,11 @@ import { createPatchId } from "../editor/patch-contract.ts";
 import {
   normalizeEditorialReviewItems,
   type EditorialReviewItem,
+  type EditorialCalloutKind,
   type EditorialReviewRequest,
   type EditorialReviewResponse
 } from "../editor/review-contract.ts";
-import { findParagraphForOffset, formatParagraphLabel, getManuscriptParagraphs } from "../editor/manuscript-structure.ts";
+import { computeAnchorFingerprint, findParagraphForOffset, formatParagraphLabel, getManuscriptParagraphs, getParagraphRangeText } from "../editor/manuscript-structure.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -26,15 +27,47 @@ const openAiSchema = {
         additionalProperties: false,
         properties: {
           title: { type: "string" },
-          explanation: { type: "string" },
+          reason: { type: "string" },
           recommendation: { type: "string" },
-          category: { type: "string", enum: ["clarity", "structure", "tone"] },
-          severity: { type: "string", enum: ["high", "medium", "low"] },
+          recommendationType: {
+            type: "string",
+            enum: ["rewrite", "expand", "simplify", "list", "subsection", "callout", "visualize", "illustration"]
+          },
+          suggestedAction: { type: "string", enum: ["rewrite_text", "insert_text", "prepare_callout", "prepare_visual"] },
+          priority: { type: "string", enum: ["high", "medium", "low"] },
           paragraphStart: { type: "integer" },
           paragraphEnd: { type: "integer" },
-          excerpt: { type: "string" }
+          excerpt: { type: "string" },
+          insertionHint: { type: "string", enum: ["replace", "before", "after", "subsection_after"] },
+          calloutKind: {
+            anyOf: [
+              { type: "string", enum: ["quick_fact", "mini_story", "mechanism_explained", "step_by_step", "myth_vs_fact"] },
+              { type: "null" }
+            ]
+          },
+          calloutTitle: { anyOf: [{ type: "string" }, { type: "null" }] },
+          calloutPreviewText: { anyOf: [{ type: "string" }, { type: "null" }] },
+          calloutSummary: { anyOf: [{ type: "string" }, { type: "null" }] },
+          calloutPrompt: { anyOf: [{ type: "string" }, { type: "null" }] },
+          visualIntent: {
+            anyOf: [
+              { type: "string", enum: ["diagram", "comparison", "process", "timeline", "scene", "concept"] },
+              { type: "null" }
+            ]
+          }
         },
-        required: ["title", "explanation", "recommendation", "category", "severity", "paragraphStart", "paragraphEnd", "excerpt"]
+        required: [
+          "title",
+          "reason",
+          "recommendation",
+          "recommendationType",
+          "suggestedAction",
+          "priority",
+          "paragraphStart",
+          "paragraphEnd",
+          "excerpt",
+          "insertionHint"
+        ]
       }
     }
   },
@@ -50,15 +83,40 @@ const geminiSchema = {
         type: "OBJECT",
         properties: {
           title: { type: "STRING" },
-          explanation: { type: "STRING" },
+          reason: { type: "STRING" },
           recommendation: { type: "STRING" },
-          category: { type: "STRING" },
-          severity: { type: "STRING" },
+          recommendationType: { type: "STRING" },
+          suggestedAction: { type: "STRING" },
+          priority: { type: "STRING" },
           paragraphStart: { type: "INTEGER" },
           paragraphEnd: { type: "INTEGER" },
-          excerpt: { type: "STRING" }
+          excerpt: { type: "STRING" },
+          insertionHint: { type: "STRING" },
+          calloutKind: { type: "STRING" },
+          calloutTitle: { type: "STRING" },
+          calloutPreviewText: { type: "STRING" },
+          calloutSummary: { type: "STRING" },
+          calloutPrompt: { type: "STRING" },
+          visualIntent: { type: "STRING" }
         },
-        required: ["title", "explanation", "recommendation", "category", "severity", "paragraphStart", "paragraphEnd", "excerpt"]
+        required: [
+          "title",
+          "reason",
+          "recommendation",
+          "recommendationType",
+          "suggestedAction",
+          "priority",
+          "paragraphStart",
+          "paragraphEnd",
+          "excerpt",
+          "insertionHint",
+          "calloutKind",
+          "calloutTitle",
+          "calloutPreviewText",
+          "calloutSummary",
+          "calloutPrompt",
+          "visualIntent"
+        ]
       }
     }
   },
@@ -69,6 +127,7 @@ type FetchLike = typeof fetch;
 type EditorialReviewProviderResult = {
   items: EditorialReviewItem[];
   droppedItemCount: number;
+  droppedCalloutDraftCount: number;
   providerUsed: string;
   rawOutput?: string;
 };
@@ -84,6 +143,7 @@ export async function generateEditorialReview(
   options: GenerateEditorialReviewOptions = {}
 ): Promise<EditorialReviewResponse> {
   const requestId = createPatchId("review");
+  const reviewSessionId = createPatchId("review-session");
   const fetchImpl = options.fetchImpl ?? fetch;
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const now = options.now ?? (() => new Date().toISOString());
@@ -92,12 +152,15 @@ export async function generateEditorialReview(
   if (!request.text.trim()) {
     return buildEditorialReviewResponse({
       requestId,
+      reviewSessionId,
       requestedProvider: request.provider,
       requestedModelId: request.modelId,
       providerUsed: "invalid-text",
       textLength,
+      changeLevel: request.changeLevel,
       items: [],
       droppedItemCount: 0,
+      droppedCalloutDraftCount: 0,
       usedFallback: false,
       error: "Текст порожній. Немає що аналізувати.",
       generatedAt: now()
@@ -110,6 +173,7 @@ export async function generateEditorialReview(
     return buildFallbackEditorialReviewResponse({
       request,
       requestId,
+      reviewSessionId,
       error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env, тому показано локальний редакторський огляд.`,
       generatedAt: now()
     });
@@ -118,21 +182,24 @@ export async function generateEditorialReview(
   try {
     const result =
       request.provider === "gemini"
-        ? await createGeminiEditorialReview(request, apiKey, fetchImpl)
+        ? await createGeminiEditorialReview(request, reviewSessionId, apiKey, fetchImpl)
         : request.provider === "anthropic"
-          ? await createAnthropicEditorialReview(request, apiKey, fetchImpl)
-          : await createOpenAiEditorialReview(request, apiKey, fetchImpl);
+          ? await createAnthropicEditorialReview(request, reviewSessionId, apiKey, fetchImpl)
+          : await createOpenAiEditorialReview(request, reviewSessionId, apiKey, fetchImpl);
 
     return buildEditorialReviewResponse({
       requestId,
+      reviewSessionId,
       requestedProvider: request.provider,
       requestedModelId: request.modelId,
       providerUsed: result.providerUsed,
       textLength,
+      changeLevel: request.changeLevel,
       items: result.items,
       droppedItemCount: result.droppedItemCount,
+      droppedCalloutDraftCount: result.droppedCalloutDraftCount,
       usedFallback: false,
-      error: result.droppedItemCount > 0 ? `Відкинуто ${result.droppedItemCount} невалідні рекомендації від провайдера.` : undefined,
+      error: buildReviewDropError(result.droppedItemCount, result.droppedCalloutDraftCount),
       generatedAt: now(),
       rawOutput: result.rawOutput
     });
@@ -140,6 +207,7 @@ export async function generateEditorialReview(
     return buildFallbackEditorialReviewResponse({
       request,
       requestId,
+      reviewSessionId,
       error: error instanceof Error ? error.message : `${providerDisplayName(request.provider)} недоступний, тому показано локальний редакторський огляд.`,
       generatedAt: now(),
       rawOutput: error instanceof EditorialReviewProviderError ? error.rawOutput : undefined
@@ -149,29 +217,35 @@ export async function generateEditorialReview(
 
 function buildEditorialReviewResponse(input: {
   requestId: string;
+  reviewSessionId: string;
   requestedProvider: string;
   requestedModelId: string;
   providerUsed: string;
   textLength: number;
+  changeLevel: EditorialReviewRequest["changeLevel"];
   items: EditorialReviewItem[];
   droppedItemCount: number;
+  droppedCalloutDraftCount: number;
   usedFallback: boolean;
   generatedAt: string;
   rawOutput?: string;
   error?: string;
 }): EditorialReviewResponse {
   return {
+    reviewSessionId: input.reviewSessionId,
     items: input.items,
     providerUsed: input.providerUsed,
     usedFallback: input.usedFallback,
     error: input.error,
     diagnostics: {
       requestId: input.requestId,
+      reviewSessionId: input.reviewSessionId,
       requestedProvider: input.requestedProvider,
       requestedModelId: input.requestedModelId,
       textLength: input.textLength,
+      changeLevel: input.changeLevel,
       returnedItemCount: input.items.length,
-      droppedItemCount: input.droppedItemCount,
+      droppedItemCount: input.droppedItemCount + input.droppedCalloutDraftCount,
       generatedAt: input.generatedAt,
       rawOutput: input.rawOutput
     }
@@ -181,18 +255,22 @@ function buildEditorialReviewResponse(input: {
 function buildFallbackEditorialReviewResponse(input: {
   request: EditorialReviewRequest;
   requestId: string;
+  reviewSessionId: string;
   error: string;
   generatedAt: string;
   rawOutput?: string;
 }): EditorialReviewResponse {
   return buildEditorialReviewResponse({
     requestId: input.requestId,
+    reviewSessionId: input.reviewSessionId,
     requestedProvider: input.request.provider,
     requestedModelId: input.request.modelId,
     providerUsed: input.request.provider,
     textLength: input.request.text.length,
-    items: createFallbackEditorialReviewItems(input.request.text),
+    changeLevel: input.request.changeLevel,
+    items: createFallbackEditorialReviewItems(input.request, input.reviewSessionId),
     droppedItemCount: 0,
+    droppedCalloutDraftCount: 0,
     usedFallback: true,
     error: input.error,
     generatedAt: input.generatedAt,
@@ -200,7 +278,12 @@ function buildFallbackEditorialReviewResponse(input: {
   });
 }
 
-async function createOpenAiEditorialReview(request: EditorialReviewRequest, apiKey: string, fetchImpl: FetchLike): Promise<EditorialReviewProviderResult> {
+async function createOpenAiEditorialReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  apiKey: string,
+  fetchImpl: FetchLike
+): Promise<EditorialReviewProviderResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
@@ -214,12 +297,12 @@ async function createOpenAiEditorialReview(request: EditorialReviewRequest, apiK
       body: JSON.stringify({
         model: request.modelId,
         temperature: 0.2,
-        instructions: buildEditorialReviewSystemPrompt(request.basePrompt),
-        input: buildEditorialReviewUserPrompt(request.text),
+        instructions: buildEditorialReviewSystemPrompt(request),
+        input: buildEditorialReviewUserPrompt(request.text, request.additionalInstructions),
         text: {
           format: {
             type: "json_schema",
-            name: "editorial_review",
+            name: "editorial_review_v2",
             strict: true,
             schema: openAiSchema
           }
@@ -238,7 +321,7 @@ async function createOpenAiEditorialReview(request: EditorialReviewRequest, apiK
     const rawOutput = readOpenAiContent(payload);
 
     try {
-      return buildNormalizedReviewResult(request.text, parseEditorialReviewItems(rawOutput), "openai", rawOutput);
+      return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "openai", rawOutput);
     } catch (error) {
       throw wrapReviewProviderError(error, rawOutput);
     }
@@ -253,7 +336,12 @@ async function createOpenAiEditorialReview(request: EditorialReviewRequest, apiK
   }
 }
 
-async function createGeminiEditorialReview(request: EditorialReviewRequest, apiKey: string, fetchImpl: FetchLike): Promise<EditorialReviewProviderResult> {
+async function createGeminiEditorialReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  apiKey: string,
+  fetchImpl: FetchLike
+): Promise<EditorialReviewProviderResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
   const endpoint = `${geminiBaseUrl}/${encodeURIComponent(request.modelId)}:generateContent`;
@@ -269,7 +357,7 @@ async function createGeminiEditorialReview(request: EditorialReviewRequest, apiK
         contents: [
           {
             role: "user",
-            parts: [{ text: `${buildEditorialReviewSystemPrompt(request.basePrompt)}\n\n${buildEditorialReviewUserPrompt(request.text)}` }]
+            parts: [{ text: `${buildEditorialReviewSystemPrompt(request)}\n\n${buildEditorialReviewUserPrompt(request.text, request.additionalInstructions)}` }]
           }
         ],
         generationConfig: {
@@ -290,7 +378,7 @@ async function createGeminiEditorialReview(request: EditorialReviewRequest, apiK
     const rawOutput = readGeminiContent(payload);
 
     try {
-      return buildNormalizedReviewResult(request.text, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
+      return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
     } catch (error) {
       throw wrapReviewProviderError(error, rawOutput);
     }
@@ -305,7 +393,12 @@ async function createGeminiEditorialReview(request: EditorialReviewRequest, apiK
   }
 }
 
-async function createAnthropicEditorialReview(request: EditorialReviewRequest, apiKey: string, fetchImpl: FetchLike): Promise<EditorialReviewProviderResult> {
+async function createAnthropicEditorialReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  apiKey: string,
+  fetchImpl: FetchLike
+): Promise<EditorialReviewProviderResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
@@ -319,10 +412,10 @@ async function createAnthropicEditorialReview(request: EditorialReviewRequest, a
       },
       body: JSON.stringify({
         model: request.modelId,
-        max_tokens: 1400,
+        max_tokens: 1800,
         temperature: 0.2,
-        system: `${buildEditorialReviewSystemPrompt(request.basePrompt)} Поверни лише JSON-об'єкт {"items":[...]} без markdown.`,
-        messages: [{ role: "user", content: buildEditorialReviewUserPrompt(request.text) }]
+        system: `${buildEditorialReviewSystemPrompt(request)} Поверни лише JSON-об'єкт {"items":[...]} без markdown.`,
+        messages: [{ role: "user", content: buildEditorialReviewUserPrompt(request.text, request.additionalInstructions) }]
       }),
       signal: controller.signal
     });
@@ -336,7 +429,7 @@ async function createAnthropicEditorialReview(request: EditorialReviewRequest, a
     const rawOutput = readAnthropicContent(payload);
 
     try {
-      return buildNormalizedReviewResult(request.text, parseEditorialReviewItems(rawOutput), "anthropic", rawOutput);
+      return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "anthropic", rawOutput);
     } catch (error) {
       throw wrapReviewProviderError(error, rawOutput);
     }
@@ -351,19 +444,40 @@ async function createAnthropicEditorialReview(request: EditorialReviewRequest, a
   }
 }
 
-function buildNormalizedReviewResult(text: string, items: unknown, providerUsed: string, rawOutput?: string): EditorialReviewProviderResult {
-  const normalized = normalizeEditorialReviewItems(text, items);
+function buildNormalizedReviewResult(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  items: unknown,
+  providerUsed: string,
+  rawOutput?: string
+): EditorialReviewProviderResult {
+  const normalized = normalizeEditorialReviewItems({
+    text: request.text,
+    revision: request.revision,
+    reviewSessionId,
+    changeLevel: request.changeLevel,
+    items
+  });
 
   if (normalized.items.length === 0 || normalized.droppedCount > 0) {
-    const repairedItems = repairEditorialReviewItems(text, items);
+    const repairedItems = repairEditorialReviewItems(request.text, items);
 
     if (repairedItems) {
-      const repairedNormalized = normalizeEditorialReviewItems(text, repairedItems);
+      const repairedNormalized = normalizeEditorialReviewItems({
+        text: request.text,
+        revision: request.revision,
+        reviewSessionId,
+        changeLevel: request.changeLevel,
+        items: repairedItems
+      });
 
       if (repairedNormalized.items.length > 0) {
+        const hydrated = hydrateAndFilterCalloutDrafts(repairedNormalized.items, request);
+
         return {
-          items: repairedNormalized.items,
+          items: hydrated.items,
           droppedItemCount: repairedNormalized.droppedCount,
+          droppedCalloutDraftCount: hydrated.droppedCalloutDraftCount,
           providerUsed,
           rawOutput: clampRawOutput(rawOutput)
         };
@@ -375,9 +489,12 @@ function buildNormalizedReviewResult(text: string, items: unknown, providerUsed:
     throw new EditorialReviewProviderError(`${providerDisplayName(providerUsed)} повернув порожні або невалідні рекомендації.`, rawOutput);
   }
 
+  const hydrated = hydrateAndFilterCalloutDrafts(normalized.items, request);
+
   return {
-    items: normalized.items,
+    items: hydrated.items,
     droppedItemCount: normalized.droppedCount,
+    droppedCalloutDraftCount: hydrated.droppedCalloutDraftCount,
     providerUsed,
     rawOutput: clampRawOutput(rawOutput)
   };
@@ -396,6 +513,21 @@ function repairEditorialReviewItems(text: string, items: unknown): unknown[] | n
     }
 
     const record = { ...(candidate as Record<string, unknown>) };
+    const title = firstString(record.title, record.problem, record.issue, record.heading, record.label);
+    const reason = firstString(record.reason, record.explanation, record.whyItMatters, record.why, record.comment, record.rationale, record.description);
+    const recommendation = firstString(
+      record.recommendation,
+      record.action,
+      record.suggestedActionText,
+      record.fix,
+      record.proposal,
+      record.editorAction
+    );
+    const recommendationType = normalizeRecommendationTypeAlias(firstString(record.recommendationType, record.type, record.kind, record.category));
+    const suggestedAction = normalizeSuggestedActionAlias(firstString(record.suggestedAction, record.nextAction, record.executionMode));
+    const priority = normalizePriorityAlias(firstString(record.priority, record.severity, record.level, record.importance));
+    const insertionHint = normalizeInsertionHintAlias(firstString(record.insertionHint, record.insertMode, record.insertionPoint));
+    const excerpt = firstString(record.excerpt, record.quote, record.snippet, record.sourceText, record.fragment);
 
     const paragraphStartCandidate = firstDefined(
       record.paragraphStart,
@@ -417,44 +549,13 @@ function repairEditorialReviewItems(text: string, items: unknown): unknown[] | n
     const repairedParagraphStart = coerceReviewIndex(paragraphStartCandidate);
     const repairedParagraphEnd = coerceReviewIndex(paragraphEndCandidate);
 
-    if (repairedParagraphStart !== null && record.paragraphStart !== repairedParagraphStart) {
-      record.paragraphStart = repairedParagraphStart;
-      changed = true;
-    }
-
-    if (repairedParagraphEnd !== null && record.paragraphEnd !== repairedParagraphEnd) {
-      record.paragraphEnd = repairedParagraphEnd;
-      changed = true;
-    }
-
-    const title = firstString(record.title, record.problem, record.issue, record.heading, record.label);
-    const explanation = firstString(
-      record.explanation,
-      record.whyItMatters,
-      record.why,
-      record.comment,
-      record.rationale,
-      record.description
-    );
-    const recommendation = firstString(
-      record.recommendation,
-      record.action,
-      record.suggestedAction,
-      record.fix,
-      record.proposal,
-      record.editorAction
-    );
-    const category = firstString(record.category, record.type, record.dimension, record.kind);
-    const severity = firstString(record.severity, record.priority, record.level, record.importance);
-    const excerpt = firstString(record.excerpt, record.quote, record.snippet, record.sourceText, record.fragment);
-
     if (title && record.title !== title) {
       record.title = title;
       changed = true;
     }
 
-    if (explanation && record.explanation !== explanation) {
-      record.explanation = explanation;
+    if (reason && record.reason !== reason) {
+      record.reason = reason;
       changed = true;
     }
 
@@ -463,18 +564,38 @@ function repairEditorialReviewItems(text: string, items: unknown): unknown[] | n
       changed = true;
     }
 
+    if (recommendationType && record.recommendationType !== recommendationType) {
+      record.recommendationType = recommendationType;
+      changed = true;
+    }
+
+    if (suggestedAction && record.suggestedAction !== suggestedAction) {
+      record.suggestedAction = suggestedAction;
+      changed = true;
+    }
+
+    if (priority && record.priority !== priority) {
+      record.priority = priority;
+      changed = true;
+    }
+
+    if (insertionHint && record.insertionHint !== insertionHint) {
+      record.insertionHint = insertionHint;
+      changed = true;
+    }
+
     if (excerpt && record.excerpt !== excerpt) {
       record.excerpt = excerpt;
       changed = true;
     }
 
-    if (category && record.category !== category) {
-      record.category = normalizeReviewCategoryAlias(category);
+    if (repairedParagraphStart !== null && record.paragraphStart !== repairedParagraphStart) {
+      record.paragraphStart = repairedParagraphStart;
       changed = true;
     }
 
-    if (severity && record.severity !== severity) {
-      record.severity = normalizeReviewSeverityAlias(severity);
+    if (repairedParagraphEnd !== null && record.paragraphEnd !== repairedParagraphEnd) {
+      record.paragraphEnd = repairedParagraphEnd;
       changed = true;
     }
 
@@ -533,39 +654,45 @@ function repairEditorialReviewItems(text: string, items: unknown): unknown[] | n
   return changed ? repaired : null;
 }
 
-function buildEditorialReviewSystemPrompt(basePrompt?: string): string {
+function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): string {
   return [
-    "Ти досвідчений редактор української науково-популярної рукописи.",
-    "Не переписуй текст і не пропонуй diff.",
-    "Потрібен лише редакторський огляд усього тексту: 3-6 найважливіших рекомендацій.",
-    "Кожна рекомендація має показати конкретну проблему, чому вона заважає читачеві, і що варто зробити редактору.",
-    "Шукай лише реальні редакторські проблеми: ясність, структура, тон і доказовість.",
-    "Уникай дрібних стилістичних прискіпувань.",
-    "Поверни JSON-об'єкт з масивом items.",
-    "У кожному item обов'язково дай title, explanation, recommendation, category, severity, paragraphStart, paragraphEnd, excerpt.",
-    "paragraphStart та paragraphEnd мають бути номерами абзаців із наведеного нижче списку.",
-    "excerpt має бути короткою дослівною цитатою з проблемного місця.",
-    "title пиши коротко, українською, до 8 слів.",
-    "severity має бути high, medium або low.",
-    "category має бути clarity, structure або tone.",
-    basePrompt ? `Контекст редакторських пріоритетів: ${basePrompt}` : ""
+    request.basePrompt ?? "",
+    request.reviewPrompt ?? "",
+    request.reviewLevelGuide ?? "",
+    `Поточний рівень глибини змін: ${request.changeLevel}.`,
+    "Не роби diff і не переписуй текст одразу. Потрібно лише повернути рекомендації та тип наступної дії.",
+    "Кожен item має бути прив'язаний до конкретного абзацу або групи сусідніх абзаців.",
+    "Поверни від 4 до 8 найсильніших рекомендацій. Не дублюй однакові поради для сусідніх абзаців.",
+    "Відсіюй дрібні косметичні зауваги. Обирай рекомендації, які реально покращують читаність, структуру, наочність або втримання уваги.",
+    "Якщо фрагмент краще винести в схему, процес, порівняння чи інфографіку, використовуй recommendationType = visualize.",
+    "Якщо текст варто лишити, але проситься візуальна підтримка, використовуй recommendationType = illustration.",
+    "Якщо доречно додати обвіс, пам'ятай: у промптах це завжди означає врізку, інфографіку або додатковий пояснювальний блок.",
+    "Callout types: quick_fact = короткий факт; mini_story = коротка сюжетна сцена; mechanism_explained = пояснення як це працює; step_by_step = покроковий розбір; myth_vs_fact = міф і факт.",
+    "Для recommendationType=callout або suggestedAction=prepare_callout одразу згенеруй calloutTitle, calloutPreviewText і calloutSummary. calloutPrompt теж заповни: це prompt для потенційної регенерації врізки.",
+    "calloutPreviewText має бути готовим текстом врізки (мінімум 3 речення), а не темою, не заголовком і не інструкцією для автора.",
+    "Для інших recommendationType обов'язково поверни calloutTitle, calloutPreviewText, calloutSummary, calloutPrompt як null.",
+    "priority має відображати редакторську цінність рекомендації, а не просто дрібну стилістичну правку.",
+    "paragraphStart і paragraphEnd мають бути номерами абзаців із наведеного списку.",
+    "excerpt має бути короткою дослівною цитатою з проблемного місця."
   ]
     .filter(Boolean)
     .join(" ");
 }
 
-function buildEditorialReviewUserPrompt(text: string): string {
+function buildEditorialReviewUserPrompt(text: string, additionalInstructions?: string): string {
   const numberedParagraphs = getManuscriptParagraphs(text)
     .map((paragraph) => `[${formatParagraphLabel(paragraph.index)}] ${paragraph.text}`)
     .join("\n\n");
 
   return [
-    "Зроби редакторський огляд цього тексту.",
-    "Поверни лише рекомендації для редактора, без переписування фрагментів.",
-    "Нижче текст, розбитий на пронумеровані абзаци.",
-    "Посилайся лише на ці номери абзаців.",
+    "Зроби редакторський review цього тексту.",
+    additionalInstructions ? `Додаткові інструкції редактора: ${additionalInstructions}` : "",
+    "Поверни лише рекомендації у JSON-об'єкті.",
+    "Нижче текст, розбитий на пронумеровані абзаци. Посилайся лише на ці номери.",
     numberedParagraphs
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function parseEditorialReviewItems(content: string): unknown {
@@ -573,98 +700,142 @@ function parseEditorialReviewItems(content: string): unknown {
   return parsed.items;
 }
 
-export function createFallbackEditorialReviewItems(text: string): EditorialReviewItem[] {
-  const items: EditorialReviewItem[] = [];
-  const paragraphs = getManuscriptParagraphs(text);
+export function createFallbackEditorialReviewItems(request: EditorialReviewRequest, reviewSessionId: string): EditorialReviewItem[] {
+  const items: Array<Omit<EditorialReviewItem, "id">> = [];
+  const paragraphs = getManuscriptParagraphs(request.text, request.revision);
+  const text = request.text;
 
   const jargonMatch = /(ліпопротеїн|атеросклеротичн|абдомінальн|ультраоброблен|маловиражен|серцево-судинн)/i.exec(text);
 
   if (jargonMatch) {
-    const paragraphIndex = findParagraphForOffset(text, jargonMatch.index);
+    const paragraphIndex = findParagraphForOffset(text, jargonMatch.index, request.revision);
 
     if (paragraphIndex !== null) {
-      items.push(
-        createFallbackItem({
-          category: "clarity",
-          severity: "high",
-          title: "Перевантажений термінологією фрагмент",
-          explanation: "У цьому місці читач натрапляє на щільний медичний словник без достатнього людського пояснення.",
-          recommendation: "Додайте коротке побутове пояснення терміна або розбийте пояснення на два простіші речення.",
-          paragraphStart: paragraphIndex,
-          paragraphEnd: paragraphIndex,
-          excerpt: text.slice(jargonMatch.index, Math.min(text.length, jargonMatch.index + 220)).trim().replace(/\s+/g, " ")
-        })
-      );
+      const paragraph = paragraphs.find((entry) => entry.index === paragraphIndex);
+
+      if (paragraph) {
+        const paragraphIds = [paragraph.id];
+        const excerpt = paragraph.text.slice(0, 220);
+        items.push({
+          reviewSessionId,
+          documentRevisionId: request.revision.documentRevisionId,
+          changeLevel: request.changeLevel,
+          title: "Термінологія тисне на читача",
+          reason: "У цьому місці медичні або наукові терміни йдуть надто щільно і не мають людської розшифровки.",
+          recommendation: "Спростити подачу термінів і дати читачеві короткий побутовий місток до значення.",
+          recommendationType: "simplify",
+          suggestedAction: "rewrite_text",
+          priority: "high",
+          anchor: {
+            paragraphIds,
+            generationParagraphRange: { start: paragraph.index, end: paragraph.index },
+            excerpt,
+            fingerprint: computeAnchorFingerprint(request.revision, paragraphIds, excerpt)
+          },
+          insertionPoint: {
+            mode: "replace",
+            anchorParagraphId: paragraph.id
+          },
+          status: "pending"
+        });
+      }
     }
   }
 
   const longParagraph = paragraphs.find((paragraph) => paragraph.text.length > 650);
 
   if (longParagraph) {
-    items.push(
-      createFallbackItem({
-        category: "structure",
-        severity: "medium",
-        title: "Абзац тримає забагато думок",
-        explanation: "Один великий блок одночасно пояснює механізм, застереження і висновок, тому читачеві складніше втримати логіку.",
-        recommendation: "Розбийте цей абзац на менші смислові кроки: пояснення, наслідок і редакторський висновок.",
-        paragraphStart: longParagraph.index,
-        paragraphEnd: longParagraph.index,
-        excerpt: longParagraph.text.slice(0, 220)
-      })
-    );
+    const paragraphIds = [longParagraph.id];
+    const excerpt = longParagraph.text.slice(0, 220);
+    items.push({
+      reviewSessionId,
+      documentRevisionId: request.revision.documentRevisionId,
+      changeLevel: request.changeLevel,
+      title: "Абзац проситься в список",
+      reason: "Один блок несе кілька смислових кроків одразу, тому читачеві важко тримати логіку й акценти.",
+      recommendation: "Переформатувати фрагмент у структурований список або розбити його на коротші смислові кроки.",
+      recommendationType: "list",
+      suggestedAction: "rewrite_text",
+      priority: "medium",
+      anchor: {
+        paragraphIds,
+        generationParagraphRange: { start: longParagraph.index, end: longParagraph.index },
+        excerpt,
+        fingerprint: computeAnchorFingerprint(request.revision, paragraphIds, excerpt)
+      },
+      insertionPoint: {
+        mode: "replace",
+        anchorParagraphId: longParagraph.id
+      },
+      status: "pending"
+    });
   }
 
-  const toneMatch = /(магічн|оптимізаці|без збоїв|достатньо|чарівн|миттєво|ідеальн)/i.exec(text);
+  const visualParagraph = paragraphs.find((paragraph) => /\b\d{2,}|\bHDL\b|\bLDL\b|відсот|порівнян|крок/i.test(paragraph.text));
 
-  if (toneMatch) {
-    const paragraphIndex = findParagraphForOffset(text, toneMatch.index);
-
-    if (paragraphIndex !== null) {
-      items.push(
-        createFallbackItem({
-          category: "tone",
-          severity: "medium",
-          title: "Ризик занадто обіцянкового тону",
-          explanation: "Тут текст легко зчитується як обіцянка швидкого контролю над здоров'ям, а не як зважене пояснення.",
-          recommendation: "Зменште категоричність і підкресліть умовність або контекст замість ефектного формулювання.",
-          paragraphStart: paragraphIndex,
-          paragraphEnd: paragraphIndex,
-          excerpt: text.slice(toneMatch.index, Math.min(text.length, toneMatch.index + 220)).trim().replace(/\s+/g, " ")
-        })
-      );
-    }
+  if (visualParagraph) {
+    const paragraphIds = [visualParagraph.id];
+    const excerpt = visualParagraph.text.slice(0, 220);
+    items.push({
+      reviewSessionId,
+      documentRevisionId: request.revision.documentRevisionId,
+      changeLevel: request.changeLevel,
+      title: "Проситься візуалізація",
+      reason: "Тут є порівняння, механізм або група фактів, які легше сприйняти не суцільним текстом, а наочно.",
+      recommendation: "Візуалізувати цей фрагмент як просту схему або інфографіку, не замінюючи весь текст повністю.",
+      recommendationType: "visualize",
+      suggestedAction: "prepare_visual",
+      priority: "medium",
+      anchor: {
+        paragraphIds,
+        generationParagraphRange: { start: visualParagraph.index, end: visualParagraph.index },
+        excerpt,
+        fingerprint: computeAnchorFingerprint(request.revision, paragraphIds, excerpt)
+      },
+      insertionPoint: {
+        mode: "after",
+        anchorParagraphId: visualParagraph.id
+      },
+      visualIntent: "comparison",
+      status: "pending"
+    });
   }
 
   if (items.length === 0) {
     const firstParagraph = paragraphs[0];
 
     if (firstParagraph) {
-      items.push(
-        createFallbackItem({
-          category: "clarity",
-          severity: "low",
-          title: "Перевірити вступ на ясність",
-          explanation: "Критичних редакторських збоїв не знайдено, але вступ усе ще варто переглянути на щільність і ритм.",
-          recommendation: "Переконайтеся, що перший абзац швидко формулює головну тезу без зайвого вступного розгону.",
-          paragraphStart: firstParagraph.index,
-          paragraphEnd: firstParagraph.index,
-          excerpt: firstParagraph.text.slice(0, 220)
-        })
-      );
+      const paragraphIds = [firstParagraph.id];
+      const excerpt = firstParagraph.text.slice(0, 220);
+      items.push({
+        reviewSessionId,
+        documentRevisionId: request.revision.documentRevisionId,
+        changeLevel: request.changeLevel,
+        title: "Підсилити вступне пояснення",
+        reason: "Критичних проблем не знайдено, але вступ можна зробити більш конкретним і корисним для читача.",
+        recommendation: "Додати одну-дві фрази, які простіше пояснюють ключову тезу без додавання нових фактів.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "low",
+        anchor: {
+          paragraphIds,
+          generationParagraphRange: { start: firstParagraph.index, end: firstParagraph.index },
+          excerpt,
+          fingerprint: computeAnchorFingerprint(request.revision, paragraphIds, excerpt)
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorParagraphId: firstParagraph.id
+        },
+        status: "pending"
+      });
     }
   }
 
-  return items.slice(0, 6);
-}
-
-function createFallbackItem(
-  item: Omit<EditorialReviewItem, "id">
-): EditorialReviewItem {
-  return {
+  return items.slice(0, 6).map((item, index) => ({
     ...item,
-    id: createPatchId("review-fallback")
-  };
+    id: createPatchId(`review-fallback-${index + 1}`)
+  }));
 }
 
 function providerDisplayName(provider: string): string {
@@ -723,34 +894,71 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
-function coerceReviewIndex(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
+function normalizeRecommendationTypeAlias(value: string | null): string | null {
+  if (!value) {
+    return null;
   }
 
-  if (typeof value === "string" && value.trim()) {
-    const coerced = Number(value.trim());
-    return Number.isFinite(coerced) ? Math.floor(coerced) : null;
-  }
-
-  return null;
-}
-
-function normalizeReviewCategoryAlias(value: string): string {
   const normalized = value.trim().toLowerCase();
 
-  if (normalized.includes("struct")) {
-    return "structure";
+  if (normalized.includes("visual") || normalized.includes("інфограф") || normalized.includes("схем")) {
+    return "visualize";
   }
 
-  if (normalized.includes("tone") || normalized.includes("тон")) {
-    return "tone";
+  if (normalized.includes("illustr") || normalized.includes("ілюстр")) {
+    return "illustration";
   }
 
-  return "clarity";
+  if (normalized.includes("callout") || normalized.includes("вріз")) {
+    return "callout";
+  }
+
+  if (normalized.includes("subsection") || normalized.includes("підрозд")) {
+    return "subsection";
+  }
+
+  if (normalized.includes("list") || normalized.includes("спис")) {
+    return "list";
+  }
+
+  if (normalized.includes("expand") || normalized.includes("допис")) {
+    return "expand";
+  }
+
+  if (normalized.includes("simpl")) {
+    return "simplify";
+  }
+
+  return "rewrite";
 }
 
-function normalizeReviewSeverityAlias(value: string): string {
+function normalizeSuggestedActionAlias(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized.includes("callout") || normalized.includes("вріз")) {
+    return "prepare_callout";
+  }
+
+  if (normalized.includes("visual") || normalized.includes("image") || normalized.includes("illustr")) {
+    return "prepare_visual";
+  }
+
+  if (normalized.includes("insert") || normalized.includes("допис")) {
+    return "insert_text";
+  }
+
+  return "rewrite_text";
+}
+
+function normalizePriorityAlias(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
   const normalized = value.trim().toLowerCase();
 
   if (normalized.includes("high") || normalized.includes("висок")) {
@@ -762,6 +970,158 @@ function normalizeReviewSeverityAlias(value: string): string {
   }
 
   return "medium";
+}
+
+function normalizeInsertionHintAlias(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized.includes("subsection") || normalized.includes("підроз")) {
+    return "subsection_after";
+  }
+
+  if (normalized.includes("before") || normalized.includes("перед")) {
+    return "before";
+  }
+
+  if (normalized.includes("after") || normalized.includes("після")) {
+    return "after";
+  }
+
+  return "replace";
+}
+
+function hydrateAndFilterCalloutDrafts(
+  items: EditorialReviewItem[],
+  request: EditorialReviewRequest
+): { items: EditorialReviewItem[]; droppedCalloutDraftCount: number } {
+  const hydratedItems: EditorialReviewItem[] = [];
+  let droppedCalloutDraftCount = 0;
+
+  for (const item of items) {
+    if (item.recommendationType !== "callout" && item.suggestedAction !== "prepare_callout") {
+      hydratedItems.push(item);
+      continue;
+    }
+
+    const calloutKind = item.calloutKind ?? "quick_fact";
+    const fragment = getParagraphRangeText(request.revision, item.anchor.paragraphIds);
+    const promptFromTemplate = renderTemplate(request.calloutPromptTemplate ?? "", {
+      calloutKind,
+      fragment,
+      recommendation: item.recommendation
+    });
+    const prompt =
+      promptFromTemplate ||
+      [
+        `Тип врізки: ${calloutKind}.`,
+        fragment ? `Фрагмент: ${fragment}` : "",
+        `Рекомендація: ${item.recommendation}`,
+        "Сформуй коротку врізку українською без додавання нових фактів."
+      ]
+        .filter(Boolean)
+        .join("\n");
+    const candidatePreview = item.calloutDraft?.previewText?.trim() ?? "";
+    if (!isUsableCalloutPreview(candidatePreview)) {
+      droppedCalloutDraftCount += 1;
+      continue;
+    }
+
+    hydratedItems.push({
+      ...item,
+      calloutKind,
+      status: "ready",
+      calloutDraft: {
+        calloutKind,
+        title: item.calloutDraft?.title?.trim() || fallbackCalloutTitle(calloutKind),
+        previewText: candidatePreview,
+        summary: item.calloutDraft?.summary?.trim() || "Врізка згенерована під час первинного огляду.",
+        prompt: item.calloutDraft?.prompt?.trim() || prompt
+      }
+    });
+  }
+
+  return {
+    items: hydratedItems,
+    droppedCalloutDraftCount
+  };
+}
+
+function isUsableCalloutPreview(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized || normalized.length < 140) {
+    return false;
+  }
+
+  if (/[?]\s*$/.test(normalized) || /:\s*$/.test(normalized)) {
+    return false;
+  }
+
+  if (/\b(додати|додай|напиши|підготуй|зроби|встав)\b/i.test(normalized)) {
+    return false;
+  }
+
+  const sentenceCount = normalized.split(/[.!?]+/).map((entry) => entry.trim()).filter(Boolean).length;
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+
+  return sentenceCount >= 2 && wordCount >= 24;
+}
+
+function fallbackCalloutTitle(kind: EditorialCalloutKind): string {
+  if (kind === "mini_story") {
+    return "Мініісторія";
+  }
+
+  if (kind === "mechanism_explained") {
+    return "Як це працює";
+  }
+
+  if (kind === "step_by_step") {
+    return "Покроково";
+  }
+
+  if (kind === "myth_vs_fact") {
+    return "Міф і факт";
+  }
+
+  return "Короткий факт";
+}
+
+function renderTemplate(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce((current, [key, value]) => current.replaceAll(`{{${key}}}`, value), template);
+}
+
+function buildReviewDropError(droppedItemCount: number, droppedCalloutDraftCount: number): string | undefined {
+  const messages: string[] = [];
+
+  if (droppedItemCount > 0) {
+    messages.push(`Відкинуто ${droppedItemCount} невалідні рекомендації від провайдера.`);
+  }
+
+  if (droppedCalloutDraftCount > 0) {
+    messages.push(
+      `Відкинуто ${droppedCalloutDraftCount} рекомендацій типу «врізка»: модель не повернула придатний пояснювальний текст.`
+    );
+  }
+
+  return messages.length > 0 ? messages.join(" ") : undefined;
+}
+
+function coerceReviewIndex(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const coerced = Number(value.trim());
+    return Number.isFinite(coerced) ? Math.floor(coerced) : null;
+  }
+
+  return null;
 }
 
 function locateExcerptInText(text: string, excerpt: string): { start: number; end: number } | null {
@@ -784,7 +1144,6 @@ function locateExcerptInText(text: string, excerpt: string): { start: number; en
     return null;
   }
 
-  // Approximate the compact-space index back to original text coordinates.
   let originalStart = -1;
   let compactCursor = 0;
 
@@ -824,14 +1183,7 @@ function readProviderErrorMessage(payload: Record<string, unknown>): string | nu
 }
 
 function readGeminiErrorMessage(payload: Record<string, unknown>): string | null {
-  const error = payload.error;
-
-  if (!error || typeof error !== "object") {
-    return null;
-  }
-
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" ? message : null;
+  return readProviderErrorMessage(payload);
 }
 
 function readOpenAiContent(payload: Record<string, unknown>): string {
@@ -864,16 +1216,11 @@ function readOpenAiContent(payload: Record<string, unknown>): string {
           }
 
           const record = part as Record<string, unknown>;
-
           if (record.type === "output_text" && typeof record.text === "string") {
             return record.text;
           }
 
-          if (typeof record.text === "string") {
-            return record.text;
-          }
-
-          return "";
+          return typeof record.text === "string" ? record.text : "";
         })
         .join("");
     })

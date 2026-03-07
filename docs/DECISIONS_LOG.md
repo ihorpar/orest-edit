@@ -219,7 +219,76 @@ Decision: manuscript editing remains raw markdown in the textarea, and the forma
 
 Reason: the patch-first workflow still depends on exact character offsets in one canonical source string, so a full rich-text editor would add unnecessary DOM-to-source mapping risk.
 
+## 2026-03-07
+
+### Two-stage whole-text review
+Decision: `Перевірити весь текст` will produce recommendations first and only prepare one executable proposal after the editor clicks `Працюй!` on a specific recommendation.
+
+Reason: whole-text review should stay diagnostic and diff-first; the system must not silently rewrite or generate assets for the whole manuscript in one step.
+
+### Stable review anchors
+Decision: whole-text recommendations must resolve to stable paragraph identities plus a document revision snapshot, while visible paragraph numbers remain display-only.
+
+Reason: paragraph numbering changes after splits, insertions, and deletions, so unresolved recommendations cannot safely depend on numeric labels alone.
+
+### Review layout split
+Decision: compact whole-text recommendation cards live in the right operations panel, while the selected recommendation detail and prepared proposal remain inline in the manuscript.
+
+Reason: this matches the current right-rail layout direction, keeps diagnostics/history close to recommendations, and still keeps approval at the manuscript anchor.
+
+### Editable review templates
+Decision: the whole-text review prompt, level-1..5 mapping, callout prompt template, and image-prompt template will all be editable in Settings.
+
+Reason: consistency depends on explicit, inspectable templates rather than hidden prompt text, especially once recommendation types and change depth become part of the product contract.
+
+### Reuse the patch pipeline for text proposals
+Decision: when `Працюй!` prepares a text-oriented proposal from a whole-text recommendation, it reuses the existing structured patch-generation path instead of introducing a second text-diff engine.
+
+Reason: one local text-diff pipeline is easier to harden, easier to review, and keeps `prepare` + `apply` behavior aligned with the existing patch-first workflow.
+
+### Generated review images stay asset-only for now
+Decision: Gemini-generated draft images are preview/download assets and are not inserted into the manuscript automatically.
+
+Reason: the current editor still treats markdown text as the canonical source and does not yet have a safe image-embedding contract.
+
 ### Large manuscript diff is the editable review checkpoint
 Decision: the editable green replacement lives in the large manuscript diff-review block shown after apply, not in the smaller rail card. Editing that field updates the already-applied manuscript text and the visible diff marker together.
 
 Reason: the main editorial comparison happens in the large canvas diff, and keeping editability there avoids adding two competing edit points for the same patch while keeping the rail card lightweight.
+
+### Explicit image insertion gating
+Decision: review-generated images are inserted into manuscript source only through an explicit `Вставити зображення` action that appears after successful generation.
+
+Reason: the editor's trust model requires explicit user intent before any source mutation; image generation alone must remain non-destructive.
+
+### Manuscript image embedding strategy (v1)
+Decision: v1 manuscript markdown stores `asset:` tokens for browser-local images inside the image block (`![alt](source)`), while keeping the source field generic enough for later remote URLs.
+
+Reason: `asset:` tokens keep markdown deterministic and reversible without serializing binary image payloads into the persisted draft, which avoids `localStorage` quota failures and still preserves a clean migration path toward uploaded assets later.
+
+### Image asset reference model
+Decision: generated review images and manually inserted editor images both use a typed reference shape (`assetId` + `source`) backed by a minimal IndexedDB asset registry in the browser.
+
+Reason: one asset path removes duplication between generated and manual images, keeps draft state small enough to persist safely, and preserves a clean migration path to uploaded/remote asset URLs later without changing proposal semantics.
+
+### Manuscript editor migration target
+Decision: the next manuscript-surface migration target is CodeMirror 6, used as one source-visible markdown editor with in-place syntax decoration rather than a preview-vs-textarea swap.
+
+Reason: the current markdown preview/raw-edit split causes click and caret drift because the user sees one layout and edits against another. CodeMirror keeps one canonical string while still allowing gutters, decorations, widgets, and stable coordinate-based overlays.
+
+### Recommendation card placement model
+Decision: persistent whole-text recommendation cards should render in a synchronized lane beside the manuscript editor, not as inline blocks inside markdown source.
+
+Reason: recommendation cards need to stay visually tied to highlighted paragraph ranges without altering manuscript flow, offset mapping, or click targets. A synchronized side lane matches the desired Google Docs-style interaction more safely.
+
+## 2026-03-08
+
+### Callout pre-generation model
+Decision: `Врізка` content is generated during the initial whole-text review response, and applying a callout is terminal for that recommendation (insert + close detail + remove card).
+
+Reason: callouts are append-style editorial aids, so they should be ready immediately without a second generation loop; auto-removing the applied recommendation keeps the queue accurate and prevents duplicate insertions.
+
+### Callout strict-quality policy
+Decision: if model output for `Врізка` is topic-level, instruction-like, or otherwise not a usable explanatory block, the recommendation is dropped and surfaced as an explicit review error; no server template prose is injected.
+
+Reason: placeholder fallback copy hides generation failures and undermines editorial trust. For this workflow, a visible failure is preferable to silently inserting low-quality synthetic text.

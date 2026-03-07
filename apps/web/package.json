@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types test/patch-contract.test.ts test/patch-service.test.ts test/review-service.test.ts"
+    "test": "node --import tsx --test test/patch-contract.test.ts test/markdown-editor.test.ts test/patch-service.test.ts test/review-service.test.ts test/review-image-insertion.test.ts test/review-image-service.test.ts"
   },
   "dependencies": {
     "next": "15.5.12",
@@ -21,6 +21,7 @@
     "@types/node": "24.3.1",
     "@types/react": "19.1.12",
     "@types/react-dom": "19.1.9",
+    "tsx": "^4.21.0",
     "typescript": "5.9.2"
   }
 }

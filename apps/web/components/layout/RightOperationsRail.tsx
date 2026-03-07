@@ -1,4 +1,5 @@
 import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
+import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import type { EditorialReviewDiagnostics, EditorialReviewItem } from "../../lib/editor/review-contract";
 import { EditorialReviewCard } from "../editor/EditorialReviewCard";
 import { OperationCard } from "../editor/OperationCard";
@@ -10,7 +11,7 @@ export interface RequestHistoryItem {
   providerUsed: string;
   requestedProvider: string;
   requestedModelId: string;
-  mode: "default" | "custom" | "review";
+  mode: "default" | "custom" | "review" | "proposal" | "image";
   resultCount: number;
   droppedCount: number;
   usedFallback: boolean;
@@ -23,17 +24,23 @@ export function RightOperationsRail({
   isIdle,
   patchDiagnostics,
   reviewDiagnostics,
+  reviewItems,
+  reviewRevision,
+  activeReviewItemId,
   history,
   onRequestReview,
+  onFocusReviewItem,
+  onPrepareReviewItem,
+  onApplyReviewCallout,
+  onDismissReviewItem,
   patchLoading,
   reviewLoading,
   onAccept,
   onAcceptAll,
-  onFocusReviewItem,
   onReject,
   onRejectAll,
   operations,
-  reviewItems,
+  reviewItemCount,
   statusMessage,
   statusTone
 }: {
@@ -41,22 +48,27 @@ export function RightOperationsRail({
   isIdle?: boolean;
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
+  reviewItems: EditorialReviewItem[];
+  reviewRevision: ManuscriptRevisionState;
+  activeReviewItemId?: string | null;
   history: RequestHistoryItem[];
   onRequestReview: () => void;
+  onFocusReviewItem: (item: EditorialReviewItem) => void;
+  onPrepareReviewItem: (item: EditorialReviewItem) => void;
+  onApplyReviewCallout: (item: EditorialReviewItem) => void;
+  onDismissReviewItem: (item: EditorialReviewItem) => void;
   patchLoading?: boolean;
   reviewLoading?: boolean;
   onAccept: (id: string) => void;
   onAcceptAll: () => void;
-  onFocusReviewItem: (item: EditorialReviewItem) => void;
   onReject: (id: string) => void;
   onRejectAll: () => void;
   operations: PatchOperation[];
-  reviewItems: EditorialReviewItem[];
+  reviewItemCount: number;
   statusMessage?: string;
   statusTone?: "info" | "error";
 }) {
   const shouldShowFeedback = statusMessage && statusTone === "error";
-
   return (
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
       <section className="rail-section rail-section-primary">
@@ -72,6 +84,11 @@ export function RightOperationsRail({
         >
           Перевірити весь текст
         </Button>
+        {!reviewLoading && reviewItemCount > 0 ? (
+          <p className="rail-status-copy">
+            Доступно {reviewItemCount} рекомендацій. Відкрий потрібну картку та натисни `Працюй!`.
+          </p>
+        ) : null}
         {shouldShowFeedback ? (
           <p className="rail-status-copy" data-tone={statusTone ?? "info"}>
             {statusMessage}
@@ -79,18 +96,24 @@ export function RightOperationsRail({
         ) : null}
       </section>
 
-      {reviewLoading || reviewItems.length > 0 ? (
+      {reviewItems.length > 0 ? (
         <section className="rail-section">
           <div className="rail-section-head">
-            <p className="mono-ui operations-title">Редакторський огляд</p>
-            {reviewItems.length > 0 ? <span className="mono-ui suggestion-card-lines">{reviewItems.length} рекомендацій</span> : null}
+            <p className="mono-ui operations-title">Рекомендації</p>
           </div>
-
-          {reviewLoading ? <LoadingState label="Готую редакторський огляд…" /> : null}
 
           <div className="operations-stack operations-stack-compact">
             {reviewItems.map((item) => (
-              <EditorialReviewCard key={item.id} item={item} onFocus={onFocusReviewItem} />
+              <EditorialReviewCard
+                key={item.id}
+                item={item}
+                revision={reviewRevision}
+                isActive={item.id === activeReviewItemId}
+                onFocus={onFocusReviewItem}
+                onPrepare={onPrepareReviewItem}
+                onApplyCallout={onApplyReviewCallout}
+                onDismiss={onDismissReviewItem}
+              />
             ))}
           </div>
         </section>

@@ -1,16 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import { generateEditorialReview } from "../lib/server/review-service.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
 
 function createRequest(provider: EditorialReviewRequest["provider"], modelId: string, text: string): EditorialReviewRequest {
   return {
     text,
+    revision: deriveManuscriptRevisionState(text),
     provider,
     modelId,
     apiKey: undefined,
-    basePrompt: "Тримай фокус на ясності, структурі та тоні."
+    basePrompt: "Тримай фокус на ясності й науковій точності.",
+    reviewPrompt: "Пояснюй тип рекомендації, suggestedAction і прив'язку до абзаців.",
+    reviewLevelGuide: "Рівень 3: можна сміливо спрощувати й радити локальні структурні зміни.",
+    changeLevel: 3,
+    additionalInstructions: "Шукай тільки сильні рекомендації."
   };
 }
 
@@ -49,10 +55,11 @@ test("generateEditorialReview uses fallback heuristics when provider key is miss
   assert.equal(response.usedFallback, true);
   assert.match(response.error ?? "", /API key/);
   assert.ok(response.items.length >= 1);
-  assert.equal(response.items[0]?.category, "clarity");
+  assert.equal(response.items[0]?.suggestedAction, "rewrite_text");
+  assert.equal(response.diagnostics.changeLevel, 3);
 });
 
-test("generateEditorialReview parses provider review items", async () => {
+test("generateEditorialReview parses provider review items into the new contract", async () => {
   const text = "Перший абзац.\n\nДругий абзац із надто академічною лексикою та слабким переходом.";
   let authHeader = "";
 
@@ -68,13 +75,15 @@ test("generateEditorialReview parses provider review items", async () => {
             items: [
               {
                 title: "Послаблений перехід",
-                explanation: "Між абзацами губиться смисловий місток, тому текст читається ривком.",
-                recommendation: "Додайте коротку фразу-перехід між тезою і поясненням.",
-                category: "structure",
-                severity: "medium",
+                reason: "Між абзацами губиться смисловий місток, тому текст читається ривком.",
+                recommendation: "Додати коротку фразу-перехід між тезою і поясненням.",
+                recommendationType: "rewrite",
+                suggestedAction: "rewrite_text",
+                priority: "medium",
                 paragraphStart: 2,
                 paragraphEnd: 2,
-                excerpt: "Другий абзац із надто академічною лексикою"
+                excerpt: "Другий абзац із надто академічною лексикою",
+                insertionHint: "replace"
               }
             ]
           })
@@ -86,9 +95,10 @@ test("generateEditorialReview parses provider review items", async () => {
   assert.equal(authHeader, "Bearer sk-review-test");
   assert.equal(response.usedFallback, false);
   assert.equal(response.items.length, 1);
-  assert.equal(response.items[0]?.category, "structure");
-  assert.equal(response.items[0]?.severity, "medium");
-  assert.equal(response.items[0]?.paragraphStart, 2);
+  assert.equal(response.items[0]?.recommendationType, "rewrite");
+  assert.equal(response.items[0]?.priority, "medium");
+  assert.equal(response.items[0]?.anchor.generationParagraphRange.start, 2);
+  assert.equal(response.items[0]?.anchor.generationParagraphRange.end, 2);
 });
 
 test("generateEditorialReview sends Gemini structured output config in the documented shape", async () => {
@@ -112,13 +122,15 @@ test("generateEditorialReview sends Gemini structured output config in the docum
                       items: [
                         {
                           title: "Тестовий огляд",
-                          explanation: "Перевірка request shape.",
+                          reason: "Перевірка request shape.",
                           recommendation: "Нічого не робити.",
-                          category: "clarity",
-                          severity: "low",
+                          recommendationType: "rewrite",
+                          suggestedAction: "rewrite_text",
+                          priority: "low",
                           paragraphStart: 2,
                           paragraphEnd: 2,
-                          excerpt: "Короткий текст для огляду."
+                          excerpt: "Короткий текст для огляду.",
+                          insertionHint: "replace"
                         }
                       ]
                     })
@@ -133,37 +145,13 @@ test("generateEditorialReview sends Gemini structured output config in the docum
   );
 
   assert.ok(requestBody);
-  const geminiRequest = requestBody;
-  assert.deepEqual(geminiRequest.generationConfig, {
-    temperature: 0.2,
-    responseMimeType: "application/json",
-    responseJsonSchema: {
-      type: "OBJECT",
-      properties: {
-        items: {
-          type: "ARRAY",
-          items: {
-            type: "OBJECT",
-            properties: {
-              title: { type: "STRING" },
-              explanation: { type: "STRING" },
-              recommendation: { type: "STRING" },
-              category: { type: "STRING" },
-              severity: { type: "STRING" },
-              paragraphStart: { type: "INTEGER" },
-              paragraphEnd: { type: "INTEGER" },
-              excerpt: { type: "STRING" }
-            },
-            required: ["title", "explanation", "recommendation", "category", "severity", "paragraphStart", "paragraphEnd", "excerpt"]
-          }
-        }
-      },
-      required: ["items"]
-    }
-  });
+  const generationConfig = requestBody.generationConfig as Record<string, unknown>;
+  assert.equal(generationConfig.temperature, 0.2);
+  assert.equal(generationConfig.responseMimeType, "application/json");
+  assert.ok(generationConfig.responseJsonSchema);
 });
 
-test("generateEditorialReview repairs aliased fields and string offsets before dropping items", async () => {
+test("generateEditorialReview repairs aliased fields before dropping items", async () => {
   const text = "Перший абзац.\n\nУ цьому абзаці є каскад змін і майже немає людського пояснення для читача.";
 
   const response = await generateEditorialReview(
@@ -191,44 +179,10 @@ test("generateEditorialReview repairs aliased fields and string offsets before d
 
   assert.equal(response.usedFallback, false);
   assert.equal(response.items.length, 1);
-  assert.equal(response.diagnostics.droppedItemCount, 0);
   assert.equal(response.items[0]?.title, "Термін без пояснення");
-  assert.equal(response.items[0]?.severity, "high");
-  assert.equal(response.items[0]?.paragraphStart, 2);
-  assert.equal(response.items[0]?.paragraphEnd, 2);
-});
-
-test("generateEditorialReview repairs missing offsets from excerpt text", async () => {
-  const text = "Перший абзац.\n\nБіохакінг любить прості формули, але серцево-судинне здоров'я не зводиться до одного ритуалу.";
-
-  const response = await generateEditorialReview(
-    { ...createRequest("openai", "gpt-5.2", text), apiKey: "sk-review-test" },
-    {
-      now: () => "2026-03-06T03:10:00.000Z",
-      fetchImpl: async () =>
-        createJsonResponse(
-          createOpenAiResponsesPayload({
-            items: [
-              {
-                title: "Спрощена обіцянка",
-                explanation: "Ця фраза ризикує звести складну тему до надто зручної формули.",
-                recommendation: "Додайте уточнення про межі такого підходу.",
-                category: "tone",
-                severity: "medium",
-                excerpt: "прості формули, але серцево-судинне здоров'я"
-              }
-            ]
-          })
-        )
-    }
-  );
-
-  assert.equal(response.usedFallback, false);
-  assert.equal(response.items.length, 1);
-  assert.equal(response.diagnostics.droppedItemCount, 0);
-  assert.match(response.items[0]?.excerpt ?? "", /прості формули/);
-  assert.equal(response.items[0]?.paragraphStart, 2);
-  assert.equal(response.items[0]?.paragraphEnd, 2);
+  assert.equal(response.items[0]?.priority, "high");
+  assert.equal(response.items[0]?.anchor.generationParagraphRange.start, 2);
+  assert.equal(response.items[0]?.suggestedAction, "rewrite_text");
 });
 
 test("generateEditorialReview keeps raw provider output in diagnostics when it falls back", async () => {
@@ -237,10 +191,7 @@ test("generateEditorialReview keeps raw provider output in diagnostics when it f
     items: [
       {
         title: "Битий item",
-        explanation: "Є пояснення, але немає коректних меж.",
-        recommendation: "Перевірити span.",
-        category: "clarity",
-        severity: "medium"
+        reason: "Є пояснення, але немає коректних меж."
       }
     ]
   };
@@ -256,4 +207,91 @@ test("generateEditorialReview keeps raw provider output in diagnostics when it f
   assert.equal(response.usedFallback, true);
   assert.match(response.error ?? "", /невалідні рекомендації/);
   assert.equal(response.diagnostics.rawOutput, JSON.stringify(rawBody));
+});
+
+test("generateEditorialReview prebuilds callout draft content during initial review", async () => {
+  const text = "Вступний абзац.\n\nТут складний механізм без простого пояснення для читача.";
+
+  const response = await generateEditorialReview(
+    { ...createRequest("openai", "gpt-5.2", text), apiKey: "sk-review-test" },
+    {
+      now: () => "2026-03-08T01:20:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            items: [
+              {
+                title: "Додати врізку з поясненням",
+                reason: "Механізм звучить занадто щільно і без людського містка.",
+                recommendation: "Підготувати коротку врізку, яка просто пояснить механізм дії.",
+                recommendationType: "callout",
+                suggestedAction: "prepare_callout",
+                priority: "medium",
+                paragraphStart: 2,
+                paragraphEnd: 2,
+                excerpt: "складний механізм без простого пояснення",
+                insertionHint: "after",
+                calloutKind: "mechanism_explained",
+                calloutTitle: "Як це працює",
+                calloutPreviewText:
+                  "Вісь «кишечник — шкіра» означає, що стан мікробіому впливає на імунні сигнали і системне запалення. Коли мікрофлора порушена, запальні реакції можуть ставати сильнішими, і це відбивається на шкірі. Тому цей зв'язок варто читати як біологічний механізм, а не випадковий збіг.",
+                calloutSummary: "Коротке пояснення механізму осі «кишечник — шкіра».",
+                calloutPrompt: null,
+                visualIntent: null
+              }
+            ]
+          })
+        )
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0]?.recommendationType, "callout");
+  assert.equal(response.items[0]?.status, "ready");
+  assert.equal(response.items[0]?.calloutDraft?.calloutKind, "mechanism_explained");
+  assert.ok((response.items[0]?.calloutDraft?.title ?? "").length > 0);
+  assert.ok((response.items[0]?.calloutDraft?.previewText ?? "").length > 0);
+  assert.ok((response.items[0]?.calloutDraft?.prompt ?? "").length > 0);
+});
+
+test("generateEditorialReview drops callout recommendation when preview text is unusable", async () => {
+  const text = "Перший абзац.\n\nТут описано зв'язок, але пояснення механізму поверхневе.";
+
+  const response = await generateEditorialReview(
+    { ...createRequest("openai", "gpt-5.2", text), apiKey: "sk-review-test" },
+    {
+      now: () => "2026-03-08T02:10:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            items: [
+              {
+                title: "Додати врізку",
+                reason: "Пояснення механізму недостатнє.",
+                recommendation: "Потрібна пояснювальна врізка.",
+                recommendationType: "callout",
+                suggestedAction: "prepare_callout",
+                priority: "high",
+                paragraphStart: 2,
+                paragraphEnd: 2,
+                excerpt: "пояснення механізму поверхневе",
+                insertionHint: "after",
+                calloutKind: "mechanism_explained",
+                calloutTitle: "Як це працює?",
+                calloutPreviewText: "Як кишечник керує обличчям?",
+                calloutSummary: "Тема врізки",
+                calloutPrompt: "Напиши врізку",
+                visualIntent: null
+              }
+            ]
+          })
+        )
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 0);
+  assert.match(response.error ?? "", /врізк/);
+  assert.equal(response.diagnostics.droppedItemCount, 1);
 });

@@ -14,6 +14,10 @@ export interface EditorSettings {
   modelId: string;
   apiKey: string;
   basePrompt: string;
+  reviewPrompt: string;
+  reviewLevelGuide: string;
+  calloutPromptTemplate: string;
+  imagePromptTemplate: string;
 }
 
 export interface SettingsValidationResult {
@@ -30,6 +34,10 @@ export const CUSTOM_MODEL_OPTION = "__custom__";
 
 export const DEFAULT_BASE_PROMPT =
   "Ти редактор українського науково-популярного рукопису. Перетворюй щільну наукову мову на ясну, природну українську без втрати змісту й авторського наміру. Працюй локально в межах виділеного фрагмента. Пріоритети: 1) пояснити терміни для широкого читача без спотворення фактів, 2) ущільнити перевантажені речення без втрати логіки, 3) вирівняти тон так, щоб текст звучав доказово, спокійно й редакторськи чисто. Не додавай нових фактів, не роби рекламних обіцянок, не підміняй наукову невизначеність категоричними висновками.";
+export const DEFAULT_REVIEW_PROMPT = `Ти робиш редакторський review всього рукопису, а не переписуєш текст автоматично. Поверни тільки найцінніші рекомендації, прив'язані до конкретних абзаців. Кожна рекомендація має містити: що саме не працює, чому це заважає читачеві, що саме пропонується зробити далі, який це тип рекомендації і який наступний action має підготувати система. Пояснення recommendation types: rewrite = локально переписати існуючий текст; expand = дописати новий пояснювальний текст; simplify = зробити простіше без зміни змісту; list = перетворити фрагмент на список або структурований перелік; subsection = винести матеріал в окремий підрозділ; callout = додати врізку, інфографіку або додатковий пояснювальний блок; visualize = перевести зміст у схему, процес, порівняння або інфографіку; illustration = залишити текст, але підсилити його окремою ілюстрацією. Пояснення suggestedAction: rewrite_text = підготувати diff для заміни; insert_text = підготувати новий текст для вставки; prepare_callout = підготувати промпт або чернетку врізки; prepare_visual = підготувати промпт для візуалізації або ілюстрації. Якщо обираєш callout, також вкажи calloutKind: quick_fact, mini_story, mechanism_explained, step_by_step або myth_vs_fact. Якщо обираєш visualize або illustration, також вкажи visualIntent: diagram, comparison, process, timeline, scene або concept.`;
+export const DEFAULT_REVIEW_LEVEL_GUIDE = `Рівень 1 — Легкий марафет: зберігай структуру і тон майже без змін, виправляй тільки явні перевантаження, дрібні неясності та надто складні формулювання. Рівень 2 — Трохи підчистити: можна локально підсилювати логіку, ущільнювати речення і радити списки чи короткі вставки, але без серйозної перебудови. Рівень 3 — Добряче пройтись: можна сміливо спрощувати, дробити важкі абзаци, радити врізки, списки, локальні доповнення і окремі візуалізації, але не перебудовувати весь розділ. Рівень 4 — Розібрати на гвинтики: дозволено глибоко перекомпоновувати проблемні місця, виносити частини в окремі підрозділи, активно радити врізки й структурні переформатування. Рівень 5 — Згорів сарай — гори хата: дозволено радикально перебудовувати подачу фрагментів, дробити, переносити, пропонувати нові підрозділи, врізки та візуалізації, якщо це реально покращує читабельність.`;
+export const DEFAULT_CALLOUT_PROMPT_TEMPLATE = `Створи чернетку врізки для українського науково-популярного рукопису. Використай тип: {{calloutKind}}. Під "врізкою" тут мається на увазі додатковий пояснювальний блок, який може бути коротким фактом, мініісторією, поясненням механізму, покроковим розбором або блоком "міф і факт". Спирайся тільки на фрагмент і редакторську рекомендацію, не додавай нових фактів поза текстом. Поверни короткий заголовок, сам текст врізки і стисле пояснення, навіщо вона тут. Контекст фрагмента: {{fragment}}. Рекомендація: {{recommendation}}.`;
+export const DEFAULT_IMAGE_PROMPT_TEMPLATE = `Підготуй prompt для генерації чернеткової ілюстрації для книжкового редактора. Мета: допомогти ілюстратору швидко зрозуміти, що саме варто візуалізувати у фрагменті. Стиль обов'язково: мінімалістичний, простий, чернетка для ілюстратора. Вкажи: що саме показати, яку освітню функцію має виконати візуал, які елементи обов'язкові, яких візуальних кліше або зайвого декору уникати. Тип візуалу: {{visualIntent}}. Фрагмент: {{fragment}}. Рекомендація: {{recommendation}}.`;
 
 export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> = {
   openai: [
@@ -102,7 +110,11 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   provider: "openai",
   modelId: getDefaultProviderModelId("openai"),
   apiKey: "",
-  basePrompt: DEFAULT_BASE_PROMPT
+  basePrompt: DEFAULT_BASE_PROMPT,
+  reviewPrompt: DEFAULT_REVIEW_PROMPT,
+  reviewLevelGuide: DEFAULT_REVIEW_LEVEL_GUIDE,
+  calloutPromptTemplate: DEFAULT_CALLOUT_PROMPT_TEMPLATE,
+  imagePromptTemplate: DEFAULT_IMAGE_PROMPT_TEMPLATE
 };
 
 export function normalizeProvider(provider: string): ProviderId {
@@ -158,7 +170,21 @@ export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null
     provider: normalizeProvider(candidate?.provider ?? DEFAULT_EDITOR_SETTINGS.provider),
     modelId: typeof candidate?.modelId === "string" ? candidate.modelId.trim() : DEFAULT_EDITOR_SETTINGS.modelId,
     apiKey: typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : DEFAULT_EDITOR_SETTINGS.apiKey,
-    basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : DEFAULT_EDITOR_SETTINGS.basePrompt
+    basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : DEFAULT_EDITOR_SETTINGS.basePrompt,
+    reviewPrompt:
+      typeof candidate?.reviewPrompt === "string" && candidate.reviewPrompt.trim() ? candidate.reviewPrompt.trim() : DEFAULT_EDITOR_SETTINGS.reviewPrompt,
+    reviewLevelGuide:
+      typeof candidate?.reviewLevelGuide === "string" && candidate.reviewLevelGuide.trim()
+        ? candidate.reviewLevelGuide.trim()
+        : DEFAULT_EDITOR_SETTINGS.reviewLevelGuide,
+    calloutPromptTemplate:
+      typeof candidate?.calloutPromptTemplate === "string" && candidate.calloutPromptTemplate.trim()
+        ? candidate.calloutPromptTemplate.trim()
+        : DEFAULT_EDITOR_SETTINGS.calloutPromptTemplate,
+    imagePromptTemplate:
+      typeof candidate?.imagePromptTemplate === "string" && candidate.imagePromptTemplate.trim()
+        ? candidate.imagePromptTemplate.trim()
+        : DEFAULT_EDITOR_SETTINGS.imagePromptTemplate
   };
 }
 

@@ -12,6 +12,8 @@ After this work, a user can open the editor, edit manuscript text directly, sele
 
 This is the smallest outcome that makes the product real. It still deliberately avoids broad scope such as source workflows, strict-medical controls, or export flows.
 
+The next major goal is to replace the unstable split between idle markdown preview and focused raw-source editing with one CodeMirror 6 manuscript surface. After that migration, the user will see one source-first markdown editor at all times, keep stable paragraph-number anchors, see markdown syntax visually enhanced instead of hidden, and review whole-text recommendations in a synchronized side lane that highlights the exact affected paragraph range without moving the manuscript text on click.
+
 ## Progress
 
 - [x] (2026-03-05 00:00Z) Rebuilt the project as a web-only Next.js app in `apps/web`.
@@ -66,6 +68,17 @@ This is the smallest outcome that makes the product real. It still deliberately 
 - [x] (2026-03-06 13:30Z) Rebuilt `/settings` into a single operational sheet, added provider-aware key copy plus reset/show-hide controls, and introduced live model validation with real provider requests behind `/api/settings/validate`.
 - [x] (2026-03-06 19:15Z) Added markdown formatting controls in the manuscript header, kept raw markdown as the canonical textarea source, and introduced an idle formatted preview for headings, lists, links, tables, and inline emphasis.
 - [x] (2026-03-06 19:47Z) Removed strikethrough from deleted diff text and moved green-text editability into the large manuscript diff review block so editors can tune the applied wording before leaving review mode.
+- [x] (2026-03-07 05:35Z) Rebuilt whole-text review into a two-stage actionable workflow with stable paragraph identities, a floating depth-selector composer, right-panel recommendation cards, per-item `Працюй!` proposals, editable prompt templates in settings, and a Gemini-backed image-generation draft path.
+- [x] (2026-03-07 23:20Z) Extended image proposals to full explicit apply flow: generated assets now carry typed references, review detail exposes `Вставити зображення`, and markdown insertion runs through deterministic anchor placement with revision reconciliation and duplicate-click safety.
+- [x] (2026-03-08 00:10Z) Eliminated image-draft quota failures by moving browser-local assets into IndexedDB behind `asset:` markdown tokens, added a toolbar image upload/paste path, and made standalone image blocks draggable to new positions in the manuscript area.
+- [x] (2026-03-08 01:15Z) Reworked `Врізка` into an initial-review artifact: whole-text review now prebuilds callout draft content, `Працюй!` opens it without a second generation step, `Вставити врізку` applies immediately, then closes detail and removes the recommendation card.
+- [x] (2026-03-08 02:25Z) Switched `Врізка` to strict quality mode: removed server-side template fallback text, drop callout recommendations with unusable generated content, and surface explicit review error instead of inserting placeholder copy.
+- [x] (2026-03-07 14:10Z) Analyzed the manuscript hit-testing failure caused by the preview/source swap and chose CodeMirror 6 as the migration target for a unified source-first markdown editor.
+- [ ] Integrate CodeMirror 6 as the only manuscript editing surface in `apps/web/app/editor/page.tsx` and retire the preview-vs-textarea swap in `apps/web/components/editor/EditorCanvas.tsx`.
+- [ ] Preserve paragraph-number anchors, local patch selections, applied diff review, and whole-text review highlighting on top of the new CodeMirror document model.
+- [ ] Replace inline manuscript review detail panels with a synchronized recommendation lane that sits beside the editor, positions cards from CodeMirror coordinates, and keeps paragraph-range highlighting active in the editor.
+- [ ] Rebuild markdown-specific rendering with CodeMirror decorations and widgets for headings, emphasis, callout blocks, inline/standalone images, and source-visible tables without changing the underlying markdown string.
+- [ ] Add focused validation for CodeMirror interactions: click-to-caret stability, paragraph anchor stability, markdown widgets, and recommendation-card positioning through long documents.
 
 ## Surprises & Discoveries
 
@@ -186,8 +199,29 @@ This is the smallest outcome that makes the product real. It still deliberately 
 - Observation: markdown support fits the current editor only if formatted rendering stays a preview layer instead of becoming the editable source of truth.
   Evidence: the patch contract in `apps/web/lib/editor/patch-contract.ts` and the canvas selection flow in `apps/web/components/editor/EditorCanvas.tsx` still depend on one raw string with stable offsets, so the markdown pass keeps formatting source-first and swaps only the idle render layer.
 
+- Observation: the current manuscript surface still has two different layout models, so clicks are resolved against a transparent textarea whose geometry does not match the idle markdown preview.
+  Evidence: `apps/web/components/editor/EditorCanvas.tsx` renders `ReactMarkdown` only in idle preview mode, but swaps to a paragraph renderer plus textarea on focus, while `apps/web/app/globals.css` gives those two modes different block spacing, heading sizes, and table/image layout rules.
+
+- Observation: Google Docs style recommendation cards are a positioning problem, not a document-content problem.
+  Evidence: whole-text recommendations already anchor to stable paragraph identities in `apps/web/lib/editor/manuscript-structure.ts`, so the safer CodeMirror migration is to keep recommendations in app state, render highlights in the editor, and position cards in a synchronized sibling lane instead of inserting them into markdown source.
+
+- Observation: fallback whole-text recommendations were immediately self-invalidating until their anchor fingerprints were computed from the actual paragraph span rather than the whole document hash.
+  Evidence: the first whole-text review smoke run returned `POST /api/edit/review/proposal 409` for fresh fallback items, which traced back to `apps/web/lib/server/review-service.ts` storing the document hash instead of the paragraph-range fingerprint.
+
 - Observation: the requested editing point was not the rail card but the large manuscript comparison block shown after apply.
   Evidence: the user-supplied screenshot and current flow both point at the `Щойно застосовано` review state in `apps/web/components/editor/EditorCanvas.tsx`, not the smaller `Правки на розгляді` cards in `apps/web/components/layout/RightOperationsRail.tsx`.
+
+- Observation: image-asset contract changes can break hydrated drafts if old and new shapes coexist without normalization.
+  Evidence: once `generatedAsset` moved from `dataUrl` to `{ assetId, source }`, previously saved drafts could throw at render time until URL resolution added a legacy `dataUrl` fallback.
+
+- Observation: browser draft persistence cannot safely carry binary image payloads once generated or pasted images become part of the live editing flow.
+  Evidence: generating one Gemini image reproduced `QuotaExceededError` on `window.localStorage.setItem("orest-editor-draft-v1", ...)` until client-side assets moved into IndexedDB and draft persistence started storing only `asset:` references.
+
+- Observation: callout recommendations were over-frictional when they required a second AI roundtrip after `Працюй!`.
+  Evidence: the previous flow produced a proposal panel for `Врізка` only after explicit per-item generation, while the requirement was to have callout content ready during the first whole-text review pass.
+
+- Observation: template fallback text for failed callout generation looked plausible in UI but broke editorial trust because it often returned topic-level copy instead of an actual explanation.
+  Evidence: failed callout drafts produced short thematic lines (or prompts) that were inserted as if they were ready explanatory `врізка` content.
 
 ## Decision Log
 
@@ -351,6 +385,34 @@ This is the smallest outcome that makes the product real. It still deliberately 
   Rationale: this matches the editorial checkpoint the user actually works against after accept, keeps the rail card simple, and ensures the visible big diff always matches the live manuscript text underneath it.
   Date/Author: 2026-03-06 / Codex implementation
 
+- Decision: whole-text review now has its own revision-aware recommendation and proposal contracts, while text-oriented per-item execution reuses the existing patch-generation path.
+  Rationale: the editor needs stable paragraph anchors for review, but actual text proposals remain safest when they reuse the already-hardened diff/patch pipeline.
+  Date/Author: 2026-03-07 / Codex implementation
+
+- Decision: generated image proposals are applied only through an explicit second action (`Вставити зображення`) after generation succeeds, and never auto-inserted.
+  Rationale: non-text mutations must preserve the same reviewable, user-confirmed trust model as text and callout operations.
+  Date/Author: 2026-03-07 / Codex implementation
+
+- Decision: callout (`Врізка`) items are now pre-generated during whole-text review, and applying a callout immediately removes that recommendation from the queue.
+  Rationale: callouts are append-style artifacts, so they benefit from a one-click apply model instead of a second generation loop; removing the applied item keeps the queue current and avoids re-applying the same insertion.
+  Date/Author: 2026-03-08 / Codex implementation
+
+- Decision: unusable model-generated callout content is now rejected with explicit error messaging; no template fallback callout text is allowed.
+  Rationale: in this product, fabricated fallback prose for `врізка` is worse than a visible generation failure because it silently degrades editorial quality.
+  Date/Author: 2026-03-08 / Codex implementation
+
+- Decision: browser-local manuscript images use IndexedDB-backed blob storage plus `asset:` markdown tokens instead of inline `data:` URLs in the persisted draft.
+  Rationale: this removes `localStorage` quota pressure, keeps markdown reversible and portable inside the current client-only app, and leaves the source model open for a later swap to uploaded/remote asset URLs.
+  Date/Author: 2026-03-08 / Codex implementation
+
+- Decision: replace the textarea-plus-preview manuscript surface with a single CodeMirror 6 editor that always shows markdown source and decorates that source in place.
+  Rationale: the current focus-time view swap creates layout drift, mis-clicks, and cumulative caret mismatch in long documents; CodeMirror preserves one canonical string and still supports syntax styling, gutters, widgets, and range decorations.
+  Date/Author: 2026-03-07 / Codex + User
+
+- Decision: render whole-text recommendation cards in a synchronized lane beside the CodeMirror editor instead of as persistent inline blocks inside the markdown document.
+  Rationale: recommendation cards must stay visually connected to paragraph highlights without changing the manuscript's text flow, offset mapping, or click targets. A sibling lane can position cards from editor coordinates while keeping markdown source untouched.
+  Date/Author: 2026-03-07 / Codex + User
+
 ## Outcomes & Retrospective
 
 The prototype is now a working editor slice instead of a static mock. Selection is real, requests use a stable patch contract, proposals return through an API route, each patch carries a short reason, accept updates the manuscript text, reject removes only the proposal, and saved settings are restored from local storage.
@@ -389,6 +451,12 @@ The latest loading-state pass made AI work feel alive without turning the produc
 
 The latest settings pass finally made configuration feel like a tool instead of a leftover shell screen. `/settings` is now one centered operational sheet with concise hierarchy, provider-aware env-key copy, inline reset/show-hide controls, and a dedicated lightweight validation route that pings the selected upstream model before the UI turns green.
 
+The latest whole-text-review pass turned editorial review into an actionable workflow instead of a static diagnosis. The editor now tracks stable paragraph identities across revisions, opens manuscript-wide review in the floating composer with a `1..5` depth scale, lists compact recommendations in the right operations panel, prepares one item at a time through `Працюй!`, and keeps image generation as a separate Gemini-backed draft asset rather than silently mutating the manuscript.
+
+The latest image pass closes the last major media gap in the editor. Generated drafts, uploaded files, and pasted clipboard images now all flow through the same browser-local asset registry, so the manuscript stores lightweight `asset:` markdown references instead of bulky `data:` payloads. That removes the draft quota failure seen during image generation, keeps review-generated insertion explicit, and adds direct drag-and-drop repositioning for standalone image blocks without leaving the textarea-backed source model.
+
+The latest callout pass removed the extra proposal roundtrip for `Врізка`. Callout drafts now arrive with the initial whole-text review payload, `Працюй!` opens the prebuilt draft instantly, and `Вставити врізку` now behaves as a terminal action: insert, keep viewport anchored to the inserted block, close the detail view, and delete the completed recommendation from the right-panel queue.
+
 The latest persistence pass removed a major session-trust problem. Editors can now move between the editor and settings without losing the manuscript, pending local diffs, or review state, and can still intentionally reset the workspace with a dedicated draft-reset action.
 
 The latest caret-alignment pass addressed a deeper editing trust issue. The editor now uses one metric system for both text layers and reveals the native textarea while focused, so typed characters land where the visible caret suggests instead of drifting earlier in the paragraph.
@@ -405,6 +473,8 @@ The latest product pass also made the split between local editing and manuscript
 
 The latest anchor-model pass removed the most brittle part of whole-text review. Recommendations now target numbered manuscript paragraphs with excerpt hints instead of full-document symbol offsets, and the manuscript itself now shows those paragraph numbers in a light gutter so the visual language matches the review cards.
 
+The latest editor analysis also exposed the next architectural change clearly. The markdown toolbar and manuscript-specific review flows are still valuable, but the current preview/source swap is structurally unstable: the thing the user clicks is not the thing the browser uses for hit testing once focus moves into editing. The next phase of this plan is therefore a CodeMirror 6 migration that keeps one visible markdown source surface, moves markdown presentation into decorations/widgets, and repositions recommendation cards into a synchronized side lane instead of inline manuscript blocks.
+
 The main remaining gaps are live non-OpenAI validation and higher-level coverage rather than core product behavior. Gemini needs contract hardening from real responses, Anthropic still needs real-key validation in this environment, there is not yet route-level or UI test coverage for the review flow, and the new text-integrity check is not yet wired into CI or a pre-commit hook.
 
 ## Context and Orientation
@@ -419,6 +489,7 @@ Current key files:
 - `C:\Projects\oboz-ai\orest-edit\docs\DECISIONS_LOG.md`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\app\editor\page.tsx`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\components\editor\EditorCanvas.tsx`
+- `C:\Projects\oboz-ai\orest-edit\apps\web\app\globals.css`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\components\editor\RequestComposerCard.tsx`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\components\layout\RightOperationsRail.tsx`
 - `C:\Projects\oboz-ai\orest-edit\apps\web\app\api\edit\patch\route.ts`
@@ -438,6 +509,14 @@ Important product context:
 - visual baseline = `docs/sample4.html`
 - product behavior = patch-first and diff-first
 - current implementation = single Next.js app with OpenAI defaulting, Gemini/Anthropic adapters, local fallback, and repo-level text normalization guards
+- current editor weakness = `EditorCanvas.tsx` still swaps between formatted idle markdown preview and focused raw-source editing, which creates click/caret drift because both modes use different layout rules
+- migration target = one CodeMirror 6 manuscript editor that keeps markdown source visible at all times, decorates syntax in place, renders images/callouts/tables as editor widgets where useful, and positions whole-text recommendation cards in a synchronized lane beside the editor
+
+Relevant terms for this migration:
+- CodeMirror 6 = a programmable text-editor framework that keeps one plain-text document as the source of truth and lets the app add syntax highlighting, gutters, widgets, decorations, and coordinate-driven overlays without switching to contentEditable rich text.
+- Decoration = a CodeMirror range or widget attached to document positions; this is how the migration will highlight review ranges and style markdown syntax without hiding the source characters.
+- Widget = a custom DOM element attached to a document position; this is how the migration will render image previews, callout shells, and other non-text visuals while keeping the underlying markdown intact.
+- Recommendation lane = a sibling DOM column outside the editor that reads CodeMirror coordinates for anchored paragraphs and places persistent recommendation cards beside the relevant text, similar to comment cards in document editors.
 
 ## Plan of Work
 
@@ -461,6 +540,20 @@ Eighth, automated tests were added for patch normalization, batch apply behavior
 
 Ninth, repo-level text hygiene was hardened through explicit UTF-8 and LF defaults, a text-integrity script, and normalization of tracked source and docs files.
 
+The next lane is a focused manuscript-surface migration rather than a product-scope expansion.
+
+First, replace the current `EditorCanvas.tsx` textarea-plus-preview stack with a `CodeMirrorCanvas` component that mounts one CodeMirror 6 `EditorView` and exposes the same top-level app contract already used by `apps/web/app/editor/page.tsx`: current text, current selection, text updates, selection updates, applied diffs, active review item, and image insertion/move actions. The existing patch/review services should not change shape during this migration.
+
+Second, recreate the current manuscript affordances inside CodeMirror instead of outside it. Paragraph numbers move into a custom gutter extension. Local patch selections, whole-text review highlights, and applied diff markers become decoration sets driven from the same app state that currently powers `EditorCanvas.tsx`. Markdown formatting actions continue to operate on the canonical markdown string through selection-aware transforms in `apps/web/lib/editor/markdown-editor.ts`.
+
+Third, rebuild markdown presentation as source-first decoration behavior. Headings should stay visible as `#`, `##`, and `###` text, but the full line gets heading styling. Emphasis markers such as `**` and `*` remain visible while the enclosed text gets stronger styling. Tables remain editable as markdown rows, optionally with a subtle structural background rather than a fully interactive spreadsheet. Standalone images and callouts should use block widgets that preserve the underlying markdown block and can collapse back to source-focused editing when the caret enters the block.
+
+Fourth, move whole-text recommendation detail out of the manuscript text flow. The current right rail can remain the compact queue, but the selected recommendation detail should render in a synchronized lane beside the editor, positioned from paragraph anchor coordinates in CodeMirror. The editor itself should highlight the affected paragraph range and show a gutter marker so the recommendation remains visually tied to the source text.
+
+Fifth, keep migration risk low by preserving existing review contracts, `asset:` image references, patch application logic, and settings flows while introducing CodeMirror behind a local adapter layer. New CodeMirror-specific logic should live in dedicated modules under `apps/web/components/editor/cm6` and `apps/web/lib/editor/cm6`, so the app can phase out `EditorCanvas.tsx` progressively instead of scattering editor internals across `page.tsx`.
+
+Sixth, validate the migration against the user-visible failure that triggered it. The acceptance target is not “CodeMirror renders”; it is “clicking paragraph 029 in a long manuscript keeps the caret and visible text in the same place before and after focus, while recommendation highlights, cards, images, callouts, and diff review still behave predictably.”
+
 ## Concrete Steps
 
 All commands were run from:
@@ -479,9 +572,35 @@ Runtime validation commands used for the env-default path:
     $env:PORT=<temporary-port>; npm run start
     curl.exe -X POST http://127.0.0.1:<temporary-port>/api/edit/patch ...
 
+Planned implementation sequence for the CodeMirror migration:
+
+    cd apps/web
+    npm install @codemirror/state @codemirror/view @codemirror/commands @codemirror/lang-markdown @codemirror/language @codemirror/search @codemirror/history
+    npm run typecheck
+    npm run build
+
+Expected file additions and replacements:
+
+    apps/web/components/editor/CodeMirrorCanvas.tsx
+    apps/web/components/editor/cm6/recommendation-lane.tsx
+    apps/web/lib/editor/cm6/extensions.ts
+    apps/web/lib/editor/cm6/decorations.ts
+    apps/web/lib/editor/cm6/gutters.ts
+    apps/web/lib/editor/cm6/widgets.ts
+    apps/web/lib/editor/cm6/recommendation-positions.ts
+
+Expected validation flow after the migration:
+
+    npm run typecheck
+    npm run build
+    npm run test
+    # then run the local app and verify click/caret stability in long manuscripts plus recommendation-lane positioning
+
 ## Validation and Acceptance
 
 The vertical slice is successful and validated against the original acceptance criteria.
+
+The next acceptance target for the CodeMirror migration is separate and must be satisfied before the old editor surface is removed.
 
 Behavioral acceptance achieved:
 - the user can select a real text fragment in the editor
@@ -499,6 +618,18 @@ Behavioral acceptance achieved:
 - automated tests cover patch normalization, batch apply behavior, and provider env/fallback logic
 - repo text files are checked for BOM, CRLF, missing-final-newline drift, and obvious mojibake markers through `npm run check:text`
 
+Behavioral acceptance required for the migration:
+- the manuscript uses one visible CodeMirror-based source editor in both idle and active editing states; clicking the text no longer swaps to a different layout
+- caret placement stays aligned with the clicked text in long documents, including below the fold and after scrolling
+- paragraph numbers remain visible in a gutter and continue to anchor whole-text recommendations
+- whole-text recommendations still highlight the affected paragraph range inside the editor
+- the selected recommendation can open a persistent card in a synchronized side lane without shifting manuscript text vertically
+- markdown headings and emphasis are visually enhanced while the source characters (`#`, `*`, `**`, table pipes, image syntax) remain visible
+- standalone markdown images render as image objects anchored to their markdown blocks and still support explicit repositioning
+- callout blocks render as recognizable block objects while preserving their underlying markdown representation
+- tables remain source-editable as markdown and do not break caret placement, paragraph anchors, or patch offsets
+- local patch selection, apply/reject flow, applied diff review, and explicit image/callout insertion continue to operate against the same canonical markdown string
+
 Validation commands run:
 
     npm run check:text
@@ -513,9 +644,18 @@ Runtime validation:
 - confirmed the current repository text baseline now passes `npm run check:text`
 - confirmed a one-line README edit still failed through the native `apply_patch` tool in this session, while the same change succeeded via an explicit UTF-8 rewrite
 
+Recommended runtime validation after implementation:
+- inject a long markdown manuscript with headings, emphasis, callouts, tables, and images into the draft state
+- click near the end of the document and confirm the caret lands on the clicked line without vertical jump
+- open a whole-text recommendation and confirm the editor highlight, gutter marker, and synchronized side card all point at the same paragraph range
+- edit text inside and around a table, image block, and callout block and confirm offsets remain stable enough for local patch requests
+- accept a local patch and confirm the large diff review still appears, remains editable, and returns cleanly to direct editing
+
 ## Idempotence and Recovery
 
 The implementation remains safe to rerun incrementally. The editor UI, API route, settings persistence, and repo-level text safeguards are additive inside the existing Next.js app.
+
+The CodeMirror migration should remain recoverable by introducing the new surface behind a local component boundary first. Keep the current `EditorCanvas.tsx` available until `CodeMirrorCanvas.tsx` reaches parity on selection, patch review, and recommendation anchoring. If a CodeMirror-specific interaction regresses, the app can temporarily route `/editor` back to the old component while keeping the new `cm6` modules isolated for continued iteration.
 
 If a provider path is unavailable, the editor continues to function through the local fallback behind the same patch contract. If the manuscript changes manually, pending proposals are dropped instead of risking unsafe application to stale offsets. Group accept also re-checks every pending operation against the current text before applying it. If the browser field for the API key is blank, the server checks the appropriate server env value before falling back.
 
@@ -530,6 +670,11 @@ Useful implementation artifacts maintained in code:
 - shared multi-provider patch service in `C:\Projects\oboz-ai\orest-edit\apps\web\lib\server\patch-service.ts`
 - root-env reader for local server defaults in `C:\Projects\oboz-ai\orest-edit\apps\web\lib\server\env.ts`
 - repository text-integrity guard in `C:\Projects\oboz-ai\orest-edit\scripts\check-text-integrity.mjs`
+
+Planned migration artifacts:
+- a dedicated CodeMirror editor boundary in `C:\Projects\oboz-ai\orest-edit\apps\web\components\editor\CodeMirrorCanvas.tsx`
+- CodeMirror extension builders under `C:\Projects\oboz-ai\orest-edit\apps\web\lib\editor\cm6\*`
+- a synchronized recommendation lane component beside the editor in `C:\Projects\oboz-ai\orest-edit\apps\web\components\editor\cm6\recommendation-lane.tsx`
 
 Representative patch API behavior:
 - request carries full manuscript text, absolute selection offsets, mode, prompt, provider, model id, API key, and base prompt
@@ -581,3 +726,41 @@ The repo-level text dependencies now include:
 - `.editorconfig` for default UTF-8 and LF behavior
 - `.gitattributes` for Git-level text normalization expectations
 - `scripts/check-text-integrity.mjs` for BOM, CRLF, final-newline, and mojibake checks
+
+The manuscript editor dependencies should migrate toward:
+- `@codemirror/state` for the editor state and transaction model
+- `@codemirror/view` for the editor view, decorations, widgets, gutters, and coordinate APIs
+- `@codemirror/lang-markdown` plus `@codemirror/language` for markdown parsing and syntax-aware behavior
+- app-owned extension modules that map existing `PatchSelection`, `AppliedDiffMarker`, `EditorialReviewItem`, and markdown image/callout models onto CodeMirror state fields and decorations
+
+The app should end this migration with stable interfaces equivalent to:
+
+    type CodeMirrorCanvasProps = {
+      text: string;
+      selection: PatchSelection;
+      revision: ManuscriptRevisionState;
+      appliedDiffs: AppliedDiffMarker[];
+      activeReviewItem: EditorialReviewItem | null;
+      activeProposal: ReviewActionProposal | null;
+      loading?: boolean;
+      selectionRevealKey?: number;
+      onSelectionChange: (selection: PatchSelection) => void;
+      onTextChange: (text: string, selection: PatchSelection) => void;
+      onAppliedDiffChange: (id: string, newText: string) => void;
+      onInsertLocalImage: (...) => Promise<void>;
+      onPrepareReviewItem: () => void;
+      onApplyReviewText: () => void;
+      onApplyReviewCallout: () => void;
+      onGenerateReviewImage: () => void;
+      onInsertReviewImage: () => void;
+      onDismissReviewItem: () => void;
+    };
+
+    type RecommendationLaneAnchor = {
+      itemId: string;
+      paragraphIds: string[];
+      top: number;
+      height: number;
+    };
+
+Plan update (2026-03-07): added a CodeMirror 6 migration phase, documented the current hit-testing failure, and prescribed the target architecture for a unified markdown editor plus synchronized recommendation lane.

@@ -19,9 +19,19 @@ export interface MarkdownEditResult {
   selection: PatchSelection;
 }
 
+export interface MarkdownImageBlock {
+  start: number;
+  end: number;
+  markdown: string;
+  alt: string;
+  source: string;
+  caption?: string;
+}
+
 const LINK_LABEL_PLACEHOLDER = "текст посилання";
 const LINK_URL_PLACEHOLDER = "https://example.com";
 const TABLE_TEMPLATE = ["| Колонка 1 | Колонка 2 |", "| --- | --- |", "| Значення | Значення |"].join("\n");
+const IMAGE_BLOCK_PATTERN = /(^|\n\n)(!\[([^\]]*)\]\(([^)\n]+)\)(?:\n([^\n]+))?)(?=\n\n|$)/g;
 
 export function applyMarkdownFormat(text: string, selection: PatchSelection, action: MarkdownFormatAction): MarkdownEditResult {
   switch (action) {
@@ -210,6 +220,79 @@ function insertBlock(text: string, selection: PatchSelection, block: string, sel
   };
 }
 
+export function insertMarkdownImageBlock(
+  text: string,
+  selection: PatchSelection,
+  input: {
+    alt: string;
+    source: string;
+    caption?: string;
+  }
+): MarkdownEditResult {
+  const safeAlt = input.alt.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim() || "Зображення";
+  const safeCaption = input.caption?.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+  const block = [`![${safeAlt}](${input.source.trim()})`, safeCaption].filter(Boolean).join("\n");
+
+  return insertBlock(text, selection, block);
+}
+
+export function getMarkdownImageBlocks(text: string): MarkdownImageBlock[] {
+  const blocks: MarkdownImageBlock[] = [];
+
+  for (const match of text.matchAll(IMAGE_BLOCK_PATTERN)) {
+    const prefix = match[1] ?? "";
+    const markdown = match[2] ?? "";
+    const alt = match[3] ?? "";
+    const source = match[4] ?? "";
+    const caption = match[5]?.trim() || undefined;
+    const start = (match.index ?? 0) + prefix.length;
+    const end = start + markdown.length;
+
+    blocks.push({
+      start,
+      end,
+      markdown,
+      alt,
+      source,
+      caption
+    });
+  }
+
+  return blocks;
+}
+
+export function moveMarkdownImageBlock(
+  text: string,
+  block: MarkdownImageBlock,
+  targetIndex: number
+): MarkdownEditResult {
+  if (targetIndex >= block.start && targetIndex <= block.end) {
+    return {
+      text,
+      selection: { start: block.end, end: block.end }
+    };
+  }
+
+  const removalRange = getStandaloneBlockRemovalRange(text, block.start, block.end);
+  const withoutBlock = normalizeStandaloneSpacing(`${text.slice(0, removalRange.start)}${text.slice(removalRange.end)}`);
+  const adjustedTargetIndex = targetIndex > removalRange.end ? targetIndex - (removalRange.end - removalRange.start) : targetIndex;
+  const inserted = insertBlock(withoutBlock, { start: adjustedTargetIndex, end: adjustedTargetIndex }, block.markdown);
+  const nextBlocks = getMarkdownImageBlocks(inserted.text);
+  const movedBlock = nextBlocks.find((candidate) => candidate.markdown === block.markdown);
+
+  if (!movedBlock) {
+    return inserted;
+  }
+
+  return {
+    text: inserted.text,
+    selection: {
+      start: movedBlock.end,
+      end: movedBlock.end
+    }
+  };
+}
+
 function getSelectedLineRange(text: string, selection: PatchSelection) {
   const safeSelection = clampSelection(text, selection.start, selection.end);
   const start = findLineStart(text, safeSelection.start);
@@ -255,4 +338,27 @@ function getBlockSuffix(text: string, offset: number) {
 
 function replaceRange(text: string, start: number, end: number, replacement: string) {
   return `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+}
+
+function getStandaloneBlockRemovalRange(text: string, start: number, end: number) {
+  let rangeStart = start;
+  let rangeEnd = end;
+
+  if (text.slice(Math.max(0, start - 2), start) === "\n\n") {
+    rangeStart = Math.max(0, start - 2);
+  } else if (start > 0 && text[start - 1] === "\n") {
+    rangeStart = start - 1;
+  }
+
+  if (text.slice(end, end + 2) === "\n\n") {
+    rangeEnd = end + 2;
+  } else if (end < text.length && text[end] === "\n") {
+    rangeEnd = end + 1;
+  }
+
+  return { start: rangeStart, end: rangeEnd };
+}
+
+function normalizeStandaloneSpacing(text: string) {
+  return text.replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "").replace(/\n+$/, "");
 }
