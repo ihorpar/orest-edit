@@ -281,6 +281,11 @@ Decision: persistent whole-text recommendation cards should render in a synchron
 
 Reason: recommendation cards need to stay visually tied to highlighted paragraph ranges without altering manuscript flow, offset mapping, or click targets. A synchronized side lane matches the desired Google Docs-style interaction more safely.
 
+### Side overlays stay out of manuscript flow
+Decision: recommendation detail and selected image previews must render as detached side overlays, while markdown source remains the only in-flow manuscript content.
+
+Reason: once tall rich previews participate in manuscript flow, they reintroduce cursor-hit mismatch and width compression. Keeping side UI out of flow preserves one trustworthy source geometry for typing.
+
 ## 2026-03-08
 
 ### Callout pre-generation model

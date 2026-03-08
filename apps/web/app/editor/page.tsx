@@ -1,11 +1,12 @@
 "use client";
 
 import { startTransition, useEffect, useRef, useState } from "react";
-import { EditorCanvas, type AppliedDiffMarker } from "../../components/editor/EditorCanvas";
+import { CodeMirrorCanvas } from "../../components/editor/CodeMirrorCanvas";
 import { FloatingPromptPanel } from "../../components/editor/FloatingPromptPanel";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { TopBar } from "../../components/layout/TopBar";
+import type { AppliedDiffMarker } from "../../lib/editor/applied-diff";
 import { DEFAULT_MANUSCRIPT_TEXT } from "../../lib/editor/default-manuscript";
 import {
   clearEditorDraftState,
@@ -125,6 +126,9 @@ export default function EditorPage() {
   }, []);
 
   const hasActiveSelection = hasSelection(selection);
+  const shouldShowSelectionPrompt = hasActiveSelection && activeReviewItem === null && !suppressFloatingPrompt && !isReviewComposerOpen;
+  const shouldShowFloatingPrompt = isReviewComposerOpen || shouldShowSelectionPrompt;
+  const floatingPromptMode = isReviewComposerOpen ? "review" : "selection";
   const isAnyRequestInFlight =
     isPatchRequestInFlight || isReviewRequestInFlight || isReviewProposalInFlight || isReviewImageInFlight || isReviewImageInsertionInFlight;
   const hasRailDetailContent =
@@ -147,7 +151,6 @@ export default function EditorPage() {
     reviewDiagnostics !== null ||
     history.length > 0 ||
     feedback !== null;
-
   useEffect(() => {
     if (!hasHydratedDraft) {
       return;
@@ -859,13 +862,14 @@ export default function EditorPage() {
       <ThreePaneShell
         rightState={hasRailDetailContent ? "active" : "idle"}
         center={
-          <EditorCanvas
+          <CodeMirrorCanvas
             activeReviewItem={activeReviewItem}
             activeProposal={activeProposal}
             appliedDiffs={appliedDiffs}
             canClearDraft={canClearDraft}
             loading={isAnyRequestInFlight}
             revision={revision}
+            reviewItems={reviewItems}
             reviewPreparing={isReviewProposalInFlight}
             reviewImageGenerating={isReviewImageInFlight}
             reviewImageInserting={isReviewImageInsertionInFlight}
@@ -928,32 +932,35 @@ export default function EditorPage() {
           />
         }
       />
-      {isReviewComposerOpen ? (
+      {shouldShowFloatingPrompt ? (
         <FloatingPromptPanel
-          mode="review"
-          loading={isReviewRequestInFlight}
-          onSubmit={() => {
-            void requestEditorialReview();
+          mode={floatingPromptMode}
+          loading={floatingPromptMode === "review" ? isReviewRequestInFlight : isPatchRequestInFlight}
+          onSubmit={(prompt) => {
+            if (floatingPromptMode === "review") {
+              void requestEditorialReview();
+              return;
+            }
+
+            void requestPatches("custom", prompt);
           }}
-          onExitReviewMode={() => {
-            setIsReviewComposerOpen(false);
-            setSuppressFloatingPrompt(false);
-          }}
-          selectionKey={`review:${reviewComposer.changeLevel}:${reviewComposer.additionalInstructions.length}`}
+          onExitReviewMode={
+            floatingPromptMode === "review"
+              ? () => {
+                  setIsReviewComposerOpen(false);
+                  setSuppressFloatingPrompt(false);
+                }
+              : undefined
+          }
+          selectionKey={
+            floatingPromptMode === "review"
+              ? `review:${reviewComposer.changeLevel}:${reviewComposer.additionalInstructions.length}`
+              : `${selection.start}:${selection.end}`
+          }
           reviewChangeLevel={reviewComposer.changeLevel}
           reviewAdditionalInstructions={reviewComposer.additionalInstructions}
           onReviewChangeLevel={(value) => setReviewComposer((current) => ({ ...current, changeLevel: value }))}
           onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
-        />
-      ) : null}
-      {hasActiveSelection && activeReviewItem === null && !suppressFloatingPrompt && !isReviewComposerOpen ? (
-        <FloatingPromptPanel
-          mode="selection"
-          loading={isPatchRequestInFlight}
-          onSubmit={(prompt) => {
-            void requestPatches("custom", prompt);
-          }}
-          selectionKey={`${selection.start}:${selection.end}`}
         />
       ) : null}
     </main>

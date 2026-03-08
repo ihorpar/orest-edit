@@ -3,6 +3,7 @@
 import { Fragment, type ChangeEvent, type ClipboardEvent, type DragEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { AppliedDiffMarker } from "../../lib/editor/applied-diff";
 import {
   findParagraphForOffset,
   getManuscriptParagraphs,
@@ -39,15 +40,6 @@ const markdownToolbarActions: Array<{ action: MarkdownFormatAction; label: strin
   { action: "table", label: "Tbl", title: "Таблиця" },
   { action: "divider", label: "---", title: "Роздільник" }
 ];
-
-export interface AppliedDiffMarker {
-  id: string;
-  start: number;
-  end: number;
-  oldText: string;
-  newText?: string;
-  reason: string;
-}
 
 export function EditorCanvas({
   appliedDiffs,

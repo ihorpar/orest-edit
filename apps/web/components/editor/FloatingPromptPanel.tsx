@@ -79,10 +79,10 @@ export function FloatingPromptPanel({
   const selectedReviewLevel = reviewLevels.find((entry) => entry.level === reviewChangeLevel) ?? reviewLevels[2];
 
   return (
-    <div className="floating-panel floating-panel-open" data-collapsed={isCollapsed ? "true" : "false"}>
+    <div className="floating-panel floating-panel-open" data-collapsed={isCollapsed ? "true" : "false"} data-mode={mode}>
       <div className="floating-panel-header">
         <div className="floating-panel-title-stack">
-          <span className="mono-ui">AI Chat</span>
+          <span className="mono-ui">{mode === "review" ? "AI Chat" : "Локальна правка"}</span>
           {mode === "review" ? <strong className="floating-panel-question">Наскільки сильно змінюємо?</strong> : null}
         </div>
         <div className="floating-panel-header-actions">
@@ -92,9 +92,9 @@ export function FloatingPromptPanel({
               className="floating-panel-mode-switch"
               onClick={onExitReviewMode}
               disabled={loading}
-              aria-label="Повернутися до звичайного чату"
+              aria-label="Вийти з рев'ю"
             >
-              Звичайний чат
+              Вийти з рев'ю
             </button>
           ) : null}
           <button
@@ -139,21 +139,23 @@ export function FloatingPromptPanel({
             </div>
           ) : null}
           <div className="floating-compose-row">
-            <textarea
-              ref={textareaRef}
-              className="floating-textarea"
-              value={mode === "review" ? reviewAdditionalInstructions : prompt}
-              onChange={(event) => {
-                if (mode === "review") {
-                  onReviewAdditionalInstructionsChange?.(event.target.value);
-                } else {
-                  setPrompt(event.target.value);
-                }
-              }}
-              placeholder={mode === "review" ? "Додаткові інструкції" : "Що зробити ШІ?"}
-              disabled={loading}
-              rows={1}
-            />
+            <div className="floating-textarea-shell">
+              <textarea
+                ref={textareaRef}
+                className="floating-textarea"
+                value={mode === "review" ? reviewAdditionalInstructions : prompt}
+                onChange={(event) => {
+                  if (mode === "review") {
+                    onReviewAdditionalInstructionsChange?.(event.target.value);
+                  } else {
+                    setPrompt(event.target.value);
+                  }
+                }}
+                placeholder={mode === "review" ? "Додаткові інструкції" : "Що зробити з фрагментом?"}
+                disabled={loading}
+                rows={1}
+              />
+            </div>
             <div className="send-row">
               <button
                 type="button"

@@ -74,11 +74,14 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 01:15Z) Reworked `Врізка` into an initial-review artifact: whole-text review now prebuilds callout draft content, `Працюй!` opens it without a second generation step, `Вставити врізку` applies immediately, then closes detail and removes the recommendation card.
 - [x] (2026-03-08 02:25Z) Switched `Врізка` to strict quality mode: removed server-side template fallback text, drop callout recommendations with unusable generated content, and surface explicit review error instead of inserting placeholder copy.
 - [x] (2026-03-07 14:10Z) Analyzed the manuscript hit-testing failure caused by the preview/source swap and chose CodeMirror 6 as the migration target for a unified source-first markdown editor.
-- [ ] Integrate CodeMirror 6 as the only manuscript editing surface in `apps/web/app/editor/page.tsx` and retire the preview-vs-textarea swap in `apps/web/components/editor/EditorCanvas.tsx`.
-- [ ] Preserve paragraph-number anchors, local patch selections, applied diff review, and whole-text review highlighting on top of the new CodeMirror document model.
-- [ ] Replace inline manuscript review detail panels with a synchronized recommendation lane that sits beside the editor, positions cards from CodeMirror coordinates, and keeps paragraph-range highlighting active in the editor.
-- [ ] Rebuild markdown-specific rendering with CodeMirror decorations and widgets for headings, emphasis, callout blocks, inline/standalone images, and source-visible tables without changing the underlying markdown string.
-- [ ] Add focused validation for CodeMirror interactions: click-to-caret stability, paragraph anchor stability, markdown widgets, and recommendation-card positioning through long documents.
+- [x] (2026-03-08 08:40Z) Integrated CodeMirror 6 as the normal manuscript editing surface in `apps/web/app/editor/page.tsx`, eliminating the preview-vs-textarea swap for direct editing while retaining the older `EditorCanvas` only for the applied-diff review checkpoint.
+- [x] (2026-03-08 08:40Z) Preserved paragraph-number anchors, local patch selections, and whole-text review highlighting on top of the CodeMirror document model.
+- [x] (2026-03-08 08:40Z) Replaced inline manuscript review detail panels with a synchronized side overlay positioned from CodeMirror coordinates, so recommendation detail no longer compresses the manuscript column.
+- [x] (2026-03-08 08:40Z) Rebuilt markdown-specific rendering with CodeMirror decorations for headings, emphasis, callout blocks, image-source lines, and source-visible tables without changing the underlying markdown string.
+- [x] (2026-03-08 08:40Z) Added focused validation for the CM6 migration via `npm run typecheck`, `npm run build`, user-reported live dev screenshots, and a Windows headless Chrome capture of the migrated `/editor` surface in `.tmp/cm6-editor-default.png`.
+- [x] (2026-03-08 09:05Z) Migrated the applied-diff review checkpoint onto the same CodeMirror-based manuscript surface, replacing the legacy `EditorCanvas` render-path switch with a CM6 diff-review panel plus in-editor diff highlighting.
+- [x] (2026-03-08 09:35Z) Fixed the post-callout-apply CM6 gutter crash by syncing external text into the `EditorView` before chrome reconfiguration and hardening gutter position lookup against transient stale offsets.
+- [x] (2026-03-08 09:35Z) Upgraded inserted callout rendering in the CM6 manuscript so the raw markdown stays visible but reads as a real standout block with a stronger head/body treatment.
 
 ## Surprises & Discoveries
 
@@ -210,6 +213,18 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 - Observation: the requested editing point was not the rail card but the large manuscript comparison block shown after apply.
   Evidence: the user-supplied screenshot and current flow both point at the `Щойно застосовано` review state in `apps/web/components/editor/EditorCanvas.tsx`, not the smaller `Правки на розгляді` cards in `apps/web/components/layout/RightOperationsRail.tsx`.
+
+- Observation: CodeMirror decorations are unforgiving about ordering once line, mark, and widget decorations share the same anchor.
+  Evidence: the first CM6 dev pass crashed with `Ranges must be added sorted by 'from' position and 'startSide'` until `apps/web/lib/editor/cm6/decorations.ts` started collecting decorations and sorting them before building the final set.
+
+- Observation: remounting the `EditorView` on every text change looks superficially harmless in React but makes the editor effectively unusable because focus is lost after each keystroke.
+  Evidence: the first CM6 editing pass recreated `EditorView` from a `useEffect` keyed on `text` and `selection`, which immediately reproduced the user-reported “blur after every symbol” bug until the mount effect was reduced to a single initial mount in `apps/web/components/editor/CodeMirrorCanvas.tsx`.
+
+- Observation: rich block previews inside the manuscript flow reintroduce the same trust problem the CM6 migration was meant to remove.
+  Evidence: once pasted images rendered as tall block widgets under `![...](...)`, the visible manuscript height no longer matched the source-first editing expectation, so image previews were moved into a detached side overlay and the source line stayed in flow.
+
+- Observation: in React, “external state sync” and “editor chrome reconfigure” cannot be treated as independent effects when the chrome depends on exact document offsets.
+  Evidence: applying a callout produced `Invalid position ... in document of length ...` inside `apps/web/lib/editor/cm6/gutters.ts` because the gutter reconfigured from the new manuscript text one effect before the underlying `EditorView` document finished syncing.
 
 - Observation: image-asset contract changes can break hydrated drafts if old and new shapes coexist without normalization.
   Evidence: once `generatedAsset` moved from `dataUrl` to `{ assetId, source }`, previously saved drafts could throw at render time until URL resolution added a legacy `dataUrl` fallback.
@@ -448,6 +463,12 @@ The latest layout pass finally removed the weakest pane from the editor. Manuscr
 The latest polish pass made the default desktop state feel more intentional. The top bar no longer repeats pending-review chrome, the manuscript header now groups its metadata and reset action more cleanly, and the idle right rail shrinks into a compact review card until diagnostics, history, patches, or review results actually exist.
 
 The latest loading-state pass made AI work feel alive without turning the product into a dashboard. The primary review button now animates while running, in-progress patch/review states render as small animated status cards in the right rail, and the collapsed floating prompt shows that the request is still being processed instead of reverting to a dead-looking closed state.
+
+The latest manuscript-surface pass replaced the unstable preview/source swap with a single CodeMirror-based source editor across editing and diff review. Markdown syntax now stays visible and gets styled in place, paragraph-number anchors still work, recommendation detail is anchored beside the manuscript instead of stealing width from it, and the last applied-diff checkpoint now stays inside the same CM6-driven geometry model.
+
+That same pass also clarified a hard UI rule for this product: rich attachments and recommendation detail must stay out of manuscript flow. The selected image preview now lives in a detached side overlay instead of as a tall in-flow widget, which keeps cursor geometry stable, and the recommendation lane now overlays beside the editor rather than shrinking the text column.
+
+The latest stabilization pass exposed one more CM6-specific rule: offset-driven gutters and decorations must always be computed against the actual `EditorView` document for that render cycle, not merely against the newest React text prop. The callout-apply crash was resolved by reordering sync before reconfigure and by making gutter lookup tolerant to transient stale offsets.
 
 The latest settings pass finally made configuration feel like a tool instead of a leftover shell screen. `/settings` is now one centered operational sheet with concise hierarchy, provider-aware env-key copy, inline reset/show-hide controls, and a dedicated lightweight validation route that pings the selected upstream model before the UI turns green.
 

@@ -14,9 +14,13 @@ Status: Active handoff
 - Default manuscript demo now uses a long Ukrainian science-pop section about biohacking, HDL/LDL, and cardiovascular risk
 - Editable manuscript surface with real text selection tracking
 - Markdown formatting toolbar in the manuscript header area for bold, headings, lists, links, tables, code, and dividers
-- The current manuscript surface still splits between idle formatted markdown preview and focused raw markdown source in a textarea; this is now a known editor-stability problem because the two modes do not share identical hit-testing/layout geometry
+- The normal manuscript editing surface now runs through CodeMirror 6 as one source-visible markdown editor with in-place syntax styling instead of a preview-vs-textarea swap
 - Manuscript paragraphs now have visible padded number markers in a light gray gutter
+- Whole-text recommendation detail now renders in a synchronized side overlay instead of squeezing itself into the manuscript flow
+- Image markdown stays in the manuscript source, while the selected image preview now renders in a detached side overlay so pasted/generated images do not change line geometry
 - Floating selection composer with manual fold/unfold control
+- Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `Перевірити весь текст` reads as a distinct workflow from local chat
+- The dark whole-text review composer now morphs back into the regular local-edit composer in place, with a white `Локальна правка` escape button and stronger mode-specific contrast
 - Responsive editor shell that keeps the three-pane desktop layout but restacks utility and review panels into the center flow on tablet/mobile
 - Mobile-friendly top bar, manuscript spacing, and settings layout
 - Whole-text `Редакторський огляд` action now lives at the top of the right review rail
@@ -73,8 +77,8 @@ Status: Active handoff
 - Strict medical mode is not part of the current MVP direction.
 - Export patch is not part of the current MVP direction.
 - Sources are not a primary navigation flow in the current MVP.
-- The editor still uses textarea-backed plain text as the canonical source, but now treats that source as markdown and renders a formatted preview only in idle view states.
-- The next manuscript-surface migration target is CodeMirror 6: one source-visible markdown editor with in-place syntax decoration, gutter-based paragraph anchors, and a synchronized recommendation lane beside the editor.
+- The editor now uses CodeMirror 6 as the canonical manuscript surface for normal source editing, whole-text recommendation detail, selected-image preview, and the applied-diff review checkpoint
+- Side-panel UI for recommendation detail and image preview must stay out of manuscript flow; markdown source remains the only in-flow content.
 - Pending patch proposals are invalidated when the manuscript is edited manually.
 - Patch responses now carry diagnostics so the editor can show provider/model/request status without opening dev tools.
 - For local development, leaving the settings API-key field empty uses the matching provider key from the repo-root `.env` on the server.
@@ -101,16 +105,18 @@ Status: Active handoff
 - Repository text files are treated as UTF-8 with LF line endings, and integrity is checked via `npm run check:text`.
 
 ## Highest-priority next work
-1. Migrate the manuscript surface to CodeMirror 6 so the editor keeps one visible markdown source layout instead of swapping between preview and raw-edit modes.
-2. Preserve and improve whole-text recommendation UX during that migration: keep paragraph-range highlighting, add gutter anchors, and move the selected recommendation into a synchronized side lane instead of inline manuscript flow.
-3. Harden Gemini using the live failure case where the provider responded but still produced unusable local edits for the shared patch contract.
-4. Live-validate Anthropic with a real key and harden provider-specific error handling from real responses.
-5. Add route-level and editor interaction tests around request parsing, diff review, accept/reject flow, and the new CodeMirror editor behaviors.
+1. Add route-level and editor interaction coverage around CM6 typing, image-preview overlay behavior, recommendation-lane positioning, and diff review.
+2. Harden Gemini using the live failure case where the provider responded but still produced unusable local edits for the shared patch contract.
+3. Live-validate Anthropic with a real key and harden provider-specific error handling from real responses.
+4. Remove dead legacy editor code now that CM6 owns direct editing and diff review.
+5. Add a more robust browser-driven screenshot harness for seeded CM6 states instead of relying on manual screenshots plus a default headless capture.
 
 ## Last validated state
 - `npm run check:text` passed
 - `npm run typecheck` passed
 - `npm run build` passed
+- `npm run test` still fails in four pre-existing service/selection tests unrelated to the CM6 surface: two `applyMarkdownFormat` selection-range expectations in `test/patch-contract.test.ts` and two provider-normalization expectations in `test/patch-service.test.ts`
+- Windows headless Chrome captured the live `/editor` surface after the CM6 migration in `.tmp/cm6-editor-default.png`
 - runtime patch request succeeded through OpenAI with the form API key left blank
 - live runtime Gemini request reached the provider via repo-root `.env`, but fell back because the returned local edits were empty or invalid for the shared patch contract
 - mocked provider tests cover OpenAI, Gemini, and Anthropic request/response normalization
@@ -152,7 +158,7 @@ Status: Active handoff
 - `npm run typecheck` passed after adding markdown toolbar helpers, markdown preview rendering, and source-vs-preview editor states.
 - `npm run build` passed after the same markdown-editor pass.
 - Linux Playwright smoke run confirmed the formatted idle markdown preview and the focused raw-markdown source view after injecting a markdown draft into local storage; screenshots saved to `.tmp/editor-markdown-preview.png` and `.tmp/editor-markdown-source.png`.
-- Product analysis on 2026-03-07 confirmed the preview-vs-source manuscript swap still creates click/caret drift in long documents; no fix has been implemented yet, and the agreed migration target is CodeMirror 6.
+- Product analysis on 2026-03-07 confirmed the preview-vs-source manuscript swap created click/caret drift in long documents; that path has now been replaced for normal editing by the CM6 source-first editor.
 - `npm run typecheck` passed after moving diff editability into the large manuscript review block and removing strikethrough from deleted text.
 - Windows headless Chrome captured the large manuscript diff with plain red removed text and an editable green replacement field in `.tmp/ui-big-diff-editable.png`.
 - `npm run test` is currently not runnable in this environment because the workspace Node binary rejects the script's `--experimental-strip-types` flag.
