@@ -113,6 +113,8 @@ export function EditorialReviewDetail({
         </button>
       </div>
 
+      <h3 className="editorial-review-detail-title">{item.title}</h3>
+
       {item.status === "applied" && (
         <div className="editorial-review-applied-banner">
           <div className="editorial-review-applied-banner-icon">
@@ -123,8 +125,6 @@ export function EditorialReviewDetail({
           Эта рекомендація вже успішно застосована до тексту.
         </div>
       )}
-
-      <h3 className="editorial-review-detail-title">{item.title}</h3>
 
       <div className="editorial-review-detail-body">
         <details className="editorial-review-why">
