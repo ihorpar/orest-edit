@@ -139,6 +139,13 @@ export interface ReviewActionProposal {
     caption?: string;
     targetModel: "gemini-3.1-flash-image-preview";
     generatedAsset?: GeneratedReviewImageAsset;
+    generation?: {
+      jobId: string;
+      status: ReviewImageGenerationJobStatus;
+      requestedAt: string;
+      updatedAt: string;
+      error?: string;
+    };
   };
   staleReason?: string;
 }
@@ -164,6 +171,7 @@ export interface ReviewActionDiagnostics {
 export interface ReviewImageGenerationRequest {
   prompt: string;
   apiKey?: string;
+  async?: boolean;
 }
 
 export type ReviewImageAssetSource =
@@ -177,10 +185,22 @@ export interface GeneratedReviewImageAsset {
   source: ReviewImageAssetSource;
 }
 
+export type ReviewImageGenerationJobStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface ReviewImageGenerationJob {
+  id: string;
+  status: ReviewImageGenerationJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  pollAfterMs: number;
+}
+
 export interface ReviewImageGenerationResponse {
   asset?: GeneratedReviewImageAsset;
   providerUsed: string;
   modelId: string;
+  job?: ReviewImageGenerationJob;
   error?: string;
 }
 

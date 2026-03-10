@@ -6,6 +6,7 @@ import {
   resolveReviewImageAssetUrl,
   type EditorialCalloutKind,
   type EditorialReviewItem,
+  type ReviewImageGenerationJobStatus,
   type ReviewActionProposal
 } from "../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
@@ -36,6 +37,8 @@ export function EditorialReviewDetail({
   proposal,
   preparing,
   imageGenerating,
+  imageJobStatus,
+  imageJobError,
   selectedCalloutKind,
   onClose,
   onPrepare,
@@ -52,6 +55,8 @@ export function EditorialReviewDetail({
   proposal: ReviewActionProposal | null;
   preparing?: boolean;
   imageGenerating?: boolean;
+  imageJobStatus?: ReviewImageGenerationJobStatus;
+  imageJobError?: string;
   selectedCalloutKind?: EditorialCalloutKind;
   onClose: () => void;
   onPrepare: () => void;
@@ -77,6 +82,10 @@ export function EditorialReviewDetail({
       : null;
   const generatedImageSource = generatedImageAsset ? resolveReviewImageAssetUrl(generatedImageAsset) : null;
   const { resolvedUrl: generatedImageUrl, isLoading: isGeneratedImageLoading } = useResolvedEditorAssetUrl(generatedImageSource);
+  const isImageJobInProgress = imageJobStatus === "queued" || imageJobStatus === "processing";
+  const showImageJobError = Boolean(imageJobError) && imageJobStatus === "failed";
+  const imageJobStatusCopy =
+    imageJobStatus === "queued" ? "У черзі генерації…" : imageJobStatus === "processing" ? "Генерую зображення…" : null;
 
   return (
     <aside className="editorial-review-detail" data-type={item.recommendationType} data-priority={item.priority}>
@@ -216,20 +225,29 @@ export function EditorialReviewDetail({
               </p>
               {isActiveProposal.imageDraft.caption ? <p className="editorial-review-detail-copy">{isActiveProposal.imageDraft.caption}</p> : null}
               <div className="button-row editorial-review-proposal-actions">
-                <Button variant="primary" size="sm" onClick={onGenerateImage} loading={imageGenerating} loadingLabel="Генерую…">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={onGenerateImage}
+                  loading={imageGenerating}
+                  loadingLabel={imageJobStatus === "queued" ? "У черзі…" : "Генерую…"}
+                  disabled={isImageJobInProgress}
+                >
                   Згенерувати чернетку
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={onInsertImage}
-                  disabled={!generatedImageUrl || imageInserting}
+                  disabled={!generatedImageUrl || imageInserting || isImageJobInProgress}
                   loading={imageInserting}
                   loadingLabel="Вставляю…"
                 >
                   Вставити зображення
                 </Button>
               </div>
+              {imageJobStatusCopy ? <p className="mono-ui editorial-review-image-status">{imageJobStatusCopy}</p> : null}
+              {showImageJobError ? <p className="mono-ui editorial-review-image-status editorial-review-image-status-error">{imageJobError}</p> : null}
               {isGeneratedImageLoading ? <p className="mono-ui editorial-review-image-status">Завантажую прев'ю…</p> : null}
               {generatedImageUrl ? (
                 <div className="editorial-review-image-preview">

@@ -1,6 +1,49 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type { ReviewImageGenerationRequest, ReviewImageGenerationResponse } from "../../../../../lib/editor/review-contract";
+import {
+  buildReviewImageJobResponse,
+  createQueuedReviewImageJob,
+  processQueuedReviewImageJob,
+  readReviewImageJob
+} from "../../../../../lib/server/review-image-job-service";
 import { generateReviewImage } from "../../../../../lib/server/review-image-service";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get("jobId")?.trim();
+
+  if (!jobId) {
+    return NextResponse.json<ReviewImageGenerationResponse>(
+      {
+        providerUsed: "gemini",
+        modelId: "gemini-3.1-flash-image-preview",
+        error: "Потрібно передати jobId."
+      },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const job = readReviewImageJob(jobId);
+
+  if (!job) {
+    return NextResponse.json<ReviewImageGenerationResponse>(
+      {
+        providerUsed: "gemini",
+        modelId: "gemini-3.1-flash-image-preview",
+        error: "Чергу генерації не знайдено або вона вже протермінована."
+      },
+      { status: 404, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  return NextResponse.json<ReviewImageGenerationResponse>(buildReviewImageJobResponse(job), {
+    headers: { "Cache-Control": "no-store" }
+  });
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -31,6 +74,27 @@ export async function POST(request: Request) {
     );
   }
 
+  if (parsed.value.async) {
+    const job = createQueuedReviewImageJob();
+
+    after(async () => {
+      try {
+        await processQueuedReviewImageJob(job.id, parsed.value);
+      } catch (error) {
+        console.error("Не вдалося завершити review-image job.", error);
+      }
+    });
+
+    return NextResponse.json<ReviewImageGenerationResponse>(
+      {
+        providerUsed: "gemini",
+        modelId: "gemini-3.1-flash-image-preview",
+        job
+      },
+      { status: 202 }
+    );
+  }
+
   const response = await generateReviewImage(parsed.value);
   const status = response.asset ? 200 : 400;
   return NextResponse.json<ReviewImageGenerationResponse>(response, { status });
@@ -51,7 +115,8 @@ function parseImageRequest(body: unknown): { ok: true; value: ReviewImageGenerat
     ok: true,
     value: {
       prompt: record.prompt,
-      apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined
+      apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,
+      async: record.async === true
     }
   };
 }

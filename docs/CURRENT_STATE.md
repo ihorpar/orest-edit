@@ -21,6 +21,7 @@ Status: Active handoff
 - Inserted callouts now use the canonical Ukrainian directive syntax `::: ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ°: <Ã‘â€šÃÂ¸ÃÂ¿>` plus a separate `#` title line, and CM6 styles that source in place instead of swapping to a prettier non-source block
 - Whole-text recommendation detail now renders in a synchronized side overlay instead of squeezing itself into the manuscript flow
 - Image markdown stays in the manuscript source, while the selected image preview now renders in a detached side overlay so pasted/generated images do not change line geometry
+- Review image generation now runs through an async job flow (`queued`/`processing`/`completed`/`failed`) with polling, and the side review detail renders the live job state before insertion
 - Callout recommendations now expose a `ÃÂ¢ÃÂ¸ÃÂ¿ ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ¸` selector in the side detail panel; changing the type triggers a real draft regeneration with loading feedback before the user can insert it
 - Floating selection composer with manual fold/unfold control
 - Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `ÃÅ¸ÃÂµÃ‘â‚¬ÃÂµÃÂ²Ã‘â€“Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸ ÃÂ²ÃÂµÃ‘ÂÃ‘Å’ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€š` reads as a distinct workflow from local chat
@@ -34,6 +35,7 @@ Status: Active handoff
 - Loading feedback is now contextual: the review button, right-rail loading cards, and floating prompt each show subtle in-place motion instead of a blocking editor overlay
 - Patch API route at `/api/edit/patch`
 - Editorial review API route at `/api/edit/review`
+- Review image route at `/api/edit/review/image` now supports async enqueue (`POST`) and job-status polling (`GET ?jobId=...`)
 - Diff cards with short reasons and per-patch accept/reject actions
 - Applied manuscript diffs now show removed text in plain red and let editors edit the green replacement directly inside the large review block before leaving diff mode
 - Group accept/reject flow for multiple safe patch operations
@@ -49,7 +51,7 @@ Status: Active handoff
 - Local settings persistence in browser storage
 - Default editor prompts are tuned for real editorial tasks: explain terms, tighten dense prose, and normalize tone
 - Real OpenAI, Gemini, and Anthropic provider adapters behind one shared patch contract
-- OpenAI remains the default provider path in the current UI
+- Gemini is now the default provider path in the current UI, with `gemini-3-flash` as the default model
 - OpenAI now uses the Responses API structured-output path rather than legacy chat completions
 - Gemini now uses the documented `responseMimeType` / `responseJsonSchema` structured-output path
 - Deterministic local fallback when a provider key is missing or a provider call fails
@@ -58,6 +60,7 @@ Status: Active handoff
 - Validation that drops malformed or overlapping provider operations before they reach the UI
 - Automated tests for patch normalization, batch apply behavior, and provider env/fallback behavior
 - README and `docs/DEPLOYMENT.md` document the runtime and port model explicitly
+- API routes now pin `runtime = "nodejs"` and `maxDuration = 60` to make Vercel serverless behavior explicit for AI requests
 - Repo-level text safeguards now exist through `.editorconfig`, `.gitattributes`, and `npm run check:text`
 - Source and docs files have been normalized to UTF-8 without BOM, LF line endings, and a final newline
 
@@ -117,6 +120,11 @@ Status: Active handoff
 5. Add a more robust browser-driven screenshot harness for seeded CM6 states instead of relying on manual screenshots plus a default headless capture.
 
 ## Last validated state
+- `node --import tsx --test test/review-image-service.test.ts test/review-image-job-service.test.ts` passed
+- `npm run build` passed after async review-image queue and polling integration
+- user explicitly asked to skip screenshot generation for this pass
+- `npm run typecheck` passed after adding explicit Node runtime and 60-second route duration caps for AI API endpoints
+- `npm run check:text` still fails because of pre-existing doc hygiene issues in `docs/CURRENT_STATE.md` and `docs/EXECPLAN_MVP.md` (CRLF line endings and mojibake marker in `docs/EXECPLAN_MVP.md`)
 - `npm run check:text` passed
 - `npm run typecheck` passed
 - `npm run build` passed
@@ -144,7 +152,7 @@ Status: Active handoff
 - AI processing uses local animated feedback in the button, right rail, and floating prompt instead of a global spinner overlay.
 - The editor typing layer now uses one shared metric system for both the manuscript overlay and the native textarea, and focused editing reveals the native textarea text again. This fixes caret/input desync caused by paragraph spacing and font-shaping differences between the two layers.
 - Editorial-review detail stays open during normal manuscript clicks and selection changes; it now closes only through explicit close controls, with a top-right close icon instead of the old text button.
-- Settings now offer provider-specific model presets plus a fourth `Ãâ€™ÃÂ²ÃÂµÃ‘ÂÃ‘â€šÃÂ¸ ÃÂ²Ã‘â‚¬Ã‘Æ’Ã‘â€¡ÃÂ½Ã‘Æ’` path. The defaults were refreshed to current catalog picks: OpenAI `gpt-5.4`, Anthropic `claude-opus-4-6`, and Google `gemini-3.1-pro-preview`.
+- Settings now offer provider-specific model presets plus a fourth `Ãâ€™ÃÂ²ÃÂµÃ‘ÂÃ‘â€šÃÂ¸ ÃÂ²Ã‘â‚¬Ã‘Æ’Ã‘â€¡ÃÂ½Ã‘Æ’` path. Current defaults use Google Gemini `gemini-3-flash`.
 - The settings page now validates the current OpenAI model successfully through repo-root `.env` fallback and surfaces the success state inline in the sheet header and model field.
 - The review-detail panel now has its own top stacking layer inside the manuscript frame, so editor text no longer renders on top of it and the close controls remain clickable.
 - The custom prompt composer now sits centered at the bottom of the editor in a chat-style layout. It opens as a single-line input by default, then auto-grows up to a bounded multi-line height as the user types.

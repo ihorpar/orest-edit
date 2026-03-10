@@ -5,7 +5,7 @@ import type { EditorView } from "@codemirror/view";
 import { EditorialReviewDetail } from "../EditorialReviewDetail";
 import { resolveRecommendationLaneAnchor } from "../../../lib/editor/cm6/recommendation-positions";
 import type { ManuscriptRevisionState } from "../../../lib/editor/manuscript-structure";
-import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal } from "../../../lib/editor/review-contract";
+import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal, ReviewImageGenerationJobStatus } from "../../../lib/editor/review-contract";
 
 export function RecommendationLane({
   editorView,
@@ -15,6 +15,8 @@ export function RecommendationLane({
   preparing,
   imageGenerating,
   imageInserting,
+  imageJobStatus,
+  imageJobError,
   layoutKey,
   onClose,
   onPrepare,
@@ -33,6 +35,8 @@ export function RecommendationLane({
   preparing?: boolean;
   imageGenerating?: boolean;
   imageInserting?: boolean;
+  imageJobStatus?: ReviewImageGenerationJobStatus;
+  imageJobError?: string;
   layoutKey: string;
   onClose: () => void;
   onPrepare: () => void;
@@ -74,6 +78,8 @@ export function RecommendationLane({
           preparing={preparing}
           imageGenerating={imageGenerating}
           imageInserting={imageInserting}
+          imageJobStatus={imageJobStatus}
+          imageJobError={imageJobError}
           onClose={onClose}
           onPrepare={onPrepare}
           onCalloutKindChange={onCalloutKindChange}

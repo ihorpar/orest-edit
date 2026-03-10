@@ -3,6 +3,9 @@ import type { ReviewActionRequest, ReviewActionResponse } from "../../../../../l
 import { normalizeModelId, normalizeProvider } from "../../../../../lib/editor/settings";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   let body: unknown;
 

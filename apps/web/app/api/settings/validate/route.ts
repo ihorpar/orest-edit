@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { normalizeModelId, normalizeProvider, validateModelId, type SettingsValidationResult } from "../../../../lib/editor/settings";
 import { validateSettingsModel } from "../../../../lib/server/settings-validation";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   let body: unknown;
 

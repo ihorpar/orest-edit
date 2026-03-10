@@ -4,6 +4,9 @@ import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   let body: unknown;
 

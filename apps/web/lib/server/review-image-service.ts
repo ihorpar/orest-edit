@@ -4,7 +4,7 @@ import { readServerEnvValue } from "./env.ts";
 
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const geminiImageModel = "gemini-3.1-flash-image-preview";
-const requestTimeoutMs = 90000;
+const requestTimeoutMs = 55000;
 
 type FetchLike = typeof fetch;
 

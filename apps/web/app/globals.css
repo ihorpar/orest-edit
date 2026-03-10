@@ -3535,6 +3535,10 @@ textarea {
   color: #64748b;
 }
 
+.editorial-review-image-status-error {
+  color: #b42318;
+}
+
 .editorial-review-image-preview img {
   display: block;
   width: 100%;
@@ -3750,6 +3754,14 @@ textarea {
 .editorial-review-image-preview {
   display: grid;
   gap: 10px;
+}
+
+.editorial-review-image-status {
+  color: #64748b;
+}
+
+.editorial-review-image-status-error {
+  color: #b42318;
 }
 
 .editorial-review-image-preview img {

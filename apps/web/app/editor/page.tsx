@@ -48,6 +48,7 @@ import {
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type GeneratedReviewImageAsset,
+  type ReviewImageGenerationJobStatus,
   type ReviewActionProposal,
   type ReviewActionResponse,
   type ReviewImageGenerationResponse,
@@ -60,6 +61,14 @@ import { insertReviewImageMarkdown } from "../../lib/editor/review-image-inserti
 interface RequestFeedback {
   message: string;
   tone: "info" | "error";
+}
+
+interface ActiveReviewImageJobState {
+  proposalId: string;
+  reviewItemId: string;
+  jobId: string;
+  status: ReviewImageGenerationJobStatus;
+  error?: string;
 }
 
 const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
@@ -93,6 +102,7 @@ export default function EditorPage() {
   const [reviewImageAssets, setReviewImageAssets] = useState<Record<string, GeneratedReviewImageAsset>>({});
   const [calloutKindOverrides, setCalloutKindOverrides] = useState<Record<string, EditorialCalloutKind>>({});
   const [isReviewImageInsertionInFlight, setIsReviewImageInsertionInFlight] = useState(false);
+  const [activeReviewImageJob, setActiveReviewImageJob] = useState<ActiveReviewImageJobState | null>(null);
   const [selectionRevealKey, setSelectionRevealKey] = useState(0);
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [suppressFloatingPrompt, setSuppressFloatingPrompt] = useState(false);
@@ -100,6 +110,7 @@ export default function EditorPage() {
   const [isClearDraftDialogOpen, setIsClearDraftDialogOpen] = useState(false);
   const [reviewComposer, setReviewComposer] = useState(defaultReviewComposer);
   const imageInsertionGuardRef = useRef<string | null>(null);
+  const reviewImagePollControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setSettings(readEditorSettings());
@@ -131,10 +142,21 @@ export default function EditorPage() {
     setHasHydratedDraft(true);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      reviewImagePollControllerRef.current?.abort();
+    };
+  }, []);
+
   const hasActiveSelection = hasSelection(selection);
   const shouldShowSelectionPrompt = hasActiveSelection && activeReviewItem === null && !suppressFloatingPrompt && !isReviewComposerOpen;
   const shouldShowFloatingPrompt = isReviewComposerOpen || shouldShowSelectionPrompt;
   const floatingPromptMode = isReviewComposerOpen ? "review" : "selection";
+  const proposalImageGeneration = activeProposal?.kind === "image_prompt" ? activeProposal.imageDraft?.generation : undefined;
+  const reviewImageJobStatus =
+    activeReviewImageJob && activeProposal?.id === activeReviewImageJob.proposalId ? activeReviewImageJob.status : proposalImageGeneration?.status;
+  const reviewImageJobError =
+    activeReviewImageJob && activeProposal?.id === activeReviewImageJob.proposalId ? activeReviewImageJob.error : proposalImageGeneration?.error;
   const isAnyRequestInFlight =
     isPatchRequestInFlight || isReviewRequestInFlight || isReviewProposalInFlight || isReviewImageInFlight || isReviewImageInsertionInFlight;
   const hasRailDetailContent =
@@ -157,6 +179,41 @@ export default function EditorPage() {
     reviewDiagnostics !== null ||
     history.length > 0 ||
     feedback !== null;
+
+  function clearActiveReviewImageJob() {
+    reviewImagePollControllerRef.current?.abort();
+    reviewImagePollControllerRef.current = null;
+    setActiveReviewImageJob(null);
+  }
+
+  function updateActiveProposalImageJobState(input: {
+    proposalId: string;
+    jobId: string;
+    status: ReviewImageGenerationJobStatus;
+    updatedAt: string;
+    error?: string;
+  }) {
+    setActiveProposal((current) =>
+      current && current.id === input.proposalId && current.kind === "image_prompt" && current.imageDraft
+        ? {
+            ...current,
+            imageDraft: {
+              ...current.imageDraft,
+              generation: {
+                jobId: input.jobId,
+                status: input.status,
+                requestedAt:
+                  current.imageDraft.generation && current.imageDraft.generation.jobId === input.jobId
+                    ? current.imageDraft.generation.requestedAt
+                    : input.updatedAt,
+                updatedAt: input.updatedAt,
+                error: input.error
+              }
+            }
+          }
+        : current
+    );
+  }
   useEffect(() => {
     if (!hasHydratedDraft) {
       return;
@@ -271,6 +328,7 @@ export default function EditorPage() {
     setIsReviewRequestInFlight(true);
     setFeedback(null);
     setActiveReviewItem(null);
+    clearActiveReviewImageJob();
     setActiveProposal(null);
     setReviewDiagnostics(null);
 
@@ -340,6 +398,7 @@ export default function EditorPage() {
     startTransition(() => {
       setAppliedDiffs([]);
       setActiveReviewItem(effectiveItem);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
       setSelectionRevealKey((current) => current + 1);
@@ -401,6 +460,7 @@ export default function EditorPage() {
     setIsReviewProposalInFlight(true);
     setIsReviewImageInsertionInFlight(false);
     imageInsertionGuardRef.current = null;
+    clearActiveReviewImageJob();
     setFeedback(null);
 
     try {
@@ -506,6 +566,11 @@ export default function EditorPage() {
       return;
     }
 
+    const proposalId = activeProposal.id;
+    const reviewItemId = activeProposal.reviewItemId;
+    let queuedJobId: string | null = null;
+
+    clearActiveReviewImageJob();
     setIsReviewImageInFlight(true);
     setFeedback(null);
 
@@ -517,42 +582,180 @@ export default function EditorPage() {
         },
         body: JSON.stringify({
           prompt: activeProposal.imageDraft.prompt,
-          apiKey: settings.provider === "gemini" ? settings.apiKey || undefined : undefined
+          apiKey: settings.provider === "gemini" ? settings.apiKey || undefined : undefined,
+          async: true
         })
       });
-
       const payload = (await response.json()) as ReviewImageGenerationResponse;
 
-      if (!response.ok || !payload.asset) {
-        throw new Error(payload.error ?? "Не вдалося згенерувати зображення.");
+      if (payload.asset) {
+        await finalizeGeneratedReviewImage(payload, proposalId, reviewItemId);
+        return;
       }
 
-      const asset = await persistGeneratedImageAsset(payload.asset);
-      setReviewImageAssets((current) => ({ ...current, [asset.assetId]: asset }));
-      setActiveProposal((current) =>
-        current && current.kind === "image_prompt" && current.imageDraft
-          ? {
-              ...current,
-              imageDraft: {
-                ...current.imageDraft,
-                generatedAsset: asset
-              }
-            }
-          : current
-      );
-      const nextFeedback = {
-        message: `Згенеровано чернеткове зображення через ${payload.modelId}.`,
-        tone: "info" as const
-      };
-      setFeedback(nextFeedback);
-      setHistory((current) => [createImageHistoryEntry(payload, nextFeedback, activeProposal.reviewItemId), ...current].slice(0, 8));
+      if (!response.ok || !payload.job) {
+        throw new Error(payload.error ?? "Не вдалося поставити генерацію в чергу.");
+      }
+
+      setActiveReviewImageJob({
+        proposalId,
+        reviewItemId,
+        jobId: payload.job.id,
+        status: payload.job.status
+      });
+      queuedJobId = payload.job.id;
+      updateActiveProposalImageJobState({
+        proposalId,
+        jobId: payload.job.id,
+        status: payload.job.status,
+        updatedAt: payload.job.updatedAt
+      });
+      setFeedback({ message: "Зображення в черзі. Чекаю результат…", tone: "info" });
+
+      const pollResult = await pollReviewImageJob({
+        proposalId,
+        reviewItemId,
+        jobId: payload.job.id,
+        initialPollAfterMs: payload.job.pollAfterMs
+      });
+
+      if (pollResult.aborted) {
+        return;
+      }
+
+      if (!pollResult.payload) {
+        throw new Error("Не вдалося отримати статус генерації зображення.");
+      }
+
+      if (pollResult.payload.asset) {
+        await finalizeGeneratedReviewImage(pollResult.payload, proposalId, reviewItemId);
+        return;
+      }
+
+      const failureMessage = pollResult.payload.error ?? "Генерація зображення завершилась помилкою.";
+      setFeedback({ message: failureMessage, tone: "error" });
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Сталася помилка під час генерації зображення.";
+
+      if (queuedJobId) {
+        updateActiveProposalImageJobState({
+          proposalId,
+          jobId: queuedJobId,
+          status: "failed",
+          updatedAt: new Date().toISOString(),
+          error: message
+        });
+      }
+
       setFeedback({
-        message: error instanceof Error ? error.message : "Сталася помилка під час генерації зображення.",
+        message,
         tone: "error"
       });
     } finally {
       setIsReviewImageInFlight(false);
+      clearActiveReviewImageJob();
+    }
+  }
+
+  async function finalizeGeneratedReviewImage(payload: ReviewImageGenerationResponse, proposalId: string, reviewItemId: string) {
+    if (!payload.asset) {
+      throw new Error(payload.error ?? "Не вдалося отримати asset згенерованого зображення.");
+    }
+
+    const asset = await persistGeneratedImageAsset(payload.asset);
+    setReviewImageAssets((current) => ({ ...current, [asset.assetId]: asset }));
+    setActiveProposal((current) =>
+      current && current.id === proposalId && current.kind === "image_prompt" && current.imageDraft
+        ? {
+            ...current,
+            imageDraft: {
+              ...current.imageDraft,
+              generatedAsset: asset,
+              generation: current.imageDraft.generation
+                ? {
+                    ...current.imageDraft.generation,
+                    status: "completed",
+                    updatedAt: new Date().toISOString(),
+                    error: undefined
+                  }
+                : undefined
+            }
+          }
+        : current
+    );
+
+    const nextFeedback = {
+      message: `Згенеровано чернеткове зображення через ${payload.modelId}.`,
+      tone: "info" as const
+    };
+    setFeedback(nextFeedback);
+    setHistory((current) => [createImageHistoryEntry(payload, nextFeedback, reviewItemId), ...current].slice(0, 8));
+  }
+
+  async function pollReviewImageJob(input: {
+    proposalId: string;
+    reviewItemId: string;
+    jobId: string;
+    initialPollAfterMs: number;
+  }): Promise<{ aborted: boolean; payload?: ReviewImageGenerationResponse }> {
+    const controller = new AbortController();
+    reviewImagePollControllerRef.current?.abort();
+    reviewImagePollControllerRef.current = controller;
+    let nextPollAfterMs = Math.max(300, input.initialPollAfterMs || 1200);
+
+    try {
+      while (true) {
+        await waitForReviewImagePoll(nextPollAfterMs, controller.signal);
+
+        const response = await fetch(`/api/edit/review/image?jobId=${encodeURIComponent(input.jobId)}`, {
+          cache: "no-store",
+          signal: controller.signal
+        });
+        const payload = (await response.json()) as ReviewImageGenerationResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Не вдалося перевірити статус генерації зображення.");
+        }
+
+        if (!payload.job) {
+          throw new Error("Сервер не повернув статус черги генерації.");
+        }
+
+        setActiveReviewImageJob({
+          proposalId: input.proposalId,
+          reviewItemId: input.reviewItemId,
+          jobId: input.jobId,
+          status: payload.job.status,
+          error: payload.error
+        });
+        updateActiveProposalImageJobState({
+          proposalId: input.proposalId,
+          jobId: input.jobId,
+          status: payload.job.status,
+          updatedAt: payload.job.updatedAt,
+          error: payload.error
+        });
+
+        if (payload.job.status === "completed" || payload.job.status === "failed") {
+          return { aborted: false, payload };
+        }
+
+        nextPollAfterMs = Math.max(300, payload.job.pollAfterMs || 1200);
+      }
+    } catch (error) {
+      if (isAbortError(error)) {
+        return { aborted: true };
+      }
+
+      throw error;
+    } finally {
+      if (reviewImagePollControllerRef.current === controller) {
+        reviewImagePollControllerRef.current = null;
+      }
     }
   }
 
@@ -630,6 +833,7 @@ export default function EditorPage() {
 
     setAppliedDiffs([]);
     setActiveReviewItem(null);
+    clearActiveReviewImageJob();
     setActiveProposal(null);
     setReviewItems([]);
     setCalloutKindOverrides({});
@@ -673,6 +877,7 @@ export default function EditorPage() {
       setSelection({ start: nextCursor, end: nextCursor });
       setAppliedDiffs(nextAppliedDiffs);
       setActiveReviewItem(activeReviewItem ? nextReviewItems.find((item) => item.id === activeReviewItem.id) ?? null : null);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
       setCalloutKindOverrides({});
@@ -728,6 +933,7 @@ export default function EditorPage() {
       setSelection({ start: nextCursor, end: nextCursor });
       setAppliedDiffs(nextAppliedDiffs);
       setActiveReviewItem(activeReviewItem ? nextReviewItems.find((item) => item.id === activeReviewItem.id) ?? null : null);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
       setCalloutKindOverrides({});
@@ -754,6 +960,7 @@ export default function EditorPage() {
     startTransition(() => {
       setAppliedDiffs([]);
       setActiveReviewItem(item);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
       setSelectionRevealKey((current) => current + 1);
@@ -775,6 +982,7 @@ export default function EditorPage() {
 
     if (activeReviewItem?.id === item.id) {
       setActiveReviewItem(null);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setSuppressFloatingPrompt(false);
     }
@@ -796,6 +1004,7 @@ export default function EditorPage() {
     setText(nextText);
     setRevision(nextRevision);
     setSelection({ start: nextCursor, end: nextCursor });
+    clearActiveReviewImageJob();
     setActiveProposal(null);
     setReviewItems(nextReviewItems);
     setCalloutKindOverrides((current) => {
@@ -846,6 +1055,7 @@ export default function EditorPage() {
     setRevision(nextRevision);
     setSelection(clampSelection(nextText, revealStart, revealEnd));
     setSelectionRevealKey((current) => current + 1);
+    clearActiveReviewImageJob();
     setActiveProposal(null);
     setActiveReviewItem(null);
     setReviewItems(nextReviewItems);
@@ -875,6 +1085,7 @@ export default function EditorPage() {
     startTransition(() => {
       setAppliedDiffs([]);
       setActiveReviewItem(liveItem);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
       setSelectionRevealKey((current) => current + 1);
@@ -913,6 +1124,7 @@ export default function EditorPage() {
         imageDraft: undefined
       });
       setReviewItems((current) => reconcileReviewItemsWithRevision(current, revision));
+      clearActiveReviewImageJob();
       setFeedback({ message: "Рекомендація застаріла після змін у тексті. Підготуйте чернетку ще раз.", tone: "error" });
       return;
     }
@@ -955,6 +1167,7 @@ export default function EditorPage() {
       setText(result.text);
       setRevision(nextRevision);
       setSelection({ start: nextCursor, end: nextCursor });
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
       setCalloutKindOverrides((current) => {
@@ -989,6 +1202,7 @@ export default function EditorPage() {
       setAppliedDiffs([]);
       setFeedback({ message: "Чернетку очищено. Редактор повернуто до початкового стану.", tone: "info" });
       setActiveReviewItem(null);
+      clearActiveReviewImageJob();
       setActiveProposal(null);
       setCalloutKindOverrides({});
       setReviewImageAssets({});
@@ -1047,12 +1261,17 @@ export default function EditorPage() {
             reviewPreparing={isReviewProposalInFlight}
             reviewImageGenerating={isReviewImageInFlight}
             reviewImageInserting={isReviewImageInsertionInFlight}
+            reviewImageJobStatus={reviewImageJobStatus}
+            reviewImageJobError={reviewImageJobError}
             onClearDraft={requestClearDraft}
             onAppliedDiffChange={handleAppliedDiffChange}
             onApplyReviewCallout={handleApplyCalloutProposal}
             onApplyReviewText={handleApplyReviewTextProposal}
             onDiscardAppliedDiffs={() => setAppliedDiffs([])}
-            onDiscardReviewProposal={() => setActiveProposal(null)}
+            onDiscardReviewProposal={() => {
+              clearActiveReviewImageJob();
+              setActiveProposal(null);
+            }}
             onDismissAppliedDiffs={() => setAppliedDiffs([])}
             onDismissReviewItem={() => setActiveReviewItem(null)}
             onGenerateReviewImage={() => {
@@ -1309,6 +1528,26 @@ function createImageInsertionHistoryEntry(feedback: RequestFeedback, reviewItemI
     tone: feedback.tone,
     message: feedback.message
   };
+}
+
+function waitForReviewImagePoll(delayMs: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+
+    function onAbort() {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException ? error.name === "AbortError" : error instanceof Error && error.name === "AbortError";
 }
 
 function deriveLocalImageAlt(fileName?: string): string {

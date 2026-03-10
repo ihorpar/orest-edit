@@ -34,6 +34,37 @@ Local developer behavior:
 - if the settings form leaves the API key blank, the server checks process env first
 - for local workspace runs, the server also reads the repo-root `.env` and `.env.local`
 
+## Vercel deployment (recommended)
+
+Use this path for the least-friction Next.js deployment.
+
+Project setup:
+1. Import the repository in Vercel.
+2. For monorepo detection, set the project root to `apps/web` (or keep repo root and use existing root scripts).
+3. Set production environment variables:
+   - `OPENAI_API_KEY`
+   - `GEMINI_API_KEY`
+   - `ANTHROPIC_API_KEY`
+4. Deploy.
+
+Runtime behavior prepared in this repo:
+- all AI API routes are pinned to `runtime = "nodejs"`
+- all AI API routes export `maxDuration = 60`
+- image generation upstream timeout is capped below route duration so requests fail gracefully instead of hitting hard platform timeout
+
+Configured API routes:
+- `apps/web/app/api/edit/patch/route.ts`
+- `apps/web/app/api/edit/review/route.ts`
+- `apps/web/app/api/edit/review/proposal/route.ts`
+- `apps/web/app/api/edit/review/image/route.ts`
+- `apps/web/app/api/settings/validate/route.ts`
+
+Review-image route behavior:
+- `POST /api/edit/review/image` supports async enqueue (`async: true`) and returns `202` with a job id
+- `GET /api/edit/review/image?jobId=...` returns queue status and final asset/error (`Cache-Control: no-store`)
+
+If your Vercel project uses a different function mode/limit profile, increase route `maxDuration` and keep upstream provider timeouts slightly lower than that value.
+
 ## Generic Node hosting
 
 Recommended flow:

@@ -21,7 +21,7 @@ import { createParagraphGutter } from "../../lib/editor/cm6/gutters";
 import type { AppliedDiffMarker } from "../../lib/editor/applied-diff";
 import { hasSelection, type PatchSelection } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
+import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal, ReviewImageGenerationJobStatus } from "../../lib/editor/review-contract";
 
 const markdownToolbarGroups: Array<{
   id: string;
@@ -146,6 +146,8 @@ export function CodeMirrorCanvas({
   reviewItems,
   reviewImageGenerating,
   reviewImageInserting,
+  reviewImageJobStatus,
+  reviewImageJobError,
   reviewPreparing,
   onClearDraft,
   onMarkdownFormat,
@@ -177,6 +179,8 @@ export function CodeMirrorCanvas({
   reviewItems: EditorialReviewItem[];
   reviewImageGenerating?: boolean;
   reviewImageInserting?: boolean;
+  reviewImageJobStatus?: ReviewImageGenerationJobStatus;
+  reviewImageJobError?: string;
   reviewPreparing?: boolean;
   onClearDraft?: () => void;
   onMarkdownFormat: () => void;
@@ -554,6 +558,8 @@ export function CodeMirrorCanvas({
             preparing={reviewPreparing}
             imageGenerating={reviewImageGenerating}
             imageInserting={reviewImageInserting}
+            imageJobStatus={reviewImageJobStatus}
+            imageJobError={reviewImageJobError}
             layoutKey={`${layoutVersion}:${selectionRevealKey ?? 0}:${text.length}:${activeReviewItem.id}`}
             onClose={onDismissReviewItem}
             onPrepare={onPrepareReviewItem}

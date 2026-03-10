@@ -76,14 +76,14 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   ],
   gemini: [
     {
+      id: "gemini-3-flash",
+      label: "Gemini 3 Flash",
+      description: "Швидкий і збалансований варіант за замовчуванням для повсякденних patch-запитів та editorial review."
+    },
+    {
       id: "gemini-3.1-pro-preview",
       label: "Gemini 3.1 Pro Preview",
       description: "Найсильніший Gemini-профіль для довших рукописів, глобального review і складної структурної правки."
-    },
-    {
-      id: "gemini-3-flash-preview",
-      label: "Gemini 3 Flash Preview",
-      description: "Швидший preview-варіант, коли потрібен хороший редакторський результат при нижчій латентності."
     },
     {
       id: "gemini-3.1-flash-lite-preview",
@@ -107,8 +107,8 @@ export function findProviderModelPreset(provider: ProviderId, modelId: string): 
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
-  provider: "openai",
-  modelId: getDefaultProviderModelId("openai"),
+  provider: "gemini",
+  modelId: getDefaultProviderModelId("gemini"),
   apiKey: "",
   basePrompt: DEFAULT_BASE_PROMPT,
   reviewPrompt: DEFAULT_REVIEW_PROMPT,

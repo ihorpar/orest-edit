@@ -1,5 +1,22 @@
 # DECISIONS_LOG
 
+## 2026-03-09
+
+### Explicit serverless duration for AI routes
+Decision: set `runtime = "nodejs"` and `maxDuration = 60` on all AI-related API routes used by patching, review, proposal generation, image generation, and settings validation.
+
+Reason: hosting defaults can be shorter than AI latency, which can terminate requests before graceful fallback or structured error handling runs.
+
+### Upstream timeout stays below route timeout
+Decision: cap review-image provider timeout below the route duration ceiling (`55s` with route `60s`).
+
+Reason: aborting upstream first gives deterministic user-facing errors and avoids hard platform timeouts.
+
+### Async review-image job lifecycle
+Decision: replace blocking review-image generation with async enqueue (`POST /api/edit/review/image`) and explicit job polling (`GET /api/edit/review/image?jobId=...`), then render queue/progress/failure states directly in review detail UI.
+
+Reason: generated images can take longer than comfortable interactive request windows, so user trust depends on transparent in-place state rather than one opaque long request.
+
 ## 2026-03-05
 
 ### Product user

@@ -16,6 +16,8 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Progress
 
+- [x] (2026-03-09 00:00Z) Converted review-image generation from a blocking request into an async job flow with `POST` enqueue + `GET` polling, wired queue/progress/error rendering into the review detail UI, and added server/job tests for the new flow.
+- [x] (2026-03-09 00:00Z) Prepared Vercel deployment runtime behavior by pinning all API routes to Node.js with explicit `maxDuration = 60`, lowering review-image upstream timeout below route duration, and extending `docs/DEPLOYMENT.md` with a Vercel-specific setup checklist.
 - [x] (2026-03-08 00:00Z) Reworked the markdown toolbar into compact grouped controls with icon-like buttons and verified the updated UI with a fresh browser screenshot.
 - [x] (2026-03-05 00:00Z) Rebuilt the project as a web-only Next.js app in `apps/web`.
 - [x] (2026-03-05 00:00Z) Implemented the current sample4-based editor UI and `/settings` screen in Ukrainian.
@@ -89,6 +91,10 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Surprises & Discoveries
 
+- Observation: image generation reliability on serverless is less about one large timeout and more about user-visible state continuity across queue, processing, and failure transitions.
+  Evidence: switching `/api/edit/review/image` to async enqueue + polling required explicit proposal-level job state in `apps/web/app/editor/page.tsx` and dedicated status rendering in `apps/web/components/editor/EditorialReviewDetail.tsx` to avoid “silent waiting” and stale UI.
+- Observation: provider-side request timeout alone does not protect user-facing reliability if the hosting function timeout is lower.
+  Evidence: several AI routes already had explicit abort windows (20s/45s/90s), but without route-level runtime duration controls the platform can terminate requests before service fallback logic responds.
 - Observation: discoverability does not require verbose button labels if the toolbar grouping and iconography are disciplined.
   Evidence: the revised toolbar in `apps/web/components/editor/CodeMirrorCanvas.tsx` keeps button text compact, but restores clarity through grouped controls, familiar formatting symbols, and explicit tooltip labels.
 - Observation: the current UI was visually close enough to `sample4` that the main blocker was behavior, not design.
@@ -252,6 +258,12 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Decision Log
 
+- Decision: review-image generation now uses a two-step async API (`POST` enqueue, `GET` job status) with client polling and explicit UI job-state rendering.
+  Rationale: image generation can outlive comfortable interactive request windows; an explicit async state machine is more reliable and transparent than one blocking request.
+  Date/Author: 2026-03-09 / Codex implementation
+- Decision: for Vercel deployment, all API routes use Node.js runtime with explicit `maxDuration = 60`, and provider timeouts should stay below route duration.
+  Rationale: AI requests can exceed short default serverless windows; explicit route duration plus lower upstream abort thresholds fails gracefully and preserves fallback behavior.
+  Date/Author: 2026-03-09 / Codex implementation
 - Decision: keep the markdown toolbar compact and symbol-first, but pair it with strong grouping, familiar glyphs, and explicit tooltip/ARIA labels.
   Rationale: the editor header should feel like professional publishing software, not a form full of labeled cards; clarity should come from interaction design, not extra bulk.
   Date/Author: 2026-03-08 / Codex implementation
@@ -452,6 +464,10 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-08 / Codex + User
 
 ## Outcomes & Retrospective
+
+The latest media-generation pass removed the last blocking AI step in review detail. Image generation is now queued asynchronously, the UI surfaces `queued`/`processing`/`failed` states while polling, and insertion still uses the same explicit markdown-asset flow once the generated image is ready.
+
+The latest deployment-prep pass hardened production behavior under serverless limits. AI API routes now declare an explicit runtime/duration profile for Vercel, image generation now aborts before the route duration ceiling, and deployment docs include an operational Vercel checklist with environment and timeout expectations.
 
 The latest toolbar pass removed the bulky card treatment from the editor header. Formatting actions are compact again, organized into tight groups, and rely on familiar symbols plus tooltip/ARIA labels so the control strip reads like professional editorial software instead of a grid of explainer cards.
 The prototype is now a working editor slice instead of a static mock. Selection is real, requests use a stable patch contract, proposals return through an API route, each patch carries a short reason, accept updates the manuscript text, reject removes only the proposal, and saved settings are restored from local storage.
@@ -767,7 +783,7 @@ The first API path lives at:
 
 and accepts the working request contract described in the plan, plus an optional `basePrompt` so editor settings can shape the provider request.
 
-The real provider dependencies include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. OpenAI remains the default provider in the current UI, and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
+The real provider dependencies include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. Gemini remains the default provider in the current UI (`gemini-3-flash`), and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
 
 The repo-level text dependencies now include:
 - `.editorconfig` for default UTF-8 and LF behavior
