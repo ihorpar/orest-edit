@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { ChangeEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createEditorAssetToken } from "../../lib/editor/asset-store";
 import type {
@@ -20,9 +20,15 @@ import {
   createBlockId,
   createEmptyParagraphBlock,
   createInlineText,
+  getBlock,
+  getBlockIndex,
   getInlineText,
   hasSelectedBlocks,
-  normalizeBlockSelection
+  insertBlocksAfter,
+  normalizeBlockSelection,
+  normalizeInlineNodes,
+  removeBlocksByIds,
+  type DividerBlock
 } from "../../lib/editor/document-model";
 import { getEditorialCalloutKindLabel } from "../../lib/editor/review-contract";
 import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
@@ -30,6 +36,15 @@ import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
+type CaretPlacement = "start" | "end";
+type PendingFocusTarget = { key: string; placement: CaretPlacement };
+
+type RichTextContext = {
+  element: HTMLDivElement;
+  html: string;
+  content: InlineNode[];
+  caretOffset: number;
+};
 
 export function BlockEditorSurface({
   document,
@@ -52,6 +67,8 @@ export function BlockEditorSurface({
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
+  const activeEditableKey = useRef<string | null>(null);
+  const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
   useEffect(() => {
@@ -68,20 +85,51 @@ export function BlockEditorSurface({
     };
   }, []);
 
-  function registerEditable(blockId: string, element: HTMLElement | null) {
-    if (!element) {
-      editableRefs.current.delete(blockId);
+  useLayoutEffect(() => {
+    const pending = pendingFocusTarget.current;
+
+    if (!pending) {
       return;
     }
 
-    editableRefs.current.set(blockId, element);
+    const target = editableRefs.current.get(pending.key);
+
+    if (!target) {
+      return;
+    }
+
+    target.focus();
+    placeCaret(target, pending.placement);
+    pendingFocusTarget.current = null;
+  }, [document]);
+
+  function registerEditable(key: string, element: HTMLElement | null) {
+    if (!element) {
+      editableRefs.current.delete(key);
+      return;
+    }
+
+    editableRefs.current.set(key, element);
   }
 
-  function updateBlock(blockId: string, updater: (block: Block) => Block) {
-    onDocumentChange({
-      version: 2,
-      blocks: document.blocks.map((block) => (block.id === blockId ? updater(block) : block))
-    });
+  function commit(nextDocument: EditorDocument) {
+    onDocumentChange(nextDocument);
+  }
+
+  function setPendingFocus(key: string, placement: CaretPlacement) {
+    pendingFocusTarget.current = { key, placement };
+  }
+
+  function clearAiSelection() {
+    if (normalizedSelection.blockIds.length > 0) {
+      onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+    }
+  }
+
+  function handleEditableFocus(blockId: string, editableKey: string) {
+    activeEditableKey.current = editableKey;
+    onFocusedBlockChange(blockId);
+    clearAiSelection();
   }
 
   function selectBlockRange(anchorBlockId: string, focusBlockId: string) {
@@ -92,23 +140,7 @@ export function BlockEditorSurface({
         focusBlockId
       })
     );
-  }
-
-  function handleBlockChromeClick(blockId: string, extend: boolean) {
-    if (extend && normalizedSelection.anchorBlockId) {
-      selectBlockRange(normalizedSelection.anchorBlockId, blockId);
-      onFocusedBlockChange(blockId);
-      return;
-    }
-
-    onSelectionChange(
-      normalizeBlockSelection(document, {
-        blockIds: [blockId],
-        anchorBlockId: blockId,
-        focusBlockId: blockId
-      })
-    );
-    onFocusedBlockChange(blockId);
+    onFocusedBlockChange(focusBlockId);
   }
 
   function handleGutterMouseDown(blockId: string, event: ReactMouseEvent<HTMLButtonElement>) {
@@ -120,7 +152,6 @@ export function BlockEditorSurface({
     const anchorBlockId = event.shiftKey && normalizedSelection.anchorBlockId ? normalizedSelection.anchorBlockId : blockId;
     dragAnchorBlockId.current = anchorBlockId;
     selectBlockRange(anchorBlockId, blockId);
-    onFocusedBlockChange(blockId);
   }
 
   function handleGutterMouseEnter(blockId: string, event: ReactMouseEvent<HTMLButtonElement>) {
@@ -129,17 +160,16 @@ export function BlockEditorSurface({
     }
 
     selectBlockRange(dragAnchorBlockId.current, blockId);
-    onFocusedBlockChange(blockId);
   }
 
   function handleFormatCommand(command: "bold" | "italic" | "link") {
-    const targetId = focusedBlockId ?? normalizedSelection.focusBlockId;
+    const targetKey = activeEditableKey.current ?? focusedBlockId;
 
-    if (!targetId || disabled) {
+    if (!targetKey || disabled) {
       return;
     }
 
-    const element = editableRefs.current.get(targetId);
+    const element = editableRefs.current.get(targetKey);
 
     if (!element) {
       return;
@@ -158,28 +188,6 @@ export function BlockEditorSurface({
     } else {
       window.document.execCommand(command);
     }
-
-    syncTextBlockFromDom(targetId);
-  }
-
-  function syncTextBlockFromDom(blockId: string) {
-    const element = editableRefs.current.get(blockId);
-
-    if (!element) {
-      return;
-    }
-
-    const nextContent = htmlToInlineNodes(element.innerHTML);
-    updateBlock(blockId, (block) => {
-      if (block.type === "paragraph" || block.type === "heading") {
-        return {
-          ...block,
-          content: nextContent
-        };
-      }
-
-      return block;
-    });
   }
 
   function handleBlockFormat(action: BlockFormatAction) {
@@ -235,26 +243,149 @@ export function BlockEditorSurface({
       }
     }
 
-    onDocumentChange({
-      version: 2,
-      blocks: transformed
-    });
+    commit({ version: 2, blocks: transformed });
   }
 
   function insertBlockAfterCurrent(factory: () => Block) {
-    const anchorId = normalizedSelection.focusBlockId ?? focusedBlockId;
-    const anchorIndex = anchorId ? document.blocks.findIndex((block) => block.id === anchorId) : -1;
-    const nextBlocks = [...document.blocks];
-    const insertionIndex = anchorIndex >= 0 ? anchorIndex + 1 : nextBlocks.length;
+    const anchorId = focusedBlockId ?? normalizedSelection.focusBlockId;
     const nextBlock = factory();
-    nextBlocks.splice(insertionIndex, 0, nextBlock);
-    onDocumentChange({ version: 2, blocks: nextBlocks });
-    onSelectionChange({
-      blockIds: [nextBlock.id],
-      anchorBlockId: nextBlock.id,
-      focusBlockId: nextBlock.id
-    });
+    const nextDocument = insertBlocksAfter(document, anchorId, [nextBlock]);
+    setPendingFocus(makeEditableKey(nextBlock.id), "start");
+    commit(nextDocument);
     onFocusedBlockChange(nextBlock.id);
+    onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+  }
+
+  function updateBlock(blockId: string, updater: (block: Block) => Block) {
+    commit({
+      version: 2,
+      blocks: document.blocks.map((block) => (block.id === blockId ? updater(block) : block))
+    });
+  }
+
+  function replaceBlock(blockId: string, nextBlock: Block) {
+    updateBlock(blockId, () => nextBlock);
+  }
+
+  function deleteBlock(blockId: string) {
+    const index = getBlockIndex(document, blockId);
+    const nextFocusBlock = document.blocks[index + 1] ?? document.blocks[index - 1] ?? null;
+    const nextDocument = removeBlocksByIds(document, [blockId]);
+    commit(nextDocument);
+    onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+    onFocusedBlockChange(nextFocusBlock?.id ?? nextDocument.blocks[0]?.id ?? null);
+
+    if (nextFocusBlock) {
+      setPendingFocus(makeEditableKey(nextFocusBlock.id), "start");
+    }
+  }
+
+  function splitTextBlock(block: ParagraphBlock | HeadingBlock, context: RichTextContext) {
+    const [left, right] = splitInlineNodes(context.content, context.caretOffset);
+    const currentBlock: ParagraphBlock | HeadingBlock = {
+      ...block,
+      content: left
+    };
+    const nextBlock = createEmptyParagraphBlock();
+    nextBlock.content = right;
+
+    const nextBlocks = document.blocks.map((entry) => (entry.id === block.id ? currentBlock : entry));
+    const currentIndex = getBlockIndex(document, block.id);
+    nextBlocks.splice(currentIndex + 1, 0, nextBlock);
+    setPendingFocus(makeEditableKey(nextBlock.id), "start");
+    commit({ version: 2, blocks: nextBlocks });
+    onFocusedBlockChange(nextBlock.id);
+    onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+  }
+
+  function insertLineBreak(context: RichTextContext) {
+    window.document.execCommand("insertLineBreak");
+    queueMicrotask(() => context.element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertLineBreak" })));
+  }
+
+  function handleTextBlockBackspace(block: ParagraphBlock | HeadingBlock, context: RichTextContext): boolean {
+    if (getInlineText(context.content).length > 0 || context.caretOffset > 0) {
+      return false;
+    }
+
+    deleteBlock(block.id);
+    return true;
+  }
+
+  function handleListItemEnter(block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) {
+    const currentText = getInlineText(context.content);
+
+    if (currentText.length === 0) {
+      replaceBlock(block.id, createEmptyParagraphBlock(block.id));
+      setPendingFocus(makeEditableKey(block.id), "start");
+      onFocusedBlockChange(block.id);
+      onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+      return;
+    }
+
+    const [left, right] = splitInlineNodes(context.content, context.caretOffset);
+    const nextItems = block.items.slice();
+    nextItems[itemIndex] = left;
+    nextItems.splice(itemIndex + 1, 0, right);
+    replaceBlock(block.id, { ...block, items: nextItems });
+    setPendingFocus(makeEditableKey(block.id, `item-${itemIndex + 1}`), "start");
+    onFocusedBlockChange(block.id);
+  }
+
+  function handleListItemBackspace(block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext): boolean {
+    if (getInlineText(context.content).length > 0 || context.caretOffset > 0) {
+      return false;
+    }
+
+    if (block.items.length === 1) {
+      replaceBlock(block.id, createEmptyParagraphBlock(block.id));
+      setPendingFocus(makeEditableKey(block.id), "start");
+      onFocusedBlockChange(block.id);
+      return true;
+    }
+
+    const nextItems = block.items.filter((_, index) => index !== itemIndex);
+    replaceBlock(block.id, { ...block, items: nextItems });
+    const nextIndex = Math.max(0, itemIndex - 1);
+    setPendingFocus(makeEditableKey(block.id, `item-${nextIndex}`), "end");
+    onFocusedBlockChange(block.id);
+    return true;
+  }
+
+  function addTableRow(block: TableBlock) {
+    replaceBlock(block.id, {
+      ...block,
+      rows: [...block.rows, block.rows[0].map(() => [createInlineText("")])]
+    });
+  }
+
+  function removeTableRow(block: TableBlock) {
+    if (block.rows.length <= 1) {
+      return;
+    }
+
+    replaceBlock(block.id, {
+      ...block,
+      rows: block.rows.slice(0, -1)
+    });
+  }
+
+  function addTableColumn(block: TableBlock) {
+    replaceBlock(block.id, {
+      ...block,
+      rows: block.rows.map((row) => [...row, [createInlineText("")]])
+    });
+  }
+
+  function removeTableColumn(block: TableBlock) {
+    if (block.rows[0]?.length <= 1) {
+      return;
+    }
+
+    replaceBlock(block.id, {
+      ...block,
+      rows: block.rows.map((row) => row.slice(0, -1))
+    });
   }
 
   async function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
@@ -265,7 +396,7 @@ export function BlockEditorSurface({
       return;
     }
 
-    await onInsertImage(file, normalizedSelection.focusBlockId ?? focusedBlockId);
+    await onInsertImage(file, focusedBlockId ?? normalizedSelection.focusBlockId);
     event.currentTarget.value = "";
   }
 
@@ -312,7 +443,7 @@ export function BlockEditorSurface({
           <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "quick_fact", title: [createInlineText("Короткий факт")], body: [[createInlineText("")]] }))} disabled={disabled} title="Врізка">
             ◫
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" }))} disabled={disabled} title="Роздільник">
+          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))} disabled={disabled} title="Роздільник">
             ─
           </button>
           <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))} disabled={disabled} title="Таблиця">
@@ -343,30 +474,30 @@ export function BlockEditorSurface({
                 className="block-editor-gutter"
                 onMouseDown={(event) => handleGutterMouseDown(block.id, event)}
                 onMouseEnter={(event) => handleGutterMouseEnter(block.id, event)}
-                onClick={(event) => {
-                  if (event.detail === 0) {
-                    handleBlockChromeClick(block.id, event.shiftKey);
-                  }
-                }}
                 title="Виділити блок або діапазон"
               >
                 {formatParagraphLabel(index)}
               </button>
 
-              <div
-                className="block-editor-block"
-                onClick={(event) => {
-                  if (event.currentTarget === event.target) {
-                    handleBlockChromeClick(block.id, event.shiftKey);
-                  }
-                }}
-              >
+              <div className="block-editor-block">
+                <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
+                  ×
+                </button>
                 <BlockRenderer
                   block={block}
                   disabled={disabled}
                   registerEditable={registerEditable}
-                  onBlockChange={(nextBlock) => updateBlock(block.id, () => nextBlock)}
-                  onFocus={() => onFocusedBlockChange(block.id)}
+                  onEditFocus={handleEditableFocus}
+                  onTextBlockEnter={splitTextBlock}
+                  onTextBlockBackspace={handleTextBlockBackspace}
+                  onSoftBreak={insertLineBreak}
+                  onListItemEnter={handleListItemEnter}
+                  onListItemBackspace={handleListItemBackspace}
+                  onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
+                  onAddTableRow={addTableRow}
+                  onRemoveTableRow={removeTableRow}
+                  onAddTableColumn={addTableColumn}
+                  onRemoveTableColumn={removeTableColumn}
                 />
               </div>
             </div>
@@ -377,7 +508,9 @@ export function BlockEditorSurface({
       <div className="block-editor-status mono-ui">
         {hasSelectedBlocks(normalizedSelection)
           ? `AI: ${normalizedSelection.blockIds.length} блок(и)`
-          : "AI: блок не вибрано"}
+          : focusedBlockId
+            ? `Фокус: ${formatParagraphLabel(getBlockIndex(document, focusedBlockId))}`
+            : "AI: блок не вибрано"}
       </div>
     </div>
   );
@@ -387,14 +520,32 @@ function BlockRenderer({
   block,
   disabled,
   registerEditable,
+  onEditFocus,
+  onTextBlockEnter,
+  onTextBlockBackspace,
+  onSoftBreak,
+  onListItemEnter,
+  onListItemBackspace,
   onBlockChange,
-  onFocus
+  onAddTableRow,
+  onRemoveTableRow,
+  onAddTableColumn,
+  onRemoveTableColumn
 }: {
   block: Block;
   disabled?: boolean;
-  registerEditable: (blockId: string, element: HTMLElement | null) => void;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
+  onTextBlockEnter: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => void;
+  onTextBlockBackspace: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => boolean;
+  onSoftBreak: (context: RichTextContext) => void;
+  onListItemEnter: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => void;
+  onListItemBackspace: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => boolean;
   onBlockChange: (block: Block) => void;
-  onFocus: () => void;
+  onAddTableRow: (block: TableBlock) => void;
+  onRemoveTableRow: (block: TableBlock) => void;
+  onAddTableColumn: (block: TableBlock) => void;
+  onRemoveTableColumn: (block: TableBlock) => void;
 }) {
   if (block.type === "paragraph" || block.type === "heading") {
     return (
@@ -402,8 +553,11 @@ function BlockRenderer({
         block={block}
         disabled={disabled}
         registerEditable={registerEditable}
+        onEditFocus={onEditFocus}
         onBlockChange={onBlockChange}
-        onFocus={onFocus}
+        onEnter={onTextBlockEnter}
+        onBackspace={onTextBlockBackspace}
+        onSoftBreak={onSoftBreak}
       />
     );
   }
@@ -413,8 +567,12 @@ function BlockRenderer({
       <EditableListBlock
         block={block}
         disabled={disabled}
+        registerEditable={registerEditable}
+        onEditFocus={onEditFocus}
         onBlockChange={onBlockChange}
-        onFocus={onFocus}
+        onEnter={onListItemEnter}
+        onBackspace={onListItemBackspace}
+        onSoftBreak={onSoftBreak}
       />
     );
   }
@@ -424,18 +582,33 @@ function BlockRenderer({
       <EditableCalloutBlock
         block={block}
         disabled={disabled}
+        registerEditable={registerEditable}
+        onEditFocus={onEditFocus}
         onBlockChange={onBlockChange}
-        onFocus={onFocus}
+        onSoftBreak={onSoftBreak}
       />
     );
   }
 
   if (block.type === "table") {
-    return <EditableTableBlock block={block} disabled={disabled} onBlockChange={onBlockChange} onFocus={onFocus} />;
+    return (
+      <EditableTableBlock
+        block={block}
+        disabled={disabled}
+        registerEditable={registerEditable}
+        onEditFocus={onEditFocus}
+        onBlockChange={onBlockChange}
+        onSoftBreak={onSoftBreak}
+        onAddRow={onAddTableRow}
+        onRemoveRow={onRemoveTableRow}
+        onAddColumn={onAddTableColumn}
+        onRemoveColumn={onRemoveTableColumn}
+      />
+    );
   }
 
   if (block.type === "image") {
-    return <EditableImageBlock block={block} disabled={disabled} onBlockChange={onBlockChange} onFocus={onFocus} />;
+    return <EditableImageBlock block={block} disabled={disabled} onEditFocus={onEditFocus} onBlockChange={onBlockChange} registerEditable={registerEditable} onSoftBreak={onSoftBreak} />;
   }
 
   return <div className="block-divider" aria-hidden="true" />;
@@ -445,14 +618,20 @@ function EditableTextBlock({
   block,
   disabled,
   registerEditable,
+  onEditFocus,
   onBlockChange,
-  onFocus
+  onEnter,
+  onBackspace,
+  onSoftBreak
 }: {
   block: ParagraphBlock | HeadingBlock;
   disabled?: boolean;
-  registerEditable: (blockId: string, element: HTMLElement | null) => void;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: ParagraphBlock | HeadingBlock) => void;
-  onFocus: () => void;
+  onEnter: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => void;
+  onBackspace: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => boolean;
+  onSoftBreak: (context: RichTextContext) => void;
 }) {
   const className =
     block.type === "heading"
@@ -465,12 +644,16 @@ function EditableTextBlock({
 
   return (
     <EditableRichText
+      focusKey={makeEditableKey(block.id)}
       className={className}
       html={inlineNodesToHtml(block.content)}
       disabled={disabled}
-      onFocus={onFocus}
+      registerEditable={registerEditable}
+      onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
       onChange={(content) => onBlockChange({ ...block, content })}
-      registerElement={(element) => registerEditable(block.id, element)}
+      onEnter={(context) => onEnter(block, context)}
+      onBackspace={(context) => onBackspace(block, context)}
+      onSoftBreak={onSoftBreak}
     />
   );
 }
@@ -478,13 +661,21 @@ function EditableTextBlock({
 function EditableListBlock({
   block,
   disabled,
+  registerEditable,
+  onEditFocus,
   onBlockChange,
-  onFocus
+  onEnter,
+  onBackspace,
+  onSoftBreak
 }: {
   block: BulletListBlock | OrderedListBlock;
   disabled?: boolean;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: BulletListBlock | OrderedListBlock) => void;
-  onFocus: () => void;
+  onEnter: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => void;
+  onBackspace: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => boolean;
+  onSoftBreak: (context: RichTextContext) => void;
 }) {
   const Tag = block.type === "bullet_list" ? "ul" : "ol";
 
@@ -494,30 +685,24 @@ function EditableListBlock({
         {block.items.map((item, index) => (
           <li key={`${block.id}-${index}`}>
             <EditableRichText
+              focusKey={makeEditableKey(block.id, `item-${index}`)}
               className="block-list-item"
               html={inlineNodesToHtml(item)}
               disabled={disabled}
-              onFocus={onFocus}
+              registerEditable={registerEditable}
+              onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
               onChange={(content) => {
                 const nextItems = block.items.slice();
                 nextItems[index] = content;
                 onBlockChange({ ...block, items: nextItems });
               }}
+              onEnter={(context) => onEnter(block, index, context)}
+              onBackspace={(context) => onBackspace(block, index, context)}
+              onSoftBreak={onSoftBreak}
             />
           </li>
         ))}
       </Tag>
-
-      <div className="block-inline-actions">
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => onBlockChange({ ...block, items: [...block.items, [createInlineText("")]] })}
-          disabled={disabled}
-        >
-          +
-        </Button>
-      </div>
     </div>
   );
 }
@@ -525,44 +710,48 @@ function EditableListBlock({
 function EditableCalloutBlock({
   block,
   disabled,
+  registerEditable,
+  onEditFocus,
   onBlockChange,
-  onFocus
+  onSoftBreak
 }: {
   block: CalloutBlock;
   disabled?: boolean;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: CalloutBlock) => void;
-  onFocus: () => void;
+  onSoftBreak: (context: RichTextContext) => void;
 }) {
   return (
     <div className="block-callout-shell" data-kind={block.kind}>
       <div className="block-callout-chip mono-ui">{getEditorialCalloutKindLabel(block.kind)}</div>
       <EditableRichText
+        focusKey={makeEditableKey(block.id, "callout-title")}
         className="block-callout-title"
         html={inlineNodesToHtml(block.title)}
         disabled={disabled}
-        onFocus={onFocus}
+        registerEditable={registerEditable}
+        onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
         onChange={(title) => onBlockChange({ ...block, title })}
+        onSoftBreak={onSoftBreak}
       />
       {block.body.map((paragraph, index) => (
         <EditableRichText
           key={`${block.id}-${index}`}
+          focusKey={makeEditableKey(block.id, `callout-body-${index}`)}
           className="block-callout-body"
           html={inlineNodesToHtml(paragraph)}
           disabled={disabled}
-          onFocus={onFocus}
+          registerEditable={registerEditable}
+          onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
           onChange={(content) => {
             const nextBody = block.body.slice();
             nextBody[index] = content;
             onBlockChange({ ...block, body: nextBody });
           }}
+          onSoftBreak={onSoftBreak}
         />
       ))}
-
-      <div className="block-inline-actions">
-        <Button type="button" size="sm" onClick={() => onBlockChange({ ...block, body: [...block.body, [createInlineText("")]] })} disabled={disabled}>
-          +
-        </Button>
-      </div>
     </div>
   );
 }
@@ -570,13 +759,25 @@ function EditableCalloutBlock({
 function EditableTableBlock({
   block,
   disabled,
+  registerEditable,
+  onEditFocus,
   onBlockChange,
-  onFocus
+  onSoftBreak,
+  onAddRow,
+  onRemoveRow,
+  onAddColumn,
+  onRemoveColumn
 }: {
   block: TableBlock;
   disabled?: boolean;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: TableBlock) => void;
-  onFocus: () => void;
+  onSoftBreak: (context: RichTextContext) => void;
+  onAddRow: (block: TableBlock) => void;
+  onRemoveRow: (block: TableBlock) => void;
+  onAddColumn: (block: TableBlock) => void;
+  onRemoveColumn: (block: TableBlock) => void;
 }) {
   return (
     <div className="block-table-shell">
@@ -587,15 +788,18 @@ function EditableTableBlock({
               {row.map((cell, cellIndex) => (
                 <td key={`${block.id}-${rowIndex}-${cellIndex}`}>
                   <EditableRichText
+                    focusKey={makeEditableKey(block.id, `cell-${rowIndex}-${cellIndex}`)}
                     className="block-table-cell"
                     html={inlineNodesToHtml(cell)}
                     disabled={disabled}
-                    onFocus={onFocus}
+                    registerEditable={registerEditable}
+                    onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
                     onChange={(content) => {
                       const nextRows = block.rows.map((entry) => entry.map((part) => part.slice()));
                       nextRows[rowIndex][cellIndex] = content;
                       onBlockChange({ ...block, rows: nextRows });
                     }}
+                    onSoftBreak={onSoftBreak}
                   />
                 </td>
               ))}
@@ -605,19 +809,10 @@ function EditableTableBlock({
       </table>
 
       <div className="block-inline-actions">
-        <Button
-          type="button"
-          size="sm"
-          onClick={() =>
-            onBlockChange({
-              ...block,
-              rows: [...block.rows, block.rows[0].map(() => [createInlineText("")])]
-            })
-          }
-          disabled={disabled}
-        >
-          +
-        </Button>
+        <button type="button" className="block-mini-action" onClick={() => onAddRow(block)} title="Додати рядок">+↕</button>
+        <button type="button" className="block-mini-action" onClick={() => onRemoveRow(block)} title="Видалити рядок">−↕</button>
+        <button type="button" className="block-mini-action" onClick={() => onAddColumn(block)} title="Додати колонку">+↔</button>
+        <button type="button" className="block-mini-action" onClick={() => onRemoveColumn(block)} title="Видалити колонку">−↔</button>
       </div>
     </div>
   );
@@ -626,13 +821,17 @@ function EditableTableBlock({
 function EditableImageBlock({
   block,
   disabled,
+  registerEditable,
+  onEditFocus,
   onBlockChange,
-  onFocus
+  onSoftBreak
 }: {
   block: ImageBlock;
   disabled?: boolean;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: ImageBlock) => void;
-  onFocus: () => void;
+  onSoftBreak: (context: RichTextContext) => void;
 }) {
   const { resolvedUrl } = useResolvedEditorAssetUrl(createEditorAssetToken(block.assetId));
 
@@ -642,35 +841,46 @@ function EditableImageBlock({
       <input
         className="block-image-alt mono-ui"
         value={block.alt}
-        onFocus={onFocus}
+        onFocus={() => onEditFocus(block.id, makeEditableKey(block.id, "image-alt"))}
         onChange={(event) => onBlockChange({ ...block, alt: event.currentTarget.value })}
         disabled={disabled}
       />
       <EditableRichText
+        focusKey={makeEditableKey(block.id, "image-caption")}
         className="block-image-caption"
         html={inlineNodesToHtml(block.caption ?? [createInlineText("")])}
         disabled={disabled}
-        onFocus={onFocus}
+        registerEditable={registerEditable}
+        onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
         onChange={(caption) => onBlockChange({ ...block, caption })}
+        onSoftBreak={onSoftBreak}
       />
     </div>
   );
 }
 
 function EditableRichText({
+  focusKey,
   className,
   html,
   disabled,
-  onFocus,
+  registerEditable,
+  onEditFocus,
   onChange,
-  registerElement
+  onEnter,
+  onBackspace,
+  onSoftBreak
 }: {
+  focusKey: string;
   className: string;
   html: string;
   disabled?: boolean;
-  onFocus: () => void;
+  registerEditable: (key: string, element: HTMLElement | null) => void;
+  onEditFocus: (editableKey: string) => void;
   onChange: (content: InlineNode[]) => void;
-  registerElement?: (element: HTMLDivElement | null) => void;
+  onEnter?: (context: RichTextContext) => void;
+  onBackspace?: (context: RichTextContext) => boolean;
+  onSoftBreak?: (context: RichTextContext) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
 
@@ -686,11 +896,50 @@ function EditableRichText({
     }
   }, [html]);
 
+  function buildContext(element: HTMLDivElement): RichTextContext | null {
+    const caretOffset = getCaretOffset(element);
+
+    if (caretOffset === null) {
+      return null;
+    }
+
+    return {
+      element,
+      html: element.innerHTML,
+      content: htmlToInlineNodes(element.innerHTML),
+      caretOffset
+    };
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const context = buildContext(event.currentTarget);
+
+    if (!context) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+
+      if (event.shiftKey) {
+        onSoftBreak?.(context);
+        return;
+      }
+
+      onEnter?.(context);
+      return;
+    }
+
+    if (event.key === "Backspace" && onBackspace?.(context)) {
+      event.preventDefault();
+    }
+  }
+
   return (
     <div
       ref={(element) => {
         elementRef.current = element;
-        registerElement?.(element);
+        registerEditable(focusKey, element);
 
         if (element && element.innerHTML !== html) {
           element.innerHTML = html;
@@ -699,9 +948,10 @@ function EditableRichText({
       className={className}
       contentEditable={!disabled}
       suppressContentEditableWarning
-      onFocus={onFocus}
+      onFocus={() => onEditFocus(focusKey)}
       onBlur={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
       onInput={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
+      onKeyDown={handleKeyDown}
     />
   );
 }
@@ -780,6 +1030,44 @@ function getBlockPreviewText(block: Block): string {
   return "";
 }
 
+function makeEditableKey(blockId: string, slot = "main"): string {
+  return `${blockId}:${slot}`;
+}
+
+function splitInlineNodes(nodes: InlineNode[], offset: number): [InlineNode[], InlineNode[]] {
+  const left: InlineNode[] = [];
+  const right: InlineNode[] = [];
+  let consumed = 0;
+
+  for (const node of nodes) {
+    const text = node.text ?? "";
+    const start = consumed;
+    const end = start + text.length;
+
+    if (offset <= start) {
+      right.push({ ...node });
+    } else if (offset >= end) {
+      left.push({ ...node });
+    } else {
+      const splitPoint = offset - start;
+      const leftText = text.slice(0, splitPoint);
+      const rightText = text.slice(splitPoint);
+
+      if (leftText) {
+        left.push({ ...node, text: leftText });
+      }
+
+      if (rightText) {
+        right.push({ ...node, text: rightText });
+      }
+    }
+
+    consumed = end;
+  }
+
+  return [normalizeInlineNodes(left), normalizeInlineNodes(right)];
+}
+
 function inlineNodesToHtml(nodes: InlineNode[]): string {
   return nodes
     .map((node) => {
@@ -839,19 +1127,105 @@ function htmlToInlineNodes(html: string): InlineNode[] {
   }
 
   Array.from(root.childNodes).forEach((child) => walk(child));
-  const merged: InlineNode[] = [];
+  return normalizeInlineNodes(nodes);
+}
 
-  for (const node of nodes) {
-    const previous = merged[merged.length - 1];
+function getCaretOffset(root: HTMLElement): number | null {
+  const selection = window.getSelection();
 
-    if (previous && previous.bold === node.bold && previous.italic === node.italic && previous.link === node.link) {
-      previous.text += node.text;
-    } else {
-      merged.push(node);
-    }
+  if (!selection || selection.rangeCount === 0) {
+    return null;
   }
 
-  return merged.length > 0 ? merged : [createInlineText("")];
+  const range = selection.getRangeAt(0);
+
+  if (!range.collapsed || !root.contains(range.startContainer)) {
+    return null;
+  }
+
+  return getTextOffsetWithin(root, range.startContainer, range.startOffset);
+}
+
+function getTextOffsetWithin(root: Node, container: Node, offset: number): number {
+  if (root === container) {
+    let total = 0;
+
+    for (let index = 0; index < offset; index += 1) {
+      const child = root.childNodes[index];
+      if (child) {
+        total += getNodeTextLength(child);
+      }
+    }
+
+    return total;
+  }
+
+  let total = 0;
+
+  for (const child of Array.from(root.childNodes)) {
+    if (child === container || child.contains(container)) {
+      return total + getTextOffsetWithin(child, container, offset);
+    }
+
+    total += getNodeTextLength(child);
+  }
+
+  return total;
+}
+
+function getNodeTextLength(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent?.length ?? 0;
+  }
+
+  if (node instanceof HTMLElement && node.tagName === "BR") {
+    return 1;
+  }
+
+  return Array.from(node.childNodes).reduce((sum, child) => sum + getNodeTextLength(child), 0);
+}
+
+function placeCaret(root: HTMLElement, placement: CaretPlacement) {
+  const selection = window.getSelection();
+
+  if (!selection) {
+    return;
+  }
+
+  const offset = placement === "start" ? 0 : getNodeTextLength(root);
+  const position = resolveDomPosition(root, offset);
+  const range = window.document.createRange();
+  range.setStart(position.node, position.offset);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function resolveDomPosition(root: Node, targetOffset: number): { node: Node; offset: number } {
+  if (root.nodeType === Node.TEXT_NODE) {
+    return { node: root, offset: Math.min(targetOffset, root.textContent?.length ?? 0) };
+  }
+
+  if (root instanceof HTMLElement && root.tagName === "BR") {
+    const parent = root.parentNode ?? root;
+    const index = parent.childNodes ? Array.from(parent.childNodes).indexOf(root) : 0;
+    return { node: parent, offset: Math.max(0, index) };
+  }
+
+  let remaining = targetOffset;
+  const children = Array.from(root.childNodes);
+
+  for (const child of children) {
+    const length = getNodeTextLength(child);
+
+    if (remaining <= length) {
+      return resolveDomPosition(child, remaining);
+    }
+
+    remaining -= length;
+  }
+
+  return { node: root, offset: children.length };
 }
 
 function escapeHtml(value: string): string {

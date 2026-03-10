@@ -4950,8 +4950,36 @@ textarea:focus {
 }
 
 .block-editor-block {
+  position: relative;
   border: 1px solid transparent;
   padding: 8px 10px 8px 2px;
+}
+
+.block-row-action {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #c0cad6;
+  cursor: pointer;
+  font: 400 15px/1 "IBM Plex Mono", monospace;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.block-editor-row[data-focused="true"] .block-row-action,
+.block-editor-row:hover .block-row-action {
+  opacity: 1;
+}
+
+.block-row-action:hover,
+.block-row-action:focus-visible {
+  color: #475569;
+  background: #f1f5f9;
+  outline: none;
 }
 
 .block-editor-row[data-selected="true"] .block-editor-block {
@@ -5080,6 +5108,23 @@ textarea:focus {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+}
+
+.block-mini-action {
+  border: 1px solid #dbe4ee;
+  background: #fff;
+  min-width: 34px;
+  height: 28px;
+  cursor: pointer;
+  color: #475569;
+  font: 600 11px/1 "IBM Plex Mono", monospace;
+}
+
+.block-mini-action:hover,
+.block-mini-action:focus-visible {
+  border-color: #bfd4ea;
+  background: #f8fbff;
+  outline: none;
 }
 
 .block-divider {
