@@ -31,7 +31,7 @@ export function RightOperationsRail({
   reviewRevision,
   activeReviewItemId,
   history,
-  onOpenReviewComposer,
+  onOpenReviewDrawer,
   onOpenLocalComposer,
   onFocusReviewItem,
   onPrepareReviewItem,
@@ -59,7 +59,7 @@ export function RightOperationsRail({
   reviewRevision: ManuscriptRevisionState;
   activeReviewItemId?: string | null;
   history: RequestHistoryItem[];
-  onOpenReviewComposer: () => void;
+  onOpenReviewDrawer: () => void;
   onOpenLocalComposer: () => void;
   onFocusReviewItem: (item: EditorialReviewItem) => void;
   onPrepareReviewItem: (item: EditorialReviewItem) => void;
@@ -88,8 +88,8 @@ export function RightOperationsRail({
 
       <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Огляд документа</p>
-        <Button variant="primary" size="sm" onClick={onOpenReviewComposer} loading={reviewLoading} disabled={!canRequestReview}>
-          Перевірити
+        <Button variant="primary" size="sm" onClick={onOpenReviewDrawer} loading={reviewLoading} disabled={!canRequestReview}>
+          Аналіз ШІ
         </Button>
         {reviewItemCount > 0 ? <p className="rail-status-copy">Рекомендацій: {reviewItemCount}</p> : null}
         {statusMessage ? (

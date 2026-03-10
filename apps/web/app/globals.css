@@ -5456,3 +5456,106 @@ textarea:focus {
   padding-top: 8px;
   border-top: 1px solid var(--porcelain);
 }
+
+/* Review Drawer Overlay */
+.review-drawer-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.review-drawer {
+  width: 50%;
+  min-width: 400px;
+  max-width: 600px;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid var(--porcelain);
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 768px) {
+  .review-drawer {
+    width: 100%;
+    min-width: 100%;
+  }
+}
+
+.review-drawer-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--porcelain);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.review-drawer-title {
+  font-size: 20px;
+  font-family: var(--font-manuscript, serif);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Compact Editorial Cards */
+.editorial-review-card-compact {
+  padding: 8px 12px;
+  border-left: 3px solid var(--surgical-blue);
+  background: #fff;
+  border-top: 1px solid var(--porcelain);
+  border-right: 1px solid var(--porcelain);
+  border-bottom: 1px solid var(--porcelain);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: sticky;
+  top: 10px;
+  z-index: 10;
+}
+
+.editorial-review-card-compact[data-active="true"] {
+  background: #f8fafc;
+  border-left-color: var(--scrubs-green);
+}
+
+.err-compact-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.err-compact-title {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0;
+  line-height: 1.3;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.err-compact-meta {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.review-drawer-setup {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}

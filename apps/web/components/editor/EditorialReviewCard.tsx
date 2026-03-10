@@ -41,47 +41,28 @@ export function EditorialReviewCard({
 
   return (
     <article
-      className="editorial-review-card"
+      className="editorial-review-card-compact"
       data-active={isActive ? "true" : "false"}
-      data-type={item.recommendationType}
-      data-priority={item.priority}
-      data-status={item.status}
+      onClick={() => onFocus(item)}
     >
-      <div className="editorial-review-head">
-        <div>
-          <h3 className="editorial-review-title">{item.title}</h3>
-          <div className="editorial-review-meta">
-            <span className="tag-pill tag-lines">{getReviewParagraphLabel(item, revision)}</span>
-            <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
-            <span className={`tag-pill ${item.priority === "high" ? "tag-severity-high" : item.priority === "medium" ? "tag-severity-medium" : "tag-severity-low"}`}>
-              {priorityLabels[item.priority]}
-            </span>
-            <span className="tag-pill tag-type">{statusLabel}</span>
-          </div>
-        </div>
-        <button type="button" className="editorial-review-card-close" onClick={() => onDismiss(item)} aria-label="Закрити рекомендацію" title="Закрити">
-          <svg viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M2 2l8 8M10 2L2 10" />
+      <div className="err-compact-head">
+        <h3 className="err-compact-title">{item.recommendation}</h3>
+        <button
+          type="button"
+          className="editorial-review-card-close"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss(item);
+          }}
+          aria-label="Закрити"
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true" width="12" height="12">
+            <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" fill="none" strokeWidth="1.5" />
           </svg>
         </button>
       </div>
-
-      <p className="suggestion-card-reason">{item.reason}</p>
-      <p className="editorial-review-summary">{item.recommendation}</p>
-
-      <div className="editorial-review-card-actions button-row">
-        <Button size="sm" variant="ghost" onClick={() => onFocus(item)}>
-          Фокус
-        </Button>
-        {canApplyCallout ? (
-          <Button size="sm" variant="secondary" onClick={() => onApplyCallout(item)}>
-            Вставити
-          </Button>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
-            Підготувати
-          </Button>
-        )}
+      <div className="err-compact-meta">
+        {typeLabels[item.recommendationType]} • {statusLabel}
       </div>
     </article>
   );

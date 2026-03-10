@@ -5,7 +5,7 @@ import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
 import { TopBar } from "../../components/layout/TopBar";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
-import { EditorialReviewSidebar } from "../../components/layout/EditorialReviewSidebar";
+import { EditorialReviewDrawer } from "../../components/layout/EditorialReviewDrawer";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { Button } from "../../components/ui/Button";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
@@ -85,6 +85,7 @@ export default function EditorPage() {
   const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
   const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
   const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
+  const [isReviewDrawerOpen, setIsReviewDrawerOpen] = useState(false);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
@@ -297,6 +298,27 @@ export default function EditorPage() {
     void requestEditorialReview("expertise", nextHistory);
   }
 
+  function focusReviewItem(item: EditorialReviewItem) {
+    const nextSelection = resolveReviewItemSelection(document, revision, item);
+    setSelection(nextSelection);
+    setFocusedBlockId(nextSelection.focusBlockId ?? nextSelection.anchorBlockId);
+    setActiveReviewItemId(item.id);
+
+    const anchorBlockId = nextSelection.anchorBlockId;
+
+    if (anchorBlockId) {
+      window.requestAnimationFrame(() => {
+        const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
+        element?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    }
+
+    // Automatically prepare the item (e.g., generate diff) when focused in compact mode
+    if (item.status === 'pending') {
+      void prepareReviewItem(item);
+    }
+  }
+
   function handleAcceptProposal(proposalId: string, editedText: string) {
     if (!activeProposal) return;
 
@@ -354,22 +376,6 @@ export default function EditorPage() {
 
   function rejectAllOperations() {
     setOperations([]);
-  }
-
-  function focusReviewItem(item: EditorialReviewItem) {
-    const nextSelection = resolveReviewItemSelection(document, revision, item);
-    setSelection(nextSelection);
-    setFocusedBlockId(nextSelection.focusBlockId ?? nextSelection.anchorBlockId);
-    setActiveReviewItemId(item.id);
-
-    const anchorBlockId = nextSelection.anchorBlockId;
-
-    if (anchorBlockId) {
-      window.requestAnimationFrame(() => {
-        const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
-        element?.scrollIntoView({ block: "start", behavior: "smooth" });
-      });
-    }
   }
 
   async function prepareReviewItem(item: EditorialReviewItem) {
@@ -588,56 +594,55 @@ export default function EditorPage() {
           </main>
         }
         right={
-          reviewStatus === "expertise" || reviewItems.length > 0 ? (
-            <EditorialReviewSidebar
-              status={reviewStatus}
-              expertise={reviewExpertise}
-              history={reviewChatHistory}
-              reviewItems={reviewItems}
-              reviewLoading={isReviewRequestInFlight}
-              activeReviewItemId={activeReviewItemId}
-              revision={revision}
-              onChat={handleReviewChat}
-              onGenerateCards={() => void requestEditorialReview("cards")}
-              onBackToChat={() => setReviewStatus("expertise")}
-              onFocusReviewItem={focusReviewItem}
-              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
-              onApplyCallout={applyReviewCallout}
-              onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
-            />
-          ) : (
-            <RightOperationsRail
-              aiTasks={[]}
-              canRequestReview={canRequestReview}
-              canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
-              isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
-              patchDiagnostics={patchDiagnostics}
-              reviewDiagnostics={reviewDiagnostics}
-              reviewItems={reviewItems}
-              reviewRevision={revision}
-              activeReviewItemId={activeReviewItemId}
-              history={history}
-              onOpenReviewComposer={() => setComposerMode("review")}
-              onOpenLocalComposer={() => setComposerMode("local")}
-              onFocusReviewItem={focusReviewItem}
-              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
-              onApplyReviewCallout={applyReviewCallout}
-              onDismissReviewItem={dismissReviewItem}
-              reviewLoading={isReviewRequestInFlight}
-              onAccept={acceptOperation}
-              onAcceptAll={acceptAllOperations}
-              onReject={rejectOperation}
-              onRejectAll={rejectAllOperations}
-              operations={operations}
-              reviewItemCount={reviewItems.filter((item) => item.status !== "dismissed").length}
-              statusMessage={feedback?.message}
-              statusTone={feedback?.tone}
-              onOpenAiTask={() => { }}
-              onDismissAiTask={() => { }}
-            />
-          )
+          <RightOperationsRail
+            aiTasks={[]}
+            canRequestReview={canRequestReview}
+            canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
+            isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
+            patchDiagnostics={patchDiagnostics}
+            reviewDiagnostics={reviewDiagnostics}
+            reviewItems={reviewItems}
+            reviewRevision={revision}
+            activeReviewItemId={activeReviewItemId}
+            history={history}
+            onOpenReviewDrawer={() => setIsReviewDrawerOpen(true)}
+            onOpenLocalComposer={() => setComposerMode("local")}
+            onFocusReviewItem={focusReviewItem}
+            onPrepareReviewItem={(item) => void prepareReviewItem(item)}
+            onApplyReviewCallout={applyReviewCallout}
+            onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
+            reviewLoading={isReviewRequestInFlight}
+            onAccept={acceptOperation}
+            onAcceptAll={acceptAllOperations}
+            onReject={rejectOperation}
+            onRejectAll={rejectAllOperations}
+            operations={operations}
+            reviewItemCount={reviewItems.filter((item) => item.status !== "dismissed").length}
+            statusMessage={feedback?.message}
+            statusTone={feedback?.tone}
+            onOpenAiTask={() => { }}
+            onDismissAiTask={() => { }}
+          />
         }
-        wideRight={reviewStatus === "expertise" || reviewItems.filter(i => i.status !== 'dismissed').length > 0}
+      />
+
+      <EditorialReviewDrawer
+        isOpen={isReviewDrawerOpen}
+        status={reviewStatus}
+        expertise={reviewExpertise}
+        history={reviewChatHistory}
+        reviewLoading={isReviewRequestInFlight}
+        reviewChangeLevel={reviewComposer.changeLevel}
+        reviewAdditionalInstructions={reviewComposer.additionalInstructions}
+        onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
+        onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
+        onAnalyze={() => void requestEditorialReview("expertise")}
+        onChat={handleReviewChat}
+        onGenerateCards={() => {
+          void requestEditorialReview("cards");
+          setIsReviewDrawerOpen(false);
+        }}
+        onClose={() => setIsReviewDrawerOpen(false)}
       />
     </>
   );
