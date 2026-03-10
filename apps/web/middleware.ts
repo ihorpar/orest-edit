@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   AUTH_COOKIE_NAME,
-  normalizePostLoginPath,
-  verifySessionToken
+  normalizePostLoginPath
 } from "./lib/auth/password-auth";
 
 const PUBLIC_PATHS = new Set<string>(["/login", "/api/auth/login", "/api/auth/logout"]);
@@ -11,6 +10,10 @@ const PUBLIC_PATHS = new Set<string>(["/login", "/api/auth/login", "/api/auth/lo
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const configuredPassword = process.env.APP_PASSWORD?.trim();
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
 
   if (!configuredPassword) {
     if (process.env.NODE_ENV !== "production") {
@@ -40,8 +43,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const sessionToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const hasSession = await verifySessionToken(sessionToken, configuredPassword);
+  const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
 
   if (PUBLIC_PATHS.has(pathname)) {
     if (pathname === "/login" && hasSession) {

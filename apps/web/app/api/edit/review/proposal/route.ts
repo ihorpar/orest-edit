@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import type { ReviewActionRequest, ReviewActionResponse } from "../../../../../lib/editor/review-contract";
 import { normalizeModelId, normalizeProvider } from "../../../../../lib/editor/settings";
+import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const authFailure = await requireApiSession(request);
+
+  if (authFailure) {
+    return authFailure;
+  }
+
   let body: unknown;
 
   try {

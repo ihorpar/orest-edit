@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import type { ReviewImageGenerationRequest, ReviewImageGenerationResponse } from "../../../../../lib/editor/review-contract";
+import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import {
   buildReviewImageJobResponse,
   createQueuedReviewImageJob,
@@ -13,6 +14,12 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const authFailure = await requireApiSession(request);
+
+  if (authFailure) {
+    return authFailure;
+  }
+
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId")?.trim();
 
@@ -46,6 +53,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authFailure = await requireApiSession(request);
+
+  if (authFailure) {
+    return authFailure;
+  }
+
   let body: unknown;
 
   try {
