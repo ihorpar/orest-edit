@@ -25,6 +25,7 @@ export function RecommendationLane({
   onApplyCallout,
   onGenerateImage,
   onInsertImage,
+  onImagePromptChange,
   onDiscardProposal,
   selectedCalloutKind,
 }: {
@@ -45,6 +46,7 @@ export function RecommendationLane({
   onApplyCallout: () => void;
   onGenerateImage: () => void;
   onInsertImage: () => void;
+  onImagePromptChange?: (prompt: string) => void;
   onDiscardProposal: () => void;
   selectedCalloutKind?: EditorialCalloutKind;
 }) {
@@ -87,6 +89,7 @@ export function RecommendationLane({
           onApplyCallout={onApplyCallout}
           onGenerateImage={onGenerateImage}
           onInsertImage={onInsertImage}
+          onImagePromptChange={onImagePromptChange}
           onDiscardProposal={onDiscardProposal}
           selectedCalloutKind={selectedCalloutKind}
         />

@@ -161,6 +161,7 @@ export function CodeMirrorCanvas({
   onDismissReviewItem,
   onExportDocx,
   onGenerateReviewImage,
+  onReviewImagePromptChange,
   onInsertLocalImage,
   onInsertReviewImage,
   onPrepareReviewItem,
@@ -196,6 +197,7 @@ export function CodeMirrorCanvas({
   onDismissReviewItem: () => void;
   onExportDocx?: () => void;
   onGenerateReviewImage: () => void;
+  onReviewImagePromptChange?: (prompt: string) => void;
   onInsertLocalImage: (input: { blob: Blob; fileName?: string; source: "upload" | "paste" }) => Promise<void>;
   onInsertReviewImage: () => void;
   onPrepareReviewItem: () => void;
@@ -588,6 +590,7 @@ export function CodeMirrorCanvas({
             onApplyText={onApplyReviewText}
             onApplyCallout={onApplyReviewCallout}
             onGenerateImage={onGenerateReviewImage}
+            onImagePromptChange={onReviewImagePromptChange}
             onInsertImage={onInsertReviewImage}
             onDiscardProposal={onDiscardReviewProposal}
             selectedCalloutKind={selectedCalloutKind}

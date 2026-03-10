@@ -1281,6 +1281,20 @@ export default function EditorPage() {
     });
   }
 
+  function handleReviewImagePromptChange(nextPrompt: string) {
+    setActiveProposal((current) =>
+      current && current.kind === "image_prompt" && current.imageDraft
+        ? {
+            ...current,
+            imageDraft: {
+              ...current.imageDraft,
+              prompt: nextPrompt.slice(0, 2400)
+            }
+          }
+        : current
+    );
+  }
+
   return (
     <main className="app-shell">
       <TopBar activePath="/editor" />
@@ -1318,6 +1332,7 @@ export default function EditorPage() {
             onGenerateReviewImage={() => {
               void generateReviewImageAsset();
             }}
+            onReviewImagePromptChange={handleReviewImagePromptChange}
             onInsertReviewImage={handleInsertReviewImageProposal}
             onInsertLocalImage={(input) => handleInsertLocalImage(input)}
             onMarkdownFormat={() => setSuppressFloatingPrompt(true)}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { DiffInlineMark } from "./DiffInlineMark";
 import {
   getEditorialCalloutKindLabel,
@@ -47,6 +48,7 @@ export function EditorialReviewDetail({
   onApplyCallout,
   onGenerateImage,
   onInsertImage,
+  onImagePromptChange,
   imageInserting,
   onDiscardProposal
 }: {
@@ -65,9 +67,11 @@ export function EditorialReviewDetail({
   onApplyCallout: () => void;
   onGenerateImage: () => void;
   onInsertImage: () => void;
+  onImagePromptChange?: (prompt: string) => void;
   imageInserting?: boolean;
   onDiscardProposal: () => void;
 }) {
+  const [isImagePromptExpanded, setIsImagePromptExpanded] = useState(false);
   const isActiveProposal = proposal?.reviewItemId === item.id ? proposal : null;
   const activeCalloutKind = selectedCalloutKind ?? isActiveProposal?.calloutDraft?.calloutKind ?? item.calloutDraft?.calloutKind ?? item.calloutKind;
   const canApplyPrefilledCallout =
@@ -86,6 +90,12 @@ export function EditorialReviewDetail({
   const showImageJobError = Boolean(imageJobError) && imageJobStatus === "failed";
   const imageJobStatusCopy =
     imageJobStatus === "queued" ? "У черзі генерації…" : imageJobStatus === "processing" ? "Генерую зображення…" : null;
+  const isImageProposal = isActiveProposal?.kind === "image_prompt" && isActiveProposal.imageDraft;
+  const activeImagePrompt = isImageProposal ? isActiveProposal.imageDraft.prompt : "";
+
+  useEffect(() => {
+    setIsImagePromptExpanded(false);
+  }, [item.id, isActiveProposal?.id]);
 
   return (
     <aside className="editorial-review-detail" data-type={item.recommendationType} data-priority={item.priority}>
@@ -216,10 +226,35 @@ export function EditorialReviewDetail({
 
           {isActiveProposal.kind === "image_prompt" && isActiveProposal.imageDraft ? (
             <div className="editorial-review-proposal-block">
-              <details className="editorial-review-prompt-details" open>
-                <summary className="mono-ui">Prompt для зображення</summary>
-                <pre className="editorial-review-prompt-pre">{isActiveProposal.imageDraft.prompt}</pre>
-              </details>
+              <div className="editorial-review-image-prompt-head">
+                <p className="mono-ui editorial-review-detail-label">Промпт</p>
+                <button
+                  type="button"
+                  className="editorial-review-image-prompt-toggle"
+                  onClick={() => setIsImagePromptExpanded((current) => !current)}
+                  aria-label={isImagePromptExpanded ? "Згорнути промпт" : "Редагувати промпт"}
+                  aria-expanded={isImagePromptExpanded ? "true" : "false"}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    {isImagePromptExpanded ? (
+                      <path d="M4 10.2 8 6.2l4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    ) : (
+                      <>
+                        <path d="M3 11.8V13h1.2l6.5-6.5-1.2-1.2L3 11.8Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                        <path d="m9.8 4.9 1.2 1.2.8-.8a.85.85 0 0 0 0-1.2l-.1-.1a.85.85 0 0 0-1.2 0l-.7.9Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                      </>
+                    )}
+                  </svg>
+                </button>
+              </div>
+              {isImagePromptExpanded ? (
+                <textarea
+                  className="editorial-review-image-prompt-input"
+                  value={activeImagePrompt}
+                  onChange={(event) => onImagePromptChange?.(event.currentTarget.value)}
+                  rows={5}
+                />
+              ) : null}
               <p className="editorial-review-detail-copy">
                 <strong>Alt:</strong> {isActiveProposal.imageDraft.alt}
               </p>
@@ -231,7 +266,7 @@ export function EditorialReviewDetail({
                   onClick={onGenerateImage}
                   loading={imageGenerating}
                   loadingLabel={imageJobStatus === "queued" ? "У черзі…" : "Генерую…"}
-                  disabled={isImageJobInProgress}
+                  disabled={isImageJobInProgress || !activeImagePrompt.trim()}
                 >
                   Згенерувати
                 </Button>
