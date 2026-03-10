@@ -65,21 +65,11 @@ export function EditorialReviewCard({
       </div>
 
       <h3 className="editorial-review-title">{item.title}</h3>
-      <p className="editorial-review-summary">{item.reason}</p>
       {statusLabels[item.status] ? <p className="mono-ui editorial-review-status-chip">{statusLabels[item.status]}</p> : null}
 
       <div className="button-row editorial-review-card-actions">
         <Button variant="secondary" size="sm" onClick={() => onFocus(item)} style={actionButtonStyle}>
           Перейти до фрагмента
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => (canApplyPrefilledCallout ? onApplyCallout(item) : onPrepare(item))}
-          disabled={item.status === "applied" || hasCalloutDraftError}
-          style={actionButtonStyle}
-        >
-          {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
         </Button>
       </div>
     </article>

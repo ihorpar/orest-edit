@@ -95,9 +95,10 @@ export function EditorialReviewDetail({
   const showCaption = Boolean(normalizedCaption && normalizedCaption !== normalizedAlt);
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
+  const isComplex = item.recommendationType === "callout" || item.recommendationType === "visualize" || item.recommendationType === "illustration";
 
   return (
-    <aside className="editorial-review-detail" data-type={item.recommendationType} data-priority={item.priority}>
+    <aside className="editorial-review-detail" data-layout={isComplex ? "drawer" : "pendant"} data-type={item.recommendationType} data-priority={item.priority}>
       <div className="editorial-review-detail-head">
         <div className="editorial-review-detail-meta">
           <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
@@ -117,15 +118,24 @@ export function EditorialReviewDetail({
       <h3 className="editorial-review-detail-title">{item.title}</h3>
 
       <div className="editorial-review-detail-body">
-        <div className="editorial-review-detail-block">
-          <p className="mono-ui editorial-review-detail-label">Що не працює</p>
-          <p className="editorial-review-detail-copy">{item.reason}</p>
-        </div>
-
-        <div className="editorial-review-detail-block">
-          <p className="mono-ui editorial-review-detail-label">Що зробити</p>
-          <p className="editorial-review-detail-copy editorial-review-detail-action">{item.recommendation}</p>
-        </div>
+        <details className="editorial-review-why">
+          <summary className="editorial-review-why-trigger">
+            <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+              <path fillRule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm6.5-.25A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.75h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-2h-.25a.75.75 0 01-.75-.75zM8 6a1 1 0 100-2 1 1 0 000 2z"></path>
+            </svg>
+            Чому і що змінити?
+          </summary>
+          <div className="editorial-review-why-content">
+            <div className="editorial-review-detail-block">
+              <p className="editorial-review-detail-label">Що не працює</p>
+              <p className="editorial-review-detail-copy">{item.reason}</p>
+            </div>
+            <div className="editorial-review-detail-block">
+              <p className="editorial-review-detail-label">Що зробити</p>
+              <p className="editorial-review-detail-copy editorial-review-detail-action">{item.recommendation}</p>
+            </div>
+          </div>
+        </details>
 
         {item.recommendationType === "callout" || item.suggestedAction === "prepare_callout" ? (
           <div className="editorial-review-detail-block">

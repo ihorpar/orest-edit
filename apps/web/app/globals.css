@@ -641,15 +641,116 @@ textarea {
   pointer-events: auto;
 }
 
-.editorial-review-detail {
+.editorial-review-detail[data-layout="pendant"] {
   position: relative;
   z-index: 3;
+  width: min(100%, 640px);
+  margin-top: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #ffffff;
   padding: 24px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   pointer-events: auto;
+}
+
+.editorial-review-detail[data-layout="drawer"] {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  width: 100%;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  padding: 32px max(5vw, calc((100vw - 1200px) / 2));
+  max-height: 85vh;
+  overflow-y: auto;
+  background: #ffffff;
+  pointer-events: auto;
+}
+
+@media (min-width: 900px) {
+  .editorial-review-detail[data-layout="drawer"] {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    grid-template-areas:
+      "head head"
+      "title title"
+      "body proposal"
+      "actions proposal";
+    gap: 0 40px;
+  }
+
+  .editorial-review-detail[data-layout="drawer"] .editorial-review-detail-head {
+    grid-area: head;
+  }
+
+  .editorial-review-detail[data-layout="drawer"] .editorial-review-detail-title {
+    grid-area: title;
+  }
+
+  .editorial-review-detail[data-layout="drawer"] .editorial-review-detail-body {
+    grid-area: body;
+  }
+
+  .editorial-review-detail[data-layout="drawer"] .editorial-review-proposal {
+    grid-area: proposal;
+    margin-top: 0;
+  }
+
+  .editorial-review-detail[data-layout="drawer"] .editorial-review-detail-actions {
+    grid-area: actions;
+    justify-self: start;
+    margin-top: 24px;
+  }
+}
+
+.editorial-review-why {
+  margin-top: 16px;
+  border: 1px solid #eef2f6;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.editorial-review-why-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  /* Hide standard arrow in modern browsers */
+}
+
+.editorial-review-why-trigger::-webkit-details-marker {
+  display: none;
+  /* Hide arrow in Safari */
+}
+
+.editorial-review-why-trigger svg {
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.editorial-review-why[open] .editorial-review-why-trigger svg {
+  transform: rotate(180deg);
+}
+
+.editorial-review-why-content {
+  padding: 0 14px 14px;
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid #eef2f6;
+  margin-top: 4px;
+  padding-top: 14px;
 }
 
 .editorial-review-detail-head {
