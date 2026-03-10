@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useRef, useState } from "react";
 import { CodeMirrorCanvas } from "../../components/editor/CodeMirrorCanvas";
+import { DraftResetDialog } from "../../components/editor/DraftResetDialog";
 import { FloatingPromptPanel } from "../../components/editor/FloatingPromptPanel";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
@@ -37,8 +38,11 @@ import {
 } from "../../lib/editor/patch-contract";
 import { insertMarkdownImageBlock } from "../../lib/editor/markdown-editor";
 import {
+  getEditorialCalloutKindLabel,
+  getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
   resolveReviewImageAssetUrl,
+  type EditorialCalloutKind,
   type EditorialReviewDiagnostics,
   type EditorialReviewItem,
   type EditorialReviewRequest,
@@ -87,11 +91,13 @@ export default function EditorPage() {
   const [activeReviewItem, setActiveReviewItem] = useState<EditorialReviewItem | null>(null);
   const [activeProposal, setActiveProposal] = useState<ReviewActionProposal | null>(null);
   const [reviewImageAssets, setReviewImageAssets] = useState<Record<string, GeneratedReviewImageAsset>>({});
+  const [calloutKindOverrides, setCalloutKindOverrides] = useState<Record<string, EditorialCalloutKind>>({});
   const [isReviewImageInsertionInFlight, setIsReviewImageInsertionInFlight] = useState(false);
   const [selectionRevealKey, setSelectionRevealKey] = useState(0);
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [suppressFloatingPrompt, setSuppressFloatingPrompt] = useState(false);
   const [isReviewComposerOpen, setIsReviewComposerOpen] = useState(false);
+  const [isClearDraftDialogOpen, setIsClearDraftDialogOpen] = useState(false);
   const [reviewComposer, setReviewComposer] = useState(defaultReviewComposer);
   const imageInsertionGuardRef = useRef<string | null>(null);
 
@@ -282,6 +288,7 @@ export default function EditorPage() {
 
       startTransition(() => {
         setReviewItems(response.ok ? payload.items : []);
+        setCalloutKindOverrides({});
         setFeedback(nextFeedback);
         setReviewDiagnostics(payload.diagnostics);
         setHistory((current) => [createReviewHistoryEntry(payload, nextFeedback), ...current].slice(0, 8));
@@ -299,14 +306,41 @@ export default function EditorPage() {
     }
   }
 
-  async function requestReviewProposal(item: EditorialReviewItem) {
-    const inlineCalloutProposal = createInlineCalloutProposal(item, revision);
+  async function requestReviewProposal(
+    item: EditorialReviewItem,
+    options?: {
+      forcedCalloutKind?: EditorialCalloutKind;
+      forceRegenerateCallout?: boolean;
+    }
+  ) {
+    const effectiveCalloutKind = options?.forcedCalloutKind ?? item.calloutKind ?? item.calloutDraft?.calloutKind;
+    const effectiveItem =
+      effectiveCalloutKind || options?.forceRegenerateCallout
+        ? {
+            ...item,
+            calloutKind: effectiveCalloutKind ?? item.calloutKind,
+            calloutDraft:
+              options?.forceRegenerateCallout && effectiveCalloutKind
+                ? undefined
+                : item.calloutDraft
+                  ? {
+                      ...item.calloutDraft,
+                      calloutKind: effectiveCalloutKind ?? item.calloutDraft.calloutKind
+                    }
+                  : item.calloutDraft
+          }
+        : item;
+    const inlineCalloutProposal =
+      options?.forceRegenerateCallout && options.forcedCalloutKind
+        ? null
+        : createInlineCalloutProposal(effectiveItem, revision);
 
     const nextSelection = resolveReviewItemSelection(text, revision, item);
 
     startTransition(() => {
       setAppliedDiffs([]);
-      setActiveReviewItem(item);
+      setActiveReviewItem(effectiveItem);
+      setActiveProposal(null);
       setSelection(clampSelection(text, nextSelection.start, nextSelection.end));
       setSelectionRevealKey((current) => current + 1);
       setSuppressFloatingPrompt(true);
@@ -315,6 +349,7 @@ export default function EditorPage() {
           entry.id === item.id
             ? {
                 ...entry,
+                calloutKind: effectiveCalloutKind ?? entry.calloutKind,
                 status: inlineCalloutProposal ? "ready" : "preparing"
               }
             : entry
@@ -326,6 +361,39 @@ export default function EditorPage() {
       setIsReviewImageInsertionInFlight(false);
       imageInsertionGuardRef.current = null;
       setActiveProposal(inlineCalloutProposal);
+      setActiveReviewItem({
+        ...effectiveItem,
+        calloutKind: inlineCalloutProposal.calloutDraft?.calloutKind ?? effectiveItem.calloutKind,
+        calloutDraft: inlineCalloutProposal.calloutDraft
+          ? {
+              calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
+              title: inlineCalloutProposal.calloutDraft.title,
+              prompt: inlineCalloutProposal.calloutDraft.prompt,
+              previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
+              summary: inlineCalloutProposal.summary
+            }
+          : effectiveItem.calloutDraft,
+        status: "ready"
+      });
+      setReviewItems((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                calloutKind: inlineCalloutProposal.calloutDraft?.calloutKind ?? entry.calloutKind,
+                calloutDraft: inlineCalloutProposal.calloutDraft
+                  ? {
+                      calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
+                      title: inlineCalloutProposal.calloutDraft.title,
+                      prompt: inlineCalloutProposal.calloutDraft.prompt,
+                      previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
+                      summary: inlineCalloutProposal.summary
+                    }
+                  : entry.calloutDraft
+              }
+            : entry
+        )
+      );
       setFeedback({ message: "Врізка вже підготовлена. Можна одразу вставляти.", tone: "info" });
       return;
     }
@@ -344,7 +412,7 @@ export default function EditorPage() {
         body: JSON.stringify({
           text,
           currentRevision: revision,
-          item,
+          item: effectiveItem,
           provider: settings.provider,
           modelId: normalizeModelId(settings.provider, settings.modelId),
           apiKey: settings.apiKey || undefined,
@@ -360,11 +428,48 @@ export default function EditorPage() {
 
       startTransition(() => {
         setActiveProposal(payload.proposal);
+        setActiveReviewItem({
+          ...effectiveItem,
+          calloutKind:
+            payload.proposal.kind === "callout_prompt"
+              ? payload.proposal.calloutDraft?.calloutKind ?? effectiveCalloutKind ?? effectiveItem.calloutKind
+              : effectiveCalloutKind ?? effectiveItem.calloutKind,
+          calloutDraft:
+            payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft
+              ? {
+                  calloutKind: payload.proposal.calloutDraft.calloutKind,
+                  title: payload.proposal.calloutDraft.title,
+                  prompt: payload.proposal.calloutDraft.prompt,
+                  previewText: payload.proposal.calloutDraft.previewText ?? "",
+                  summary: payload.proposal.summary
+                }
+              : effectiveItem.calloutDraft,
+          status:
+            payload.proposal.kind === "stale_anchor"
+              ? "stale"
+              : payload.proposal.kind === "text_diff" || payload.proposal.kind === "callout_prompt" || payload.proposal.kind === "image_prompt"
+                ? "ready"
+                : effectiveItem.status
+        });
         setReviewItems((current) =>
           current.map((entry) =>
             entry.id === item.id
               ? {
                   ...entry,
+                  calloutKind:
+                    payload.proposal.kind === "callout_prompt"
+                      ? payload.proposal.calloutDraft?.calloutKind ?? effectiveCalloutKind ?? entry.calloutKind
+                      : effectiveCalloutKind ?? entry.calloutKind,
+                  calloutDraft:
+                    payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft
+                      ? {
+                          calloutKind: payload.proposal.calloutDraft.calloutKind,
+                          title: payload.proposal.calloutDraft.title,
+                          prompt: payload.proposal.calloutDraft.prompt,
+                          previewText: payload.proposal.calloutDraft.previewText ?? "",
+                          summary: payload.proposal.summary
+                        }
+                      : entry.calloutDraft,
                   status:
                     payload.proposal.kind === "stale_anchor" ? "stale" : payload.proposal.kind === "text_diff" || payload.proposal.kind === "callout_prompt" || payload.proposal.kind === "image_prompt" ? "ready" : entry.status
                 }
@@ -374,6 +479,17 @@ export default function EditorPage() {
         setFeedback(nextFeedback);
         setHistory((current) => [createProposalHistoryEntry(payload, nextFeedback), ...current].slice(0, 8));
       });
+      if (payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft) {
+        setCalloutKindOverrides((current) => {
+          if (!current[item.id]) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[item.id];
+          return next;
+        });
+      }
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "Сталася помилка під час підготовки чернетки.",
@@ -516,6 +632,7 @@ export default function EditorPage() {
     setActiveReviewItem(null);
     setActiveProposal(null);
     setReviewItems([]);
+    setCalloutKindOverrides({});
     setReviewDiagnostics(null);
 
     if (operations.length > 0) {
@@ -558,6 +675,7 @@ export default function EditorPage() {
       setActiveReviewItem(activeReviewItem ? nextReviewItems.find((item) => item.id === activeReviewItem.id) ?? null : null);
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
+      setCalloutKindOverrides({});
       setSuppressFloatingPrompt(false);
       setFeedback({ message: "Правку застосовано в редакторі.", tone: "info" });
     });
@@ -612,6 +730,7 @@ export default function EditorPage() {
       setActiveReviewItem(activeReviewItem ? nextReviewItems.find((item) => item.id === activeReviewItem.id) ?? null : null);
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
+      setCalloutKindOverrides({});
       setSuppressFloatingPrompt(false);
       setFeedback({
         message:
@@ -644,6 +763,15 @@ export default function EditorPage() {
 
   function handleDismissReviewCard(item: EditorialReviewItem) {
     setReviewItems((current) => current.filter((entry) => entry.id !== item.id));
+    setCalloutKindOverrides((current) => {
+      if (!current[item.id]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
 
     if (activeReviewItem?.id === item.id) {
       setActiveReviewItem(null);
@@ -670,6 +798,15 @@ export default function EditorPage() {
     setSelection({ start: nextCursor, end: nextCursor });
     setActiveProposal(null);
     setReviewItems(nextReviewItems);
+    setCalloutKindOverrides((current) => {
+      if (!current[activeProposal.reviewItemId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[activeProposal.reviewItemId];
+      return next;
+    });
     setActiveReviewItem(nextReviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null);
     setFeedback({ message: "Рекомендацію застосовано як текстовий diff.", tone: "info" });
   }
@@ -698,8 +835,9 @@ export default function EditorPage() {
       body: calloutDraft.previewText
     });
     const nextText = text.slice(0, insertionPoint) + insertionText + text.slice(insertionPoint);
-    const firstContentOffset = insertionText.search(/[^\n]/);
-    const revealStart = firstContentOffset === -1 ? insertionPoint : insertionPoint + firstContentOffset;
+    const titleToken = `# ${calloutDraft.title.trim() || getEditorialCalloutKindTitle(calloutDraft.calloutKind)}`;
+    const titleOffset = insertionText.indexOf(titleToken);
+    const revealStart = titleOffset === -1 ? insertionPoint : insertionPoint + titleOffset + 2;
     const revealEnd = revealStart + Math.max(calloutDraft.title.length, 1);
     const nextRevision = deriveManuscriptRevisionState(nextText, revision);
     const nextReviewItems = reconcileReviewItemsWithRevision(reviewItems, nextRevision).filter((item) => item.id !== sourceItem.id);
@@ -711,6 +849,15 @@ export default function EditorPage() {
     setActiveProposal(null);
     setActiveReviewItem(null);
     setReviewItems(nextReviewItems);
+    setCalloutKindOverrides((current) => {
+      if (!current[sourceItem.id]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[sourceItem.id];
+      return next;
+    });
     setSuppressFloatingPrompt(true);
     setFeedback({ message: "Врізку вставлено. Рекомендацію закрито.", tone: "info" });
   }
@@ -810,6 +957,15 @@ export default function EditorPage() {
       setSelection({ start: nextCursor, end: nextCursor });
       setActiveProposal(null);
       setReviewItems(nextReviewItems);
+      setCalloutKindOverrides((current) => {
+        if (!current[activeProposal.reviewItemId]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[activeProposal.reviewItemId];
+        return next;
+      });
       setActiveReviewItem(nextReviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null);
       const nextFeedback = { message: "Зображення вставлено в рукопис як markdown-блок.", tone: "info" as const };
       setFeedback(nextFeedback);
@@ -834,11 +990,13 @@ export default function EditorPage() {
       setFeedback({ message: "Чернетку очищено. Редактор повернуто до початкового стану.", tone: "info" });
       setActiveReviewItem(null);
       setActiveProposal(null);
+      setCalloutKindOverrides({});
       setReviewImageAssets({});
       setIsReviewImageInsertionInFlight(false);
       setSelectionRevealKey(0);
       setSuppressFloatingPrompt(false);
       setIsReviewComposerOpen(false);
+      setIsClearDraftDialogOpen(false);
       setReviewComposer(defaultReviewComposer);
       imageInsertionGuardRef.current = null;
     });
@@ -851,9 +1009,25 @@ export default function EditorPage() {
       return;
     }
 
-    if (window.confirm("Очистити всю чернетку й прибрати правки, review і локальну історію?")) {
-      handleClearDraft();
+    setIsClearDraftDialogOpen(true);
+  }
+
+  function handleReviewCalloutKindChange(nextKind: EditorialCalloutKind) {
+    if (!activeReviewItem) {
+      return;
     }
+
+    const liveItem = reviewItems.find((entry) => entry.id === activeReviewItem.id) ?? activeReviewItem;
+
+    setCalloutKindOverrides((current) => ({
+      ...current,
+      [liveItem.id]: nextKind
+    }));
+
+    void requestReviewProposal(liveItem, {
+      forcedCalloutKind: nextKind,
+      forceRegenerateCallout: true
+    });
   }
 
   return (
@@ -892,6 +1066,15 @@ export default function EditorPage() {
                 void requestReviewProposal(activeReviewItem);
               }
             }}
+            selectedCalloutKind={
+              activeReviewItem
+                ? calloutKindOverrides[activeReviewItem.id] ??
+                  activeProposal?.calloutDraft?.calloutKind ??
+                  activeReviewItem.calloutDraft?.calloutKind ??
+                  activeReviewItem.calloutKind
+                : undefined
+            }
+            onCalloutKindChange={handleReviewCalloutKindChange}
             selectionRevealKey={selectionRevealKey}
             selection={selection}
             text={text}
@@ -963,6 +1146,11 @@ export default function EditorPage() {
           onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
         />
       ) : null}
+      <DraftResetDialog
+        open={isClearDraftDialogOpen}
+        onCancel={() => setIsClearDraftDialogOpen(false)}
+        onConfirm={handleClearDraft}
+      />
     </main>
   );
 }
@@ -1188,15 +1376,21 @@ function rebaseAppliedDiffMarkers(markers: AppliedDiffMarker[], updatedId: strin
 }
 
 function formatCalloutInsertionMarkdown(input: { calloutKind: string; title: string; body: string }): string {
-  const normalizedKind = input.calloutKind.trim().toLowerCase().replace(/[^a-z_]/g, "") || "quick_fact";
-  const normalizedTitle = input.title.trim() || "Врізка";
-  const bodyLines = input.body
-    .trim()
+  const normalizedKind = normalizeCalloutKindForInsertion(input.calloutKind);
+  const normalizedTitle = input.title.trim() || getEditorialCalloutKindTitle(normalizedKind);
+  const normalizedBody = input.body
     .replace(/\r\n?/g, "\n")
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const markdownLines = [`> [!CALLOUT: ${normalizedKind}] ${normalizedTitle}`, ...bodyLines.map((line) => `> ${line}`)];
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+  const markdownLines = [`::: врізка: ${getEditorialCalloutKindLabel(normalizedKind)}`, `# ${normalizedTitle}`];
+
+  if (normalizedBody) {
+    markdownLines.push(normalizedBody);
+  }
+
+  markdownLines.push(":::");
 
   return `\n\n${markdownLines.join("\n")}`;
 }
@@ -1213,7 +1407,7 @@ function createInlineCalloutProposal(item: EditorialReviewItem, revision: Manusc
     .join(" ")
     .trim();
   const fallbackPrompt = [
-    `Тип врізки: ${calloutKind}.`,
+    `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}.`,
     fragment ? `Фрагмент: ${fragment}` : "",
     `Рекомендація: ${item.recommendation}`
   ]
@@ -1235,4 +1429,14 @@ function createInlineCalloutProposal(item: EditorialReviewItem, revision: Manusc
       previewText: item.calloutDraft.previewText.trim()
     }
   };
+}
+
+function normalizeCalloutKindForInsertion(value: string): EditorialCalloutKind {
+  return value === "mini_story" ||
+    value === "mechanism_explained" ||
+    value === "step_by_step" ||
+    value === "myth_vs_fact" ||
+    value === "quick_fact"
+    ? value
+    : "quick_fact";
 }

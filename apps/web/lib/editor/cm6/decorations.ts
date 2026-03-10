@@ -37,7 +37,75 @@ function addLineDecorations(
   }
 }
 
-function addCalloutDecorations(
+function addDirectiveCalloutDecorations(
+  decorations: PendingDecoration[],
+  doc: { lineAt(pos: number): { from: number; to: number; number: number }; line(number: number): { from: number; to: number; number: number } },
+  paragraphStart: number,
+  paragraphText: string
+) {
+  const lines = paragraphText.replace(/\r\n?/g, "\n").split("\n");
+  let cursor = paragraphStart;
+  const lastIndex = lines.length - 1;
+
+  lines.forEach((lineText, index) => {
+    const line = doc.lineAt(Math.max(0, cursor));
+    const trimmed = lineText.trim();
+    const lineClass =
+      index === 0
+        ? "cm-orest-callout-line cm-orest-callout-line-head"
+        : index === 1
+          ? "cm-orest-callout-line cm-orest-callout-line-title"
+          : index === lastIndex
+            ? "cm-orest-callout-line cm-orest-callout-line-close"
+            : "cm-orest-callout-line cm-orest-callout-line-body";
+
+    decorations.push({
+      from: line.from,
+      to: line.from,
+      decoration: Decoration.line({ attributes: { class: lineClass } })
+    });
+
+    if (index === 0 && /^:::\s*врізка:\s*.+$/i.test(trimmed)) {
+      decorations.push({
+        from: cursor,
+        to: cursor + lineText.length,
+        decoration: Decoration.mark({ class: "cm-orest-callout-kicker" })
+      });
+    } else if (index === 1 && trimmed.startsWith("#")) {
+      const hashOffset = lineText.indexOf("#");
+      const titleStart = hashOffset === -1 ? 0 : hashOffset;
+      decorations.push({
+        from: cursor + titleStart,
+        to: cursor + titleStart + 1,
+        decoration: Decoration.mark({ class: "cm-orest-callout-title-token" })
+      });
+
+      if (titleStart + 2 <= lineText.length) {
+        decorations.push({
+          from: cursor + titleStart + 2,
+          to: cursor + lineText.length,
+          decoration: Decoration.mark({ class: "cm-orest-callout-title" })
+        });
+      }
+    } else if (index === lastIndex && trimmed === ":::") {
+      decorations.push({
+        from: cursor,
+        to: cursor + lineText.length,
+        decoration: Decoration.mark({ class: "cm-orest-callout-close-token" })
+      });
+    } else if (trimmed) {
+      decorations.push({
+        from: cursor,
+        to: cursor + lineText.length,
+        decoration: Decoration.mark({ class: "cm-orest-callout-body" })
+      });
+    }
+
+    cursor += lineText.length + 1;
+  });
+}
+
+function addLegacyCalloutDecorations(
   decorations: PendingDecoration[],
   doc: { lineAt(pos: number): { from: number; to: number; number: number }; line(number: number): { from: number; to: number; number: number } },
   paragraphStart: number,
@@ -63,7 +131,7 @@ function addCalloutDecorations(
         decorations.push({
           from: cursor,
           to: cursor + titleStartOffset + 1,
-          decoration: Decoration.mark({ class: "cm-orest-callout-token" })
+          decoration: Decoration.mark({ class: "cm-orest-callout-kicker" })
         });
 
         if (cursor + titleStartOffset + 2 <= cursor + lineText.length) {
@@ -78,7 +146,7 @@ function addCalloutDecorations(
       decorations.push({
         from: cursor,
         to: cursor + 1,
-        decoration: Decoration.mark({ class: "cm-orest-callout-token" })
+        decoration: Decoration.mark({ class: "cm-orest-callout-title-token" })
       });
 
       if (lineText.length > 2) {
@@ -92,6 +160,49 @@ function addCalloutDecorations(
 
     cursor += lineText.length + 1;
   });
+}
+
+function addImageSourceDecorations(decorations: PendingDecoration[], block: { start: number; alt: string; source: string; caption?: string }) {
+  const firstLineLength = `![${block.alt}](${block.source})`.length;
+  const altStart = block.start + 2;
+  const altEnd = altStart + block.alt.length;
+  const sourceStart = altEnd + 2;
+  const sourceEnd = sourceStart + block.source.length;
+
+  decorations.push({
+    from: block.start,
+    to: block.start + 2,
+    decoration: Decoration.mark({ class: "cm-orest-image-token" })
+  });
+  decorations.push({
+    from: altEnd,
+    to: altEnd + 2,
+    decoration: Decoration.mark({ class: "cm-orest-image-token" })
+  });
+  decorations.push({
+    from: sourceStart,
+    to: sourceEnd,
+    decoration: Decoration.mark({ class: "cm-orest-image-asset" })
+  });
+  decorations.push({
+    from: sourceEnd,
+    to: block.start + firstLineLength,
+    decoration: Decoration.mark({ class: "cm-orest-image-token" })
+  });
+
+  if (block.caption) {
+    const captionStart = block.start + firstLineLength + 1;
+    decorations.push({
+      from: captionStart,
+      to: captionStart + block.caption.length,
+      decoration: Decoration.mark({ class: "cm-orest-image-caption" })
+    });
+  }
+}
+
+function isDirectiveCalloutParagraph(text: string): boolean {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim());
+  return lines.length >= 3 && /^:::\s*врізка:\s*.+$/i.test(lines[0] ?? "") && lines[lines.length - 1] === ":::";
 }
 
 export function buildEditorDecorations(input: {
@@ -123,7 +234,8 @@ export function buildEditorDecorations(input: {
   paragraphs.forEach((paragraph) => {
     const lines = paragraph.text.split("\n").map((line) => line.trim()).filter(Boolean);
     const isTableParagraph = lines.length >= 2 && lines.every((line) => line.startsWith("|"));
-    const isCalloutParagraph = paragraph.text.startsWith("> [!CALLOUT:");
+    const isDirectiveCallout = isDirectiveCalloutParagraph(paragraph.text);
+    const isLegacyCallout = paragraph.text.startsWith("> [!CALLOUT:");
 
     if (activeParagraphIds.has(paragraph.id)) {
       addLineDecorations(decorations, doc, paragraph.start, paragraph.end, "cm-orest-review-line");
@@ -133,8 +245,10 @@ export function buildEditorDecorations(input: {
       addLineDecorations(decorations, doc, paragraph.start, paragraph.end, "cm-orest-table-line");
     }
 
-    if (isCalloutParagraph) {
-      addCalloutDecorations(decorations, doc, paragraph.start, paragraph.text);
+    if (isDirectiveCallout) {
+      addDirectiveCalloutDecorations(decorations, doc, paragraph.start, paragraph.text);
+    } else if (isLegacyCallout) {
+      addLegacyCalloutDecorations(decorations, doc, paragraph.start, paragraph.text);
     }
   });
 
@@ -154,6 +268,7 @@ export function buildEditorDecorations(input: {
 
   imageBlocks.forEach((block) => {
     addLineDecorations(decorations, doc, block.start, block.end, "cm-orest-image-source-line");
+    addImageSourceDecorations(decorations, block);
   });
 
   const tree = syntaxTree(input.state as never);

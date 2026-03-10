@@ -5,7 +5,7 @@ import type { EditorView } from "@codemirror/view";
 import { EditorialReviewDetail } from "../EditorialReviewDetail";
 import { resolveRecommendationLaneAnchor } from "../../../lib/editor/cm6/recommendation-positions";
 import type { ManuscriptRevisionState } from "../../../lib/editor/manuscript-structure";
-import type { EditorialReviewItem, ReviewActionProposal } from "../../../lib/editor/review-contract";
+import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal } from "../../../lib/editor/review-contract";
 
 export function RecommendationLane({
   editorView,
@@ -18,11 +18,13 @@ export function RecommendationLane({
   layoutKey,
   onClose,
   onPrepare,
+  onCalloutKindChange,
   onApplyText,
   onApplyCallout,
   onGenerateImage,
   onInsertImage,
-  onDiscardProposal
+  onDiscardProposal,
+  selectedCalloutKind,
 }: {
   editorView: EditorView | null;
   item: EditorialReviewItem;
@@ -34,11 +36,13 @@ export function RecommendationLane({
   layoutKey: string;
   onClose: () => void;
   onPrepare: () => void;
+  onCalloutKindChange: (kind: EditorialCalloutKind) => void;
   onApplyText: () => void;
   onApplyCallout: () => void;
   onGenerateImage: () => void;
   onInsertImage: () => void;
   onDiscardProposal: () => void;
+  selectedCalloutKind?: EditorialCalloutKind;
 }) {
   const [anchorTop, setAnchorTop] = useState(0);
 
@@ -72,11 +76,13 @@ export function RecommendationLane({
           imageInserting={imageInserting}
           onClose={onClose}
           onPrepare={onPrepare}
+          onCalloutKindChange={onCalloutKindChange}
           onApplyText={onApplyText}
           onApplyCallout={onApplyCallout}
           onGenerateImage={onGenerateImage}
           onInsertImage={onInsertImage}
           onDiscardProposal={onDiscardProposal}
+          selectedCalloutKind={selectedCalloutKind}
         />
       </div>
     </aside>

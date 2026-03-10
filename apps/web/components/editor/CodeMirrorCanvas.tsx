@@ -21,22 +21,113 @@ import { createParagraphGutter } from "../../lib/editor/cm6/gutters";
 import type { AppliedDiffMarker } from "../../lib/editor/applied-diff";
 import { hasSelection, type PatchSelection } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
+import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
 
-const markdownToolbarActions: Array<{ action: MarkdownFormatAction; label: string; title: string }> = [
-  { action: "bold", label: "B", title: "Жирний" },
-  { action: "italic", label: "I", title: "Курсив" },
-  { action: "heading-1", label: "H1", title: "Заголовок 1" },
-  { action: "heading-2", label: "H2", title: "Заголовок 2" },
-  { action: "heading-3", label: "H3", title: "Заголовок 3" },
-  { action: "bullet-list", label: "•", title: "Список" },
-  { action: "numbered-list", label: "1.", title: "Нумерований список" },
-  { action: "blockquote", label: ">", title: "Цитата" },
-  { action: "link", label: "[]", title: "Посилання" },
-  { action: "code", label: "<>", title: "Код" },
-  { action: "table", label: "Tbl", title: "Таблиця" },
-  { action: "divider", label: "---", title: "Роздільник" }
+const markdownToolbarGroups: Array<{
+  id: string;
+  ariaLabel: string;
+  items: Array<{ action: MarkdownFormatAction | "image"; label: string; title: string }>;
+}> = [
+  {
+    id: "inline",
+    ariaLabel: "Виділення тексту",
+    items: [
+      { action: "bold", label: "B", title: "Жирний" },
+      { action: "italic", label: "К", title: "Курсив" }
+    ]
+  },
+  {
+    id: "headings",
+    ariaLabel: "Заголовки",
+    items: [
+      { action: "heading-1", label: "H1", title: "Заголовок 1" },
+      { action: "heading-2", label: "H2", title: "Заголовок 2" },
+      { action: "heading-3", label: "H3", title: "Заголовок 3" }
+    ]
+  },
+  {
+    id: "blocks",
+    ariaLabel: "Блоки та список",
+    items: [
+      { action: "bullet-list", label: "list", title: "Маркований список" },
+      { action: "numbered-list", label: "ordered", title: "Нумерований список" },
+      { action: "blockquote", label: "quote", title: "Цитата" },
+      { action: "link", label: "link", title: "Посилання" }
+    ]
+  },
+  {
+    id: "insert",
+    ariaLabel: "Вставки",
+    items: [
+      { action: "code", label: "<>", title: "Код" },
+      { action: "table", label: "table", title: "Таблиця" },
+      { action: "divider", label: "divider", title: "Роздільник" },
+      { action: "image", label: "[img]", title: "Вставити зображення" }
+    ]
+  }
 ];
+
+function renderMarkdownToolbarGlyph(action: MarkdownFormatAction | "image", label: string) {
+  if (action === "bullet-list") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="4" cy="4" r="1" fill="currentColor" stroke="none" />
+        <circle cx="4" cy="8" r="1" fill="currentColor" stroke="none" />
+        <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+        <path d="M7 4h5M7 8h5M7 12h5" />
+      </svg>
+    );
+  }
+
+  if (action === "numbered-list") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <text x="2.2" y="4.9">1.</text>
+        <text x="2.2" y="8.9">2.</text>
+        <text x="2.2" y="12.9">3.</text>
+        <path d="M7.4 4h5M7.4 8h5M7.4 12h5" />
+      </svg>
+    );
+  }
+
+  if (action === "blockquote") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M6.1 4.6H4.7a1.8 1.8 0 0 0-1.8 1.8v1.4h2.5l-.5 3h-2V7.4c0-1.7.9-2.8 3.2-2.8Z" />
+        <path d="M12.8 4.6h-1.4a1.8 1.8 0 0 0-1.8 1.8v1.4h2.5l-.5 3h-2V7.4c0-1.7.9-2.8 3.2-2.8Z" />
+      </svg>
+    );
+  }
+
+  if (action === "link") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M6.4 9.6 5 11a2.4 2.4 0 1 1-3.4-3.4L3 6.2a2.4 2.4 0 0 1 3.4 0" />
+        <path d="M9.6 6.4 11 5a2.4 2.4 0 1 1 3.4 3.4L13 9.8a2.4 2.4 0 0 1-3.4 0" />
+        <path d="M5.8 8h4.4" />
+      </svg>
+    );
+  }
+
+  if (action === "table") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2.5" y="3" width="11" height="10" rx="1.2" />
+        <path d="M2.8 6.3h10.4M2.8 9.7h10.4M7.9 3.3v9.4" />
+      </svg>
+    );
+  }
+
+  if (action === "divider") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M3 8h10" />
+      </svg>
+    );
+  }
+
+  return label;
+}
 
 function selectionFromView(view: EditorView): PatchSelection {
   return {
@@ -69,6 +160,8 @@ export function CodeMirrorCanvas({
   onInsertLocalImage,
   onInsertReviewImage,
   onPrepareReviewItem,
+  onCalloutKindChange,
+  selectedCalloutKind,
   selectionRevealKey,
   selection,
   text,
@@ -98,7 +191,9 @@ export function CodeMirrorCanvas({
   onInsertLocalImage: (input: { blob: Blob; fileName?: string; source: "upload" | "paste" }) => Promise<void>;
   onInsertReviewImage: () => void;
   onPrepareReviewItem: () => void;
+  onCalloutKindChange: (kind: EditorialCalloutKind) => void;
   selectionRevealKey?: number;
+  selectedCalloutKind?: EditorialCalloutKind;
   selection: PatchSelection;
   text: string;
   onSelectionChange: (selection: PatchSelection) => void;
@@ -393,52 +488,54 @@ export function CodeMirrorCanvas({
 
   return (
     <div className="manuscript-page" data-has-side-panel={hasSidePanel ? "true" : "false"}>
-      <div className="manuscript-toolbar">
-        <div className="manuscript-toolbar-copy">
-          <p className="mono-ui manuscript-toolbar-kicker">Редактор</p>
+      <div className="editor-toolbar-surface">
+        <div className="manuscript-toolbar">
+          <div className="manuscript-toolbar-copy">
+            <p className="mono-ui manuscript-toolbar-kicker">Редактор</p>
+          </div>
+          <div className="manuscript-toolbar-meta-row">
+            <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
+            <Button variant="secondary" size="sm" onClick={onClearDraft} disabled={!canClearDraft}>
+              Скинути текст
+            </Button>
+          </div>
         </div>
-        <div className="manuscript-toolbar-meta-row">
-          <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onClearDraft}
-            disabled={!canClearDraft}
-            style={{ color: "#b42318", borderColor: "#f1d7d3", background: "#fffaf9" }}
-          >
-            Скинути чернетку
-          </Button>
-        </div>
-      </div>
 
-      <div className="markdown-toolbar-shell">
-        <div className="markdown-toolbar" role="toolbar" aria-label="Панель форматування markdown">
-          {markdownToolbarActions.map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              className="markdown-toolbar-button"
-              data-action={item.action}
-            onClick={() => handleMarkdownAction(item.action)}
-              disabled={loading || hasAppliedDiffs}
-              title={item.title}
-              aria-label={item.title}
-            >
-              {item.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="markdown-toolbar-button markdown-toolbar-button-image"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading || hasAppliedDiffs}
-            title="Вставити зображення"
-            aria-label="Вставити зображення"
-          >
-            Img
-          </button>
+        <div className="markdown-toolbar-shell">
+          <div className="markdown-toolbar" role="toolbar" aria-label="Панель форматування markdown">
+            {markdownToolbarGroups.map((group) => (
+              <div key={group.id} className="markdown-toolbar-group" role="group" aria-label={group.ariaLabel}>
+                {group.items.map((item) => {
+                  const isImageButton = item.action === "image";
+                  const handleToolbarAction = () => {
+                    if (item.action === "image") {
+                      fileInputRef.current?.click();
+                      return;
+                    }
+
+                    handleMarkdownAction(item.action);
+                  };
+
+                  return (
+                    <button
+                      key={item.action}
+                      type="button"
+                      className={`markdown-toolbar-button${isImageButton ? " markdown-toolbar-button-image" : ""}`}
+                      data-action={item.action}
+                      onClick={handleToolbarAction}
+                      disabled={loading || hasAppliedDiffs}
+                      title={item.title}
+                      aria-label={item.title}
+                    >
+                      {renderMarkdownToolbarGlyph(item.action, item.label)}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleImageFileSelection} />
         </div>
-        <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleImageFileSelection} />
       </div>
 
       <div className="cm-orest-editor-shell" data-has-side-panel={hasSidePanel ? "true" : "false"}>
@@ -465,6 +562,8 @@ export function CodeMirrorCanvas({
             onGenerateImage={onGenerateReviewImage}
             onInsertImage={onInsertReviewImage}
             onDiscardProposal={onDiscardReviewProposal}
+            selectedCalloutKind={selectedCalloutKind}
+            onCalloutKindChange={onCalloutKindChange}
           />
         ) : activeImageBlock ? (
           <ImagePreviewLane

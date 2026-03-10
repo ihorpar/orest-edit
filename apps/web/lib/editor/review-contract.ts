@@ -235,6 +235,41 @@ const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
   "myth_vs_fact"
 ];
 const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["diagram", "comparison", "process", "timeline", "scene", "concept"];
+const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
+  quick_fact: "факт",
+  mini_story: "історія",
+  mechanism_explained: "механізм",
+  step_by_step: "покроково",
+  myth_vs_fact: "міф-факт"
+};
+const CALLOUT_KIND_TITLE_LABELS: Record<EditorialCalloutKind, string> = {
+  quick_fact: "Короткий факт",
+  mini_story: "Мініісторія",
+  mechanism_explained: "Як це працює",
+  step_by_step: "Покроково",
+  myth_vs_fact: "Міф і факт"
+};
+
+export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
+  return REVIEW_CALLOUT_KINDS.map((value) => ({
+    value,
+    label: CALLOUT_KIND_LABELS[value]
+  }));
+}
+
+export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind): string {
+  return CALLOUT_KIND_LABELS[kind];
+}
+
+export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string {
+  return CALLOUT_KIND_TITLE_LABELS[kind];
+}
+
+export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "-");
+  const entry = Object.entries(CALLOUT_KIND_LABELS).find(([, label]) => label === normalized);
+  return (entry?.[0] as EditorialCalloutKind | undefined) ?? null;
+}
 
 export function normalizeEditorialReviewItems(input: {
   text: string;
@@ -513,21 +548,5 @@ function firstString(...values: unknown[]): string | null {
 }
 
 function fallbackCalloutTitle(kind: EditorialCalloutKind): string {
-  if (kind === "mini_story") {
-    return "Мініісторія";
-  }
-
-  if (kind === "mechanism_explained") {
-    return "Як це працює";
-  }
-
-  if (kind === "step_by_step") {
-    return "Покроково";
-  }
-
-  if (kind === "myth_vs_fact") {
-    return "Міф і факт";
-  }
-
-  return "Короткий факт";
+  return getEditorialCalloutKindTitle(kind);
 }

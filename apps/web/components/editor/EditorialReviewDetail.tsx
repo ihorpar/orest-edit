@@ -1,12 +1,16 @@
 import { DiffInlineMark } from "./DiffInlineMark";
 import {
+  getEditorialCalloutKindLabel,
+  getEditorialCalloutKindOptions,
   getReviewParagraphLabel,
   resolveReviewImageAssetUrl,
+  type EditorialCalloutKind,
   type EditorialReviewItem,
   type ReviewActionProposal
 } from "../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
+import { Select } from "../ui/Select";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 
 const typeLabels: Record<EditorialReviewItem["recommendationType"], string> = {
@@ -32,8 +36,10 @@ export function EditorialReviewDetail({
   proposal,
   preparing,
   imageGenerating,
+  selectedCalloutKind,
   onClose,
   onPrepare,
+  onCalloutKindChange,
   onApplyText,
   onApplyCallout,
   onGenerateImage,
@@ -46,8 +52,10 @@ export function EditorialReviewDetail({
   proposal: ReviewActionProposal | null;
   preparing?: boolean;
   imageGenerating?: boolean;
+  selectedCalloutKind?: EditorialCalloutKind;
   onClose: () => void;
   onPrepare: () => void;
+  onCalloutKindChange?: (kind: EditorialCalloutKind) => void;
   onApplyText: () => void;
   onApplyCallout: () => void;
   onGenerateImage: () => void;
@@ -56,7 +64,12 @@ export function EditorialReviewDetail({
   onDiscardProposal: () => void;
 }) {
   const isActiveProposal = proposal?.reviewItemId === item.id ? proposal : null;
-  const canApplyPrefilledCallout = item.recommendationType === "callout" && Boolean(item.calloutDraft?.previewText);
+  const activeCalloutKind = selectedCalloutKind ?? isActiveProposal?.calloutDraft?.calloutKind ?? item.calloutDraft?.calloutKind ?? item.calloutKind;
+  const canApplyPrefilledCallout =
+    item.recommendationType === "callout" &&
+    Boolean(item.calloutDraft?.previewText) &&
+    activeCalloutKind === item.calloutDraft?.calloutKind &&
+    !isActiveProposal;
   const hasCalloutDraftError = item.recommendationType === "callout" && !item.calloutDraft?.previewText;
   const generatedImageAsset =
     isActiveProposal?.kind === "image_prompt" && isActiveProposal.imageDraft?.generatedAsset
@@ -95,6 +108,30 @@ export function EditorialReviewDetail({
           <p className="mono-ui editorial-review-detail-label">Що зробити</p>
           <p className="editorial-review-detail-copy editorial-review-detail-action">{item.recommendation}</p>
         </div>
+
+        {item.recommendationType === "callout" || item.suggestedAction === "prepare_callout" ? (
+          <div className="editorial-review-detail-block">
+            <div className="editorial-review-callout-kind-row">
+              <p className="mono-ui editorial-review-detail-label">Тип врізки</p>
+              <Select
+                aria-label="Тип врізки"
+                value={activeCalloutKind ?? item.calloutKind ?? item.calloutDraft?.calloutKind ?? "quick_fact"}
+                onChange={(event) => onCalloutKindChange?.(event.currentTarget.value as EditorialCalloutKind)}
+                disabled={preparing || !onCalloutKindChange}
+                className="editorial-review-callout-kind-select"
+              >
+                {getEditorialCalloutKindOptions().map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <p className="editorial-review-detail-copy editorial-review-callout-kind-copy">
+              Вставка піде як <strong>врізка: {getEditorialCalloutKindLabel(activeCalloutKind ?? item.calloutKind ?? "quick_fact")}</strong>.
+            </p>
+          </div>
+        ) : null}
 
         <div className="editorial-review-detail-block">
           <p className="mono-ui editorial-review-detail-label">Фрагмент</p>
@@ -151,6 +188,9 @@ export function EditorialReviewDetail({
 
           {isActiveProposal.kind === "callout_prompt" && isActiveProposal.calloutDraft ? (
             <div className="editorial-review-proposal-block">
+              <p className="mono-ui editorial-review-detail-label editorial-review-callout-kind-chip">
+                Врізка: {getEditorialCalloutKindLabel(isActiveProposal.calloutDraft.calloutKind)}
+              </p>
               <p className="editorial-review-detail-copy">
                 <strong>{isActiveProposal.calloutDraft.title}</strong>
               </p>

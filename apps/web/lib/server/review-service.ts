@@ -1,5 +1,6 @@
 import { createPatchId } from "../editor/patch-contract.ts";
 import {
+  getEditorialCalloutKindLabel,
   normalizeEditorialReviewItems,
   type EditorialReviewItem,
   type EditorialCalloutKind,
@@ -66,7 +67,13 @@ const openAiSchema = {
           "paragraphStart",
           "paragraphEnd",
           "excerpt",
-          "insertionHint"
+          "insertionHint",
+          "calloutKind",
+          "calloutTitle",
+          "calloutPreviewText",
+          "calloutSummary",
+          "calloutPrompt",
+          "visualIntent"
         ]
       }
     }
@@ -1011,13 +1018,14 @@ function hydrateAndFilterCalloutDrafts(
     const fragment = getParagraphRangeText(request.revision, item.anchor.paragraphIds);
     const promptFromTemplate = renderTemplate(request.calloutPromptTemplate ?? "", {
       calloutKind,
+      calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
       fragment,
       recommendation: item.recommendation
     });
     const prompt =
       promptFromTemplate ||
       [
-        `Тип врізки: ${calloutKind}.`,
+        `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}.`,
         fragment ? `Фрагмент: ${fragment}` : "",
         `Рекомендація: ${item.recommendation}`,
         "Сформуй коротку врізку українською без додавання нових фактів."

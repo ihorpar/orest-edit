@@ -151,6 +151,55 @@ test("generateEditorialReview sends Gemini structured output config in the docum
   assert.ok(generationConfig.responseJsonSchema);
 });
 
+test("generateEditorialReview sends an OpenAI schema whose required fields match declared item properties", async () => {
+  const text = "Перший абзац.\n\nКороткий текст для перевірки схеми.";
+  let requestBody: Record<string, unknown> | undefined;
+
+  await generateEditorialReview(
+    { ...createRequest("openai", "gpt-5.2", text), apiKey: "sk-review-test" },
+    {
+      now: () => "2026-03-08T03:40:00.000Z",
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return createJsonResponse(
+          createOpenAiResponsesPayload({
+            items: [
+              {
+                title: "Тестовий огляд",
+                reason: "Перевірка request shape.",
+                recommendation: "Нічого не робити.",
+                recommendationType: "rewrite",
+                suggestedAction: "rewrite_text",
+                priority: "low",
+                paragraphStart: 2,
+                paragraphEnd: 2,
+                excerpt: "Короткий текст для перевірки схеми.",
+                insertionHint: "replace",
+                calloutKind: null,
+                calloutTitle: null,
+                calloutPreviewText: null,
+                calloutSummary: null,
+                calloutPrompt: null,
+                visualIntent: null
+              }
+            ]
+          })
+        );
+      }
+    }
+  );
+
+  assert.ok(requestBody);
+  const itemSchema = (
+    ((requestBody.text as Record<string, unknown>).format as Record<string, unknown>).schema as {
+      properties: { items: { items: { properties: Record<string, unknown>; required: string[] } } };
+    }
+  ).properties.items.items;
+
+  assert.deepEqual([...itemSchema.required].sort(), [...Object.keys(itemSchema.properties)].sort());
+});
+
 test("generateEditorialReview repairs aliased fields before dropping items", async () => {
   const text = "Перший абзац.\n\nУ цьому абзаці є каскад змін і майже немає людського пояснення для читача.";
 

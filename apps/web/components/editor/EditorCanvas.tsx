@@ -338,7 +338,7 @@ export function EditorCanvas({
             disabled={!canClearDraft}
             style={{ color: "#b42318", borderColor: "#f1d7d3", background: "#fffaf9" }}
           >
-            Скинути чернетку
+            Скинути текст
           </Button>
         </div>
       </div>

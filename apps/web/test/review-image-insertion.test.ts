@@ -44,6 +44,29 @@ function createReviewItem(text: string, mode: EditorialReviewItem["insertionPoin
   };
 }
 
+function createJsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+function createOpenAiResponsesPayload(body: unknown) {
+  return {
+    output: [
+      {
+        type: "message",
+        content: [
+          {
+            type: "output_text",
+            text: JSON.stringify(body)
+          }
+        ]
+      }
+    ]
+  };
+}
+
 test("insertReviewImageMarkdown inserts markdown image and supports review reconciliation", () => {
   const text = "Перший абзац із поясненням.";
   const { item, revision } = createReviewItem(text, "after");
@@ -171,6 +194,47 @@ test("generateReviewAction returns stale_anchor for outdated fingerprint", async
   assert.equal(response.proposal.kind, "stale_anchor");
   assert.equal(response.usedFallback, false);
   assert.match(response.error ?? "", /змінився|застаріл/i);
+});
+
+test("generateReviewAction sends an OpenAI image schema whose required fields match declared properties", async () => {
+  const text = "Початковий абзац для ілюстрації.";
+  const { item, revision } = createReviewItem(text, "after");
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      text,
+      currentRevision: revision,
+      item,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "sk-image-test",
+      imagePromptTemplate: "Тип: {{visualIntent}}. Фрагмент: {{fragment}}. Рекомендація: {{recommendation}}."
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return createJsonResponse(
+          createOpenAiResponsesPayload({
+            summary: "Підготовлено чернетку image prompt.",
+            prompt: "Покажи порівняння у вигляді простої схеми.",
+            alt: "Схема порівняння факторів ризику",
+            caption: null
+          })
+        );
+      }
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.ok(requestBody);
+  const schema = ((requestBody.text as Record<string, unknown>).format as Record<string, unknown>).schema as {
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+
+  assert.deepEqual([...schema.required].sort(), [...Object.keys(schema.properties)].sort());
 });
 
 test("insertReviewImageMarkdown is idempotent for duplicate insertion attempts", () => {

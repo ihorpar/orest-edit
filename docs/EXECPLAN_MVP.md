@@ -16,6 +16,7 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Progress
 
+- [x] (2026-03-08 00:00Z) Reworked the markdown toolbar into compact grouped controls with icon-like buttons and verified the updated UI with a fresh browser screenshot.
 - [x] (2026-03-05 00:00Z) Rebuilt the project as a web-only Next.js app in `apps/web`.
 - [x] (2026-03-05 00:00Z) Implemented the current sample4-based editor UI and `/settings` screen in Ukrainian.
 - [x] (2026-03-05 21:42Z) Built real text selection tracking in the editor surface.
@@ -45,16 +46,16 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-06 00:50Z) Simplified the floating selection composer by removing duplicated selection copy, adding a fold/unfold toggle, and auto-collapsing the panel after a request is sent.
 - [x] (2026-03-06 01:05Z) Changed patch normalization so one model request becomes one coherent selection-wide diff instead of several fragmented local operations.
 - [x] (2026-03-06 01:20Z) Reclaimed editor space by removing low-value canvas status chrome, widened the manuscript area, replaced the demo copy with a longer Ukrainian HDL/LDL biohacking section, and rewrote default prompts around real editor use cases.
-- [x] (2026-03-06 01:35Z) Widened the review rail, moved post-apply diff actions to the bottom of the manuscript flow, added an explicit `Прибрати diff` action, and switched the editor back to the native textarea layer during active editing to remove selection/cursor artifacts.
+- [x] (2026-03-06 01:35Z) Widened the review rail, moved post-apply diff actions to the bottom of the manuscript flow, added an explicit `ÐŸÑ€Ð¸Ð±Ñ€Ð°Ñ‚Ð¸ diff` action, and switched the editor back to the native textarea layer during active editing to remove selection/cursor artifacts.
 - [x] (2026-03-06 02:25Z) Tightened the inline review layout so applied-diff actions sit immediately below the diff block instead of floating with extra manuscript spacing.
-- [x] (2026-03-06 03:00Z) Replaced the duplicated `Спростити фрагмент` action with a new whole-text `Редакторський огляд` flow, including a dedicated API route, right-rail recommendation cards, and jump-to-fragment anchors back into the manuscript.
+- [x] (2026-03-06 03:00Z) Replaced the duplicated `Ð¡Ð¿Ñ€Ð¾ÑÑ‚Ð¸Ñ‚Ð¸ Ñ„Ñ€Ð°Ð³Ð¼ÐµÐ½Ñ‚` action with a new whole-text `Ð ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€ÑÑŒÐºÐ¸Ð¹ Ð¾Ð³Ð»ÑÐ´` flow, including a dedicated API route, right-rail recommendation cards, and jump-to-fragment anchors back into the manuscript.
 - [x] (2026-03-06 03:20Z) Hardened editorial-review normalization so partially malformed provider recommendations are repaired before they are dropped.
 - [x] (2026-03-06 03:35Z) Migrated OpenAI patch and editorial-review generation to the recommended Responses API structured-output path.
 - [x] (2026-03-06 03:55Z) Migrated Gemini structured-output requests to the documented config keys and exposed raw review-provider output in diagnostics for debugging.
 - [x] (2026-03-06 04:20Z) Refactored whole-text review to paragraph anchors with excerpt hints and added visible manuscript paragraph numbers in a padded gutter.
 - [x] (2026-03-06 04:40Z) Removed the focus-time text-layer swap that made paragraph numbers drift on click, switched the manuscript serif to Lora, and dropped the redundant left-rail helper note for editorial review.
 - [x] (2026-03-06 05:05Z) Split editorial review into compact rail cards plus an inline manuscript detail panel, and stopped review navigation from auto-opening the floating local-patch composer.
-- [x] (2026-03-06 05:25Z) Persisted the active editor draft across route changes with browser `localStorage`, added an explicit `Очистити` reset action, and renamed the top-nav manuscript entry to `Редактор`.
+- [x] (2026-03-06 05:25Z) Persisted the active editor draft across route changes with browser `localStorage`, added an explicit `ÐžÑ‡Ð¸ÑÑ‚Ð¸Ñ‚Ð¸` reset action, and renamed the top-nav manuscript entry to `Ð ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€`.
 - [x] (2026-03-06 05:40Z) Realigned manuscript overlay and textarea metrics, then restored native textarea rendering on focus so caret placement and typed text match the visible insertion point again.
 - [x] (2026-03-06 05:50Z) Stopped editorial-review detail from auto-closing on ordinary text clicks and replaced the header close label with a compact close icon.
 - [x] (2026-03-06 06:10Z) Replaced free-form model defaults in settings with provider-specific preset dropdowns plus a manual-entry option, and refreshed fallback defaults to current model catalogs.
@@ -68,11 +69,11 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-06 13:30Z) Rebuilt `/settings` into a single operational sheet, added provider-aware key copy plus reset/show-hide controls, and introduced live model validation with real provider requests behind `/api/settings/validate`.
 - [x] (2026-03-06 19:15Z) Added markdown formatting controls in the manuscript header, kept raw markdown as the canonical textarea source, and introduced an idle formatted preview for headings, lists, links, tables, and inline emphasis.
 - [x] (2026-03-06 19:47Z) Removed strikethrough from deleted diff text and moved green-text editability into the large manuscript diff review block so editors can tune the applied wording before leaving review mode.
-- [x] (2026-03-07 05:35Z) Rebuilt whole-text review into a two-stage actionable workflow with stable paragraph identities, a floating depth-selector composer, right-panel recommendation cards, per-item `Працюй!` proposals, editable prompt templates in settings, and a Gemini-backed image-generation draft path.
-- [x] (2026-03-07 23:20Z) Extended image proposals to full explicit apply flow: generated assets now carry typed references, review detail exposes `Вставити зображення`, and markdown insertion runs through deterministic anchor placement with revision reconciliation and duplicate-click safety.
+- [x] (2026-03-07 05:35Z) Rebuilt whole-text review into a two-stage actionable workflow with stable paragraph identities, a floating depth-selector composer, right-panel recommendation cards, per-item `ÐŸÑ€Ð°Ñ†ÑŽÐ¹!` proposals, editable prompt templates in settings, and a Gemini-backed image-generation draft path.
+- [x] (2026-03-07 23:20Z) Extended image proposals to full explicit apply flow: generated assets now carry typed references, review detail exposes `Ð’ÑÑ‚Ð°Ð²Ð¸Ñ‚Ð¸ Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð½Ñ`, and markdown insertion runs through deterministic anchor placement with revision reconciliation and duplicate-click safety.
 - [x] (2026-03-08 00:10Z) Eliminated image-draft quota failures by moving browser-local assets into IndexedDB behind `asset:` markdown tokens, added a toolbar image upload/paste path, and made standalone image blocks draggable to new positions in the manuscript area.
-- [x] (2026-03-08 01:15Z) Reworked `Врізка` into an initial-review artifact: whole-text review now prebuilds callout draft content, `Працюй!` opens it without a second generation step, `Вставити врізку` applies immediately, then closes detail and removes the recommendation card.
-- [x] (2026-03-08 02:25Z) Switched `Врізка` to strict quality mode: removed server-side template fallback text, drop callout recommendations with unusable generated content, and surface explicit review error instead of inserting placeholder copy.
+- [x] (2026-03-08 01:15Z) Reworked `Ð’Ñ€Ñ–Ð·ÐºÐ°` into an initial-review artifact: whole-text review now prebuilds callout draft content, `ÐŸÑ€Ð°Ñ†ÑŽÐ¹!` opens it without a second generation step, `Ð’ÑÑ‚Ð°Ð²Ð¸Ñ‚Ð¸ Ð²Ñ€Ñ–Ð·ÐºÑƒ` applies immediately, then closes detail and removes the recommendation card.
+- [x] (2026-03-08 02:25Z) Switched `Ð’Ñ€Ñ–Ð·ÐºÐ°` to strict quality mode: removed server-side template fallback text, drop callout recommendations with unusable generated content, and surface explicit review error instead of inserting placeholder copy.
 - [x] (2026-03-07 14:10Z) Analyzed the manuscript hit-testing failure caused by the preview/source swap and chose CodeMirror 6 as the migration target for a unified source-first markdown editor.
 - [x] (2026-03-08 08:40Z) Integrated CodeMirror 6 as the normal manuscript editing surface in `apps/web/app/editor/page.tsx`, eliminating the preview-vs-textarea swap for direct editing while retaining the older `EditorCanvas` only for the applied-diff review checkpoint.
 - [x] (2026-03-08 08:40Z) Preserved paragraph-number anchors, local patch selections, and whole-text review highlighting on top of the CodeMirror document model.
@@ -82,9 +83,14 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 09:05Z) Migrated the applied-diff review checkpoint onto the same CodeMirror-based manuscript surface, replacing the legacy `EditorCanvas` render-path switch with a CM6 diff-review panel plus in-editor diff highlighting.
 - [x] (2026-03-08 09:35Z) Fixed the post-callout-apply CM6 gutter crash by syncing external text into the `EditorView` before chrome reconfiguration and hardening gutter position lookup against transient stale offsets.
 - [x] (2026-03-08 09:35Z) Upgraded inserted callout rendering in the CM6 manuscript so the raw markdown stays visible but reads as a real standout block with a stronger head/body treatment.
+- [x] (2026-03-08 11:05Z) Replaced inserted callouts with the canonical Ukrainian source syntax `::: Ð²Ñ€Ñ–Ð·ÐºÐ°: <Ñ‚Ð¸Ð¿>` plus a separate `#` title line and updated CM6 decorations to style that syntax in place without changing line geometry.
+- [x] (2026-03-08 11:05Z) Added a `Ð¢Ð¸Ð¿ Ð²Ñ€Ñ–Ð·ÐºÐ¸` selector to the side recommendation detail; changing the type now forces a real callout-draft regeneration with loading feedback before insertion.
+- [x] (2026-03-08 11:05Z) Softened technical image-source tokens in the CM6 manuscript so `asset:` references remain source-visible but no longer dominate the manuscript line visually.
 
 ## Surprises & Discoveries
 
+- Observation: discoverability does not require verbose button labels if the toolbar grouping and iconography are disciplined.
+  Evidence: the revised toolbar in `apps/web/components/editor/CodeMirrorCanvas.tsx` keeps button text compact, but restores clarity through grouped controls, familiar formatting symbols, and explicit tooltip labels.
 - Observation: the current UI was visually close enough to `sample4` that the main blocker was behavior, not design.
   Evidence: the working editor flow remains aligned with the sample4 layout while adding diagnostics and batch actions in `apps/web/app/globals.css` and `apps/web/components/layout/RightOperationsRail.tsx`.
 
@@ -125,16 +131,16 @@ The next major goal is to replace the unstable split between idle markdown previ
   Evidence: the reported LDL/HDL example produced several adjacent operations from one prompt, which then rendered as an incoherent chain in review and inline diff mode.
 
 - Observation: the editor still wasted vertical space after the selection UX pass because the canvas kept a large artificial minimum height plus a low-value status row.
-  Evidence: the screenshot after selection showed a mostly empty lower half of the manuscript card with only a `Виділено … символів` counter left in view.
+  Evidence: the screenshot after selection showed a mostly empty lower half of the manuscript card with only a `Ð’Ð¸Ð´Ñ–Ð»ÐµÐ½Ð¾ â€¦ ÑÐ¸Ð¼Ð²Ð¾Ð»Ñ–Ð²` counter left in view.
 
 - Observation: keeping the render overlay visible during direct editing creates double-layer text artifacts after returning from diff review.
   Evidence: the reported screenshot showed corrupted selection and cursor placement because the render layer and textarea text were effectively competing in the same visual slot.
 
-- Observation: a generic `Спростити фрагмент` button inside the local composer did not communicate a distinct user intent once quick prompts and the submit field already existed.
+- Observation: a generic `Ð¡Ð¿Ñ€Ð¾ÑÑ‚Ð¸Ñ‚Ð¸ Ñ„Ñ€Ð°Ð³Ð¼ÐµÐ½Ñ‚` button inside the local composer did not communicate a distinct user intent once quick prompts and the submit field already existed.
   Evidence: in the current floating-panel UI, that button reused the same underlying simplification path and read as a redundant magic action rather than a separate editing mode.
 
 - Observation: whole-text review responses can be semantically usable even when providers drift on field names or emit stringified offsets.
-  Evidence: the reported review screenshot showed valid cards alongside `Відкинуто 3 невалідні рекомендації від провайдера.`, which pointed to partially recoverable payloads rather than a full fallback path.
+  Evidence: the reported review screenshot showed valid cards alongside `Ð’Ñ–Ð´ÐºÐ¸Ð½ÑƒÑ‚Ð¾ 3 Ð½ÐµÐ²Ð°Ð»Ñ–Ð´Ð½Ñ– Ñ€ÐµÐºÐ¾Ð¼ÐµÐ½Ð´Ð°Ñ†Ñ–Ñ— Ð²Ñ–Ð´ Ð¿Ñ€Ð¾Ð²Ð°Ð¹Ð´ÐµÑ€Ð°.`, which pointed to partially recoverable payloads rather than a full fallback path.
 
 - Observation: our previous OpenAI integration still used legacy chat completions even though the current OpenAI structured-output guidance centers on the Responses API.
   Evidence: both `apps/web/lib/server/patch-service.ts` and `apps/web/lib/server/review-service.ts` previously posted `response_format.json_schema` to `/v1/chat/completions` and manually parsed `choices[0].message.content`.
@@ -164,7 +170,7 @@ The next major goal is to replace the unstable split between idle markdown previ
   Evidence: the product had drifted to outdated defaults like `gpt-5.2`, while the official catalogs already promote newer front-line options and deprecate some earlier preview names.
 
 - Observation: editorial-review detail still sat inside a lower stacking context than the textarea, so focused editor text could visually and interactively cut through the panel.
-  Evidence: clicking the open detail caused manuscript text to overlap the card and made the `X` / `Закрити розбір` controls unclickable because the textarea layer remained on top.
+  Evidence: clicking the open detail caused manuscript text to overlap the card and made the `X` / `Ð—Ð°ÐºÑ€Ð¸Ñ‚Ð¸ Ñ€Ð¾Ð·Ð±Ñ–Ñ€` controls unclickable because the textarea layer remained on top.
 
 - Observation: the right-docked floating prompt felt detached from the manuscript and opened too large because it started with a long prefilled multi-line prompt.
   Evidence: the old panel always appeared as a sidebar-style box near the lower-right corner, which fought the center of attention instead of behaving like a focused composer for the selected fragment.
@@ -185,12 +191,12 @@ The next major goal is to replace the unstable split between idle markdown previ
   Evidence: the idle editor screenshot showed a cleaner center column but a visually hollow right side, which made the product feel incomplete rather than intentionally minimal.
 
 - Observation: text-only loading copy made in-flight AI requests feel static even when the product already had the correct structural loading states.
-  Evidence: during patch or review requests, the UI switched labels like `Готую локальні правки…`, but there was no motion cue in the button, right rail, or collapsed floating prompt to confirm that processing was alive.
+  Evidence: during patch or review requests, the UI switched labels like `Ð“Ð¾Ñ‚ÑƒÑŽ Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ñ– Ð¿Ñ€Ð°Ð²ÐºÐ¸â€¦`, but there was no motion cue in the button, right rail, or collapsed floating prompt to confirm that processing was alive.
 
 - Observation: the settings page had turned into a reused workspace shell rather than a focused operational form.
   Evidence: the left pane clipped the heading, the right pane spent 420px on explanatory cards, and the actual form still configured only provider, model, key, and prompt.
 
-- Observation: a green “active model” treatment is actively misleading unless the app proves that the selected provider and model really answer.
+- Observation: a green â€œactive modelâ€ treatment is actively misleading unless the app proves that the selected provider and model really answer.
   Evidence: before the validation pass, the settings screen showed a success-colored provider block even when no live request had confirmed the chosen model or key path.
 
 - Observation: this repository had widespread text-format drift across source and docs, including BOM, CRLF, and missing-final-newline differences.
@@ -212,18 +218,18 @@ The next major goal is to replace the unstable split between idle markdown previ
   Evidence: the first whole-text review smoke run returned `POST /api/edit/review/proposal 409` for fresh fallback items, which traced back to `apps/web/lib/server/review-service.ts` storing the document hash instead of the paragraph-range fingerprint.
 
 - Observation: the requested editing point was not the rail card but the large manuscript comparison block shown after apply.
-  Evidence: the user-supplied screenshot and current flow both point at the `Щойно застосовано` review state in `apps/web/components/editor/EditorCanvas.tsx`, not the smaller `Правки на розгляді` cards in `apps/web/components/layout/RightOperationsRail.tsx`.
+  Evidence: the user-supplied screenshot and current flow both point at the `Ð©Ð¾Ð¹Ð½Ð¾ Ð·Ð°ÑÑ‚Ð¾ÑÐ¾Ð²Ð°Ð½Ð¾` review state in `apps/web/components/editor/EditorCanvas.tsx`, not the smaller `ÐŸÑ€Ð°Ð²ÐºÐ¸ Ð½Ð° Ñ€Ð¾Ð·Ð³Ð»ÑÐ´Ñ–` cards in `apps/web/components/layout/RightOperationsRail.tsx`.
 
 - Observation: CodeMirror decorations are unforgiving about ordering once line, mark, and widget decorations share the same anchor.
   Evidence: the first CM6 dev pass crashed with `Ranges must be added sorted by 'from' position and 'startSide'` until `apps/web/lib/editor/cm6/decorations.ts` started collecting decorations and sorting them before building the final set.
 
 - Observation: remounting the `EditorView` on every text change looks superficially harmless in React but makes the editor effectively unusable because focus is lost after each keystroke.
-  Evidence: the first CM6 editing pass recreated `EditorView` from a `useEffect` keyed on `text` and `selection`, which immediately reproduced the user-reported “blur after every symbol” bug until the mount effect was reduced to a single initial mount in `apps/web/components/editor/CodeMirrorCanvas.tsx`.
+  Evidence: the first CM6 editing pass recreated `EditorView` from a `useEffect` keyed on `text` and `selection`, which immediately reproduced the user-reported â€œblur after every symbolâ€ bug until the mount effect was reduced to a single initial mount in `apps/web/components/editor/CodeMirrorCanvas.tsx`.
 
 - Observation: rich block previews inside the manuscript flow reintroduce the same trust problem the CM6 migration was meant to remove.
   Evidence: once pasted images rendered as tall block widgets under `![...](...)`, the visible manuscript height no longer matched the source-first editing expectation, so image previews were moved into a detached side overlay and the source line stayed in flow.
 
-- Observation: in React, “external state sync” and “editor chrome reconfigure” cannot be treated as independent effects when the chrome depends on exact document offsets.
+- Observation: in React, â€œexternal state syncâ€ and â€œeditor chrome reconfigureâ€ cannot be treated as independent effects when the chrome depends on exact document offsets.
   Evidence: applying a callout produced `Invalid position ... in document of length ...` inside `apps/web/lib/editor/cm6/gutters.ts` because the gutter reconfigured from the new manuscript text one effect before the underlying `EditorView` document finished syncing.
 
 - Observation: image-asset contract changes can break hydrated drafts if old and new shapes coexist without normalization.
@@ -232,14 +238,23 @@ The next major goal is to replace the unstable split between idle markdown previ
 - Observation: browser draft persistence cannot safely carry binary image payloads once generated or pasted images become part of the live editing flow.
   Evidence: generating one Gemini image reproduced `QuotaExceededError` on `window.localStorage.setItem("orest-editor-draft-v1", ...)` until client-side assets moved into IndexedDB and draft persistence started storing only `asset:` references.
 
-- Observation: callout recommendations were over-frictional when they required a second AI roundtrip after `Працюй!`.
-  Evidence: the previous flow produced a proposal panel for `Врізка` only after explicit per-item generation, while the requirement was to have callout content ready during the first whole-text review pass.
+- Observation: callout recommendations were over-frictional when they required a second AI roundtrip after `ÐŸÑ€Ð°Ñ†ÑŽÐ¹!`.
+  Evidence: the previous flow produced a proposal panel for `Ð’Ñ€Ñ–Ð·ÐºÐ°` only after explicit per-item generation, while the requirement was to have callout content ready during the first whole-text review pass.
 
 - Observation: template fallback text for failed callout generation looked plausible in UI but broke editorial trust because it often returned topic-level copy instead of an actual explanation.
-  Evidence: failed callout drafts produced short thematic lines (or prompts) that were inserted as if they were ready explanatory `врізка` content.
+  Evidence: failed callout drafts produced short thematic lines (or prompts) that were inserted as if they were ready explanatory `Ð²Ñ€Ñ–Ð·ÐºÐ°` content.
+
+- Observation: â€œcleaner manuscript sourceâ€ only stays safe when the visible line still uses the exact same characters and wraps as the underlying source.
+  Evidence: image lines could safely mute `asset:` tokens in place, but replacing them with shorter human text would have reintroduced the original click/caret mismatch that triggered the CM6 migration.
+
+- Observation: a callout-type dropdown is not just presentation state; it changes the requested artifact.
+  Evidence: switching from one `Ð²Ñ€Ñ–Ð·ÐºÐ°` type to another needed a forced provider roundtrip because simply relabeling the existing draft would leave the visible type and the draft content semantically out of sync.
 
 ## Decision Log
 
+- Decision: keep the markdown toolbar compact and symbol-first, but pair it with strong grouping, familiar glyphs, and explicit tooltip/ARIA labels.
+  Rationale: the editor header should feel like professional publishing software, not a form full of labeled cards; clarity should come from interaction design, not extra bulk.
+  Date/Author: 2026-03-08 / Codex implementation
 - Decision: keep the executable task checklist inside `docs/EXECPLAN_MVP.md`, not in a separate task file.
   Rationale: `PLANS.md` already defines ExecPlan as the living execution document and requires a checkbox-based Progress section.
   Date/Author: 2026-03-05 / Codex + User
@@ -281,7 +296,7 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-05 / Codex implementation
 
 - Decision: keep the selection-scoped base patch action only inside the floating selection composer.
-  Rationale: repeating `Базова правка` across the left rail, canvas footer, and floating panel diluted scope and made the primary action harder to trust.
+  Rationale: repeating `Ð‘Ð°Ð·Ð¾Ð²Ð° Ð¿Ñ€Ð°Ð²ÐºÐ°` across the left rail, canvas footer, and floating panel diluted scope and made the primary action harder to trust.
   Date/Author: 2026-03-06 / Codex implementation
 
 - Decision: after accept, show applied edits inline in the manuscript until the user clicks back into direct editing.
@@ -308,8 +323,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Rationale: review actions should stay attached to the reviewed text, and live editing must defer to the native text control to avoid cursor and selection drift.
   Date/Author: 2026-03-06 / Codex implementation
 
-- Decision: replace the redundant local default-action button with a separate whole-text `Редакторський огляд` flow in the left rail.
-  Rationale: fragment editing and manuscript diagnostics are different jobs; a dedicated review flow is easier to trust than a vague “simplify fragment” shortcut and uses the UI space more productively.
+- Decision: replace the redundant local default-action button with a separate whole-text `Ð ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€ÑÑŒÐºÐ¸Ð¹ Ð¾Ð³Ð»ÑÐ´` flow in the left rail.
+  Rationale: fragment editing and manuscript diagnostics are different jobs; a dedicated review flow is easier to trust than a vague â€œsimplify fragmentâ€ shortcut and uses the UI space more productively.
   Date/Author: 2026-03-06 / Codex implementation
 
 - Decision: run a repair pass over editorial-review items before dropping malformed provider output.
@@ -340,7 +355,7 @@ The next major goal is to replace the unstable split between idle markdown previ
   Rationale: the rail should stay scannable, while the full editorial reasoning belongs next to the actual prose it discusses; this also avoids conflating review navigation with local patch composition.
   Date/Author: 2026-03-06 / Codex implementation
 
-- Decision: persist the active editor draft in `localStorage`, but keep `Очистити` scoped to the draft session rather than to global model settings.
+- Decision: persist the active editor draft in `localStorage`, but keep `ÐžÑ‡Ð¸ÑÑ‚Ð¸Ñ‚Ð¸` scoped to the draft session rather than to global model settings.
   Rationale: users expect route changes not to destroy manuscript work-in-progress, but clearing the working draft should not wipe provider/model configuration they intentionally saved in settings.
   Date/Author: 2026-03-06 / Codex implementation
 
@@ -388,8 +403,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Rationale: configuration should optimize for quick, confident setup, not for persistent explanatory chrome or workspace symmetry with the editor surface.
   Date/Author: 2026-03-06 / Codex implementation
 
-- Decision: treat green model status in settings as proof of a live upstream response, not as a proxy for “the preset looks fine”.
-  Rationale: the settings page needs to distinguish selected values from validated connectivity so editors can trust what “working” means before they start sending edit requests.
+- Decision: treat green model status in settings as proof of a live upstream response, not as a proxy for â€œthe preset looks fineâ€.
+  Rationale: the settings page needs to distinguish selected values from validated connectivity so editors can trust what â€œworkingâ€ means before they start sending edit requests.
   Date/Author: 2026-03-06 / Codex implementation
 
 - Decision: enforce UTF-8 without BOM, LF line endings, and a final newline for tracked text files, and validate that state with `npm run check:text`.
@@ -404,16 +419,16 @@ The next major goal is to replace the unstable split between idle markdown previ
   Rationale: the editor needs stable paragraph anchors for review, but actual text proposals remain safest when they reuse the already-hardened diff/patch pipeline.
   Date/Author: 2026-03-07 / Codex implementation
 
-- Decision: generated image proposals are applied only through an explicit second action (`Вставити зображення`) after generation succeeds, and never auto-inserted.
+- Decision: generated image proposals are applied only through an explicit second action (`Ð’ÑÑ‚Ð°Ð²Ð¸Ñ‚Ð¸ Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð½Ñ`) after generation succeeds, and never auto-inserted.
   Rationale: non-text mutations must preserve the same reviewable, user-confirmed trust model as text and callout operations.
   Date/Author: 2026-03-07 / Codex implementation
 
-- Decision: callout (`Врізка`) items are now pre-generated during whole-text review, and applying a callout immediately removes that recommendation from the queue.
+- Decision: callout (`Ð’Ñ€Ñ–Ð·ÐºÐ°`) items are now pre-generated during whole-text review, and applying a callout immediately removes that recommendation from the queue.
   Rationale: callouts are append-style artifacts, so they benefit from a one-click apply model instead of a second generation loop; removing the applied item keeps the queue current and avoids re-applying the same insertion.
   Date/Author: 2026-03-08 / Codex implementation
 
 - Decision: unusable model-generated callout content is now rejected with explicit error messaging; no template fallback callout text is allowed.
-  Rationale: in this product, fabricated fallback prose for `врізка` is worse than a visible generation failure because it silently degrades editorial quality.
+  Rationale: in this product, fabricated fallback prose for `Ð²Ñ€Ñ–Ð·ÐºÐ°` is worse than a visible generation failure because it silently degrades editorial quality.
   Date/Author: 2026-03-08 / Codex implementation
 
 - Decision: browser-local manuscript images use IndexedDB-backed blob storage plus `asset:` markdown tokens instead of inline `data:` URLs in the persisted draft.
@@ -428,8 +443,17 @@ The next major goal is to replace the unstable split between idle markdown previ
   Rationale: recommendation cards must stay visually connected to paragraph highlights without changing the manuscript's text flow, offset mapping, or click targets. A sibling lane can position cards from editor coordinates while keeping markdown source untouched.
   Date/Author: 2026-03-07 / Codex + User
 
+- Decision: inserted `Ð’Ñ€Ñ–Ð·ÐºÐ°` blocks use one canonical Ukrainian source syntax: `::: Ð²Ñ€Ñ–Ð·ÐºÐ°: <Ñ‚Ð¸Ð¿>`, then a `#` title line, body text, and closing `:::`.
+  Rationale: this keeps the manuscript source legible for editors, matches the user-facing Ukrainian vocabulary, and avoids geometry drift that would come from visually replacing a different underlying syntax.
+  Date/Author: 2026-03-08 / Codex + User
+
+- Decision: changing `Ð¢Ð¸Ð¿ Ð²Ñ€Ñ–Ð·ÐºÐ¸` in the side recommendation detail always regenerates the draft with provider loading feedback instead of only changing the label locally.
+  Rationale: the type selector is editorially meaningful and must update the generated content itself; metadata-only relabeling would break trust.
+  Date/Author: 2026-03-08 / Codex + User
+
 ## Outcomes & Retrospective
 
+The latest toolbar pass removed the bulky card treatment from the editor header. Formatting actions are compact again, organized into tight groups, and rely on familiar symbols plus tooltip/ARIA labels so the control strip reads like professional editorial software instead of a grid of explainer cards.
 The prototype is now a working editor slice instead of a static mock. Selection is real, requests use a stable patch contract, proposals return through an API route, each patch carries a short reason, accept updates the manuscript text, reject removes only the proposal, and saved settings are restored from local storage.
 
 The latest editor pass extends that slice into markdown-aware editing without changing the patch-first contract. Editors can now apply markdown formatting from a compact toolbar, see headings/lists/tables render in the manuscript area when the editor is idle, and drop back into raw markdown source instantly when they focus the textarea again.
@@ -454,7 +478,7 @@ The latest content-and-layout pass made the demo closer to the actual target wor
 
 The latest typography-and-focus pass removed one of the last visual trust issues in the editor. Clicking back into the manuscript no longer swaps to a second visible text layer, so paragraph numbers stay locked to the paragraph baseline, the serif copy reads more cleanly in Ukrainian, and the editorial-review rail no longer wastes space on a note that repeated obvious behavior.
 
-The latest editorial-review pass made the recommendation UI more legible. The rail now works as a compact index of issues, while the full `Що не працює / Що зробити` breakdown opens directly under the relevant paragraph in the manuscript, and that jump no longer triggers the floating local-patch panel.
+The latest editorial-review pass made the recommendation UI more legible. The rail now works as a compact index of issues, while the full `Ð©Ð¾ Ð½Ðµ Ð¿Ñ€Ð°Ñ†ÑŽÑ” / Ð©Ð¾ Ð·Ñ€Ð¾Ð±Ð¸Ñ‚Ð¸` breakdown opens directly under the relevant paragraph in the manuscript, and that jump no longer triggers the floating local-patch panel.
 
 The latest responsive pass made the existing workflow usable on smaller screens instead of only technically reachable there. The desktop three-pane shell remains intact, but tablet/mobile now restack utility and review content into the center flow, the top bar wraps cleanly, the manuscript gutter and page padding scale down, the floating prompt behaves like a bottom sheet, and the settings screen no longer overflows at narrow widths.
 
@@ -472,25 +496,27 @@ The latest stabilization pass exposed one more CM6-specific rule: offset-driven 
 
 The latest settings pass finally made configuration feel like a tool instead of a leftover shell screen. `/settings` is now one centered operational sheet with concise hierarchy, provider-aware env-key copy, inline reset/show-hide controls, and a dedicated lightweight validation route that pings the selected upstream model before the UI turns green.
 
-The latest whole-text-review pass turned editorial review into an actionable workflow instead of a static diagnosis. The editor now tracks stable paragraph identities across revisions, opens manuscript-wide review in the floating composer with a `1..5` depth scale, lists compact recommendations in the right operations panel, prepares one item at a time through `Працюй!`, and keeps image generation as a separate Gemini-backed draft asset rather than silently mutating the manuscript.
+The latest whole-text-review pass turned editorial review into an actionable workflow instead of a static diagnosis. The editor now tracks stable paragraph identities across revisions, opens manuscript-wide review in the floating composer with a `1..5` depth scale, lists compact recommendations in the right operations panel, prepares one item at a time through `ÐŸÑ€Ð°Ñ†ÑŽÐ¹!`, and keeps image generation as a separate Gemini-backed draft asset rather than silently mutating the manuscript.
 
 The latest image pass closes the last major media gap in the editor. Generated drafts, uploaded files, and pasted clipboard images now all flow through the same browser-local asset registry, so the manuscript stores lightweight `asset:` markdown references instead of bulky `data:` payloads. That removes the draft quota failure seen during image generation, keeps review-generated insertion explicit, and adds direct drag-and-drop repositioning for standalone image blocks without leaving the textarea-backed source model.
 
-The latest callout pass removed the extra proposal roundtrip for `Врізка`. Callout drafts now arrive with the initial whole-text review payload, `Працюй!` opens the prebuilt draft instantly, and `Вставити врізку` now behaves as a terminal action: insert, keep viewport anchored to the inserted block, close the detail view, and delete the completed recommendation from the right-panel queue.
+The latest callout pass removed the extra proposal roundtrip for `Ð’Ñ€Ñ–Ð·ÐºÐ°`. Callout drafts now arrive with the initial whole-text review payload, `ÐŸÑ€Ð°Ñ†ÑŽÐ¹!` opens the prebuilt draft instantly, and `Ð’ÑÑ‚Ð°Ð²Ð¸Ñ‚Ð¸ Ð²Ñ€Ñ–Ð·ÐºÑƒ` now behaves as a terminal action: insert, keep viewport anchored to the inserted block, close the detail view, and delete the completed recommendation from the right-panel queue.
+
+The latest manuscript-source cleanup finished the callout representation itself. Inserted callouts now use one canonical Ukrainian directive syntax, the side detail panel exposes a real `Ð¢Ð¸Ð¿ Ð²Ñ€Ñ–Ð·ÐºÐ¸` selector that regenerates draft content when changed, and image-source lines are calmer because only the technical token styling changed while the full source geometry remained intact.
 
 The latest persistence pass removed a major session-trust problem. Editors can now move between the editor and settings without losing the manuscript, pending local diffs, or review state, and can still intentionally reset the workspace with a dedicated draft-reset action.
 
 The latest caret-alignment pass addressed a deeper editing trust issue. The editor now uses one metric system for both text layers and reveals the native textarea while focused, so typed characters land where the visible caret suggests instead of drifting earlier in the paragraph.
 
-The latest settings pass reduced model-selection ambiguity. Each provider now exposes a short curated list of current models that fit patch-first editorial work, and manual model ids remain available only when the user explicitly chooses `Ввести вручну`.
+The latest settings pass reduced model-selection ambiguity. Each provider now exposes a short curated list of current models that fit patch-first editorial work, and manual model ids remain available only when the user explicitly chooses `Ð’Ð²ÐµÑÑ‚Ð¸ Ð²Ñ€ÑƒÑ‡Ð½Ñƒ`.
 
-The latest review-flow pass tightened the last rough edges in the manuscript area. The right rail now has materially more room for one full-fragment diff, the accepted-diff action bar sits at the bottom of that diff instead of floating at the top of the page, `Прибрати diff` lets the user dismiss review markup without re-entering typing mode, and active editing now returns to a single native text layer to prevent visual artifacts.
+The latest review-flow pass tightened the last rough edges in the manuscript area. The right rail now has materially more room for one full-fragment diff, the accepted-diff action bar sits at the bottom of that diff instead of floating at the top of the page, `ÐŸÑ€Ð¸Ð±Ñ€Ð°Ñ‚Ð¸ diff` lets the user dismiss review markup without re-entering typing mode, and active editing now returns to a single native text layer to prevent visual artifacts.
 
 The latest layout polish closed the remaining spacing issue in post-apply review. Accepted-diff actions now render directly under the inline diff block instead of drifting lower in the manuscript flow, which keeps review decisions visually attached to the exact changed text.
 
 The latest diff-review pass makes the manuscript review state a better final checkpoint. Removed text now stays readable in plain red without strike-through, and the green replacement field inside the large applied-diff block can be edited in place before the editor exits diff review.
 
-The latest product pass also made the split between local editing and manuscript diagnostics much clearer. The floating selection panel is now only for explicit custom local edits, while a new whole-text `Редакторський огляд` flow scans the manuscript, surfaces editor-facing recommendations in the right rail, and can jump straight back to the relevant fragment for a local fix.
+The latest product pass also made the split between local editing and manuscript diagnostics much clearer. The floating selection panel is now only for explicit custom local edits, while a new whole-text `Ð ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€ÑÑŒÐºÐ¸Ð¹ Ð¾Ð³Ð»ÑÐ´` flow scans the manuscript, surfaces editor-facing recommendations in the right rail, and can jump straight back to the relevant fragment for a local fix.
 
 The latest anchor-model pass removed the most brittle part of whole-text review. Recommendations now target numbered manuscript paragraphs with excerpt hints instead of full-document symbol offsets, and the manuscript itself now shows those paragraph numbers in a light gutter so the visual language matches the review cards.
 
@@ -573,7 +599,7 @@ Fourth, move whole-text recommendation detail out of the manuscript text flow. T
 
 Fifth, keep migration risk low by preserving existing review contracts, `asset:` image references, patch application logic, and settings flows while introducing CodeMirror behind a local adapter layer. New CodeMirror-specific logic should live in dedicated modules under `apps/web/components/editor/cm6` and `apps/web/lib/editor/cm6`, so the app can phase out `EditorCanvas.tsx` progressively instead of scattering editor internals across `page.tsx`.
 
-Sixth, validate the migration against the user-visible failure that triggered it. The acceptance target is not “CodeMirror renders”; it is “clicking paragraph 029 in a long manuscript keeps the caret and visible text in the same place before and after focus, while recommendation highlights, cards, images, callouts, and diff review still behave predictably.”
+Sixth, validate the migration against the user-visible failure that triggered it. The acceptance target is not â€œCodeMirror rendersâ€; it is â€œclicking paragraph 029 in a long manuscript keeps the caret and visible text in the same place before and after focus, while recommendation highlights, cards, images, callouts, and diff review still behave predictably.â€
 
 ## Concrete Steps
 

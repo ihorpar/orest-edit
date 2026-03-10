@@ -13,6 +13,7 @@ import type {
   ReviewActionRequest,
   ReviewActionResponse
 } from "../editor/review-contract.ts";
+import { getEditorialCalloutKindLabel } from "../editor/review-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 import { generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -52,9 +53,11 @@ const openAiImageSchema = {
     summary: { type: "string" },
     prompt: { type: "string" },
     alt: { type: "string" },
-    caption: { type: "string" }
+    caption: {
+      anyOf: [{ type: "string" }, { type: "null" }]
+    }
   },
-  required: ["summary", "prompt", "alt"]
+  required: ["summary", "prompt", "alt", "caption"]
 } as const;
 
 const geminiImageSchema = {
@@ -279,6 +282,7 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
       title: fallbackCalloutTitle(calloutKind),
       prompt: renderTemplate(template, {
         calloutKind,
+        calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
         fragment,
         recommendation: request.item.recommendation
       }),
@@ -570,6 +574,7 @@ function buildCalloutPromptInstruction(request: ReviewActionRequest, fragment: s
 
   return renderTemplate(template, {
     calloutKind,
+    calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
     fragment,
     recommendation: request.item.recommendation
   });

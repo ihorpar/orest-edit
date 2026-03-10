@@ -219,6 +219,18 @@ Decision: manuscript editing remains raw markdown in the textarea, and the forma
 
 Reason: the patch-first workflow still depends on exact character offsets in one canonical source string, so a full rich-text editor would add unnecessary DOM-to-source mapping risk.
 
+## 2026-03-08
+
+### Canonical callout syntax
+Decision: inserted `Врізка` blocks use one canonical Ukrainian directive syntax in the manuscript source: `::: врізка: <тип>`, followed by a separate `#` title line, body text, and closing `:::`.
+
+Reason: this keeps the editor source-first and geometry-safe while removing the old code-like blockquote marker syntax from the manuscript flow.
+
+### Callout type changes require regeneration
+Decision: changing the suggested `Тип врізки` in the side recommendation detail triggers a real draft regeneration with loading state instead of silently relabeling the existing draft.
+
+Reason: the callout label and callout content must stay semantically aligned; a dropdown that only changes metadata would create editorial drift and break trust.
+
 ## 2026-03-07
 
 ### Two-stage whole-text review
@@ -297,3 +309,10 @@ Reason: callouts are append-style editorial aids, so they should be ready immedi
 Decision: if model output for `Врізка` is topic-level, instruction-like, or otherwise not a usable explanatory block, the recommendation is dropped and surfaced as an explicit review error; no server template prose is injected.
 
 Reason: placeholder fallback copy hides generation failures and undermines editorial trust. For this workflow, a visible failure is preferable to silently inserting low-quality synthetic text.
+
+## 2026-03-08 - Toolbar should stay compact and symbol-first
+
+- Status: Accepted
+- Context: The toolbar needed to become clearer without turning into a bulky block of labeled cards.
+- Decision: Use compact symbol-led controls, keep them grouped, and rely on tooltip plus aria labels for full explanation.
+- Consequences: The toolbar stays visually light and fast to scan while still remaining understandable for less technical editors once hover/focus guidance is available.
