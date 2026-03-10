@@ -16,6 +16,8 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Progress
 
+- [x] (2026-03-10 00:00Z) Fixed whole-text review range targeting so `Працюй!` now keeps the full anchored paragraph span instead of collapsing to a shorter excerpt match.
+- [x] (2026-03-10 00:00Z) Added list-specific proposal enforcement for `recommendationType = list`: prompt now requires markdown list output, non-list provider output is normalized to a deterministic bullet list, and the review detail apply CTA now reads `Застосувати список`.
 - [x] (2026-03-10 00:00Z) Implemented browser-side DOCX export with a toolbar action, markdown-to-DOCX rendering (headings/lists/tables/code/callouts), image embedding from `asset:`/`data:`/`http(s)`, placeholder warnings for unresolved images, and dedicated export tests.
 - [x] (2026-03-10 00:00Z) Attempted automated screenshot validation for the new export UI state; capture is currently blocked in this Linux environment because Playwright browsers cannot launch due missing shared libraries.
 - [x] (2026-03-09 00:00Z) Converted review-image generation from a blocking request into an async job flow with `POST` enqueue + `GET` polling, wired queue/progress/error rendering into the review detail UI, and added server/job tests for the new flow.
@@ -92,6 +94,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 11:05Z) Softened technical image-source tokens in the CM6 manuscript so `asset:` references remain source-visible but no longer dominate the manuscript line visually.
 
 ## Surprises & Discoveries
+
+- Observation: excerpt-based selection recovery can silently override a valid multi-paragraph anchor and collapse execution to one paragraph.
+  Evidence: `resolveReviewItemSelection()` passed the full range plus `anchor.excerpt`, and `resolveRangeSelection()` preferred excerpt match bounds when found, so a `036-042` recommendation could execute on one paragraph if the excerpt string came from only that paragraph.
 
 - Observation: client-side `asset:` image tokens force export generation to run in the browser if we want reliable image embedding without backend uploads.
   Evidence: the new export path in `apps/web/lib/editor/docx-export.ts` must call `resolveEditorAssetUrl()` to resolve IndexedDB-backed tokens before packaging `word/media/*`.
@@ -266,6 +271,12 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Decision Log
 
+- Decision: review-item execution selection now prioritizes anchored paragraph IDs over excerpt text matching.
+  Rationale: excerpt text is useful for human context, but using it to narrow execution can break the patch-first contract by shrinking a multi-paragraph recommendation to one paragraph.
+  Date/Author: 2026-03-10 / Codex implementation
+- Decision: `list` recommendations must produce structural list output at proposal time, with deterministic markdown-list fallback when provider text is not list-shaped.
+  Rationale: list recommendations are action-type specific; a plain-sentence rewrite is misleading even when linguistically valid.
+  Date/Author: 2026-03-10 / Codex implementation
 - Decision: DOCX export is browser-side and uses markdown-to-DOCX mapping with a warning-first fallback for unresolved images.
   Rationale: local editor images are stored as browser `asset:` tokens, so browser-side generation keeps embedding reliable and avoids introducing a backend upload path for this scope.
   Date/Author: 2026-03-10 / Codex implementation
@@ -475,6 +486,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-08 / Codex + User
 
 ## Outcomes & Retrospective
+
+The latest review-action pass fixed the biggest trust break in whole-text recommendations. Executing `Працюй!` no longer collapses a multi-paragraph anchor to a single excerpt match; it now keeps the full anchored paragraph span, shows the anchored fragment in detail UI, and enforces real markdown list output for `list` recommendations with deterministic local fallback when the provider returns non-list prose.
 
 The latest export pass adds polished manuscript handoff to external writing tools. `/editor` now includes an icon-first DOCX export action that preserves Ukrainian text, headings/lists/tables, inline and fenced code, styled callouts, and embedded manuscript images; unresolved images now degrade visibly via placeholders instead of hard-failing export.
 

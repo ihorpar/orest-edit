@@ -112,6 +112,7 @@ export async function generateReviewAction(
 
   if (request.item.suggestedAction === "rewrite_text" || request.item.suggestedAction === "insert_text") {
     const selection = resolveReviewItemSelection(request.text, request.currentRevision, request.item);
+    const selectedFragment = request.text.slice(selection.start, selection.end);
 
     const patchRequest: PatchRequest = {
       text: request.text,
@@ -131,8 +132,44 @@ export async function generateReviewAction(
       readEnvValue
     });
     const operation = patchResponse.operations[0];
+    const isListRecommendation = request.item.recommendationType === "list";
 
     if (!operation) {
+      if (isListRecommendation) {
+        const fallbackReplacement = buildStructuredListFallback(selectedFragment);
+        const fallbackSummary = "Структурував фрагмент у список.";
+        const message = patchResponse.error ?? "Модель не повернула коректний список, тому підготовлено локальну чернетку.";
+
+        return {
+          proposal: {
+            id: createPatchId("proposal"),
+            reviewItemId: request.item.id,
+            sourceRevisionId: request.item.documentRevisionId,
+            targetRevisionId: request.currentRevision.documentRevisionId,
+            kind: "text_diff",
+            summary: fallbackSummary,
+            canApplyDirectly: true,
+            textDiff: {
+              op: "replace",
+              selection: {
+                start: selection.start,
+                end: selection.end
+              },
+              oldText: selectedFragment,
+              replacement: fallbackReplacement,
+              reason: fallbackSummary
+            }
+          },
+          providerUsed: patchResponse.providerUsed,
+          usedFallback: true,
+          error: message,
+          diagnostics: {
+            ...diagnosticsBase,
+            proposalKind: "text_diff"
+          }
+        };
+      }
+
       const message = patchResponse.error ?? "Не вдалося підготувати diff для цієї рекомендації.";
 
       return {
@@ -147,6 +184,16 @@ export async function generateReviewAction(
       };
     }
 
+    const listEnforcementResult = isListRecommendation
+      ? enforceStructuredListReplacement(operation.newText ?? "", operation.oldText || selectedFragment)
+      : null;
+    const replacement = listEnforcementResult ? listEnforcementResult.replacement : operation.newText ?? "";
+    const usedListFallback = Boolean(listEnforcementResult?.usedFallback);
+    const summary = usedListFallback ? "Структурував фрагмент у список." : operation.reason;
+    const error = usedListFallback
+      ? patchResponse.error ?? "Модель повернула неструктурований текст, тому список підготовлено локально."
+      : patchResponse.error;
+
     return {
       proposal: {
         id: createPatchId("proposal"),
@@ -154,7 +201,7 @@ export async function generateReviewAction(
         sourceRevisionId: request.item.documentRevisionId,
         targetRevisionId: request.currentRevision.documentRevisionId,
         kind: "text_diff",
-        summary: operation.reason,
+        summary,
         canApplyDirectly: true,
         textDiff: {
           op: "replace",
@@ -163,13 +210,13 @@ export async function generateReviewAction(
             end: operation.end
           },
           oldText: operation.oldText,
-          replacement: operation.newText ?? "",
-          reason: operation.reason
+          replacement,
+          reason: summary
         }
       },
       providerUsed: patchResponse.providerUsed,
-      usedFallback: patchResponse.usedFallback,
-      error: patchResponse.error,
+      usedFallback: patchResponse.usedFallback || usedListFallback,
+      error,
       diagnostics: {
         ...diagnosticsBase,
         proposalKind: "text_diff"
@@ -557,6 +604,21 @@ async function createAnthropicJsonDraft(
 }
 
 function buildTextProposalPrompt(request: ReviewActionRequest): string {
+  if (request.item.recommendationType === "list") {
+    return [
+      "Підготуй одну локальну правку для вибраного фрагмента у форматі markdown-списку.",
+      `Тип рекомендації: ${request.item.recommendationType}.`,
+      `Наступна дія: ${request.item.suggestedAction}.`,
+      `Причина: ${request.item.reason}`,
+      `Рекомендація: ${request.item.recommendation}`,
+      "Охопи весь фрагмент, а не один випадковий підпункт.",
+      "Поверни щонайменше 2 пункти списку.",
+      "Кожен пункт починай з '- '.",
+      "Не повертай суцільний абзац без маркерів списку.",
+      "Збережи факти, причинно-наслідкові зв'язки та авторський намір."
+    ].join(" ");
+  }
+
   return [
     "Підготуй одну локальну редакторську зміну для вибраного фрагмента.",
     `Тип рекомендації: ${request.item.recommendationType}.`,
@@ -569,6 +631,81 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
       : "Перепиши або спрости саме цей фрагмент, не додаючи нових фактів.",
     "Збережи авторський намір і наукову точність."
   ].join(" ");
+}
+
+function enforceStructuredListReplacement(
+  candidate: string,
+  source: string
+): { replacement: string; usedFallback: boolean } {
+  const normalizedCandidate = candidate.trim();
+
+  if (looksLikeStructuredList(normalizedCandidate)) {
+    return { replacement: normalizedCandidate, usedFallback: false };
+  }
+
+  return {
+    replacement: buildStructuredListFallback(source),
+    usedFallback: true
+  };
+}
+
+function looksLikeStructuredList(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const lines = value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return false;
+  }
+
+  const listLineCount = lines.filter((line) => /^([-*+]|\d+[.)])\s+\S/u.test(line)).length;
+  return listLineCount >= 2;
+}
+
+function buildStructuredListFallback(source: string): string {
+  const normalized = source.replace(/\r\n?/g, "\n").trim();
+
+  if (!normalized) {
+    return "- Уточнити ключовий пункт.\n- Додати коротке пояснення причини.";
+  }
+
+  const sourceLines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^([-*+]|\d+[.)])\s+/u, "").trim())
+    .filter(Boolean);
+  const sentenceItems = normalized
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const clauseItems = normalized
+    .replace(/\s+/g, " ")
+    .split(/;\s+|,\s+(?=[А-ЯІЇЄҐA-Z])/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const baseItems = sourceLines.length >= 2 ? sourceLines : sentenceItems.length >= 2 ? sentenceItems : clauseItems;
+  const items = (baseItems.length > 0 ? baseItems : [normalized]).slice(0, 8);
+
+  return items.map((item) => `- ${normalizeListItem(item)}`).join("\n");
+}
+
+function normalizeListItem(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim().replace(/^[-*+]\s+/u, "");
+
+  if (!normalized) {
+    return "Уточнити пункт.";
+  }
+
+  return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function buildCalloutPromptInstruction(request: ReviewActionRequest, fragment: string): string {

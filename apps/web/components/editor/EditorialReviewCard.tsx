@@ -44,6 +44,7 @@ export function EditorialReviewCard({
 }) {
   const canApplyPrefilledCallout = item.recommendationType === "callout" && Boolean(item.calloutDraft?.previewText);
   const hasCalloutDraftError = item.recommendationType === "callout" && !item.calloutDraft?.previewText;
+  const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
 
   return (
     <article className="editorial-review-card" data-type={item.recommendationType} data-priority={item.priority} data-active={isActive ? "true" : "false"}>
@@ -68,7 +69,7 @@ export function EditorialReviewCard({
       {statusLabels[item.status] ? <p className="mono-ui editorial-review-status-chip">{statusLabels[item.status]}</p> : null}
 
       <div className="button-row editorial-review-card-actions">
-        <Button variant="secondary" size="sm" onClick={() => onFocus(item)}>
+        <Button variant="secondary" size="sm" onClick={() => onFocus(item)} style={actionButtonStyle}>
           Перейти до фрагмента
         </Button>
         <Button
@@ -76,6 +77,7 @@ export function EditorialReviewCard({
           size="sm"
           onClick={() => (canApplyPrefilledCallout ? onApplyCallout(item) : onPrepare(item))}
           disabled={item.status === "applied" || hasCalloutDraftError}
+          style={actionButtonStyle}
         >
           {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
         </Button>

@@ -24,6 +24,7 @@ Status: Active handoff
 - Whole-text recommendation detail now renders in a synchronized side overlay instead of squeezing itself into the manuscript flow
 - Image markdown stays in the manuscript source, while the selected image preview now renders in a detached side overlay so pasted/generated images do not change line geometry
 - Review image generation now runs through an async job flow (`queued`/`processing`/`completed`/`failed`) with polling, and the side review detail renders the live job state before insertion
+- Image-proposal prompt UI is now compact by default and can be edited inline right before generation
 - Callout recommendations now expose a `ÃÂ¢ÃÂ¸ÃÂ¿ ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ¸` selector in the side detail panel; changing the type triggers a real draft regeneration with loading feedback before the user can insert it
 - Floating selection composer with manual fold/unfold control
 - Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `ÃÅ¸ÃÂµÃ‘â‚¬ÃÂµÃÂ²Ã‘â€“Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸ ÃÂ²ÃÂµÃ‘ÂÃ‘Å’ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€š` reads as a distinct workflow from local chat
@@ -49,6 +50,8 @@ Status: Active handoff
 - Floating selection composer is now custom-only and no longer exposes a duplicate `ÃÂ¡ÃÂ¿Ã‘â‚¬ÃÂ¾Ã‘ÂÃ‘â€šÃÂ¸Ã‘â€šÃÂ¸ Ã‘â€žÃ‘â‚¬ÃÂ°ÃÂ³ÃÂ¼ÃÂµÃÂ½Ã‘â€š` action
 - Whole-text editorial review returns high-level recommendations with fragment anchors, not diffs
 - Whole-text editorial review now anchors to paragraph numbers plus excerpt, not global symbol offsets
+- `Працюй!` selection for whole-text recommendations now preserves the full anchored paragraph span; excerpt text no longer shrinks execution scope to a single matched substring
+- List-type whole-text recommendations now enforce markdown list output during proposal prep, with deterministic local bullet-list fallback when provider text is not list-shaped
 - Collapsed request diagnostics and short request history in the editor rail
 - Local settings persistence in browser storage
 - Default editor prompts are tuned for real editorial tasks: explain terms, tighten dense prose, and normalize tone
@@ -62,6 +65,7 @@ Status: Active handoff
 - Validation that drops malformed or overlapping provider operations before they reach the UI
 - Automated tests for patch normalization, batch apply behavior, and provider env/fallback behavior
 - README and `docs/DEPLOYMENT.md` document the runtime and port model explicitly
+- `docs/SECURITY_RUNBOOK.md` now documents the Vercel edge-first protection baseline, automation bypass handling, and incident steps
 - API routes now pin `runtime = "nodejs"` and `maxDuration = 60` to make Vercel serverless behavior explicit for AI requests
 - Repo-level text safeguards now exist through `.editorconfig`, `.gitattributes`, and `npm run check:text`
 - Source and docs files have been normalized to UTF-8 without BOM, LF line endings, and a final newline
@@ -112,6 +116,7 @@ Status: Active handoff
 - During direct editing, the canvas switches back to the native textarea layer so selection and cursor behavior stay stable after a diff is applied and dismissed.
 - Below tablet width, utility and review content no longer depend on side rails; the shell duplicates those panels into the center-column flow so the editor remains fully usable in one column.
 - Deployment guidance is split between a short README summary and detailed `docs/DEPLOYMENT.md` runtime notes.
+- Production security is edge-first: Vercel Deployment Protection is the primary access control, with optional automation bypass and no in-app password flow by default.
 - Repository text files are treated as UTF-8 with LF line endings, and integrity is checked via `npm run check:text`.
 
 ## Highest-priority next work
@@ -190,3 +195,5 @@ Status: Active handoff
 - `npm run test` is currently not runnable in this environment because the workspace Node binary rejects the script's `--experimental-strip-types` flag.
 - current local Next listener is on `3001`; code and docs still treat `3000` as the default local port and `PORT` as the production contract
 - a one-line README edit still failed through the native `apply_patch` tool in this session, even after repo text normalization, so shell fallback remains necessary here
+- `npm run typecheck` passed after the review-selection and list-proposal fixes
+- `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed, including new regressions for full-range review selection and enforced list-shaped proposal output

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { deriveManuscriptRevisionState, computeAnchorFingerprint } from "../lib/editor/manuscript-structure.ts";
+import { deriveManuscriptRevisionState, computeAnchorFingerprint, resolveReviewItemSelection } from "../lib/editor/manuscript-structure.ts";
 import { insertReviewImageMarkdown } from "../lib/editor/review-image-insertion.ts";
 import { reconcileReviewItemsWithRevision, resolveReviewImageAssetUrl, type EditorialReviewItem } from "../lib/editor/review-contract.ts";
 import { generateReviewAction } from "../lib/server/review-action-service.ts";
@@ -269,6 +269,85 @@ test("generateReviewAction falls back to Ukrainian image prompt when provider re
   assert.ok(prompt.length > 0);
   assert.match(prompt, /[А-Яа-яІіЇїЄєҐґ]/);
   assert.doesNotMatch(prompt, /\bMinimalist\b/);
+});
+
+test("resolveReviewItemSelection keeps full anchored paragraph span even when excerpt is shorter", () => {
+  const text = "Абзац 1: перший пункт.\n\nАбзац 2: другий пункт.\n\nАбзац 3: поза межами рекомендації.";
+  const revision = deriveManuscriptRevisionState(text);
+  const firstId = revision.paragraphOrder[0];
+  const secondId = revision.paragraphOrder[1];
+  const first = revision.paragraphsById[firstId];
+  const second = revision.paragraphsById[secondId];
+
+  assert.ok(first);
+  assert.ok(second);
+
+  const selection = resolveReviewItemSelection(text, revision, {
+    anchor: {
+      paragraphIds: [firstId, secondId],
+      generationParagraphRange: { start: 1, end: 2 },
+      excerpt: "Абзац 2: другий пункт.",
+      fingerprint: computeAnchorFingerprint(revision, [firstId, secondId], "Абзац 2: другий пункт.")
+    }
+  });
+
+  assert.equal(selection.start, first.start);
+  assert.equal(selection.end, second.end);
+});
+
+test("generateReviewAction enforces markdown list output for list recommendations", async () => {
+  const text = "Перша ознака вказує на дефіцит. Друга ознака вказує на запалення. Третя ознака вказує на стрес.";
+  const revision = deriveManuscriptRevisionState(text);
+  const paragraphId = revision.paragraphOrder[0];
+  const excerpt = "Друга ознака вказує на запалення.";
+
+  const item: EditorialReviewItem = {
+    id: "review-list-1",
+    reviewSessionId: "session-1",
+    documentRevisionId: revision.documentRevisionId,
+    changeLevel: 3,
+    title: "Перетворити на список",
+    reason: "Тут три сигнали в одному потоці.",
+    recommendation: "Подати як структурований список.",
+    recommendationType: "list",
+    suggestedAction: "rewrite_text",
+    priority: "medium",
+    anchor: {
+      paragraphIds: [paragraphId],
+      generationParagraphRange: { start: 1, end: 1 },
+      excerpt,
+      fingerprint: computeAnchorFingerprint(revision, [paragraphId], excerpt)
+    },
+    insertionPoint: {
+      mode: "replace",
+      anchorParagraphId: paragraphId
+    },
+    status: "pending"
+  };
+
+  const response = await generateReviewAction(
+    {
+      text,
+      currentRevision: revision,
+      item,
+      provider: "openai",
+      modelId: "gpt-5.4"
+    },
+    {
+      readEnvValue: () => null
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.usedFallback, true);
+
+  const replacement = response.proposal.kind === "text_diff" ? response.proposal.textDiff?.replacement ?? "" : "";
+  const listLines = replacement
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "));
+
+  assert.ok(listLines.length >= 2);
 });
 
 test("insertReviewImageMarkdown is idempotent for duplicate insertion attempts", () => {

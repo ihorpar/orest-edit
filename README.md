@@ -50,6 +50,7 @@ Short version:
 - this repo does not hardcode a runtime port in app code or Next config
 - root start command is `npm run start`
 - detailed deployment notes live in `docs/DEPLOYMENT.md`
+- Vercel edge security setup and incident flow live in `docs/SECURITY_RUNBOOK.md`
 
 ## Docs map
 
@@ -57,6 +58,7 @@ Short version:
 - `docs/EXECPLAN_MVP.md`: current implementation plan
 - `docs/CURRENT_STATE.md`: latest handoff snapshot for agents
 - `docs/DEPLOYMENT.md`: deployment and runtime notes
+- `docs/SECURITY_RUNBOOK.md`: Vercel deployment protection and security operations
 - `scripts/check-text-integrity.mjs`: UTF-8, LF, and mojibake guard
 
 ## Working rule for agents

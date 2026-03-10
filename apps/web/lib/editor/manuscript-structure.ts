@@ -123,7 +123,12 @@ export function resolveReviewItemSelection(
     return { start: 0, end: 0 };
   }
 
-  return resolveRangeSelection(text, paragraphs[0].start, paragraphs[paragraphs.length - 1].end, item.anchor.excerpt);
+  // For review actions we must preserve the anchored paragraph span.
+  // Excerpt-based narrowing can collapse a multi-paragraph recommendation to one paragraph.
+  return {
+    start: paragraphs[0].start,
+    end: paragraphs[paragraphs.length - 1].end
+  };
 }
 
 export function areParagraphIdsResolvable(revisionState: ManuscriptRevisionState, paragraphIds: string[]): boolean {

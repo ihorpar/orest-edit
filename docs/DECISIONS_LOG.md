@@ -1,5 +1,32 @@
 # DECISIONS_LOG
 
+## 2026-03-10
+
+### Review execution uses full anchored paragraph range
+Decision: when preparing or focusing a whole-text recommendation, selection resolution must preserve the full `anchor.paragraphIds` range and must not shrink execution scope to an excerpt substring match.
+
+Reason: excerpt text is contextual metadata and can represent only part of the range. Using it as the primary execution selector creates a trust-breaking mismatch (`Абзаци 036-042` shown, one paragraph actually edited).
+
+### List recommendations require structural list output
+Decision: `recommendationType = list` proposals must be list-shaped markdown (`- ` items), and non-list provider output is normalized to a deterministic bullet list fallback before apply.
+
+Reason: list-type recommendations are structural edits. Accepting plain prose rewrites for that type produces misleading `Працюй!` results and weakens diff-first review quality.
+
+### Vercel edge is the primary access boundary
+Decision: secure the app through Vercel Deployment Protection with `Vercel Authentication`, while keeping app-level password/login flows out of scope for now.
+
+Reason: this is the simplest reliable control for an internal editor tool and avoids shipping extra auth code paths that the product does not need.
+
+### Minimal-maintenance bypass policy
+Decision: allow one optional Protection Bypass for Automation secret for CI/E2E/monitoring and use event-based rotation only (no periodic rotation schedule).
+
+Reason: automation still needs a deterministic path to protected deployments, but periodic rotation adds operational burden without clear benefit for this internal scope.
+
+### Platform-level abuse guard first
+Decision: use one Vercel WAF rate-limit rule on `/api/edit/*` as the first abuse/cost control.
+
+Reason: rate limiting at the edge is lower maintenance than introducing custom app-side quota services before real abuse patterns appear.
+
 ## 2026-03-09
 
 ### Explicit serverless duration for AI routes

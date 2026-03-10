@@ -10,7 +10,7 @@ import {
   type ReviewImageGenerationJobStatus,
   type ReviewActionProposal
 } from "../../lib/editor/review-contract";
-import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
+import { getParagraphRangeText, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
@@ -90,8 +90,11 @@ export function EditorialReviewDetail({
   const showImageJobError = Boolean(imageJobError) && imageJobStatus === "failed";
   const imageJobStatusCopy =
     imageJobStatus === "queued" ? "У черзі генерації…" : imageJobStatus === "processing" ? "Генерую зображення…" : null;
-  const isImageProposal = isActiveProposal?.kind === "image_prompt" && isActiveProposal.imageDraft;
-  const activeImagePrompt = isImageProposal ? isActiveProposal.imageDraft.prompt : "";
+  const activeImageDraft = isActiveProposal?.kind === "image_prompt" ? isActiveProposal.imageDraft : undefined;
+  const activeImagePrompt = activeImageDraft?.prompt ?? "";
+  const fragmentPreview = getParagraphRangeText(revision, item.anchor.paragraphIds) || item.anchor.excerpt;
+  const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
+  const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
 
   useEffect(() => {
     setIsImagePromptExpanded(false);
@@ -154,7 +157,7 @@ export function EditorialReviewDetail({
 
         <div className="editorial-review-detail-block">
           <p className="mono-ui editorial-review-detail-label">Фрагмент</p>
-          <p className="editorial-review-detail-excerpt">{item.anchor.excerpt}</p>
+          <p className="editorial-review-detail-excerpt">{fragmentPreview}</p>
         </div>
       </div>
 
@@ -166,15 +169,16 @@ export function EditorialReviewDetail({
           loading={canApplyPrefilledCallout || hasCalloutDraftError ? false : preparing}
           loadingLabel="Готую чернетку…"
           disabled={hasCalloutDraftError}
+          style={actionButtonStyle}
         >
           {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
         </Button>
         {isActiveProposal && !canApplyPrefilledCallout ? (
-          <Button variant="secondary" size="sm" onClick={onDiscardProposal}>
+          <Button variant="secondary" size="sm" onClick={onDiscardProposal} style={actionButtonStyle}>
             Скасувати
           </Button>
         ) : null}
-        <Button variant="secondary" size="sm" onClick={onClose}>
+        <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
           Закрити розбір
         </Button>
       </div>
@@ -198,8 +202,8 @@ export function EditorialReviewDetail({
                 variant="card"
               />
               <div className="button-row editorial-review-proposal-actions">
-                <Button variant="primary" size="sm" onClick={onApplyText}>
-                  Застосувати текст
+                <Button variant="primary" size="sm" onClick={onApplyText} style={actionButtonStyle}>
+                  {textApplyLabel}
                 </Button>
               </div>
             </div>
@@ -217,7 +221,13 @@ export function EditorialReviewDetail({
                 <blockquote className="editorial-review-callout-preview">{isActiveProposal.calloutDraft.previewText}</blockquote>
               ) : null}
               <div className="button-row editorial-review-proposal-actions">
-                <Button variant="primary" size="sm" onClick={onApplyCallout} disabled={!isActiveProposal.calloutDraft.previewText}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={onApplyCallout}
+                  disabled={!isActiveProposal.calloutDraft.previewText}
+                  style={actionButtonStyle}
+                >
                   Вставити врізку
                 </Button>
               </div>
@@ -267,6 +277,7 @@ export function EditorialReviewDetail({
                   loading={imageGenerating}
                   loadingLabel={imageJobStatus === "queued" ? "У черзі…" : "Генерую…"}
                   disabled={isImageJobInProgress || !activeImagePrompt.trim()}
+                  style={actionButtonStyle}
                 >
                   Згенерувати
                 </Button>
@@ -277,6 +288,7 @@ export function EditorialReviewDetail({
                   disabled={!generatedImageUrl || imageInserting || isImageJobInProgress}
                   loading={imageInserting}
                   loadingLabel="Вставляю…"
+                  style={actionButtonStyle}
                 >
                   Вставити зображення
                 </Button>

@@ -45,7 +45,12 @@ Project setup:
    - `OPENAI_API_KEY`
    - `GEMINI_API_KEY`
    - `ANTHROPIC_API_KEY`
-4. Deploy.
+4. Configure deployment protection in Vercel:
+   - protection method: `Vercel Authentication`
+   - protection scope: `All Deployments` when available; otherwise `Standard Protection`
+5. If CI/E2E/monitoring must reach protected deployments, create one automation bypass secret and send it in `x-vercel-protection-bypass`.
+6. Add one Vercel WAF rate-limit rule for paths that start with `/api/edit/`.
+7. Deploy.
 
 Runtime behavior prepared in this repo:
 - all AI API routes are pinned to `runtime = "nodejs"`
@@ -64,6 +69,17 @@ Review-image route behavior:
 - `GET /api/edit/review/image?jobId=...` returns queue status and final asset/error (`Cache-Control: no-store`)
 
 If your Vercel project uses a different function mode/limit profile, increase route `maxDuration` and keep upstream provider timeouts slightly lower than that value.
+
+## Vercel security operations
+
+The security boundary for this app is Vercel edge protection, not in-app login screens.
+
+Operational defaults:
+- no app-level password flow
+- no periodic bypass-secret rotation
+- rotate bypass secret only on events: leak suspicion, offboarding, or accidental disclosure
+
+For dashboard paths, verification checks, and emergency response, use `docs/SECURITY_RUNBOOK.md`.
 
 ## Generic Node hosting
 
