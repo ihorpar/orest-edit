@@ -49,6 +49,7 @@ Short version:
 - production should use the platform-provided `PORT`
 - this repo does not hardcode a runtime port in app code or Next config
 - root start command is `npm run start`
+- set `APP_PASSWORD` in production to enable in-app login protection
 - detailed deployment notes live in `docs/DEPLOYMENT.md`
 - Vercel edge security setup and incident flow live in `docs/SECURITY_RUNBOOK.md`
 

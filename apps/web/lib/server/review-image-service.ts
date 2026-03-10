@@ -82,7 +82,7 @@ export async function generateReviewImage(
       return {
         providerUsed: "gemini",
         modelId: geminiImageModel,
-        error: "Gemini не повернув зображення у відповіді."
+        error: buildMissingImageError(payload)
       };
     }
 
@@ -173,6 +173,82 @@ function readGeminiErrorMessage(payload: Record<string, unknown>): string | null
 
   const message = (error as Record<string, unknown>).message;
   return typeof message === "string" ? message : null;
+}
+
+function buildMissingImageError(payload: Record<string, unknown>): string {
+  const details: string[] = [];
+
+  const promptFeedback = payload.promptFeedback;
+
+  if (promptFeedback && typeof promptFeedback === "object") {
+    const blockReason = (promptFeedback as Record<string, unknown>).blockReason;
+
+    if (typeof blockReason === "string" && blockReason.trim()) {
+      details.push(`blockReason=${blockReason.trim()}`);
+    }
+  }
+
+  const candidates = payload.candidates;
+  const firstCandidate = Array.isArray(candidates) && candidates.length > 0 && candidates[0] && typeof candidates[0] === "object"
+    ? (candidates[0] as Record<string, unknown>)
+    : null;
+
+  if (firstCandidate) {
+    const finishReason = firstCandidate.finishReason;
+
+    if (typeof finishReason === "string" && finishReason.trim()) {
+      details.push(`finishReason=${finishReason.trim()}`);
+    }
+  }
+
+  const responseText = extractCandidateText(firstCandidate);
+
+  if (responseText) {
+    details.push(`text="${responseText}"`);
+  }
+
+  if (details.length === 0) {
+    return "Gemini не повернув зображення у відповіді.";
+  }
+
+  return `Gemini не повернув зображення у відповіді. Деталі: ${details.join("; ")}.`;
+}
+
+function extractCandidateText(candidate: Record<string, unknown> | null): string | null {
+  if (!candidate) {
+    return null;
+  }
+
+  const content = candidate.content;
+
+  if (!content || typeof content !== "object") {
+    return null;
+  }
+
+  const parts = (content as Record<string, unknown>).parts;
+
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return null;
+  }
+
+  const text = parts
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+
+      const value = (part as Record<string, unknown>).text;
+      return typeof value === "string" ? value : "";
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text.slice(0, 160);
 }
 
 function isAbortError(error: unknown): boolean {

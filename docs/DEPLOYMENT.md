@@ -29,10 +29,12 @@ Supported server-side keys:
 - `OPENAI_API_KEY`
 - `GEMINI_API_KEY`
 - `ANTHROPIC_API_KEY`
+- `APP_PASSWORD` (enables in-app password gate for `/editor`, `/settings`, and API routes)
 
 Local developer behavior:
 - if the settings form leaves the API key blank, the server checks process env first
 - for local workspace runs, the server also reads the repo-root `.env` and `.env.local`
+- if `APP_PASSWORD` is missing in development, password auth is bypassed; in production, missing `APP_PASSWORD` keeps protected pages unavailable
 
 ## Vercel deployment (recommended)
 
@@ -45,12 +47,12 @@ Project setup:
    - `OPENAI_API_KEY`
    - `GEMINI_API_KEY`
    - `ANTHROPIC_API_KEY`
-4. Configure deployment protection in Vercel:
+   - `APP_PASSWORD`
+4. (Optional hardening) configure Deployment Protection in Vercel:
    - protection method: `Vercel Authentication`
    - protection scope: `All Deployments` when available; otherwise `Standard Protection`
-5. If CI/E2E/monitoring must reach protected deployments, create one automation bypass secret and send it in `x-vercel-protection-bypass`.
-6. Add one Vercel WAF rate-limit rule for paths that start with `/api/edit/`.
-7. Deploy.
+5. (Optional hardening) add one Vercel WAF rate-limit rule for paths that start with `/api/edit/`.
+6. Deploy.
 
 Runtime behavior prepared in this repo:
 - all AI API routes are pinned to `runtime = "nodejs"`
@@ -63,6 +65,8 @@ Configured API routes:
 - `apps/web/app/api/edit/review/proposal/route.ts`
 - `apps/web/app/api/edit/review/image/route.ts`
 - `apps/web/app/api/settings/validate/route.ts`
+- `apps/web/app/api/auth/login/route.ts`
+- `apps/web/app/api/auth/logout/route.ts`
 
 Review-image route behavior:
 - `POST /api/edit/review/image` supports async enqueue (`async: true`) and returns `202` with a job id
@@ -72,12 +76,13 @@ If your Vercel project uses a different function mode/limit profile, increase ro
 
 ## Vercel security operations
 
-The security boundary for this app is Vercel edge protection, not in-app login screens.
+The default security boundary for this app is the in-app password gate.
 
 Operational defaults:
-- no app-level password flow
-- no periodic bypass-secret rotation
-- rotate bypass secret only on events: leak suspicion, offboarding, or accidental disclosure
+- set `APP_PASSWORD` in production
+- no periodic password rotation requirement
+- rotate password on events: leak suspicion, offboarding, or accidental disclosure
+- optional second layer: Vercel Deployment Protection
 
 For dashboard paths, verification checks, and emergency response, use `docs/SECURITY_RUNBOOK.md`.
 

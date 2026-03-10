@@ -24,7 +24,9 @@ Status: Active handoff
 - Whole-text recommendation detail now renders in a synchronized side overlay instead of squeezing itself into the manuscript flow
 - Image markdown stays in the manuscript source, while the selected image preview now renders in a detached side overlay so pasted/generated images do not change line geometry
 - Review image generation now runs through an async job flow (`queued`/`processing`/`completed`/`failed`) with polling, and the side review detail renders the live job state before insertion
-- Image-proposal prompt UI is now compact by default and can be edited inline right before generation
+- Image-generation failures now include Gemini diagnostics in the surfaced error text (for example `blockReason`, `finishReason`, and a short text snippet when no image bytes are returned)
+- Recommendation detail no longer repeats a long `Фрагмент` excerpt in the right panel; the manuscript highlight and paragraph anchor stay the single source of context
+- Image-proposal prompt now shows a compact preview by default and supports inline edit-before-generate without forcing an extra click just to see the text
 - Callout recommendations now expose a `ÃÂ¢ÃÂ¸ÃÂ¿ ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ¸` selector in the side detail panel; changing the type triggers a real draft regeneration with loading feedback before the user can insert it
 - Floating selection composer with manual fold/unfold control
 - Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `ÃÅ¸ÃÂµÃ‘â‚¬ÃÂµÃÂ²Ã‘â€“Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸ ÃÂ²ÃÂµÃ‘ÂÃ‘Å’ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€š` reads as a distinct workflow from local chat
@@ -39,6 +41,7 @@ Status: Active handoff
 - Patch API route at `/api/edit/patch`
 - Editorial review API route at `/api/edit/review`
 - Review image route at `/api/edit/review/image` now supports async enqueue (`POST`) and job-status polling (`GET ?jobId=...`)
+- In-app password auth now gates `/editor`, `/settings`, and API routes through `/login`, with signed httpOnly session cookies
 - Diff cards with short reasons and per-patch accept/reject actions
 - Applied manuscript diffs now show removed text in plain red and let editors edit the green replacement directly inside the large review block before leaving diff mode
 - Group accept/reject flow for multiple safe patch operations
@@ -65,7 +68,7 @@ Status: Active handoff
 - Validation that drops malformed or overlapping provider operations before they reach the UI
 - Automated tests for patch normalization, batch apply behavior, and provider env/fallback behavior
 - README and `docs/DEPLOYMENT.md` document the runtime and port model explicitly
-- `docs/SECURITY_RUNBOOK.md` now documents the Vercel edge-first protection baseline, automation bypass handling, and incident steps
+- `docs/SECURITY_RUNBOOK.md` now documents in-app password protection, optional Vercel hardening, and incident steps
 - API routes now pin `runtime = "nodejs"` and `maxDuration = 60` to make Vercel serverless behavior explicit for AI requests
 - Repo-level text safeguards now exist through `.editorconfig`, `.gitattributes`, and `npm run check:text`
 - Source and docs files have been normalized to UTF-8 without BOM, LF line endings, and a final newline
@@ -116,7 +119,7 @@ Status: Active handoff
 - During direct editing, the canvas switches back to the native textarea layer so selection and cursor behavior stay stable after a diff is applied and dismissed.
 - Below tablet width, utility and review content no longer depend on side rails; the shell duplicates those panels into the center-column flow so the editor remains fully usable in one column.
 - Deployment guidance is split between a short README summary and detailed `docs/DEPLOYMENT.md` runtime notes.
-- Production security is edge-first: Vercel Deployment Protection is the primary access control, with optional automation bypass and no in-app password flow by default.
+- Production security now defaults to in-app password protection (`APP_PASSWORD`) with an optional Vercel edge layer.
 - Repository text files are treated as UTF-8 with LF line endings, and integrity is checked via `npm run check:text`.
 
 ## Highest-priority next work

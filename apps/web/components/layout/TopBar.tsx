@@ -23,6 +23,12 @@ export function TopBar({
           </Link>
         </nav>
       </div>
+
+      <div className="topbar-right">
+        <Link href="/logout" className="mono-ui nav-link">
+          {"\u0412\u0438\u0439\u0442\u0438"}
+        </Link>
+      </div>
     </header>
   );
 }

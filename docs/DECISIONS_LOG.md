@@ -27,6 +27,16 @@ Decision: use one Vercel WAF rate-limit rule on `/api/edit/*` as the first abuse
 
 Reason: rate limiting at the edge is lower maintenance than introducing custom app-side quota services before real abuse patterns appear.
 
+### In-app password gate is the default access control
+Decision: protect app routes with one shared password (`APP_PASSWORD`) and a signed httpOnly session cookie, with `/login` as the entry page.
+
+Reason: Vercel Authentication blocks external clients unless they join the Vercel team, while a simple in-app password is easier for client access and still closes anonymous misuse.
+
+### Vercel Authentication is optional hardening
+Decision: keep Vercel Deployment Protection as an optional second layer, not the required primary boundary.
+
+Reason: this keeps onboarding simple for non-technical reviewers while still allowing stricter access when the hosting plan and workflow support it.
+
 ## 2026-03-09
 
 ### Explicit serverless duration for AI routes

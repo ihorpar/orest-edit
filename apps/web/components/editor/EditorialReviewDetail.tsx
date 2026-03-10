@@ -10,7 +10,7 @@ import {
   type ReviewImageGenerationJobStatus,
   type ReviewActionProposal
 } from "../../lib/editor/review-contract";
-import { getParagraphRangeText, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
+import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
@@ -92,7 +92,9 @@ export function EditorialReviewDetail({
     imageJobStatus === "queued" ? "У черзі генерації…" : imageJobStatus === "processing" ? "Генерую зображення…" : null;
   const activeImageDraft = isActiveProposal?.kind === "image_prompt" ? isActiveProposal.imageDraft : undefined;
   const activeImagePrompt = activeImageDraft?.prompt ?? "";
-  const fragmentPreview = getParagraphRangeText(revision, item.anchor.paragraphIds) || item.anchor.excerpt;
+  const normalizedAlt = normalizeInlineText(isActiveProposal?.kind === "image_prompt" ? isActiveProposal.imageDraft?.alt : "");
+  const normalizedCaption = normalizeInlineText(isActiveProposal?.kind === "image_prompt" ? isActiveProposal.imageDraft?.caption : "");
+  const showCaption = Boolean(normalizedCaption && normalizedCaption !== normalizedAlt);
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
 
@@ -155,10 +157,6 @@ export function EditorialReviewDetail({
           </div>
         ) : null}
 
-        <div className="editorial-review-detail-block">
-          <p className="mono-ui editorial-review-detail-label">Фрагмент</p>
-          <p className="editorial-review-detail-excerpt">{fragmentPreview}</p>
-        </div>
       </div>
 
       <div className="editorial-review-detail-actions">
@@ -242,19 +240,14 @@ export function EditorialReviewDetail({
                   type="button"
                   className="editorial-review-image-prompt-toggle"
                   onClick={() => setIsImagePromptExpanded((current) => !current)}
-                  aria-label={isImagePromptExpanded ? "Згорнути промпт" : "Редагувати промпт"}
+                  aria-label={isImagePromptExpanded ? "Завершити редагування промпта" : "Редагувати промпт"}
                   aria-expanded={isImagePromptExpanded ? "true" : "false"}
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true">
-                    {isImagePromptExpanded ? (
-                      <path d="M4 10.2 8 6.2l4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    ) : (
-                      <>
-                        <path d="M3 11.8V13h1.2l6.5-6.5-1.2-1.2L3 11.8Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                        <path d="m9.8 4.9 1.2 1.2.8-.8a.85.85 0 0 0 0-1.2l-.1-.1a.85.85 0 0 0-1.2 0l-.7.9Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                      </>
-                    )}
+                    <path d="M3 11.8V13h1.2l6.5-6.5-1.2-1.2L3 11.8Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                    <path d="m9.8 4.9 1.2 1.2.8-.8a.85.85 0 0 0 0-1.2l-.1-.1a.85.85 0 0 0-1.2 0l-.7.9Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
                   </svg>
+                  <span className="mono-ui">{isImagePromptExpanded ? "Готово" : "Редагувати"}</span>
                 </button>
               </div>
               {isImagePromptExpanded ? (
@@ -264,11 +257,17 @@ export function EditorialReviewDetail({
                   onChange={(event) => onImagePromptChange?.(event.currentTarget.value)}
                   rows={5}
                 />
-              ) : null}
+              ) : (
+                <p className="editorial-review-image-prompt-preview">{activeImagePrompt || "Промпт порожній."}</p>
+              )}
               <p className="editorial-review-detail-copy">
                 <strong>Alt:</strong> {isActiveProposal.imageDraft.alt}
               </p>
-              {isActiveProposal.imageDraft.caption ? <p className="editorial-review-detail-copy">{isActiveProposal.imageDraft.caption}</p> : null}
+              {showCaption ? (
+                <p className="editorial-review-detail-copy">
+                  <strong>Підпис:</strong> {isActiveProposal.imageDraft.caption}
+                </p>
+              ) : null}
               <div className="button-row editorial-review-proposal-actions">
                 <Button
                   variant="primary"
@@ -316,4 +315,12 @@ export function EditorialReviewDetail({
       ) : null}
     </aside>
   );
+}
+
+function normalizeInlineText(value: string | null | undefined): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.replace(/\s+/g, " ").trim();
 }
