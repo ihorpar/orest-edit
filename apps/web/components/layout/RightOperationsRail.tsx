@@ -112,21 +112,41 @@ export function RightOperationsRail({
           <div className="request-history-stack">
             {aiTasks.map((task) => (
               <article key={task.id} className="editor-note-card request-status-card ai-task-card" data-tone={getAiActivityTaskTone(task)}>
-                <div className="request-history-head">
-                  <p className="editor-note-title">{task.title}</p>
-                  <span className="mono-ui request-history-badge">{task.status === "running" ? "..." : "new"}</span>
-                </div>
-                <p className="editor-note-copy">{getAiActivityTaskMessage(task)}</p>
-                <div className="button-row">
-                  {task.status !== "running" ? (
-                    <Button variant="primary" size="sm" onClick={() => onOpenAiTask(task)}>
-                      Відкрити
-                    </Button>
-                  ) : null}
-                  <Button variant="ghost" size="sm" onClick={() => onDismissAiTask(task.id)}>
-                    ×
-                  </Button>
-                </div>
+                {task.status === "running" ? (
+                  <div className="floating-panel-loading ai-task-loading" role="status" aria-live="polite">
+                    <span className="floating-loading-orb" aria-hidden="true">
+                      <span className="floating-loading-orb-core" />
+                    </span>
+                    <span className="floating-panel-loading-text">
+                      <span className="floating-panel-loading-copy">{getAiTaskRunningTitle(task)}</span>
+                      <span className="mono-ui floating-panel-loading-subcopy">{getAiTaskRunningSubcopy(task)}</span>
+                    </span>
+                    <span className="floating-loading-equalizer" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="ai-task-card-head">
+                      <div className="ai-task-card-meta">
+                        <span className="ai-task-status-dot" data-tone={getAiActivityTaskTone(task)} aria-hidden="true" />
+                        <p className="editor-note-title">{task.title}</p>
+                      </div>
+                      <span className="mono-ui ai-task-state-chip">{task.status === "failed" ? "помилка" : "готово"}</span>
+                    </div>
+                    <p className="editor-note-copy">{getAiActivityTaskMessage(task)}</p>
+                    <div className="button-row ai-task-card-actions">
+                      <Button variant="primary" size="sm" onClick={() => onOpenAiTask(task)}>
+                        Відкрити
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => onDismissAiTask(task.id)}>
+                        ×
+                      </Button>
+                    </div>
+                  </>
+                )}
               </article>
             ))}
           </div>
@@ -266,4 +286,12 @@ function LoadingState({ label }: { label: string }) {
       <span className="mono-ui">{label}</span>
     </div>
   );
+}
+
+function getAiTaskRunningTitle(task: AiActivityTask) {
+  return task.kind === "review" ? "ШІ готує review…" : "ШІ готує правки…";
+}
+
+function getAiTaskRunningSubcopy(task: AiActivityTask) {
+  return task.kind === "review" ? "аналізую структуру, тон і логіку" : "аналізую фрагмент і готую версію";
 }

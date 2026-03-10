@@ -355,11 +355,13 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     canApplyDirectly: false,
     imageDraft: {
       visualIntent,
-      prompt: renderTemplate(template, {
-        visualIntent,
-        fragment,
-        recommendation: request.item.recommendation
-      }),
+      prompt: sanitizeImagePrompt(
+        renderTemplate(template, {
+          visualIntent,
+          fragment,
+          recommendation: request.item.recommendation
+        })
+      ),
       alt,
       caption,
       targetModel: "gemini-3.1-flash-image-preview"
@@ -424,7 +426,7 @@ async function createImagePromptProposal(
   const defaultAlt = createDefaultImageAlt(request.item.title, visualIntent);
   const defaultCaption = createDefaultImageCaption(request.item.recommendation);
   const defaultPrompt = buildDefaultUkrainianImagePrompt(visualIntent, fragment, request.item.recommendation);
-  const resolvedPrompt = providerPrompt && looksLikeUkrainianPrompt(providerPrompt) ? providerPrompt : defaultPrompt;
+  const resolvedPrompt = sanitizeImagePrompt(providerPrompt && looksLikeUkrainianPrompt(providerPrompt) ? providerPrompt : defaultPrompt);
 
   return {
     providerUsed: providerResult.providerUsed,
@@ -815,7 +817,6 @@ function buildDefaultUkrainianImagePrompt(visualIntent: EditorialVisualIntent, f
   const cleanedFragment = fragment.replace(/\s+/g, " ").trim();
 
   return [
-    "Чернетка візуалізації для ілюстратора.",
     `Тип візуалу: ${visualIntent}.`,
     "Стиль: мінімалістичний, простий, 2D, без зайвого декору.",
     `Що показати: ${cleanedRecommendation || "Поясни ключову ідею фрагмента на простій схемі."}`,
@@ -824,6 +825,13 @@ function buildDefaultUkrainianImagePrompt(visualIntent: EditorialVisualIntent, f
     "Уникати: фотореалізму, складних текстур, декоративних рамок, зайвих об'єктів."
   ]
     .join(" ")
+    .slice(0, 2400);
+}
+
+function sanitizeImagePrompt(prompt: string): string {
+  return prompt
+    .replace(/^\s*Чернетка візуалізації для ілюстратора\.\s*/iu, "")
+    .trim()
     .slice(0, 2400);
 }
 

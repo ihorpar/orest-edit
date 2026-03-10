@@ -117,11 +117,9 @@ function resolveInsertionAnchor(
     return null;
   }
 
-  if (item.insertionPoint.mode === "before" && insertionAnchorParagraph) {
-    return { index: insertionAnchorParagraph.start, paragraphId: insertionAnchorId };
-  }
-
-  if (item.insertionPoint.mode === "replace" && anchoredParagraphs.length > 0) {
+  // For review-image insertion we always append below the targeted fragment.
+  // This avoids destructive "replace-like" behavior and keeps manuscript text intact.
+  if (anchoredParagraphs.length > 0) {
     return {
       index: anchoredParagraphs[anchoredParagraphs.length - 1].paragraph.end,
       paragraphId: anchoredParagraphs[anchoredParagraphs.length - 1].id

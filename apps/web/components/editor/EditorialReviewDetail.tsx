@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { DiffInlineMark } from "./DiffInlineMark";
 import {
   getEditorialCalloutKindLabel,
@@ -71,7 +70,6 @@ export function EditorialReviewDetail({
   imageInserting?: boolean;
   onDiscardProposal: () => void;
 }) {
-  const [isImagePromptExpanded, setIsImagePromptExpanded] = useState(false);
   const isActiveProposal = proposal?.reviewItemId === item.id ? proposal : null;
   const activeCalloutKind = selectedCalloutKind ?? isActiveProposal?.calloutDraft?.calloutKind ?? item.calloutDraft?.calloutKind ?? item.calloutKind;
   const canApplyPrefilledCallout =
@@ -98,10 +96,6 @@ export function EditorialReviewDetail({
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
 
-  useEffect(() => {
-    setIsImagePromptExpanded(false);
-  }, [item.id, isActiveProposal?.id]);
-
   return (
     <aside className="editorial-review-detail" data-type={item.recommendationType} data-priority={item.priority}>
       <div className="editorial-review-detail-head">
@@ -112,7 +106,7 @@ export function EditorialReviewDetail({
             Абзаци {getReviewParagraphLabel(item, revision)}
           </span>
         </div>
-        <button type="button" className="editorial-review-detail-close" onClick={onClose} aria-label="Закрити розбір">
+        <button type="button" className="editorial-review-detail-close" onClick={onClose} aria-label="Закрити">
           <svg viewBox="0 0 12 12" aria-hidden="true" className="editorial-review-detail-close-icon">
             <path d="M2 2L10 10" />
             <path d="M10 2L2 10" />
@@ -177,7 +171,7 @@ export function EditorialReviewDetail({
           </Button>
         ) : null}
         <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
-          Закрити розбір
+          Закрити
         </Button>
       </div>
 
@@ -236,30 +230,14 @@ export function EditorialReviewDetail({
             <div className="editorial-review-proposal-block">
               <div className="editorial-review-image-prompt-head">
                 <p className="mono-ui editorial-review-detail-label">Промпт</p>
-                <button
-                  type="button"
-                  className="editorial-review-image-prompt-toggle"
-                  onClick={() => setIsImagePromptExpanded((current) => !current)}
-                  aria-label={isImagePromptExpanded ? "Завершити редагування промпта" : "Редагувати промпт"}
-                  aria-expanded={isImagePromptExpanded ? "true" : "false"}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M3 11.8V13h1.2l6.5-6.5-1.2-1.2L3 11.8Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                    <path d="m9.8 4.9 1.2 1.2.8-.8a.85.85 0 0 0 0-1.2l-.1-.1a.85.85 0 0 0-1.2 0l-.7.9Z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                  </svg>
-                  <span className="mono-ui">{isImagePromptExpanded ? "Готово" : "Редагувати"}</span>
-                </button>
               </div>
-              {isImagePromptExpanded ? (
-                <textarea
-                  className="editorial-review-image-prompt-input"
-                  value={activeImagePrompt}
-                  onChange={(event) => onImagePromptChange?.(event.currentTarget.value)}
-                  rows={5}
-                />
-              ) : (
-                <p className="editorial-review-image-prompt-preview">{activeImagePrompt || "Промпт порожній."}</p>
-              )}
+              <textarea
+                className="editorial-review-image-prompt-input"
+                value={activeImagePrompt}
+                onChange={(event) => onImagePromptChange?.(event.currentTarget.value)}
+                rows={6}
+                readOnly={!onImagePromptChange}
+              />
               <p className="editorial-review-detail-copy">
                 <strong>Alt:</strong> {isActiveProposal.imageDraft.alt}
               </p>

@@ -27,7 +27,9 @@ Status: Active handoff
 - Gemini image requests now use image-only modality (`IMAGE`) to match the image-draft generation contract
 - Image-generation failures now include Gemini diagnostics in the surfaced error text (for example `blockReason`, `finishReason`, and a short text snippet when no image bytes are returned)
 - Recommendation detail no longer repeats a long `Фрагмент` excerpt in the right panel; the manuscript highlight and paragraph anchor stay the single source of context
-- Image-proposal prompt now shows a compact preview by default and supports inline edit-before-generate without forcing an extra click just to see the text
+- Image-proposal prompt is now an always-visible inline editable field (no extra `Редагувати` gate) before generation
+- Image-prompt normalization now strips the boilerplate opener `Чернетка візуалізації для ілюстратора.` from generated/fallback prompt text
+- `Вставити зображення` now always inserts a standalone markdown image block below the targeted fragment, never replacing manuscript text
 - Callout recommendations now expose a `ÃÂ¢ÃÂ¸ÃÂ¿ ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ¸` selector in the side detail panel; changing the type triggers a real draft regeneration with loading feedback before the user can insert it
 - Floating selection composer with manual fold/unfold control
 - Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `ÃÅ¸ÃÂµÃ‘â‚¬ÃÂµÃÂ²Ã‘â€“Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸ ÃÂ²ÃÂµÃ‘ÂÃ‘Å’ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€š` reads as a distinct workflow from local chat

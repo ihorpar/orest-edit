@@ -94,7 +94,7 @@ test("insertReviewImageMarkdown inserts markdown image and supports review recon
   assert.equal(reconciled[0]?.status, "applied");
 });
 
-test("insertReviewImageMarkdown respects insertion anchor mode", () => {
+test("insertReviewImageMarkdown always inserts below targeted area", () => {
   const text = "Перший абзац.\n\nДругий абзац.";
   const revision = deriveManuscriptRevisionState(text);
   const firstParagraphId = revision.paragraphOrder[0];
@@ -142,8 +142,8 @@ test("insertReviewImageMarkdown respects insertion anchor mode", () => {
 
   assert.equal(beforeInsert.ok, true);
   assert.equal(beforeInsert.inserted, true);
-  const secondStart = revision.paragraphsById[secondParagraphId].start;
-  assert.ok(beforeInsert.insertionIndex <= secondStart);
+  const secondEnd = revision.paragraphsById[secondParagraphId].end;
+  assert.ok(beforeInsert.insertionIndex >= secondEnd);
 
   const afterItem: EditorialReviewItem = {
     ...baseItem,
@@ -269,6 +269,7 @@ test("generateReviewAction falls back to Ukrainian image prompt when provider re
   assert.ok(prompt.length > 0);
   assert.match(prompt, /[А-Яа-яІіЇїЄєҐґ]/);
   assert.doesNotMatch(prompt, /\bMinimalist\b/);
+  assert.doesNotMatch(prompt, /Чернетка візуалізації для ілюстратора\./i);
 });
 
 test("resolveReviewItemSelection keeps full anchored paragraph span even when excerpt is shorter", () => {
