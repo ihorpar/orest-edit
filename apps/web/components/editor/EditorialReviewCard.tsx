@@ -37,24 +37,39 @@ export function EditorialReviewCard({
   onDismiss: (item: EditorialReviewItem) => void;
 }) {
   const canApplyCallout = item.suggestedAction === "prepare_callout" && item.calloutDraft;
+  const statusLabel = item.status === "ready" ? "ready" : item.status === "applied" ? "applied" : "pending";
 
   return (
-    <article className="editor-note-card" data-active={isActive ? "true" : "false"}>
-      <button type="button" className="editor-note-dismiss" onClick={() => onDismiss(item)} aria-label="Закрити рекомендацію" title="Закрити">
-        ×
-      </button>
-      <div className="editor-note-head">
+    <article
+      className="editorial-review-card"
+      data-active={isActive ? "true" : "false"}
+      data-type={item.recommendationType}
+      data-priority={item.priority}
+      data-status={item.status}
+    >
+      <div className="editorial-review-head">
         <div>
-          <p className="editor-note-title">{item.title}</p>
-          <p className="mono-ui editor-note-meta">
-            {getReviewParagraphLabel(item, revision)} · {typeLabels[item.recommendationType]} · {priorityLabels[item.priority]}
-          </p>
+          <h3 className="editorial-review-title">{item.title}</h3>
+          <div className="editorial-review-meta">
+            <span className="tag-pill tag-lines">{getReviewParagraphLabel(item, revision)}</span>
+            <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
+            <span className={`tag-pill ${item.priority === "high" ? "tag-severity-high" : item.priority === "medium" ? "tag-severity-medium" : "tag-severity-low"}`}>
+              {priorityLabels[item.priority]}
+            </span>
+            <span className="tag-pill tag-type">{statusLabel}</span>
+          </div>
         </div>
-        <span className="mono-ui editor-note-badge">{item.status}</span>
+        <button type="button" className="editorial-review-card-close" onClick={() => onDismiss(item)} aria-label="Закрити рекомендацію" title="Закрити">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2 2l8 8M10 2L2 10" />
+          </svg>
+        </button>
       </div>
-      <p className="editor-note-copy">{item.reason}</p>
-      <p className="editor-note-copy">{item.recommendation}</p>
-      <div className="button-row">
+
+      <p className="suggestion-card-reason">{item.reason}</p>
+      <p className="editorial-review-summary">{item.recommendation}</p>
+
+      <div className="editorial-review-card-actions button-row">
         <Button size="sm" variant="ghost" onClick={() => onFocus(item)}>
           Фокус
         </Button>

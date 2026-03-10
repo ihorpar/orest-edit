@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
+import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
 import { TopBar } from "../../components/layout/TopBar";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
@@ -34,7 +35,8 @@ import {
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type ReviewActionProposal,
-  type ReviewActionResponse
+  type ReviewActionResponse,
+  type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { DEFAULT_EDITOR_SETTINGS, readEditorSettings, type EditorSettings } from "../../lib/editor/settings";
 import { storeEditorAssetFromBlob } from "../../lib/editor/asset-store";
@@ -49,10 +51,12 @@ const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
   minute: "2-digit"
 });
 
-const defaultReviewComposer = {
-  changeLevel: 3 as const,
+const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInstructions: string } = {
+  changeLevel: 3,
   additionalInstructions: ""
 };
+
+type ComposerMode = "local" | "review" | null;
 
 export default function EditorPage() {
   const [document, setDocument] = useState<EditorDocument>(DEFAULT_EDITOR_DOCUMENT);
@@ -69,6 +73,8 @@ export default function EditorPage() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [activeReviewItemId, setActiveReviewItemId] = useState<string | null>(null);
   const [activeProposal, setActiveProposal] = useState<ReviewActionProposal | null>(null);
+  const [reviewComposer, setReviewComposer] = useState(defaultReviewComposer);
+  const [composerMode, setComposerMode] = useState<ComposerMode>(null);
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
@@ -92,6 +98,7 @@ export default function EditorPage() {
       setHistory(draft.history);
       setActiveReviewItemId(draft.activeReviewItemId);
       setActiveProposal(draft.activeProposal);
+      setReviewComposer(draft.reviewComposer ?? defaultReviewComposer);
       setFocusedBlockId(draft.selection.focusBlockId ?? draft.document.blocks[0]?.id ?? null);
     }
 
@@ -117,7 +124,7 @@ export default function EditorPage() {
       activeReviewItemId,
       activeProposal,
       reviewImageAssets: {},
-      reviewComposer: defaultReviewComposer
+      reviewComposer
     });
   }, [
     activeProposal,
@@ -130,9 +137,19 @@ export default function EditorPage() {
     operations,
     patchDiagnostics,
     reviewDiagnostics,
+    reviewComposer,
     reviewItems,
     revision
   ]);
+
+  useEffect(() => {
+    if (normalizedSelection.blockIds.length > 0) {
+      setComposerMode((current) => (current === "review" ? current : "local"));
+      return;
+    }
+
+    setComposerMode((current) => (current === "local" ? null : current));
+  }, [normalizedSelection.blockIds]);
 
   function commitDocument(nextDocument: EditorDocument) {
     const nextRevision = deriveManuscriptRevisionState(nextDocument);
@@ -217,8 +234,8 @@ export default function EditorPage() {
         reviewPrompt: settings.reviewPrompt,
         reviewLevelGuide: settings.reviewLevelGuide,
         calloutPromptTemplate: settings.calloutPromptTemplate,
-        changeLevel: defaultReviewComposer.changeLevel,
-        additionalInstructions: defaultReviewComposer.additionalInstructions
+        changeLevel: reviewComposer.changeLevel,
+        additionalInstructions: reviewComposer.additionalInstructions
       };
 
       const response = await fetch("/api/edit/review", {
@@ -234,6 +251,7 @@ export default function EditorPage() {
       setReviewDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
       pushHistoryEntry(createHistoryEntry("review", payload.providerUsed, settings.provider, settings.modelId, payload.items.length, payload.diagnostics.droppedItemCount, payload.usedFallback, nextFeedback));
+      setComposerMode(null);
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -447,6 +465,8 @@ export default function EditorPage() {
     setHistory([]);
     setActiveReviewItemId(null);
     setActiveProposal(null);
+    setReviewComposer(defaultReviewComposer);
+    setComposerMode(null);
     setCustomPrompt("");
   }
 
@@ -476,13 +496,37 @@ export default function EditorPage() {
               onFocusedBlockChange={setFocusedBlockId}
               onInsertImage={handleInsertImage}
             />
+
+            {composerMode ? (
+              <FloatingComposerPanel
+                mode={composerMode}
+                selectedBlockCount={normalizedSelection.blockIds.length}
+                customPrompt={customPrompt}
+                onCustomPromptChange={setCustomPrompt}
+                onRequestDefaultPatch={() => {
+                  void requestPatch("default");
+                  setComposerMode(null);
+                }}
+                onRequestCustomPatch={() => {
+                  void requestPatch("custom");
+                  setComposerMode(null);
+                }}
+                reviewChangeLevel={reviewComposer.changeLevel}
+                reviewAdditionalInstructions={reviewComposer.additionalInstructions}
+                onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
+                onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
+                onRequestReview={() => void requestEditorialReview()}
+                loading={composerMode === "review" ? isReviewRequestInFlight : isPatchRequestInFlight}
+                onClose={() => setComposerMode(null)}
+              />
+            ) : null}
           </main>
         }
         right={
           <RightOperationsRail
             aiTasks={[]}
             canRequestReview={canRequestReview}
-            customPrompt={customPrompt}
+            canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
             isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
             patchDiagnostics={patchDiagnostics}
             reviewDiagnostics={reviewDiagnostics}
@@ -490,15 +534,13 @@ export default function EditorPage() {
             reviewRevision={revision}
             activeReviewItemId={activeReviewItemId}
             history={history}
-            onRequestReview={() => void requestEditorialReview()}
+            onOpenReviewComposer={() => setComposerMode("review")}
+            onOpenLocalComposer={() => setComposerMode("local")}
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
             onApplyReviewCallout={applyReviewCallout}
             onDismissReviewItem={dismissReviewItem}
-            onPromptChange={setCustomPrompt}
-            patchLoading={isPatchRequestInFlight}
             reviewLoading={isReviewRequestInFlight}
-            onRequestPatch={(mode) => void requestPatch(mode)}
             onAccept={acceptOperation}
             onAcceptAll={acceptAllOperations}
             onReject={rejectOperation}

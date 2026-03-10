@@ -1176,6 +1176,10 @@ function getCaretOffset(root: HTMLElement): number | null {
 
 function getTextOffsetWithin(root: Node, container: Node, offset: number): number {
   if (root === container) {
+    if (root.nodeType === Node.TEXT_NODE) {
+      return offset;
+    }
+
     let total = 0;
 
     for (let index = 0; index < offset; index += 1) {

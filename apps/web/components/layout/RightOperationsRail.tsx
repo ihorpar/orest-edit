@@ -23,7 +23,7 @@ export interface RequestHistoryItem {
 export function RightOperationsRail({
   aiTasks,
   canRequestReview,
-  customPrompt,
+  canOpenLocalComposer,
   isIdle,
   patchDiagnostics,
   reviewDiagnostics,
@@ -31,15 +31,13 @@ export function RightOperationsRail({
   reviewRevision,
   activeReviewItemId,
   history,
-  onRequestReview,
+  onOpenReviewComposer,
+  onOpenLocalComposer,
   onFocusReviewItem,
   onPrepareReviewItem,
   onApplyReviewCallout,
   onDismissReviewItem,
-  onPromptChange,
-  patchLoading,
   reviewLoading,
-  onRequestPatch,
   onAccept,
   onAcceptAll,
   onReject,
@@ -53,7 +51,7 @@ export function RightOperationsRail({
 }: {
   aiTasks: AiActivityTask[];
   canRequestReview?: boolean;
-  customPrompt: string;
+  canOpenLocalComposer?: boolean;
   isIdle?: boolean;
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
@@ -61,15 +59,13 @@ export function RightOperationsRail({
   reviewRevision: ManuscriptRevisionState;
   activeReviewItemId?: string | null;
   history: RequestHistoryItem[];
-  onRequestReview: () => void;
+  onOpenReviewComposer: () => void;
+  onOpenLocalComposer: () => void;
   onFocusReviewItem: (item: EditorialReviewItem) => void;
   onPrepareReviewItem: (item: EditorialReviewItem) => void;
   onApplyReviewCallout: (item: EditorialReviewItem) => void;
   onDismissReviewItem: (item: EditorialReviewItem) => void;
-  onPromptChange: (value: string) => void;
-  patchLoading?: boolean;
   reviewLoading?: boolean;
-  onRequestPatch: (mode: "default" | "custom") => void;
   onAccept: (id: string) => void;
   onAcceptAll: () => void;
   onReject: (id: string) => void;
@@ -85,26 +81,14 @@ export function RightOperationsRail({
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
       <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Локальна правка</p>
-        <div className="rail-prompt-stack">
-          <Button variant="primary" size="sm" onClick={() => onRequestPatch("default")} loading={patchLoading}>
-            Покращити
-          </Button>
-          <textarea
-            className="rail-prompt-input"
-            value={customPrompt}
-            onChange={(event) => onPromptChange(event.currentTarget.value)}
-            placeholder="Кастомний запит"
-            rows={3}
-          />
-          <Button variant="secondary" size="sm" onClick={() => onRequestPatch("custom")} disabled={!customPrompt.trim()} loading={patchLoading}>
-            Виконати
-          </Button>
-        </div>
+        <Button variant="secondary" size="sm" onClick={onOpenLocalComposer} disabled={!canOpenLocalComposer}>
+          Відкрити
+        </Button>
       </section>
 
       <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Огляд документа</p>
-        <Button variant="primary" size="sm" onClick={onRequestReview} loading={reviewLoading} disabled={!canRequestReview}>
+        <Button variant="primary" size="sm" onClick={onOpenReviewComposer} loading={reviewLoading} disabled={!canRequestReview}>
           Перевірити
         </Button>
         {reviewItemCount > 0 ? <p className="rail-status-copy">Рекомендацій: {reviewItemCount}</p> : null}
