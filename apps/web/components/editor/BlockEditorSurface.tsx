@@ -34,6 +34,22 @@ import { getEditorialCalloutKindLabel } from "../../lib/editor/review-contract";
 import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
+import {
+  Bold,
+  Italic,
+  Link as LinkIcon,
+  Type,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  Plus,
+  Quote,
+  Minus,
+  Table,
+  Image as ImageIcon
+} from "lucide-react";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
 type CaretPlacement = "start" | "end";
@@ -420,53 +436,137 @@ export function BlockEditorSurface({
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
         <div className="block-editor-toolbar-group">
-          <button type="button" className="block-toolbar-button" onClick={() => handleFormatCommand("bold")} disabled={disabled} title="Жирний">
-            B
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleFormatCommand("bold")}
+            disabled={disabled}
+            title="Жирний"
+          >
+            <Bold />
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleFormatCommand("italic")} disabled={disabled} title="Курсив">
-            I
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleFormatCommand("italic")}
+            disabled={disabled}
+            title="Курсив"
+          >
+            <Italic />
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleFormatCommand("link")} disabled={disabled} title="Посилання">
-            ⛓
-          </button>
-        </div>
-
-        <div className="block-editor-toolbar-group">
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("paragraph")} disabled={disabled} title="Абзац">
-            T
-          </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("heading-1")} disabled={disabled} title="H1">
-            H1
-          </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("heading-2")} disabled={disabled} title="H2">
-            H2
-          </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("heading-3")} disabled={disabled} title="H3">
-            H3
-          </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("bullet-list")} disabled={disabled} title="Список">
-            •
-          </button>
-          <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("ordered-list")} disabled={disabled} title="Нумерований список">
-            1.
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleFormatCommand("link")}
+            disabled={disabled}
+            title="Посилання"
+          >
+            <LinkIcon />
           </button>
         </div>
 
         <div className="block-editor-toolbar-group">
-          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => createEmptyParagraphBlock())} disabled={disabled} title="Абзац">
-            +
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("paragraph")}
+            disabled={disabled}
+            title="Абзац"
+            data-active={getBlock(document, focusedBlockId)?.type === "paragraph"}
+          >
+            <Type />
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "quick_fact", title: [createInlineText("Короткий факт")], body: [[createInlineText("")]] }))} disabled={disabled} title="Врізка">
-            ◫
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("heading-1")}
+            disabled={disabled}
+            title="H1"
+            data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 1}
+          >
+            <Heading1 />
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))} disabled={disabled} title="Роздільник">
-            ─
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("heading-2")}
+            disabled={disabled}
+            title="H2"
+            data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 2}
+          >
+            <Heading2 />
           </button>
-          <button type="button" className="block-toolbar-button" onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))} disabled={disabled} title="Таблиця">
-            ▦
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("heading-3")}
+            disabled={disabled}
+            title="H3"
+            data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 3}
+          >
+            <Heading3 />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("bullet-list")}
+            disabled={disabled}
+            title="Список"
+            data-active={getBlock(document, focusedBlockId)?.type === "bullet_list"}
+          >
+            <List />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => handleBlockFormat("ordered-list")}
+            disabled={disabled}
+            title="Нумерований список"
+            data-active={getBlock(document, focusedBlockId)?.type === "ordered_list"}
+          >
+            <ListOrdered />
+          </button>
+        </div>
+
+        <div className="block-editor-toolbar-group">
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => insertBlockAfterCurrent(() => createEmptyParagraphBlock())}
+            disabled={disabled}
+            title="Додати абзац"
+          >
+            <Plus />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "quick_fact", title: [createInlineText("Короткий факт")], body: [[createInlineText("")]] }))}
+            disabled={disabled}
+            title="Врізка"
+          >
+            <Quote />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))}
+            disabled={disabled}
+            title="Роздільник"
+          >
+            <Minus />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))}
+            disabled={disabled}
+            title="Таблиця"
+          >
+            <Table />
           </button>
           <label className="block-toolbar-button block-toolbar-button-file" title="Зображення">
-            ⊞
+            <ImageIcon />
             <input type="file" accept="image/*" onChange={handleFileSelection} disabled={disabled} />
           </label>
         </div>
