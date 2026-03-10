@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const authFailure = await requireApiSession(request);
+  const authFailure = await requireApiSession();
 
   if (authFailure) {
     return authFailure;

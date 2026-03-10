@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   AUTH_COOKIE_NAME,
   getConfiguredAppPassword,
   verifySessionToken
 } from "./password-auth";
 
-export async function requireApiSession(request: Request): Promise<NextResponse | null> {
+export async function requireApiSession(): Promise<NextResponse | null> {
   const configuredPassword = getConfiguredAppPassword();
 
   if (!configuredPassword) {
@@ -17,33 +18,19 @@ export async function requireApiSession(request: Request): Promise<NextResponse 
     );
   }
 
-  const cookieHeader = request.headers.get("cookie");
-  const sessionToken = readCookieValue(cookieHeader, AUTH_COOKIE_NAME);
-  const hasSession = await verifySessionToken(sessionToken, configuredPassword);
+  const cookieStore = await cookies();
+  const sessionTokens = cookieStore.getAll(AUTH_COOKIE_NAME).map((cookie) => cookie.value);
+  let hasSession = false;
+
+  for (const sessionToken of sessionTokens) {
+    if (await verifySessionToken(sessionToken, configuredPassword)) {
+      hasSession = true;
+      break;
+    }
+  }
 
   if (!hasSession) {
     return NextResponse.json({ error: "Потрібна авторизація." }, { status: 401 });
-  }
-
-  return null;
-}
-
-function readCookieValue(cookieHeader: string | null, name: string): string | null {
-  if (!cookieHeader) {
-    return null;
-  }
-
-  const pairs = cookieHeader.split(";");
-
-  for (const pair of pairs) {
-    const [rawName, ...rawValue] = pair.trim().split("=");
-
-    if (rawName !== name) {
-      continue;
-    }
-
-    const value = rawValue.join("=");
-    return value ? decodeURIComponent(value) : null;
   }
 
   return null;
