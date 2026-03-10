@@ -189,6 +189,16 @@ export function normalizeBlockSelection(document: EditorDocument, selection: Blo
   const anchorBlockId = selection.anchorBlockId && allowedIds.has(selection.anchorBlockId) ? selection.anchorBlockId : blockIds[0] ?? null;
   const focusBlockId = selection.focusBlockId && allowedIds.has(selection.focusBlockId) ? selection.focusBlockId : blockIds[blockIds.length - 1] ?? null;
 
+   if (blockIds.length === 0 && anchorBlockId && focusBlockId) {
+    const contiguousBlockIds = getContiguousBlockIds(document, anchorBlockId, focusBlockId);
+
+    return {
+      blockIds: contiguousBlockIds,
+      anchorBlockId: contiguousBlockIds[0] ?? null,
+      focusBlockId: contiguousBlockIds[contiguousBlockIds.length - 1] ?? null
+    };
+  }
+
   if (blockIds.length === 0) {
     return EMPTY_BLOCK_SELECTION;
   }

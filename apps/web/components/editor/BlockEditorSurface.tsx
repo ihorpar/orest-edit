@@ -299,12 +299,28 @@ export function BlockEditorSurface({
   }
 
   function insertLineBreak(context: RichTextContext) {
-    window.document.execCommand("insertLineBreak");
-    queueMicrotask(() => context.element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertLineBreak" })));
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const br = window.document.createElement("br");
+    range.insertNode(br);
+    range.setStartAfter(br);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    queueMicrotask(() => {
+      context.element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
   }
 
   function handleTextBlockBackspace(block: ParagraphBlock | HeadingBlock, context: RichTextContext): boolean {
-    if (getInlineText(context.content).length > 0 || context.caretOffset > 0) {
+    if (!isInlineContentEmpty(context.content) || context.caretOffset > 0) {
       return false;
     }
 
@@ -333,7 +349,7 @@ export function BlockEditorSurface({
   }
 
   function handleListItemBackspace(block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext): boolean {
-    if (getInlineText(context.content).length > 0 || context.caretOffset > 0) {
+    if (!isInlineContentEmpty(context.content) || context.caretOffset > 0) {
       return false;
     }
 
@@ -941,7 +957,7 @@ function EditableRichText({
         elementRef.current = element;
         registerEditable(focusKey, element);
 
-        if (element && element.innerHTML !== html) {
+        if (element && element.innerHTML !== html && window.document.activeElement !== element) {
           element.innerHTML = html;
         }
       }}
@@ -950,10 +966,18 @@ function EditableRichText({
       suppressContentEditableWarning
       onFocus={() => onEditFocus(focusKey)}
       onBlur={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
-      onInput={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
+      onInput={(event) => onRichTextInput(event.currentTarget, onChange)}
       onKeyDown={handleKeyDown}
     />
   );
+}
+
+function onRichTextInput(element: HTMLDivElement, onChange?: (content: InlineNode[]) => void) {
+  if (!onChange) {
+    return;
+  }
+
+  onChange(htmlToInlineNodes(element.innerHTML));
 }
 
 function toParagraphBlock(block: Block): ParagraphBlock {
@@ -1066,6 +1090,10 @@ function splitInlineNodes(nodes: InlineNode[], offset: number): [InlineNode[], I
   }
 
   return [normalizeInlineNodes(left), normalizeInlineNodes(right)];
+}
+
+function isInlineContentEmpty(nodes: InlineNode[]): boolean {
+  return nodes.every((node) => node.text.replace(/\n/g, "").trim().length === 0);
 }
 
 function inlineNodesToHtml(nodes: InlineNode[]): string {
