@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  AUTH_COOKIE_LEGACY_PATHS,
   AUTH_COOKIE_NAME,
   AUTH_SESSION_MAX_AGE_SECONDS,
   constantTimeEqual,
@@ -55,18 +54,6 @@ export async function POST(request: Request) {
     path: "/",
     maxAge: AUTH_SESSION_MAX_AGE_SECONDS
   });
-
-  for (const legacyPath of AUTH_COOKIE_LEGACY_PATHS) {
-    response.cookies.set({
-      name: AUTH_COOKIE_NAME,
-      value: "",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: legacyPath,
-      maxAge: 0
-    });
-  }
 
   return response;
 }

@@ -2,7 +2,6 @@ const TOKEN_VERSION = "v1";
 
 export const AUTH_COOKIE_NAME = "orest_app_session";
 export const AUTH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
-export const AUTH_COOKIE_LEGACY_PATHS = ["/api", "/api/auth", "/api/edit"] as const;
 
 export function getConfiguredAppPassword(): string | null {
   const value = process.env.APP_PASSWORD?.trim();

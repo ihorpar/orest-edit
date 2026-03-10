@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   AUTH_COOKIE_NAME,
-  normalizePostLoginPath
+  normalizePostLoginPath,
+  verifySessionToken
 } from "./lib/auth/password-auth";
 
 const PUBLIC_PATHS = new Set<string>(["/login", "/api/auth/login", "/api/auth/logout"]);
@@ -43,7 +44,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+  const sessionTokens = request.cookies.getAll(AUTH_COOKIE_NAME).map((cookie) => cookie.value);
+  let hasSession = false;
+
+  for (const token of sessionTokens) {
+    if (await verifySessionToken(token, configuredPassword)) {
+      hasSession = true;
+      break;
+    }
+  }
 
   if (PUBLIC_PATHS.has(pathname)) {
     if (pathname === "/login" && hasSession) {
