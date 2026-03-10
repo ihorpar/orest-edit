@@ -96,9 +96,10 @@ export function EditorialReviewDetail({
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
   const isComplex = item.recommendationType === "callout" || item.recommendationType === "visualize" || item.recommendationType === "illustration";
+  const layout = isComplex && (isActiveProposal || preparing) ? "drawer" : "pendant";
 
   return (
-    <aside className="editorial-review-detail" data-layout={isComplex ? "drawer" : "pendant"} data-type={item.recommendationType} data-priority={item.priority}>
+    <aside className="editorial-review-detail" data-layout={layout} data-type={item.recommendationType} data-priority={item.priority}>
       <div className="editorial-review-detail-head">
         <div className="editorial-review-detail-meta">
           <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>

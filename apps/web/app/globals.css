@@ -649,9 +649,18 @@ textarea {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #ffffff;
-  padding: 24px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  padding: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
   pointer-events: auto;
+  border-left: 4px solid #3b82f6;
+  /* Subtle indicator of selection */
+}
+
+/* Narrower pendant for simple edits */
+.editorial-review-detail[data-layout="pendant"][data-type="rewrite"],
+.editorial-review-detail[data-layout="pendant"][data-type="simplify"],
+.editorial-review-detail[data-layout="pendant"][data-type="expand"] {
+  width: min(100%, 540px);
 }
 
 .editorial-review-detail[data-layout="drawer"] {
@@ -664,10 +673,10 @@ textarea {
   border: none;
   border-top: 1px solid #e2e8f0;
   border-radius: 20px 20px 0 0;
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.15);
   z-index: 100;
   padding: 32px max(5vw, calc((100vw - 1200px) / 2));
-  max-height: 85vh;
+  max-height: 80vh;
   overflow-y: auto;
   background: #ffffff;
   pointer-events: auto;
@@ -721,13 +730,17 @@ textarea {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  color: #475569;
+  color: #64748b;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   user-select: none;
   list-style: none;
-  /* Hide standard arrow in modern browsers */
+  transition: background 0.15s;
+}
+
+.editorial-review-why-trigger:hover {
+  background: #f1f5f9;
 }
 
 .editorial-review-why-trigger::-webkit-details-marker {

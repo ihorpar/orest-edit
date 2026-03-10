@@ -349,6 +349,90 @@ test("generateReviewAction enforces markdown list output for list recommendation
     .filter((line) => line.startsWith("- "));
 
   assert.ok(listLines.length >= 2);
+  assert.ok(listLines.every((line) => /(?:\s—\s|:\s)/u.test(line.slice(2))));
+});
+
+test("generateReviewAction reshapes malformed list output into heading plus idea-description items", async () => {
+  const text = [
+    "### Зміни нігтьових пластинок.",
+    "Потовщення нігтів буває при грибкових ураженнях, псоріазі або як наслідок травми. Нігті у вигляді «годинникових скелець» зустрічаються при тривалих ураженнях серця або легень. Койлоніхії бувають при дефіциті заліза. Наперсткоподібні вдавлення свідчать про псоріаз."
+  ].join("\n");
+  const revision = deriveManuscriptRevisionState(text);
+  const paragraphId = revision.paragraphOrder[0];
+  const excerpt = "Потовщення нігтів буває при грибкових ураженнях";
+
+  const item: EditorialReviewItem = {
+    id: "review-list-malformed-1",
+    reviewSessionId: "session-1",
+    documentRevisionId: revision.documentRevisionId,
+    changeLevel: 3,
+    title: "Структурувати в список",
+    reason: "Надто щільний перелік ознак в одному потоці.",
+    recommendation: "Розкласти фрагмент на чіткі пункти.",
+    recommendationType: "list",
+    suggestedAction: "rewrite_text",
+    priority: "high",
+    anchor: {
+      paragraphIds: [paragraphId],
+      generationParagraphRange: { start: 1, end: 1 },
+      excerpt,
+      fingerprint: computeAnchorFingerprint(revision, [paragraphId], excerpt)
+    },
+    insertionPoint: {
+      mode: "replace",
+      anchorParagraphId: paragraphId
+    },
+    status: "pending"
+  };
+
+  const malformedDraft = [
+    "- ### Зміни нігтьових пластинок.",
+    "- Потовщення нігтів буває при грибкових ураженнях, псоріазі або як наслідок травми. Нігті у вигляді «годинникових скелець» зустрічаються при тривалих ураженнях серця або легень. Койлоніхії бувають при дефіциті заліза. Наперсткоподібні вдавлення свідчать про псоріаз."
+  ].join("\n");
+
+  const response = await generateReviewAction(
+    {
+      text,
+      currentRevision: revision,
+      item,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "sk-list-test"
+    },
+    {
+      fetchImpl: async () =>
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            operations: [
+              {
+                op: "replace",
+                start: 0,
+                end: text.length,
+                newText: malformedDraft,
+                reason: "Структурував фрагмент у список.",
+                type: "structure"
+              }
+            ]
+          })
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+
+  const replacement = response.proposal.kind === "text_diff" ? response.proposal.textDiff?.replacement ?? "" : "";
+  const lines = replacement
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  assert.match(lines[0] ?? "", /^#{1,6}\s+\S/u);
+  assert.doesNotMatch(lines[0] ?? "", /^-\s*#{1,6}\s/u);
+
+  const listLines = lines.filter((line) => line.startsWith("- "));
+  assert.ok(listLines.length >= 2);
+  assert.ok(listLines.every((line) => /(?:\s—\s|:\s)/u.test(line.slice(2))));
+  assert.ok(listLines.every((line) => !/^-\s*#{1,6}\s/u.test(line)));
 });
 
 test("insertReviewImageMarkdown is idempotent for duplicate insertion attempts", () => {

@@ -58,7 +58,7 @@ Status: Active handoff
 - Whole-text editorial review returns high-level recommendations with fragment anchors, not diffs
 - Whole-text editorial review now anchors to paragraph numbers plus excerpt, not global symbol offsets
 - `Працюй!` selection for whole-text recommendations now preserves the full anchored paragraph span; excerpt text no longer shrinks execution scope to a single matched substring
-- List-type whole-text recommendations now enforce markdown list output during proposal prep, with deterministic local bullet-list fallback when provider text is not list-shaped
+- List-type whole-text recommendations now enforce canonical markdown-list output during proposal prep (optional heading on its own line + `коротка ідея — опис` items), with deterministic local fallback when provider text is malformed (for example `- ### ...` or one long bullet paragraph)
 - Collapsed request diagnostics and short request history in the editor rail
 - Local settings persistence in browser storage
 - Default editor prompts are tuned for real editorial tasks: explain terms, tighten dense prose, and normalize tone
@@ -207,3 +207,4 @@ Status: Active handoff
 - `npm run typecheck` passed after adding the app-level AI activity store, top-bar status badge, and editor result inbox for background patch/review completions
 - `npm run build` passed after the same background-result pass
 - `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed, including new regressions for full-range review selection and enforced list-shaped proposal output
+- `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed after list-shape hardening, including a regression that rewrites malformed `- ### ...` + single-paragraph bullets into canonical heading + multi-item `ідея — опис` output

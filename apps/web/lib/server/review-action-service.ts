@@ -615,8 +615,10 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
       `Рекомендація: ${request.item.recommendation}`,
       "Охопи весь фрагмент, а не один випадковий підпункт.",
       "Поверни щонайменше 2 пункти списку.",
-      "Кожен пункт починай з '- '.",
-      "Не повертай суцільний абзац без маркерів списку.",
+      "Якщо є заголовок markdown (### ...), залиш його окремим рядком без маркера '- '.",
+      "Кожен пункт має бути окремим рядком у форматі: '- Коротка ідея — опис'.",
+      "Коротка ідея має бути лаконічною: 1-3 слова.",
+      "Не об'єднуй кілька пунктів в один рядок і не повертай суцільний абзац без переносів.",
       "Збережи факти, причинно-наслідкові зв'язки та авторський намір."
     ].join(" ");
   }
@@ -639,9 +641,9 @@ function enforceStructuredListReplacement(
   candidate: string,
   source: string
 ): { replacement: string; usedFallback: boolean } {
-  const normalizedCandidate = candidate.trim();
+  const normalizedCandidate = normalizeStructuredListDraft(candidate);
 
-  if (looksLikeStructuredList(normalizedCandidate)) {
+  if (normalizedCandidate && looksLikeStructuredList(normalizedCandidate)) {
     return { replacement: normalizedCandidate, usedFallback: false };
   }
 
@@ -656,58 +658,306 @@ function looksLikeStructuredList(value: string): boolean {
     return false;
   }
 
-  const lines = value
+  const normalizedLines = value
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (lines.length < 2) {
+  if (normalizedLines.length < 2) {
     return false;
   }
 
-  const listLineCount = lines.filter((line) => /^([-*+]|\d+[.)])\s+\S/u.test(line)).length;
-  return listLineCount >= 2;
+  const contentLines = normalizedLines.filter((line, index) => !(index === 0 && isHeadingLine(line)));
+  const listLines = contentLines.filter((line) => Boolean(parseListLine(line)));
+
+  if (listLines.length < 2 || listLines.length !== contentLines.length) {
+    return false;
+  }
+
+  return listLines.every((line) => {
+    const content = parseListLine(line)?.content ?? "";
+    return looksLikeIdeaDescriptionItem(content);
+  });
 }
 
 function buildStructuredListFallback(source: string): string {
   const normalized = source.replace(/\r\n?/g, "\n").trim();
 
   if (!normalized) {
-    return "- Уточнити ключовий пункт.\n- Додати коротке пояснення причини.";
+    return "- Ключова думка — Уточнити головний пункт.\n- Пояснення — Додати коротку причину.";
   }
 
-  const sourceLines = normalized
+  const rawLines = normalized
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^([-*+]|\d+[.)])\s+/u, "").trim())
     .filter(Boolean);
+  const { heading, contentLines } = extractHeadingAndBody(rawLines);
+  const extractedSegments = extractListSegments(contentLines);
+  const normalizedItems = extractedSegments
+    .map((segment) => formatIdeaDescriptionListItem(segment))
+    .filter((item): item is string => Boolean(item));
+  const uniqueItems = dedupeListItems(normalizedItems).slice(0, 8);
+
+  if (uniqueItems.length < 2) {
+    return heading
+      ? `${heading}\n- Ключова думка — Уточнити головний пункт.\n- Пояснення — Додати коротку причину.`
+      : "- Ключова думка — Уточнити головний пункт.\n- Пояснення — Додати коротку причину.";
+  }
+
+  return [heading, ...uniqueItems.map((item) => `- ${item}`)].filter(Boolean).join("\n");
+}
+
+function normalizeStructuredListDraft(candidate: string): string | null {
+  const normalized = candidate.replace(/\r\n?/g, "\n").trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return null;
+  }
+
+  const { heading, contentLines } = extractHeadingAndBody(lines);
+  const extractedSegments = extractListSegments(contentLines);
+  const normalizedItems = extractedSegments
+    .map((segment) => formatIdeaDescriptionListItem(segment))
+    .filter((item): item is string => Boolean(item));
+  const uniqueItems = dedupeListItems(normalizedItems).slice(0, 8);
+
+  if (uniqueItems.length < 2) {
+    return null;
+  }
+
+  return [heading, ...uniqueItems.map((item) => `- ${item}`)].filter(Boolean).join("\n");
+}
+
+function extractHeadingAndBody(lines: string[]): { heading: string | null; contentLines: string[] } {
+  if (lines.length === 0) {
+    return { heading: null, contentLines: [] };
+  }
+
+  const firstLine = lines[0];
+  const firstLineWithoutListMarker = parseListLine(firstLine)?.content ?? firstLine;
+
+  if (!isHeadingLine(firstLineWithoutListMarker)) {
+    return { heading: null, contentLines: lines };
+  }
+
+  const headingMatch = firstLineWithoutListMarker.trim().match(/^(#{1,6})\s*(.+)$/u);
+
+  if (!headingMatch) {
+    return { heading: null, contentLines: lines };
+  }
+
+  const heading = `${headingMatch[1]} ${headingMatch[2]?.trim() ?? ""}`.trim();
+  return { heading, contentLines: lines.slice(1) };
+}
+
+function extractListSegments(lines: string[]): string[] {
+  const segments: string[] = [];
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (!trimmedLine) {
+      continue;
+    }
+
+    const parsedListLine = parseListLine(trimmedLine);
+
+    if (parsedListLine) {
+      if (parsedListLine.content) {
+        segments.push(parsedListLine.content);
+      }
+      continue;
+    }
+
+    if (segments.length === 0) {
+      segments.push(trimmedLine);
+      continue;
+    }
+
+    segments[segments.length - 1] = `${segments[segments.length - 1]} ${trimmedLine}`.trim();
+  }
+
+  return segments.flatMap((segment) => splitTextIntoSegments(segment));
+}
+
+function splitTextIntoSegments(value: string): string[] {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return [];
+  }
+
   const sentenceItems = normalized
-    .replace(/\s+/g, " ")
     .split(/(?<=[.!?])\s+/u)
     .map((part) => part.trim())
     .filter(Boolean);
+
+  if (sentenceItems.length >= 2) {
+    return sentenceItems;
+  }
+
   const clauseItems = normalized
-    .replace(/\s+/g, " ")
     .split(/;\s+|,\s+(?=[А-ЯІЇЄҐA-Z])/u)
     .map((part) => part.trim())
     .filter(Boolean);
 
-  const baseItems = sourceLines.length >= 2 ? sourceLines : sentenceItems.length >= 2 ? sentenceItems : clauseItems;
-  const items = (baseItems.length > 0 ? baseItems : [normalized]).slice(0, 8);
-
-  return items.map((item) => `- ${normalizeListItem(item)}`).join("\n");
-}
-
-function normalizeListItem(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim().replace(/^[-*+]\s+/u, "");
-
-  if (!normalized) {
-    return "Уточнити пункт.";
+  if (clauseItems.length >= 2) {
+    return clauseItems;
   }
 
-  return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
+  return [normalized];
+}
+
+function formatIdeaDescriptionListItem(value: string): string | null {
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[-*+]\s+/u, "")
+    .replace(/^#{1,6}\s+/u, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const structuredMatch = normalized.match(/^(.{1,56}?)(?:\s*[—-]\s+|:\s+)(.+)$/u);
+
+  if (structuredMatch) {
+    const lead = normalizeListLead(structuredMatch[1] ?? "");
+    const description = ensureSentenceEnding(structuredMatch[2] ?? "");
+
+    if (lead && description) {
+      return `${lead} — ${description}`;
+    }
+  }
+
+  const lead = deriveListLead(normalized);
+  let description = ensureSentenceEnding(normalized);
+  const leadPrefix = new RegExp(`^${escapeRegExp(lead)}(?:\\s*[—:-]\\s*)?`, "iu");
+
+  if (leadPrefix.test(description)) {
+    const remainder = description.replace(leadPrefix, "").trim();
+
+    if (remainder.length >= 8) {
+      description = ensureSentenceEnding(remainder);
+    }
+  }
+
+  return `${lead} — ${description}`;
+}
+
+function deriveListLead(value: string): string {
+  const stopWords = new Set(["і", "й", "та", "у", "в", "на", "за", "до", "з", "із", "від", "про", "для", "при", "як", "що", "це"]);
+  const words = value
+    .replace(/[«»"“”()]/g, " ")
+    .split(/\s+/u)
+    .map((token) => token.replace(/^[^A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+|[^A-Za-zА-Яа-яІіЇїЄєҐґ0-9]+$/gu, ""))
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "Пункт";
+  }
+
+  let startIndex = 0;
+
+  while (startIndex < words.length && stopWords.has(words[startIndex].toLowerCase())) {
+    startIndex += 1;
+  }
+
+  const pickedWords = words.slice(startIndex, startIndex + 2);
+  const fallbackWords = words.slice(0, 2);
+  return normalizeListLead((pickedWords.length > 0 ? pickedWords : fallbackWords).join(" "));
+}
+
+function normalizeListLead(value: string): string {
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[—:,-]+$/u, "")
+    .slice(0, 56);
+
+  if (!normalized) {
+    return "Пункт";
+  }
+
+  return normalized[0]?.toUpperCase() + normalized.slice(1);
+}
+
+function ensureSentenceEnding(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "Уточнити деталі.";
+  }
+
+  return /[.!?…]$/u.test(normalized) ? normalized : `${normalized}.`;
+}
+
+function dedupeListItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const item of items) {
+    const key = item.trim().toLowerCase();
+
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(item.trim());
+  }
+
+  return unique;
+}
+
+function parseListLine(line: string): { marker: string; content: string } | null {
+  const match = line.trim().match(/^([-*+]|\d+[.)])\s+(.+)$/u);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    marker: match[1] ?? "-",
+    content: (match[2] ?? "").trim()
+  };
+}
+
+function isHeadingLine(value: string): boolean {
+  return /^#{1,6}\s+\S/u.test(value.trim());
+}
+
+function looksLikeIdeaDescriptionItem(value: string): boolean {
+  if (!value || isHeadingLine(value)) {
+    return false;
+  }
+
+  const match = value.trim().match(/^(.{1,56}?)(?:\s+—\s+|:\s+)(\S.+)$/u);
+
+  if (!match) {
+    return false;
+  }
+
+  const leadWordCount = (match[1] ?? "")
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean).length;
+  const descriptionLength = (match[2] ?? "").trim().length;
+  return leadWordCount >= 1 && leadWordCount <= 4 && descriptionLength >= 6;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildCalloutPromptInstruction(request: ReviewActionRequest, fragment: string): string {
