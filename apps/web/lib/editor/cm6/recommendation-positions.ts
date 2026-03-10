@@ -8,8 +8,12 @@ export interface RecommendationLaneAnchor {
 }
 
 export function resolveOffsetLaneAnchor(view: EditorView, start: number, end = start): RecommendationLaneAnchor {
-  const firstBlock = view.lineBlockAt(start);
-  const lastBlock = view.lineBlockAt(end);
+  const docLength = view.state.doc.length;
+  const safeStart = Math.max(0, Math.min(start, docLength));
+  const safeEnd = Math.max(0, Math.min(end, docLength));
+
+  const firstBlock = view.lineBlockAt(safeStart);
+  const lastBlock = view.lineBlockAt(safeEnd);
 
   return {
     top: firstBlock.top,
