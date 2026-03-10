@@ -72,14 +72,14 @@ test("applyMarkdownFormat toggles bullet markers for all selected lines", () => 
   const result = applyMarkdownFormat("перший\nдругий", { start: 0, end: 13 }, "bullet-list");
 
   assert.equal(result.text, "- перший\n- другий");
-  assert.deepEqual(result.selection, { start: 0, end: 18 });
+  assert.deepEqual(result.selection, { start: 0, end: 17 });
 });
 
 test("applyMarkdownFormat inserts a table template as a standalone block", () => {
   const result = applyMarkdownFormat("Вступ", { start: 5, end: 5 }, "table");
 
   assert.equal(result.text, "Вступ\n\n| Колонка 1 | Колонка 2 |\n| --- | --- |\n| Значення | Значення |");
-  assert.deepEqual(result.selection, { start: 7, end: 76 });
+  assert.deepEqual(result.selection, { start: 7, end: 70 });
 });
 
 test("applyMarkdownFormat inserts a markdown link and selects the label placeholder", () => {
