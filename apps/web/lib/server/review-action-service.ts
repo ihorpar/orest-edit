@@ -373,8 +373,11 @@ async function createImagePromptProposal(
 
   const record = parseJsonObject(providerResult.rawOutput);
   const visualIntent = request.item.visualIntent ?? "concept";
+  const providerPrompt = normalizeString(record.prompt, 2400);
   const defaultAlt = createDefaultImageAlt(request.item.title, visualIntent);
   const defaultCaption = createDefaultImageCaption(request.item.recommendation);
+  const defaultPrompt = buildDefaultUkrainianImagePrompt(visualIntent, fragment, request.item.recommendation);
+  const resolvedPrompt = providerPrompt && looksLikeUkrainianPrompt(providerPrompt) ? providerPrompt : defaultPrompt;
 
   return {
     providerUsed: providerResult.providerUsed,
@@ -389,7 +392,7 @@ async function createImagePromptProposal(
       canApplyDirectly: false,
       imageDraft: {
         visualIntent,
-        prompt: normalizeString(record.prompt, 2400) ?? instruction,
+        prompt: resolvedPrompt,
         alt: normalizeImageAlt(record.alt) ?? defaultAlt,
         caption: normalizeCaption(record.caption) ?? defaultCaption,
         targetModel: "gemini-3.1-flash-image-preview"
@@ -584,11 +587,13 @@ function buildImagePromptInstruction(request: ReviewActionRequest, fragment: str
   const visualIntent = request.item.visualIntent ?? "concept";
   const template = request.imagePromptTemplate ?? "";
 
-  return renderTemplate(template, {
+  const rendered = renderTemplate(template, {
     visualIntent,
     fragment,
     recommendation: request.item.recommendation
   });
+
+  return `${rendered}\n\nОбов'язкова вимога: поле prompt у відповіді має бути виключно українською мовою, без англомовних фраз.`;
 }
 
 function fallbackCalloutTitle(kind: EditorialCalloutKind): string {
@@ -666,6 +671,46 @@ function createDefaultImageCaption(recommendation: string): string | undefined {
   }
 
   return cleanedRecommendation.slice(0, 240);
+}
+
+function buildDefaultUkrainianImagePrompt(visualIntent: EditorialVisualIntent, fragment: string, recommendation: string): string {
+  const cleanedRecommendation = recommendation.replace(/\s+/g, " ").trim();
+  const cleanedFragment = fragment.replace(/\s+/g, " ").trim();
+
+  return [
+    "Чернетка візуалізації для ілюстратора.",
+    `Тип візуалу: ${visualIntent}.`,
+    "Стиль: мінімалістичний, простий, 2D, без зайвого декору.",
+    `Що показати: ${cleanedRecommendation || "Поясни ключову ідею фрагмента на простій схемі."}`,
+    `Контекст фрагмента: ${cleanedFragment || "Орієнтуйся на виділений уривок рукопису."}`,
+    "Обов'язково: чітке розділення головних елементів, навчальна функція, чистий фон.",
+    "Уникати: фотореалізму, складних текстур, декоративних рамок, зайвих об'єктів."
+  ]
+    .join(" ")
+    .slice(0, 2400);
+}
+
+function looksLikeUkrainianPrompt(prompt: string): boolean {
+  const normalized = prompt.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const cyrillicChars = normalized.match(/[А-Яа-яІіЇїЄєҐґ]/g)?.length ?? 0;
+
+  if (cyrillicChars === 0) {
+    return false;
+  }
+
+  const latinWords = normalized.match(/\b[A-Za-z]{3,}\b/g)?.length ?? 0;
+  const cyrillicWords = normalized.match(/\b[А-Яа-яІіЇїЄєҐґ]{2,}\b/g)?.length ?? 0;
+
+  if (cyrillicWords === 0) {
+    return false;
+  }
+
+  return cyrillicWords >= latinWords;
 }
 
 function providerDisplayName(provider: string): string {

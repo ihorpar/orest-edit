@@ -37,6 +37,7 @@ import {
   type RequestMode
 } from "../../lib/editor/patch-contract";
 import { insertMarkdownImageBlock } from "../../lib/editor/markdown-editor";
+import { exportMarkdownToDocx } from "../../lib/editor/docx-export";
 import {
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindTitle,
@@ -92,6 +93,7 @@ export default function EditorPage() {
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
   const [isReviewProposalInFlight, setIsReviewProposalInFlight] = useState(false);
   const [isReviewImageInFlight, setIsReviewImageInFlight] = useState(false);
+  const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
   const [feedback, setFeedback] = useState<RequestFeedback | null>(null);
   const [patchDiagnostics, setPatchDiagnostics] = useState<PatchResponseDiagnostics | null>(null);
   const [reviewDiagnostics, setReviewDiagnostics] = useState<EditorialReviewDiagnostics | null>(null);
@@ -158,7 +160,12 @@ export default function EditorPage() {
   const reviewImageJobError =
     activeReviewImageJob && activeProposal?.id === activeReviewImageJob.proposalId ? activeReviewImageJob.error : proposalImageGeneration?.error;
   const isAnyRequestInFlight =
-    isPatchRequestInFlight || isReviewRequestInFlight || isReviewProposalInFlight || isReviewImageInFlight || isReviewImageInsertionInFlight;
+    isPatchRequestInFlight ||
+    isReviewRequestInFlight ||
+    isReviewProposalInFlight ||
+    isReviewImageInFlight ||
+    isReviewImageInsertionInFlight ||
+    isDocxExportInFlight;
   const hasRailDetailContent =
     isAnyRequestInFlight ||
     operations.length > 0 ||
@@ -811,6 +818,36 @@ export default function EditorPage() {
     }
   }
 
+  async function handleExportDocx() {
+    if (isDocxExportInFlight) {
+      return;
+    }
+
+    setIsDocxExportInFlight(true);
+
+    try {
+      const result = await exportMarkdownToDocx({
+        markdown: text
+      });
+      downloadBlob(result.blob, result.fileName);
+
+      setFeedback({
+        message:
+          result.warnings.length > 0
+            ? `DOCX експортовано з попередженнями: ${result.warnings.length}.`
+            : "DOCX успішно експортовано.",
+        tone: result.warnings.length > 0 ? "error" : "info"
+      });
+    } catch (error) {
+      setFeedback({
+        message: error instanceof Error ? error.message : "Не вдалося експортувати DOCX.",
+        tone: "error"
+      });
+    } finally {
+      setIsDocxExportInFlight(false);
+    }
+  }
+
   function handleSelectionChange(nextSelection: PatchSelection) {
     if (appliedDiffs.length > 0) {
       setAppliedDiffs([]);
@@ -1255,6 +1292,7 @@ export default function EditorPage() {
             activeProposal={activeProposal}
             appliedDiffs={appliedDiffs}
             canClearDraft={canClearDraft}
+            exportingDocx={isDocxExportInFlight}
             loading={isAnyRequestInFlight}
             revision={revision}
             reviewItems={reviewItems}
@@ -1274,6 +1312,9 @@ export default function EditorPage() {
             }}
             onDismissAppliedDiffs={() => setAppliedDiffs([])}
             onDismissReviewItem={() => setActiveReviewItem(null)}
+            onExportDocx={() => {
+              void handleExportDocx();
+            }}
             onGenerateReviewImage={() => {
               void generateReviewImageAsset();
             }}
@@ -1678,4 +1719,16 @@ function normalizeCalloutKindForInsertion(value: string): EditorialCalloutKind {
     value === "quick_fact"
     ? value
     : "quick_fact";
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }

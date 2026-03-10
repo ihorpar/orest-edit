@@ -141,6 +141,7 @@ export function CodeMirrorCanvas({
   activeProposal,
   activeReviewItem,
   canClearDraft,
+  exportingDocx,
   loading,
   revision,
   reviewItems,
@@ -158,6 +159,7 @@ export function CodeMirrorCanvas({
   onDiscardReviewProposal,
   onDismissAppliedDiffs,
   onDismissReviewItem,
+  onExportDocx,
   onGenerateReviewImage,
   onInsertLocalImage,
   onInsertReviewImage,
@@ -174,6 +176,7 @@ export function CodeMirrorCanvas({
   activeProposal: ReviewActionProposal | null;
   activeReviewItem: EditorialReviewItem | null;
   canClearDraft?: boolean;
+  exportingDocx?: boolean;
   loading?: boolean;
   revision: ManuscriptRevisionState;
   reviewItems: EditorialReviewItem[];
@@ -191,6 +194,7 @@ export function CodeMirrorCanvas({
   onDiscardReviewProposal: () => void;
   onDismissAppliedDiffs?: () => void;
   onDismissReviewItem: () => void;
+  onExportDocx?: () => void;
   onGenerateReviewImage: () => void;
   onInsertLocalImage: (input: { blob: Blob; fileName?: string; source: "upload" | "paste" }) => Promise<void>;
   onInsertReviewImage: () => void;
@@ -499,6 +503,24 @@ export function CodeMirrorCanvas({
           </div>
           <div className="manuscript-toolbar-meta-row">
             <div className="mono-ui manuscript-toolbar-meta">{wordCount} слів</div>
+            <button
+              type="button"
+              className="manuscript-toolbar-icon-button"
+              onClick={onExportDocx}
+              disabled={!onExportDocx || loading || Boolean(exportingDocx)}
+              title={exportingDocx ? "Експорт у DOCX…" : "Експортувати в DOCX"}
+              aria-label={exportingDocx ? "Експорт у DOCX…" : "Експортувати в DOCX"}
+            >
+              {exportingDocx ? (
+                <span className="button-spinner" aria-hidden="true" />
+              ) : (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 2v7.2" />
+                  <path d="M5.6 7.8 8 10.2l2.4-2.4" />
+                  <path d="M3 11.8h10v1.2H3z" fill="currentColor" stroke="none" />
+                </svg>
+              )}
+            </button>
             <Button variant="secondary" size="sm" onClick={onClearDraft} disabled={!canClearDraft}>
               Скинути текст
             </Button>

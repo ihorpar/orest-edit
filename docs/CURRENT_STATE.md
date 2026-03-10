@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-08
+Date: 2026-03-10
 Status: Active handoff
 
 ## What exists now
@@ -16,6 +16,8 @@ Status: Active handoff
 - Markdown formatting toolbar in the manuscript header area for bold, headings, lists, links, tables, code, and dividers
 - The markdown toolbar now uses compact grouped icon-like controls with full meanings in tooltip and aria labels, so the editor chrome stays light without losing discoverability
 - The markdown toolbar remains compact and grouped; it now stays sticky while scrolling, keeps reset action typography aligned with other buttons, and avoids extra explanatory header copy
+- Browser-side `.docx` export from the editor toolbar now generates polished documents from markdown with Ukrainian typography, heading/list/table mapping, callout rendering, embedded images, and code styling
+- Export now resolves local `asset:` images from IndexedDB plus `data:` and `http(s)` images, and inserts visible placeholders when an image cannot be resolved
 - The normal manuscript editing surface now runs through CodeMirror 6 as one source-visible markdown editor with in-place syntax styling instead of a preview-vs-textarea swap
 - Manuscript paragraphs now have visible padded number markers in a light gray gutter
 - Inserted callouts now use the canonical Ukrainian directive syntax `::: ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ°: <Ã‘â€šÃÂ¸ÃÂ¿>` plus a separate `#` title line, and CM6 styles that source in place instead of swapping to a prettier non-source block
@@ -51,7 +53,7 @@ Status: Active handoff
 - Local settings persistence in browser storage
 - Default editor prompts are tuned for real editorial tasks: explain terms, tighten dense prose, and normalize tone
 - Real OpenAI, Gemini, and Anthropic provider adapters behind one shared patch contract
-- Gemini is now the default provider path in the current UI, with `gemini-3-flash` as the default model
+- Gemini is now the default provider path in the current UI, with `gemini-3-flash-preview` as the default model
 - OpenAI now uses the Responses API structured-output path rather than legacy chat completions
 - Gemini now uses the documented `responseMimeType` / `responseJsonSchema` structured-output path
 - Deterministic local fallback when a provider key is missing or a provider call fails
@@ -82,7 +84,7 @@ Status: Active handoff
 
 ## Current product decisions
 - Strict medical mode is not part of the current MVP direction.
-- Export patch is not part of the current MVP direction.
+- Export patch flow is not part of the current MVP direction; manuscript `.docx` export is now supported.
 - Sources are not a primary navigation flow in the current MVP.
 - The editor now uses CodeMirror 6 as the canonical manuscript surface for normal source editing, whole-text recommendation detail, selected-image preview, and the applied-diff review checkpoint
 - Side-panel UI for recommendation detail and image preview must stay out of manuscript flow; markdown source remains the only in-flow content.
@@ -120,6 +122,10 @@ Status: Active handoff
 5. Add a more robust browser-driven screenshot harness for seeded CM6 states instead of relying on manual screenshots plus a default headless capture.
 
 ## Last validated state
+- `npm run typecheck` passed after adding browser-side DOCX export, export toolbar wiring, and strict typing for the new export pipeline.
+- `npm run build` passed after the DOCX export implementation and UI wiring.
+- `npm run test` still fails in four pre-existing selection/provider tests (`test/patch-contract.test.ts` and `test/patch-service.test.ts`); the new `test/docx-export.test.ts` suite passes.
+- Attempted headless screenshot capture for the export-button UI is blocked in this Linux environment because Playwright browsers cannot launch due missing shared libraries (for example `libnspr4.so`).
 - `node --import tsx --test test/review-image-service.test.ts test/review-image-job-service.test.ts` passed
 - `npm run build` passed after async review-image queue and polling integration
 - user explicitly asked to skip screenshot generation for this pass
@@ -152,7 +158,6 @@ Status: Active handoff
 - AI processing uses local animated feedback in the button, right rail, and floating prompt instead of a global spinner overlay.
 - The editor typing layer now uses one shared metric system for both the manuscript overlay and the native textarea, and focused editing reveals the native textarea text again. This fixes caret/input desync caused by paragraph spacing and font-shaping differences between the two layers.
 - Editorial-review detail stays open during normal manuscript clicks and selection changes; it now closes only through explicit close controls, with a top-right close icon instead of the old text button.
-- Settings now offer provider-specific model presets plus a fourth `Ãâ€™ÃÂ²ÃÂµÃ‘ÂÃ‘â€šÃÂ¸ ÃÂ²Ã‘â‚¬Ã‘Æ’Ã‘â€¡ÃÂ½Ã‘Æ’` path. Current defaults use Google Gemini `gemini-3-flash`.
 - The settings page now validates the current OpenAI model successfully through repo-root `.env` fallback and surfaces the success state inline in the sheet header and model field.
 - The review-detail panel now has its own top stacking layer inside the manuscript frame, so editor text no longer renders on top of it and the close controls remain clickable.
 - The custom prompt composer now sits centered at the bottom of the editor in a chat-style layout. It opens as a single-line input by default, then auto-grows up to a bounded multi-line height as the user types.

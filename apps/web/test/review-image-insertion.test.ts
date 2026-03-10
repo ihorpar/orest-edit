@@ -237,6 +237,40 @@ test("generateReviewAction sends an OpenAI image schema whose required fields ma
   assert.deepEqual([...schema.required].sort(), [...Object.keys(schema.properties)].sort());
 });
 
+test("generateReviewAction falls back to Ukrainian image prompt when provider returns English prompt", async () => {
+  const text = "Початковий абзац для ілюстрації.";
+  const { item, revision } = createReviewItem(text, "after");
+
+  const response = await generateReviewAction(
+    {
+      text,
+      currentRevision: revision,
+      item,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "sk-image-test",
+      imagePromptTemplate: "Тип: {{visualIntent}}. Фрагмент: {{fragment}}. Рекомендація: {{recommendation}}."
+    },
+    {
+      fetchImpl: async () =>
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            summary: "Підготовлено чернетку image prompt.",
+            prompt: "Minimalist medical infographic draft, comparison grid layout.",
+            alt: "Схема порівняння факторів ризику",
+            caption: null
+          })
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  const prompt = response.proposal.kind === "image_prompt" ? response.proposal.imageDraft?.prompt ?? "" : "";
+  assert.ok(prompt.length > 0);
+  assert.match(prompt, /[А-Яа-яІіЇїЄєҐґ]/);
+  assert.doesNotMatch(prompt, /\bMinimalist\b/);
+});
+
 test("insertReviewImageMarkdown is idempotent for duplicate insertion attempts", () => {
   const text = "Один абзац для тесту.";
   const { item, revision } = createReviewItem(text, "after");

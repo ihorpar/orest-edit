@@ -333,3 +333,15 @@ Reason: placeholder fallback copy hides generation failures and undermines edito
 - Context: The toolbar needed to become clearer without turning into a bulky block of labeled cards.
 - Decision: Use compact symbol-led controls, keep them grouped, and rely on tooltip plus aria labels for full explanation.
 - Consequences: The toolbar stays visually light and fast to scan while still remaining understandable for less technical editors once hover/focus guidance is available.
+
+## 2026-03-10
+
+### Browser-side DOCX export
+Decision: implement manuscript export as browser-side `.docx` generation with a toolbar action in `/editor`, mapping markdown to polished DOCX structure and resolving images client-side.
+
+Reason: local manuscript images are stored as browser `asset:` tokens in IndexedDB, so browser-side export is the safest way to embed those assets without introducing an upload backend or leaking binary payloads through server routes.
+
+### Export scope wording
+Decision: keep `export patch flow` out of MVP scope while allowing polished manuscript `.docx` export.
+
+Reason: patch export and revision-history workflows remain separate product scope decisions; current export only targets final manuscript handoff to Word/Google Docs.

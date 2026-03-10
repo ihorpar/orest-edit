@@ -1,4 +1,4 @@
-# Build a working patch-first editor vertical slice
+﻿# Build a working patch-first editor vertical slice
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as work proceeds.
 
@@ -10,12 +10,13 @@ The immediate goal is to turn the current UI prototype into the first working pr
 
 After this work, a user can open the editor, edit manuscript text directly, select a fragment, send either the default edit action or a custom request, receive local patch proposals with short reasons, review them as a diff, and accept or reject them.
 
-This is the smallest outcome that makes the product real. It still deliberately avoids broad scope such as source workflows, strict-medical controls, or export flows.
+This is the smallest outcome that makes the product real. It still deliberately avoids broad scope such as source workflows, strict-medical controls, or export patch flows.
 
 The next major goal is to replace the unstable split between idle markdown preview and focused raw-source editing with one CodeMirror 6 manuscript surface. After that migration, the user will see one source-first markdown editor at all times, keep stable paragraph-number anchors, see markdown syntax visually enhanced instead of hidden, and review whole-text recommendations in a synchronized side lane that highlights the exact affected paragraph range without moving the manuscript text on click.
 
 ## Progress
 
+- [x] (2026-03-10 00:00Z) Implemented browser-side DOCX export with a toolbar action, markdown-to-DOCX rendering (headings/lists/tables/code/callouts), image embedding from `asset:`/`data:`/`http(s)`, placeholder warnings for unresolved images, and dedicated export tests.
 - [x] (2026-03-09 00:00Z) Converted review-image generation from a blocking request into an async job flow with `POST` enqueue + `GET` polling, wired queue/progress/error rendering into the review detail UI, and added server/job tests for the new flow.
 - [x] (2026-03-09 00:00Z) Prepared Vercel deployment runtime behavior by pinning all API routes to Node.js with explicit `maxDuration = 60`, lowering review-image upstream timeout below route duration, and extending `docs/DEPLOYMENT.md` with a Vercel-specific setup checklist.
 - [x] (2026-03-08 00:00Z) Reworked the markdown toolbar into compact grouped controls with icon-like buttons and verified the updated UI with a fresh browser screenshot.
@@ -90,6 +91,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 11:05Z) Softened technical image-source tokens in the CM6 manuscript so `asset:` references remain source-visible but no longer dominate the manuscript line visually.
 
 ## Surprises & Discoveries
+
+- Observation: client-side `asset:` image tokens force export generation to run in the browser if we want reliable image embedding without backend uploads.
+  Evidence: the new export path in `apps/web/lib/editor/docx-export.ts` must call `resolveEditorAssetUrl()` to resolve IndexedDB-backed tokens before packaging `word/media/*`.
 
 - Observation: image generation reliability on serverless is less about one large timeout and more about user-visible state continuity across queue, processing, and failure transitions.
   Evidence: switching `/api/edit/review/image` to async enqueue + polling required explicit proposal-level job state in `apps/web/app/editor/page.tsx` and dedicated status rendering in `apps/web/components/editor/EditorialReviewDetail.tsx` to avoid “silent waiting” and stale UI.
@@ -258,6 +262,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Decision Log
 
+- Decision: DOCX export is browser-side and uses markdown-to-DOCX mapping with a warning-first fallback for unresolved images.
+  Rationale: local editor images are stored as browser `asset:` tokens, so browser-side generation keeps embedding reliable and avoids introducing a backend upload path for this scope.
+  Date/Author: 2026-03-10 / Codex implementation
 - Decision: review-image generation now uses a two-step async API (`POST` enqueue, `GET` job status) with client polling and explicit UI job-state rendering.
   Rationale: image generation can outlive comfortable interactive request windows; an explicit async state machine is more reliable and transparent than one blocking request.
   Date/Author: 2026-03-09 / Codex implementation
@@ -464,6 +471,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-08 / Codex + User
 
 ## Outcomes & Retrospective
+
+The latest export pass adds polished manuscript handoff to external writing tools. `/editor` now includes an icon-first DOCX export action that preserves Ukrainian text, headings/lists/tables, inline and fenced code, styled callouts, and embedded manuscript images; unresolved images now degrade visibly via placeholders instead of hard-failing export.
 
 The latest media-generation pass removed the last blocking AI step in review detail. Image generation is now queued asynchronously, the UI surfaces `queued`/`processing`/`failed` states while polling, and insertion still uses the same explicit markdown-asset flow once the generated image is ready.
 
@@ -783,7 +792,7 @@ The first API path lives at:
 
 and accepts the working request contract described in the plan, plus an optional `basePrompt` so editor settings can shape the provider request.
 
-The real provider dependencies include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. Gemini remains the default provider in the current UI (`gemini-3-flash`), and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
+The real provider dependencies include OpenAI, Gemini, and Anthropic behind the shared `apps/web/lib/server/patch-service.ts` contract. Gemini remains the default provider in the current UI (`gemini-3-flash-preview`), and server env lookup supports `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
 
 The repo-level text dependencies now include:
 - `.editorconfig` for default UTF-8 and LF behavior
