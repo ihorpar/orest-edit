@@ -55,14 +55,27 @@ export function EditorialReviewCard({
       data-status={item.status}
     >
       {item.status === "applied" ? (
-        <div className="editorial-review-card-applied-row" onClick={() => onFocus(item)}>
-          <div className="editorial-review-applied-mark">
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M2.5 6.5L4.5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+        <div className="editorial-review-card-applied-row">
+          <div className="editorial-review-card-applied-content" onClick={() => onFocus(item)}>
+            <div className="editorial-review-applied-mark">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2.5 6.5L4.5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="mono-ui tag-pill tag-applied">Готово</span>
+            <h4 className="editorial-review-card-applied-title">{item.title}</h4>
           </div>
-          <span className="mono-ui tag-pill tag-applied">Готово</span>
-          <h4 className="editorial-review-card-applied-title">{item.title}</h4>
+          <button
+            type="button"
+            className="editorial-review-card-close"
+            onClick={() => onDismiss(item)}
+            aria-label="Прибрати виконану рекомендацію"
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M2 2L10 10" />
+              <path d="M10 2L2 10" />
+            </svg>
+          </button>
         </div>
       ) : (
         <>

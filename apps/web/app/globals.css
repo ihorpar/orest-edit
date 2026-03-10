@@ -514,8 +514,19 @@ textarea:focus {
 .editorial-review-card-applied-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   width: 100%;
+}
+
+.editorial-review-card-applied-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  /* Allow title to truncate */
+  cursor: pointer;
 }
 
 .editorial-review-applied-mark {
@@ -560,12 +571,12 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 32px 24px;
+  gap: 12px;
+  padding: 24px 20px;
   background: #f0fdf4;
   border: 1px solid #dcfce7;
   border-radius: 12px;
-  margin: 12px 0 24px;
+  margin: 12px 0 20px;
   text-align: center;
   color: #166534;
   font-size: 14px;

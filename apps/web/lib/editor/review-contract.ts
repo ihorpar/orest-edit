@@ -106,6 +106,7 @@ export interface ReviewActionRequest {
   modelId: string;
   apiKey?: string;
   basePrompt?: string;
+  reviewPrompt?: string;
   reviewLevelGuide?: string;
   calloutPromptTemplate?: string;
   imagePromptTemplate?: string;
@@ -490,8 +491,7 @@ function normalizeCalloutDraft(
   const title =
     normalizeCopy(firstString(record.calloutTitle, record.calloutHeading, record.calloutHeadline, record.calloutLabel), 80) ??
     fallbackCalloutTitle(calloutKind);
-  const previewText =
-    normalizeCopy(firstString(record.calloutPreviewText, record.calloutText, record.calloutBody, record.calloutDraft), 900) ?? context.recommendation;
+  const previewText = normalizeCopy(firstString(record.calloutPreviewText, record.calloutText, record.calloutBody, record.calloutDraft), 900) ?? "";
   const prompt = normalizePromptCopy(firstString(record.calloutPrompt, record.calloutGenerationPrompt, record.prompt), 2400) ?? "";
   const summary = normalizeCopy(firstString(record.calloutSummary, record.calloutWhy, record.calloutReason), 180) ?? undefined;
 

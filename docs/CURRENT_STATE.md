@@ -31,6 +31,8 @@ Status: Active handoff
 - Image-prompt normalization now strips the boilerplate opener `Чернетка візуалізації для ілюстратора.` from generated/fallback prompt text
 - `Вставити зображення` now always inserts a standalone markdown image block below the targeted fragment, never replacing manuscript text
 - Callout recommendations now expose a `ÃÂ¢ÃÂ¸ÃÂ¿ ÃÂ²Ã‘â‚¬Ã‘â€“ÃÂ·ÃÂºÃÂ¸` selector in the side detail panel; changing the type triggers a real draft regeneration with loading feedback before the user can insert it
+- Callout recommendations with weak initial preview text now stay visible as `pending` instead of being dropped; editors can run explicit prepare/regenerate and then apply.
+- Callout proposal cards now provide editable title/body fields before insertion, and the primary CTA in detail is prepare-first (not auto-insert from prefilled draft).
 - Floating selection composer with manual fold/unfold control
 - Whole-text review uses the same floating composer shell but now switches into a dark visual mode so `ÃÅ¸ÃÂµÃ‘â‚¬ÃÂµÃÂ²Ã‘â€“Ã‘â‚¬ÃÂ¸Ã‘â€šÃÂ¸ ÃÂ²ÃÂµÃ‘ÂÃ‘Å’ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€š` reads as a distinct workflow from local chat
 - The dark whole-text review composer now morphs back into the regular local-edit composer in place, with a white `Ãâ€ºÃÂ¾ÃÂºÃÂ°ÃÂ»Ã‘Å’ÃÂ½ÃÂ° ÃÂ¿Ã‘â‚¬ÃÂ°ÃÂ²ÃÂºÃÂ°` escape button and stronger mode-specific contrast
@@ -100,6 +102,7 @@ Status: Active handoff
 - The editor now uses CodeMirror 6 as the canonical manuscript surface for normal source editing, whole-text recommendation detail, selected-image preview, and the applied-diff review checkpoint
 - Side-panel UI for recommendation detail and image preview must stay out of manuscript flow; markdown source remains the only in-flow content.
 - User-facing callout labels are Ukrainian aliases (`Ã‘â€žÃÂ°ÃÂºÃ‘â€š`, `Ã‘â€“Ã‘ÂÃ‘â€šÃÂ¾Ã‘â‚¬Ã‘â€“Ã‘Â`, `ÃÂ¼ÃÂµÃ‘â€¦ÃÂ°ÃÂ½Ã‘â€“ÃÂ·ÃÂ¼`, `ÃÂ¿ÃÂ¾ÃÂºÃ‘â‚¬ÃÂ¾ÃÂºÃÂ¾ÃÂ²ÃÂ¾`, `ÃÂ¼Ã‘â€“Ã‘â€ž-Ã‘â€žÃÂ°ÃÂºÃ‘â€š`), but the transport contract still keeps the internal canonical enum values.
+- `reviewPrompt` and `calloutPromptTemplate` are both first-class generation inputs for callout flow: template guidance is present during whole-text review and prompt context is propagated during proposal generation.
 - Pending patch proposals are invalidated when the manuscript is edited manually.
 - Patch responses now carry diagnostics so the editor can show provider/model/request status without opening dev tools.
 - For local development, leaving the settings API-key field empty uses the matching provider key from the repo-root `.env` on the server.
@@ -208,3 +211,6 @@ Status: Active handoff
 - `npm run build` passed after the same background-result pass
 - `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed, including new regressions for full-range review selection and enforced list-shaped proposal output
 - `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed after list-shape hardening, including a regression that rewrites malformed `- ### ...` + single-paragraph bullets into canonical heading + multi-item `ідея — опис` output
+- `node --import tsx --test apps/web/test/review-service.test.ts` passed after changing callout handling from drop-on-weak-preview to keep-as-pending behavior
+- `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed
+- `npm run typecheck` passed after callout detail-panel wiring and editable callout draft fields

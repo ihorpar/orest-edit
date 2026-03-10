@@ -166,6 +166,8 @@ export function CodeMirrorCanvas({
   onInsertReviewImage,
   onPrepareReviewItem,
   onCalloutKindChange,
+  onCalloutTitleChange,
+  onCalloutPreviewChange,
   selectedCalloutKind,
   selectionRevealKey,
   selection,
@@ -202,6 +204,8 @@ export function CodeMirrorCanvas({
   onInsertReviewImage: () => void;
   onPrepareReviewItem: () => void;
   onCalloutKindChange: (kind: EditorialCalloutKind) => void;
+  onCalloutTitleChange?: (title: string) => void;
+  onCalloutPreviewChange?: (previewText: string) => void;
   selectionRevealKey?: number;
   selectedCalloutKind?: EditorialCalloutKind;
   selection: PatchSelection;
@@ -591,6 +595,8 @@ export function CodeMirrorCanvas({
             onApplyCallout={onApplyReviewCallout}
             onGenerateImage={onGenerateReviewImage}
             onImagePromptChange={onReviewImagePromptChange}
+            onCalloutTitleChange={onCalloutTitleChange}
+            onCalloutPreviewChange={onCalloutPreviewChange}
             onInsertImage={onInsertReviewImage}
             onDiscardProposal={onDiscardReviewProposal}
             selectedCalloutKind={selectedCalloutKind}

@@ -16,6 +16,8 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Progress
 
+- [x] (2026-03-10 00:00Z) Rewired `врізка` generation inputs so proposal requests now include `reviewPrompt`, whole-text review prompt assembly includes `calloutPromptTemplate`, and callout fallbacks no longer reuse raw recommendation prose as draft body.
+- [x] (2026-03-10 00:00Z) Reworked `врізка` lifecycle to keep weak model previews as `pending` recommendations (not dropped), then generate/regenerate on explicit prepare action with editable title/body before apply in the side detail panel.
 - [x] (2026-03-10 00:00Z) Moved patch/review request tracking above the route boundary, added a top-bar AI activity badge plus right-rail result inbox, and preserved unread results when the user leaves `/editor` during AI processing.
 - [x] (2026-03-10 00:00Z) Fixed whole-text review range targeting so `Працюй!` now keeps the full anchored paragraph span instead of collapsing to a shorter excerpt match.
 - [x] (2026-03-10 00:00Z) Added list-specific proposal enforcement for `recommendationType = list`: prompt now requires markdown list output, non-list provider output is normalized to a deterministic bullet list, and the review detail apply CTA now reads `Застосувати список`.
@@ -95,6 +97,12 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 11:05Z) Softened technical image-source tokens in the CM6 manuscript so `asset:` references remain source-visible but no longer dominate the manuscript line visually.
 
 ## Surprises & Discoveries
+
+- Observation: dropping callout recommendations when preview text is weak made the feature look broken rather than strict.
+  Evidence: users saw `врізка` cards disappear or enter non-actionable states, while the underlying recommendation intent was still valid and could be completed during proposal generation.
+
+- Observation: auto-insert behavior for prefilled callout drafts bypassed review and hid generation quality problems.
+  Evidence: the previous detail CTA could jump straight to `Вставити врізку` from first-pass draft data, so users had no stable prepare/edit checkpoint before manuscript insertion.
 
 - Observation: draft persistence alone does not solve route-switch trust gaps when the result arrives after the editor page unmounts.
   Evidence: `apps/web/lib/editor/draft-state.ts` already restored manuscript/session data, but patch/review completions were still owned by `apps/web/app/editor/page.tsx`, so leaving `/editor` during an in-flight request meant the finished result had no visible landing place.
@@ -274,6 +282,14 @@ The next major goal is to replace the unstable split between idle markdown previ
   Evidence: switching from one `Ð²Ñ€Ñ–Ð·ÐºÐ°` type to another needed a forced provider roundtrip because simply relabeling the existing draft would leave the visible type and the draft content semantically out of sync.
 
 ## Decision Log
+
+- Decision: callout recommendations with unusable initial preview text remain in the review list as `pending`; they are not dropped at review-normalization stage.
+  Rationale: recommendation intent and anchor can still be valid even when first-pass draft quality is weak; dropping the item removes the editor's path to recover it.
+  Date/Author: 2026-03-10 / Codex implementation
+
+- Decision: callout UX is prepare-first: primary action prepares/regenerates draft content, then insertion is a separate explicit action from the proposal block.
+  Rationale: this restores diff-first trust for `врізка` by avoiding one-click insertion from unstable prefilled text and by keeping title/body editable before apply.
+  Date/Author: 2026-03-10 / Codex implementation
 
 - Decision: patch and whole-text review requests now publish into an app-level AI activity store above route-level pages, with unread-result surfacing in the top bar and editor rail.
   Rationale: background AI work is a cross-route activity, not a local panel concern; results must remain visible and reopenable even if `/editor` unmounts during processing.
@@ -493,6 +509,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-08 / Codex + User
 
 ## Outcomes & Retrospective
+
+The latest `врізка` reliability pass fixes the core "useless feature" complaint by restoring a coherent prepare workflow. Weak first-pass callout previews are no longer dropped, prompt inputs are now consistently wired into both review and proposal generation, and editors can edit callout title/body before explicit insertion instead of jumping from prefilled text directly into the manuscript.
 
 The latest background-result pass closes the remaining route-switch trust gap for core AI requests. Patch and whole-text review work now continues through an app-level activity store, the top bar shows live AI status and unread completions, and the editor rail exposes an explicit inbox so results can be reopened instead of silently disappearing when the user visits `/settings`.
 

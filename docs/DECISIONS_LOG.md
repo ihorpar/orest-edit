@@ -2,6 +2,16 @@
 
 ## 2026-03-10
 
+### Callout recommendations are recoverable, not disposable
+Decision: keep `callout` recommendations as `pending` when initial `calloutPreviewText` is weak, instead of dropping the item during review normalization.
+
+Reason: anchor and editorial intent can still be valid even when first-pass draft quality is not; dropping the item removes the editor's recovery path and makes the feature appear broken.
+
+### Callout flow is prepare-first with editable draft
+Decision: side-detail primary action for `врізка` prepares/regenerates draft content, and insertion remains a separate explicit apply step from an editable title/body draft card.
+
+Reason: this restores diff-first trust and avoids one-click insertion from unstable prefilled draft text.
+
 ### Background AI results live above route pages
 Decision: patch and whole-text review requests are tracked in an app-level client activity store, not only inside `/editor` page state.
 

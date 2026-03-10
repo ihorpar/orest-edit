@@ -304,7 +304,7 @@ test("generateEditorialReview prebuilds callout draft content during initial rev
   assert.ok((response.items[0]?.calloutDraft?.prompt ?? "").length > 0);
 });
 
-test("generateEditorialReview drops callout recommendation when preview text is unusable", async () => {
+test("generateEditorialReview keeps callout recommendation pending when preview text is unusable", async () => {
   const text = "Перший абзац.\n\nТут описано зв'язок, але пояснення механізму поверхневе.";
 
   const response = await generateEditorialReview(
@@ -340,7 +340,13 @@ test("generateEditorialReview drops callout recommendation when preview text is 
   );
 
   assert.equal(response.usedFallback, false);
-  assert.equal(response.items.length, 0);
-  assert.match(response.error ?? "", /врізк/);
-  assert.equal(response.diagnostics.droppedItemCount, 1);
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0]?.recommendationType, "callout");
+  assert.equal(response.items[0]?.status, "pending");
+  assert.equal(response.items[0]?.calloutDraft?.calloutKind, "mechanism_explained");
+  assert.equal(response.items[0]?.calloutDraft?.title, "Як це працює?");
+  assert.equal(response.items[0]?.calloutDraft?.previewText, "");
+  assert.ok((response.items[0]?.calloutDraft?.prompt ?? "").length > 0);
+  assert.equal(response.error, undefined);
+  assert.equal(response.diagnostics.droppedItemCount, 0);
 });

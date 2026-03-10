@@ -11,6 +11,7 @@ import {
 } from "../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 
@@ -43,6 +44,8 @@ export function EditorialReviewDetail({
   onClose,
   onPrepare,
   onCalloutKindChange,
+  onCalloutTitleChange,
+  onCalloutPreviewChange,
   onApplyText,
   onApplyCallout,
   onGenerateImage,
@@ -62,6 +65,8 @@ export function EditorialReviewDetail({
   onClose: () => void;
   onPrepare: () => void;
   onCalloutKindChange?: (kind: EditorialCalloutKind) => void;
+  onCalloutTitleChange?: (title: string) => void;
+  onCalloutPreviewChange?: (previewText: string) => void;
   onApplyText: () => void;
   onApplyCallout: () => void;
   onGenerateImage: () => void;
@@ -71,13 +76,9 @@ export function EditorialReviewDetail({
   onDiscardProposal: () => void;
 }) {
   const isActiveProposal = proposal?.reviewItemId === item.id ? proposal : null;
+  const isCalloutRecommendation = item.recommendationType === "callout" || item.suggestedAction === "prepare_callout";
+  const isCalloutProposal = isActiveProposal?.kind === "callout_prompt" && Boolean(isActiveProposal.calloutDraft);
   const activeCalloutKind = selectedCalloutKind ?? isActiveProposal?.calloutDraft?.calloutKind ?? item.calloutDraft?.calloutKind ?? item.calloutKind;
-  const canApplyPrefilledCallout =
-    item.recommendationType === "callout" &&
-    Boolean(item.calloutDraft?.previewText) &&
-    activeCalloutKind === item.calloutDraft?.calloutKind &&
-    !isActiveProposal;
-  const hasCalloutDraftError = item.recommendationType === "callout" && !item.calloutDraft?.previewText;
   const generatedImageAsset =
     isActiveProposal?.kind === "image_prompt" && isActiveProposal.imageDraft?.generatedAsset
       ? isActiveProposal.imageDraft.generatedAsset
@@ -94,6 +95,7 @@ export function EditorialReviewDetail({
   const normalizedCaption = normalizeInlineText(isActiveProposal?.kind === "image_prompt" ? isActiveProposal.imageDraft?.caption : "");
   const showCaption = Boolean(normalizedCaption && normalizedCaption !== normalizedAlt);
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
+  const primaryActionLabel = isCalloutRecommendation ? (isCalloutProposal ? "Перегенерувати врізку" : "Підготувати врізку") : "Працюй!";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
 
   return (
@@ -122,54 +124,56 @@ export function EditorialReviewDetail({
               <path d="M2.5 6.5L4.5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          Эта рекомендація вже успішно застосована до тексту.
+          Ця рекомендація успішно застосована.
         </div>
       )}
 
-      <div className="editorial-review-detail-body">
-        <details className="editorial-review-why">
-          <summary className="editorial-review-why-trigger">
-            <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
-              <path fillRule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm6.5-.25A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.75h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-2h-.25a.75.75 0 01-.75-.75zM8 6a1 1 0 100-2 1 1 0 000 2z"></path>
-            </svg>
-            Чому і що змінити?
-          </summary>
-          <div className="editorial-review-why-content">
-            <div className="editorial-review-detail-block">
-              <p className="editorial-review-detail-label">Що не працює</p>
-              <p className="editorial-review-detail-copy">{item.reason}</p>
+      {item.status !== "applied" && (
+        <div className="editorial-review-detail-body">
+          <details className="editorial-review-why">
+            <summary className="editorial-review-why-trigger">
+              <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+                <path fillRule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm6.5-.25A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.75h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-2h-.25a.75.75 0 01-.75-.75zM8 6a1 1 0 100-2 1 1 0 000 2z"></path>
+              </svg>
+              Чому і що змінити?
+            </summary>
+            <div className="editorial-review-why-content">
+              <div className="editorial-review-detail-block">
+                <p className="editorial-review-detail-label">Що не працює</p>
+                <p className="editorial-review-detail-copy">{item.reason}</p>
+              </div>
+              <div className="editorial-review-detail-block">
+                <p className="editorial-review-detail-label">Що зробити</p>
+                <p className="editorial-review-detail-copy editorial-review-detail-action">{item.recommendation}</p>
+              </div>
             </div>
-            <div className="editorial-review-detail-block">
-              <p className="editorial-review-detail-label">Що зробити</p>
-              <p className="editorial-review-detail-copy editorial-review-detail-action">{item.recommendation}</p>
-            </div>
-          </div>
-        </details>
+          </details>
 
-        {item.recommendationType === "callout" || item.suggestedAction === "prepare_callout" ? (
-          <div className="editorial-review-detail-block">
-            <div className="editorial-review-callout-kind-row">
-              <p className="mono-ui editorial-review-detail-label">Тип врізки</p>
-              <Select
-                aria-label="Тип врізки"
-                value={activeCalloutKind ?? item.calloutKind ?? item.calloutDraft?.calloutKind ?? "quick_fact"}
-                onChange={(event) => onCalloutKindChange?.(event.currentTarget.value as EditorialCalloutKind)}
-                disabled={preparing || !onCalloutKindChange}
-                className="editorial-review-callout-kind-select"
-              >
-                {getEditorialCalloutKindOptions().map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
+          {isCalloutRecommendation && (
+            <div className="editorial-review-detail-block">
+              <div className="editorial-review-callout-kind-row">
+                <p className="mono-ui editorial-review-detail-label">Тип врізки</p>
+                <Select
+                  aria-label="Тип врізки"
+                  value={activeCalloutKind ?? item.calloutKind ?? item.calloutDraft?.calloutKind ?? "quick_fact"}
+                  onChange={(event) => onCalloutKindChange?.(event.currentTarget.value as EditorialCalloutKind)}
+                  disabled={preparing || !onCalloutKindChange}
+                  className="editorial-review-callout-kind-select"
+                >
+                  {getEditorialCalloutKindOptions().map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <p className="editorial-review-detail-copy editorial-review-callout-kind-copy">
+                Вставка піде як <strong>врізка: {getEditorialCalloutKindLabel(activeCalloutKind ?? item.calloutKind ?? "quick_fact")}</strong>.
+              </p>
             </div>
-            <p className="editorial-review-detail-copy editorial-review-callout-kind-copy">
-              Вставка піде як <strong>врізка: {getEditorialCalloutKindLabel(activeCalloutKind ?? item.calloutKind ?? "quick_fact")}</strong>.
-            </p>
-          </div>
-        ) : null}
-      </div>
+          )}
+        </div>
+      )}
 
       <div className="editorial-review-detail-actions">
         {item.status !== "applied" ? (
@@ -177,15 +181,14 @@ export function EditorialReviewDetail({
             <Button
               variant="primary"
               size="sm"
-              onClick={canApplyPrefilledCallout ? onApplyCallout : onPrepare}
-              loading={canApplyPrefilledCallout || hasCalloutDraftError ? false : preparing}
+              onClick={onPrepare}
+              loading={preparing}
               loadingLabel="Готую чернетку…"
-              disabled={hasCalloutDraftError}
               style={actionButtonStyle}
             >
-              {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
+              {primaryActionLabel}
             </Button>
-            {isActiveProposal && !canApplyPrefilledCallout && (
+            {isActiveProposal && (
               <Button variant="secondary" size="sm" onClick={onDiscardProposal} style={actionButtonStyle}>
                 Скасувати
               </Button>
@@ -193,11 +196,6 @@ export function EditorialReviewDetail({
             <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
               Закрити
             </Button>
-            {hasCalloutDraftError && (
-              <p className="editorial-review-detail-copy" style={{ color: "#b42318", marginTop: "12px" }}>
-                Чернетку врізки не згенеровано. Запусти `Перевірити весь текст` ще раз.
-              </p>
-            )}
           </>
         ) : (
           <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
@@ -231,23 +229,41 @@ export function EditorialReviewDetail({
               <p className="mono-ui editorial-review-detail-label editorial-review-callout-kind-chip">
                 Врізка: {getEditorialCalloutKindLabel(isActiveProposal.calloutDraft.calloutKind)}
               </p>
-              <p className="editorial-review-detail-copy">
-                <strong>{isActiveProposal.calloutDraft.title}</strong>
-              </p>
-              {isActiveProposal.calloutDraft.previewText && (
-                <blockquote className="editorial-review-callout-preview">{isActiveProposal.calloutDraft.previewText}</blockquote>
-              )}
+              <div>
+                <p className="mono-ui editorial-review-detail-label">Назва</p>
+                <Input
+                  value={isActiveProposal.calloutDraft.title}
+                  maxLength={80}
+                  onChange={(event) => onCalloutTitleChange?.(event.currentTarget.value)}
+                  readOnly={!onCalloutTitleChange}
+                />
+              </div>
+              <div>
+                <p className="mono-ui editorial-review-detail-label">Текст врізки</p>
+                <textarea
+                  className="editorial-review-image-prompt-input"
+                  value={isActiveProposal.calloutDraft.previewText ?? ""}
+                  rows={6}
+                  onChange={(event) => onCalloutPreviewChange?.(event.currentTarget.value)}
+                  readOnly={!onCalloutPreviewChange}
+                />
+              </div>
               <div className="button-row editorial-review-proposal-actions">
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={onApplyCallout}
-                  disabled={!isActiveProposal.calloutDraft.previewText}
+                  disabled={!isActiveProposal.calloutDraft.previewText?.trim()}
                   style={actionButtonStyle}
                 >
                   Вставити врізку
                 </Button>
               </div>
+              {!isActiveProposal.calloutDraft.previewText?.trim() && (
+                <p className="mono-ui editorial-review-image-status editorial-review-image-status-error">
+                  Чернетка порожня. Перегенеруй врізку або заповни текст вручну.
+                </p>
+              )}
             </div>
           )}
 

@@ -666,6 +666,7 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
     request.basePrompt ?? "",
     request.reviewPrompt ?? "",
     request.reviewLevelGuide ?? "",
+    buildCalloutTemplateGuidance(request.calloutPromptTemplate),
     `Поточний рівень глибини змін: ${request.changeLevel}.`,
     "Не роби diff і не переписуй текст одразу. Потрібно лише повернути рекомендації та тип наступної дії.",
     "Кожен item має бути прив'язаний до конкретного абзацу або групи сусідніх абзаців.",
@@ -675,8 +676,10 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
     "Якщо текст варто лишити, але проситься візуальна підтримка, використовуй recommendationType = illustration.",
     "Якщо доречно додати обвіс, пам'ятай: у промптах це завжди означає врізку, інфографіку або додатковий пояснювальний блок.",
     "Callout types: quick_fact = короткий факт; mini_story = коротка сюжетна сцена; mechanism_explained = пояснення як це працює; step_by_step = покроковий розбір; myth_vs_fact = міф і факт.",
-    "Для recommendationType=callout або suggestedAction=prepare_callout одразу згенеруй calloutTitle, calloutPreviewText і calloutSummary. calloutPrompt теж заповни: це prompt для потенційної регенерації врізки.",
-    "calloutPreviewText має бути готовим текстом врізки (мінімум 3 речення), а не темою, не заголовком і не інструкцією для автора.",
+    "Для recommendationType=callout або suggestedAction=prepare_callout обов'язково згенеруй calloutTitle і calloutSummary.",
+    "calloutPreviewText, якщо заповнений, має бути готовим текстом врізки у 2-4 реченнях, без інструктивних формулювань і без дослівного повтору excerpt.",
+    "Якщо якісний calloutPreviewText не вдається побудувати в межах наявного фрагмента, поверни calloutPreviewText як null (не вигадуй слабку заглушку).",
+    "calloutPrompt теж заповни: це prompt для кроку `Працюй!`, який догенерує або перегенерує врізку.",
     "Для інших recommendationType обов'язково поверни calloutTitle, calloutPreviewText, calloutSummary, calloutPrompt як null.",
     "priority має відображати редакторську цінність рекомендації, а не просто дрібну стилістичну правку.",
     "paragraphStart і paragraphEnd мають бути номерами абзаців із наведеного списку.",
@@ -684,6 +687,17 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function buildCalloutTemplateGuidance(template?: string): string {
+  const normalized = template?.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const compactTemplate = normalized.replace(/\s+/g, " ").slice(0, 1200);
+  return `Стильовий орієнтир для врізки (не цитуй буквально, але дотримуйся логіки): ${compactTemplate}`;
 }
 
 function buildEditorialReviewUserPrompt(text: string, additionalInstructions?: string): string {
@@ -1033,20 +1047,17 @@ function hydrateAndFilterCalloutDrafts(
         .filter(Boolean)
         .join("\n");
     const candidatePreview = item.calloutDraft?.previewText?.trim() ?? "";
-    if (!isUsableCalloutPreview(candidatePreview)) {
-      droppedCalloutDraftCount += 1;
-      continue;
-    }
+    const hasUsablePreview = isUsableCalloutPreview(candidatePreview);
 
     hydratedItems.push({
       ...item,
       calloutKind,
-      status: "ready",
+      status: hasUsablePreview ? "ready" : "pending",
       calloutDraft: {
         calloutKind,
         title: item.calloutDraft?.title?.trim() || fallbackCalloutTitle(calloutKind),
-        previewText: candidatePreview,
-        summary: item.calloutDraft?.summary?.trim() || "Врізка згенерована під час первинного огляду.",
+        previewText: hasUsablePreview ? candidatePreview : "",
+        summary: item.calloutDraft?.summary?.trim() || (hasUsablePreview ? "Врізка згенерована під час первинного огляду." : "Потрібно підготувати врізку за шаблоном."),
         prompt: item.calloutDraft?.prompt?.trim() || prompt
       }
     });
@@ -1061,7 +1072,7 @@ function hydrateAndFilterCalloutDrafts(
 function isUsableCalloutPreview(value: string): boolean {
   const normalized = value.replace(/\s+/g, " ").trim();
 
-  if (!normalized || normalized.length < 140) {
+  if (!normalized || normalized.length < 90) {
     return false;
   }
 
@@ -1076,7 +1087,7 @@ function isUsableCalloutPreview(value: string): boolean {
   const sentenceCount = normalized.split(/[.!?]+/).map((entry) => entry.trim()).filter(Boolean).length;
   const wordCount = normalized.split(/\s+/).filter(Boolean).length;
 
-  return sentenceCount >= 2 && wordCount >= 24;
+  return sentenceCount >= 2 && wordCount >= 16;
 }
 
 function fallbackCalloutTitle(kind: EditorialCalloutKind): string {

@@ -21,6 +21,8 @@ export function RecommendationLane({
   onClose,
   onPrepare,
   onCalloutKindChange,
+  onCalloutTitleChange,
+  onCalloutPreviewChange,
   onApplyText,
   onApplyCallout,
   onGenerateImage,
@@ -42,6 +44,8 @@ export function RecommendationLane({
   onClose: () => void;
   onPrepare: () => void;
   onCalloutKindChange: (kind: EditorialCalloutKind) => void;
+  onCalloutTitleChange?: (title: string) => void;
+  onCalloutPreviewChange?: (previewText: string) => void;
   onApplyText: () => void;
   onApplyCallout: () => void;
   onGenerateImage: () => void;
@@ -87,6 +91,8 @@ export function RecommendationLane({
           onClose={onClose}
           onPrepare={onPrepare}
           onCalloutKindChange={onCalloutKindChange}
+          onCalloutTitleChange={onCalloutTitleChange}
+          onCalloutPreviewChange={onCalloutPreviewChange}
           onApplyText={onApplyText}
           onApplyCallout={onApplyCallout}
           onGenerateImage={onGenerateImage}

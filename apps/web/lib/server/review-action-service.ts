@@ -315,6 +315,13 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
   const fragment = getParagraphRangeText(request.currentRevision, request.item.anchor.paragraphIds);
   const calloutKind = request.item.calloutKind ?? "quick_fact";
   const template = request.calloutPromptTemplate ?? "";
+  const previewText = buildLocalCalloutPreview(fragment, request.item.recommendation, calloutKind);
+  const renderedPrompt = renderTemplate(template, {
+    calloutKind,
+    calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
+    fragment,
+    recommendation: request.item.recommendation
+  });
 
   return {
     id: createPatchId("proposal-callout"),
@@ -327,13 +334,8 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
     calloutDraft: {
       calloutKind,
       title: fallbackCalloutTitle(calloutKind),
-      prompt: renderTemplate(template, {
-        calloutKind,
-        calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
-        fragment,
-        recommendation: request.item.recommendation
-      }),
-      previewText: request.item.recommendation
+      prompt: renderedPrompt.trim() ? renderedPrompt : buildCalloutPromptInstruction(request, fragment),
+      previewText
     }
   };
 }
@@ -384,6 +386,11 @@ async function createCalloutProposal(
         : await createOpenAiJsonDraft(request, apiKey, fetchImpl, instruction, openAiCalloutSchema, "callout_draft");
 
   const record = parseJsonObject(providerResult.rawOutput);
+  const calloutKind = request.item.calloutKind ?? "quick_fact";
+  const providerPreview = normalizeString(record.previewText, 900) ?? "";
+  const previewText = isUsableCalloutPreview(providerPreview)
+    ? providerPreview
+    : buildLocalCalloutPreview(fragment, request.item.recommendation, calloutKind);
 
   return {
     providerUsed: providerResult.providerUsed,
@@ -397,10 +404,10 @@ async function createCalloutProposal(
       summary: normalizeString(record.summary, 180) ?? "Підготовлено чернетку врізки.",
       canApplyDirectly: false,
       calloutDraft: {
-        calloutKind: request.item.calloutKind ?? "quick_fact",
-        title: normalizeString(record.title, 80) ?? fallbackCalloutTitle(request.item.calloutKind ?? "quick_fact"),
+        calloutKind,
+        title: normalizeString(record.title, 80) ?? fallbackCalloutTitle(calloutKind),
         prompt: normalizeString(record.prompt, 2400) ?? instruction,
-        previewText: normalizeString(record.previewText, 900) ?? request.item.recommendation
+        previewText
       }
     }
   };
@@ -471,7 +478,7 @@ async function createOpenAiJsonDraft(
       body: JSON.stringify({
         model: request.modelId,
         temperature: 0.4,
-        instructions: [request.basePrompt ?? "", request.reviewLevelGuide ?? ""].filter(Boolean).join(" "),
+        instructions: buildModelInstructionContext(request),
         input: instruction,
         text: {
           format: {
@@ -517,6 +524,8 @@ async function createGeminiJsonDraft(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
   const endpoint = `${geminiBaseUrl}/${encodeURIComponent(request.modelId)}:generateContent`;
+  const modelContext = buildModelInstructionContext(request);
+  const finalInstruction = modelContext ? `${modelContext}\n\n${instruction}` : instruction;
 
   try {
     const response = await fetchImpl(endpoint, {
@@ -526,7 +535,7 @@ async function createGeminiJsonDraft(
         "x-goog-api-key": apiKey
       },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: instruction }] }],
+        contents: [{ role: "user", parts: [{ text: finalInstruction }] }],
         generationConfig: {
           temperature: 0.4,
           responseMimeType: "application/json",
@@ -578,7 +587,7 @@ async function createAnthropicJsonDraft(
         model: request.modelId,
         max_tokens: 1200,
         temperature: 0.4,
-        system: `${request.basePrompt ?? ""} ${request.reviewLevelGuide ?? ""} Поверни лише JSON-об'єкт без markdown.`,
+        system: `${buildModelInstructionContext(request)} Поверни лише JSON-об'єкт без markdown.`.trim(),
         messages: [{ role: "user", content: instruction }]
       }),
       signal: controller.signal
@@ -960,16 +969,37 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function buildModelInstructionContext(request: ReviewActionRequest): string {
+  return [request.basePrompt ?? "", request.reviewPrompt ?? "", request.reviewLevelGuide ?? ""]
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function buildCalloutPromptInstruction(request: ReviewActionRequest, fragment: string): string {
   const calloutKind = request.item.calloutKind ?? "quick_fact";
   const template = request.calloutPromptTemplate ?? "";
 
-  return renderTemplate(template, {
+  const rendered = renderTemplate(template, {
     calloutKind,
     calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
     fragment,
     recommendation: request.item.recommendation
   });
+
+  if (rendered.trim()) {
+    return rendered;
+  }
+
+  return [
+    `Підготуй врізку типу "${getEditorialCalloutKindLabel(calloutKind)}" для українського науково-популярного рукопису.`,
+    fragment ? `Контекст фрагмента: ${fragment}` : "",
+    `Редакторська рекомендація: ${request.item.recommendation}`,
+    "Поверни JSON з полями summary, title, prompt і previewText.",
+    "previewText має бути готовим до вставки блоком у 2-4 реченнях, без інструктивних формулювань."
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildImagePromptInstruction(request: ReviewActionRequest, fragment: string): string {
@@ -1007,6 +1037,62 @@ function fallbackCalloutTitle(kind: EditorialCalloutKind): string {
 
 function renderTemplate(template: string, values: Record<string, string>): string {
   return Object.entries(values).reduce((current, [key, value]) => current.replaceAll(`{{${key}}}`, value), template);
+}
+
+function buildLocalCalloutPreview(fragment: string, recommendation: string, kind: EditorialCalloutKind): string {
+  const normalizedFragment = fragment.replace(/\s+/g, " ").trim();
+  const normalizedRecommendation = recommendation.replace(/\s+/g, " ").trim();
+  const fragmentSentences = normalizedFragment
+    .split(/(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const leadSentence = ensureTrailingPeriod(normalizedRecommendation || "Цей фрагмент потребує додаткового пояснення для читача.");
+  const bodySentence = ensureTrailingPeriod(
+    fragmentSentences[0] ?? "Додатковий блок пояснює ключовий зміст простішою мовою, не змінюючи фактів і авторського наміру."
+  );
+  const closingByKind =
+    kind === "mechanism_explained"
+      ? "Так читач бачить причинно-наслідковий механізм без перевантаження термінами."
+      : kind === "step_by_step"
+        ? "Так структура подається послідовно, крок за кроком, без втрати сенсу."
+        : kind === "myth_vs_fact"
+          ? "Так легше відокремити фактичне пояснення від поширених хибних уявлень."
+          : kind === "mini_story"
+            ? "Короткий наративний ракурс допомагає швидше закріпити головну ідею."
+            : "Це стисло підсвічує головну думку і полегшує сприйняття.";
+
+  return [leadSentence, bodySentence, ensureTrailingPeriod(closingByKind)].join(" ");
+}
+
+function isUsableCalloutPreview(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized || normalized.length < 90) {
+    return false;
+  }
+
+  if (/[?]\s*$/.test(normalized) || /:\s*$/.test(normalized)) {
+    return false;
+  }
+
+  if (/\b(додати|додай|напиши|підготуй|зроби|встав)\b/i.test(normalized)) {
+    return false;
+  }
+
+  const sentenceCount = normalized.split(/[.!?]+/).map((entry) => entry.trim()).filter(Boolean).length;
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+
+  return sentenceCount >= 2 && wordCount >= 16;
+}
+
+function ensureTrailingPeriod(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  return /[.!?…]$/u.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function parseJsonObject(rawOutput: string): Record<string, unknown> {

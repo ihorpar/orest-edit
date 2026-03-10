@@ -729,6 +729,7 @@ export default function EditorPage() {
           modelId: normalizeModelId(settings.provider, settings.modelId),
           apiKey: settings.apiKey || undefined,
           basePrompt: settings.basePrompt,
+          reviewPrompt: settings.reviewPrompt,
           reviewLevelGuide: settings.reviewLevelGuide,
           calloutPromptTemplate: settings.calloutPromptTemplate,
           imagePromptTemplate: settings.imagePromptTemplate
@@ -1592,6 +1593,69 @@ export default function EditorPage() {
     );
   }
 
+  function handleReviewCalloutTitleChange(nextTitle: string) {
+    updateActiveCalloutDraft({
+      title: nextTitle.slice(0, 80)
+    });
+  }
+
+  function handleReviewCalloutPreviewChange(nextPreviewText: string) {
+    updateActiveCalloutDraft({
+      previewText: nextPreviewText.slice(0, 1600)
+    });
+  }
+
+  function updateActiveCalloutDraft(input: { title?: string; previewText?: string }) {
+    const targetItemId = activeProposal?.reviewItemId ?? activeReviewItem?.id;
+
+    if (!targetItemId) {
+      return;
+    }
+
+    const applyDraftUpdate = (draft: { title: string; prompt: string; previewText?: string; calloutKind: EditorialCalloutKind }) => ({
+      ...draft,
+      title: input.title ?? draft.title,
+      previewText: input.previewText ?? draft.previewText
+    });
+
+    setActiveProposal((current) =>
+      current && current.kind === "callout_prompt" && current.calloutDraft
+        ? {
+          ...current,
+          calloutDraft: applyDraftUpdate(current.calloutDraft)
+        }
+        : current
+    );
+
+    setActiveReviewItem((current) =>
+      current && current.id === targetItemId && current.calloutDraft
+        ? {
+          ...current,
+          calloutDraft: {
+            ...current.calloutDraft,
+            title: input.title ?? current.calloutDraft.title,
+            previewText: input.previewText ?? current.calloutDraft.previewText
+          }
+        }
+        : current
+    );
+
+    setReviewItems((current) =>
+      current.map((entry) =>
+        entry.id === targetItemId && entry.calloutDraft
+          ? {
+            ...entry,
+            calloutDraft: {
+              ...entry.calloutDraft,
+              title: input.title ?? entry.calloutDraft.title,
+              previewText: input.previewText ?? entry.calloutDraft.previewText
+            }
+          }
+          : entry
+      )
+    );
+  }
+
   return (
     <main className="app-shell">
       <TopBar activePath="/editor" />
@@ -1647,6 +1711,8 @@ export default function EditorPage() {
                 : undefined
             }
             onCalloutKindChange={handleReviewCalloutKindChange}
+            onCalloutTitleChange={handleReviewCalloutTitleChange}
+            onCalloutPreviewChange={handleReviewCalloutPreviewChange}
             selectionRevealKey={selectionRevealKey}
             selection={selection}
             text={text}
