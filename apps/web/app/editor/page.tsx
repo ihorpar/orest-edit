@@ -299,6 +299,7 @@ export default function EditorPage() {
     try {
       const response = await fetch("/api/edit/patch", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -372,6 +373,7 @@ export default function EditorPage() {
     try {
       const response = await fetch("/api/edit/review", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -524,6 +526,7 @@ export default function EditorPage() {
     try {
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -654,6 +657,7 @@ export default function EditorPage() {
     try {
       const response = await fetch("/api/edit/review/image", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -801,6 +805,7 @@ export default function EditorPage() {
 
         const response = await fetch(`/api/edit/review/image?jobId=${encodeURIComponent(input.jobId)}`, {
           cache: "no-store",
+          credentials: "same-origin",
           signal: controller.signal
         });
         if (response.status === 401) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, Suspense, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 
@@ -14,7 +14,6 @@ export default function LoginPage() {
 }
 
 function LoginPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -43,6 +42,7 @@ function LoginPageContent() {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -59,8 +59,7 @@ function LoginPageContent() {
         return;
       }
 
-      router.replace(payload.redirectTo ?? redirectTo);
-      router.refresh();
+      window.location.assign(payload.redirectTo ?? redirectTo);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Не вдалося увійти.");
     } finally {

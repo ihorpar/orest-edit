@@ -100,6 +100,7 @@ export default function SettingsPage() {
       try {
         const response = await fetch("/api/settings/validate", {
           method: "POST",
+          credentials: "same-origin",
           headers: {
             "Content-Type": "application/json"
           },
