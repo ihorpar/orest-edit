@@ -51,6 +51,7 @@ export function RecommendationLane({
   selectedCalloutKind?: EditorialCalloutKind;
 }) {
   const [anchorTop, setAnchorTop] = useState(0);
+  const [anchorHeight, setAnchorHeight] = useState(0);
 
   useEffect(() => {
     function updateAnchor() {
@@ -60,6 +61,7 @@ export function RecommendationLane({
 
       const anchor = resolveRecommendationLaneAnchor(editorView, revision, item);
       setAnchorTop(anchor?.top ?? 0);
+      setAnchorHeight(anchor?.height ?? 0);
     }
 
     updateAnchor();
@@ -71,8 +73,8 @@ export function RecommendationLane({
   }, [editorView, item, layoutKey, revision]);
 
   return (
-    <aside className="cm-orest-side-panel cm-orest-recommendation-lane" style={{ top: anchorTop }}>
-      <div className="cm-orest-side-panel-card cm-orest-recommendation-lane-card">
+    <aside className="cm-orest-inline-panel cm-orest-recommendation-lane" style={{ top: anchorTop + anchorHeight + 12 }}>
+      <div className="cm-orest-inline-panel-card cm-orest-recommendation-lane-card">
         <EditorialReviewDetail
           item={item}
           revision={revision}

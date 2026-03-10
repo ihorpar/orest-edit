@@ -637,7 +637,7 @@ textarea {
 .manuscript-review-detail-anchor {
   position: relative;
   z-index: 3;
-  padding: 0 0 28px 72px;
+  padding: 12px 0 28px 0;
   pointer-events: auto;
 }
 
@@ -738,6 +738,9 @@ textarea {
 .editorial-review-why-trigger svg {
   color: #94a3b8;
   transition: transform 0.2s ease;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .editorial-review-why[open] .editorial-review-why-trigger svg {
@@ -3184,12 +3187,21 @@ textarea {
   position: relative;
 }
 
-.cm-orest-recommendation-lane .editorial-review-detail {
-  margin: 0;
-  min-height: auto;
-  box-shadow: none;
-  border-left-width: 2px;
+.cm-orest-inline-panel {
+  position: absolute;
+  left: -2px;
+  /* aligns roughly with left border */
+  width: min(calc(100% + 4px), 644px);
+  z-index: 10;
+  pointer-events: none;
 }
+
+.cm-orest-inline-panel-card {
+  position: relative;
+  pointer-events: auto;
+}
+
+/* Removed .cm-orest-recommendation-lane .editorial-review-detail because the pendant should look like a floating card again */
 
 .cm-orest-image-preview-card {
   display: grid;
