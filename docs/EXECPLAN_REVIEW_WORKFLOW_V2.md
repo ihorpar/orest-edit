@@ -152,7 +152,7 @@ Run these commands from `/mnt/c/Projects/oboz-ai/orest-edit` while implementing:
    `sed -n '1,220p' apps/web/app/api/edit/review/route.ts`
    `sed -n '1,260p' apps/web/app/api/edit/patch/route.ts`
 
-6. Validate behavior and screenshots.
+6. Validate behavior (screenshots only if explicitly requested).
    `npm run typecheck`
    `npm run build`
    `npm run check:text`

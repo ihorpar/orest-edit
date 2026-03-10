@@ -1217,7 +1217,7 @@ export default function EditorPage() {
         return next;
       });
       setActiveReviewItem(nextReviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null);
-      const nextFeedback = { message: "Зображення вставлено в рукопис як markdown-блок.", tone: "info" as const };
+      const nextFeedback = { message: "Зображення вставлено.", tone: "info" as const };
       setFeedback(nextFeedback);
       setHistory((current) => [createImageInsertionHistoryEntry(nextFeedback, activeProposal.reviewItemId), ...current].slice(0, 8));
     } finally {

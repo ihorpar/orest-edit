@@ -161,7 +161,7 @@ export function EditorialReviewDetail({
         </Button>
         {isActiveProposal && !canApplyPrefilledCallout ? (
           <Button variant="secondary" size="sm" onClick={onDiscardProposal}>
-            Прибрати чернетку
+            Скасувати
           </Button>
         ) : null}
         <Button variant="secondary" size="sm" onClick={onClose}>
@@ -233,7 +233,7 @@ export function EditorialReviewDetail({
                   loadingLabel={imageJobStatus === "queued" ? "У черзі…" : "Генерую…"}
                   disabled={isImageJobInProgress}
                 >
-                  Згенерувати чернетку
+                  Згенерувати
                 </Button>
                 <Button
                   variant="secondary"

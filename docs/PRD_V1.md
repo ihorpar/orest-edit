@@ -38,6 +38,8 @@ This is not a product for doctors and not a clinical workflow tool.
 - Full source library as a top-level feature.
 - Version history and collaboration system.
 
+Note: polished manuscript export to `.docx` is in scope; "export patch flow" remains out of scope.
+
 ## 6. Core jobs to be done
 1. Improve a selected paragraph according to the default editorial policy.
 2. Simplify a selected sentence or term on request.

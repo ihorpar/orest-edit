@@ -119,7 +119,7 @@ Status: Active handoff
 2. Harden Gemini using the live failure case where the provider responded but still produced unusable local edits for the shared patch contract.
 3. Live-validate Anthropic with a real key and harden provider-specific error handling from real responses.
 4. Remove dead legacy editor code now that CM6 owns direct editing and diff review.
-5. Add a more robust browser-driven screenshot harness for seeded CM6 states instead of relying on manual screenshots plus a default headless capture.
+5. Add a more robust browser-driven UI validation harness for seeded CM6 states, with screenshot capture optional when explicitly requested.
 
 ## Last validated state
 - `npm run typecheck` passed after adding browser-side DOCX export, export toolbar wiring, and strict typing for the new export pipeline.

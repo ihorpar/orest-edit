@@ -131,3 +131,29 @@ test("exportMarkdownToDocx renders directive callout block", async () => {
   assert.match(xml, /Ключовий факт/);
   assert.match(xml, /Це пояснювальний блок для читача/);
 });
+
+test("exportMarkdownToDocx aggregates duplicate unresolved image warnings", async () => {
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  Object.defineProperty(globalThis, "window", {
+    value: { indexedDB },
+    configurable: true,
+    writable: true
+  });
+
+  const markdown = ["![Зникле](asset:missing-image)", "", "![Зникле 2](asset:missing-image)"].join("\n");
+  const result = await exportMarkdownToDocx({ markdown, fileNameBase: "Попередження" });
+
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0]?.code, "image_unresolved");
+  assert.match(result.fileName, /^Попередження-\d{4}-\d{2}-\d{2}\.docx$/);
+
+  if (previousWindow === undefined) {
+    delete (globalThis as { window?: unknown }).window;
+  } else {
+    Object.defineProperty(globalThis, "window", {
+      value: previousWindow,
+      configurable: true,
+      writable: true
+    });
+  }
+});

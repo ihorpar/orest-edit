@@ -17,6 +17,7 @@ The next major goal is to replace the unstable split between idle markdown previ
 ## Progress
 
 - [x] (2026-03-10 00:00Z) Implemented browser-side DOCX export with a toolbar action, markdown-to-DOCX rendering (headings/lists/tables/code/callouts), image embedding from `asset:`/`data:`/`http(s)`, placeholder warnings for unresolved images, and dedicated export tests.
+- [x] (2026-03-10 00:00Z) Attempted automated screenshot validation for the new export UI state; capture is currently blocked in this Linux environment because Playwright browsers cannot launch due missing shared libraries.
 - [x] (2026-03-09 00:00Z) Converted review-image generation from a blocking request into an async job flow with `POST` enqueue + `GET` polling, wired queue/progress/error rendering into the review detail UI, and added server/job tests for the new flow.
 - [x] (2026-03-09 00:00Z) Prepared Vercel deployment runtime behavior by pinning all API routes to Node.js with explicit `maxDuration = 60`, lowering review-image upstream timeout below route duration, and extending `docs/DEPLOYMENT.md` with a Vercel-specific setup checklist.
 - [x] (2026-03-08 00:00Z) Reworked the markdown toolbar into compact grouped controls with icon-like buttons and verified the updated UI with a fresh browser screenshot.
@@ -94,6 +95,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 - Observation: client-side `asset:` image tokens force export generation to run in the browser if we want reliable image embedding without backend uploads.
   Evidence: the new export path in `apps/web/lib/editor/docx-export.ts` must call `resolveEditorAssetUrl()` to resolve IndexedDB-backed tokens before packaging `word/media/*`.
+
+- Observation: screenshot automation in this environment can still fail even after browser download because host shared libraries are missing.
+  Evidence: `npx playwright screenshot` and `npx playwright install webkit` report missing libraries such as `libnspr4.so` / `libgtk-4.so.1`, so no new export-toolbar screenshot could be produced here.
 
 - Observation: image generation reliability on serverless is less about one large timeout and more about user-visible state continuity across queue, processing, and failure transitions.
   Evidence: switching `/api/edit/review/image` to async enqueue + polling required explicit proposal-level job state in `apps/web/app/editor/page.tsx` and dedicated status rendering in `apps/web/components/editor/EditorialReviewDetail.tsx` to avoid “silent waiting” and stale UI.

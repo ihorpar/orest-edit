@@ -529,16 +529,33 @@ function renderParagraph(node: MdParagraph): Paragraph {
 function renderCodeBlock(node: Code): Paragraph {
   const languageHint = node.lang?.trim() ? `${node.lang.trim()}\n` : "";
   const codeText = `${languageHint}${node.value}`;
+  const lines = codeText.split("\n");
+  const runs: TextRun[] = [];
 
-  return new Paragraph({
-    style: "CodeBlock",
-    children: [
+  lines.forEach((line, index) => {
+    runs.push(
       new TextRun({
-        text: codeText,
+        text: line.replace(/\t/g, "    "),
         font: CODE_FONT,
         size: 20
       })
-    ]
+    );
+
+    if (index < lines.length - 1) {
+      runs.push(
+        new TextRun({
+          text: "",
+          break: 1,
+          font: CODE_FONT,
+          size: 20
+        })
+      );
+    }
+  });
+
+  return new Paragraph({
+    style: "CodeBlock",
+    children: runs.length > 0 ? runs : [new TextRun("")]
   });
 }
 
