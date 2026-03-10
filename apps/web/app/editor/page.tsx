@@ -82,13 +82,15 @@ const defaultReviewComposer = {
   additionalInstructions: ""
 };
 
-function redirectToLoginForCurrentPage() {
-  if (typeof window === "undefined") {
-    return;
+async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
+
+  if (!payload) {
+    return fallback;
   }
 
-  const next = `${window.location.pathname}${window.location.search}`;
-  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+  const parts = [payload.error, payload.code].filter((value): value is string => typeof value === "string" && value.length > 0);
+  return parts.length > 0 ? parts.join(" ") : fallback;
 }
 
 export default function EditorPage() {
@@ -307,8 +309,13 @@ export default function EditorPage() {
       });
 
       if (response.status === 401) {
-        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
-        redirectToLoginForCurrentPage();
+        const authError = await readApiErrorMessage(
+          response,
+          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+        );
+        setFeedback({ message: authError, tone: "error" });
+        setOperations([]);
+        setPatchDiagnostics(null);
         return;
       }
 
@@ -381,8 +388,13 @@ export default function EditorPage() {
       });
 
       if (response.status === 401) {
-        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
-        redirectToLoginForCurrentPage();
+        const authError = await readApiErrorMessage(
+          response,
+          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+        );
+        setFeedback({ message: authError, tone: "error" });
+        setReviewItems([]);
+        setReviewDiagnostics(null);
         return;
       }
 
@@ -545,8 +557,12 @@ export default function EditorPage() {
       });
 
       if (response.status === 401) {
-        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
-        redirectToLoginForCurrentPage();
+        const authError = await readApiErrorMessage(
+          response,
+          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+        );
+        setFeedback({ message: authError, tone: "error" });
+        setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "stale" } : entry)));
         return;
       }
 
@@ -669,8 +685,11 @@ export default function EditorPage() {
       });
 
       if (response.status === 401) {
-        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
-        redirectToLoginForCurrentPage();
+        const authError = await readApiErrorMessage(
+          response,
+          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+        );
+        setFeedback({ message: authError, tone: "error" });
         return;
       }
 
@@ -809,8 +828,11 @@ export default function EditorPage() {
           signal: controller.signal
         });
         if (response.status === 401) {
-          setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
-          redirectToLoginForCurrentPage();
+          const authError = await readApiErrorMessage(
+            response,
+            "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+          );
+          setFeedback({ message: authError, tone: "error" });
           return { aborted: true };
         }
 

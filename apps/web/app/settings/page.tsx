@@ -113,7 +113,18 @@ export default function SettingsPage() {
         });
 
         if (response.status === 401) {
-          window.location.assign(`/login?next=${encodeURIComponent("/settings")}`);
+          const authError = await readApiErrorMessage(
+            response,
+            "API відхилив сесію. Оновіть сторінку й увійдіть знову, якщо проблема повториться."
+          );
+          setConnectionStatus({
+            provider: settings.provider,
+            modelId: currentModelId,
+            state: "auth_error",
+            keySource: settings.apiKey.trim() ? "api_key" : "missing",
+            message: authError,
+            validatedAt: new Date().toISOString()
+          });
           return;
         }
 
@@ -497,6 +508,17 @@ export default function SettingsPage() {
       </section>
     </main>
   );
+}
+
+async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
+
+  if (!payload) {
+    return fallback;
+  }
+
+  const parts = [payload.error, payload.code].filter((value): value is string => typeof value === "string" && value.length > 0);
+  return parts.length > 0 ? parts.join(" ") : fallback;
 }
 
 function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
