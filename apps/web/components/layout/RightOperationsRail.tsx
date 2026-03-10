@@ -1,6 +1,7 @@
 import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import type { EditorialReviewDiagnostics, EditorialReviewItem } from "../../lib/editor/review-contract";
+import { getAiActivityTaskMessage, getAiActivityTaskTone, type AiActivityTask } from "../../lib/editor/ai-activity";
 import { EditorialReviewCard } from "../editor/EditorialReviewCard";
 import { OperationCard } from "../editor/OperationCard";
 import { Button } from "../ui/Button";
@@ -20,6 +21,7 @@ export interface RequestHistoryItem {
 }
 
 export function RightOperationsRail({
+  aiTasks,
   canRequestReview,
   isIdle,
   patchDiagnostics,
@@ -42,8 +44,11 @@ export function RightOperationsRail({
   operations,
   reviewItemCount,
   statusMessage,
-  statusTone
+  statusTone,
+  onOpenAiTask,
+  onDismissAiTask
 }: {
+  aiTasks: AiActivityTask[];
   canRequestReview?: boolean;
   isIdle?: boolean;
   patchDiagnostics: PatchResponseDiagnostics | null;
@@ -67,6 +72,8 @@ export function RightOperationsRail({
   reviewItemCount: number;
   statusMessage?: string;
   statusTone?: "info" | "error";
+  onOpenAiTask: (task: AiActivityTask) => void;
+  onDismissAiTask: (taskId: string) => void;
 }) {
   const shouldShowFeedback = statusMessage && statusTone === "error";
   return (
@@ -95,6 +102,36 @@ export function RightOperationsRail({
           </p>
         ) : null}
       </section>
+
+      {aiTasks.length > 0 ? (
+        <section className="rail-section">
+          <div className="rail-section-head">
+            <p className="mono-ui operations-title">Результати ШІ</p>
+          </div>
+
+          <div className="request-history-stack">
+            {aiTasks.map((task) => (
+              <article key={task.id} className="editor-note-card request-status-card ai-task-card" data-tone={getAiActivityTaskTone(task)}>
+                <div className="request-history-head">
+                  <p className="editor-note-title">{task.title}</p>
+                  <span className="mono-ui request-history-badge">{task.status === "running" ? "..." : "new"}</span>
+                </div>
+                <p className="editor-note-copy">{getAiActivityTaskMessage(task)}</p>
+                <div className="button-row">
+                  {task.status !== "running" ? (
+                    <Button variant="primary" size="sm" onClick={() => onOpenAiTask(task)}>
+                      Відкрити
+                    </Button>
+                  ) : null}
+                  <Button variant="ghost" size="sm" onClick={() => onDismissAiTask(task.id)}>
+                    ×
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {reviewItems.length > 0 ? (
         <section className="rail-section">

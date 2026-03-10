@@ -4,10 +4,18 @@ import { startTransition, useEffect, useRef, useState } from "react";
 import { CodeMirrorCanvas } from "../../components/editor/CodeMirrorCanvas";
 import { DraftResetDialog } from "../../components/editor/DraftResetDialog";
 import { FloatingPromptPanel } from "../../components/editor/FloatingPromptPanel";
+import { useAiActivity } from "../../components/providers/AiActivityProvider";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { TopBar } from "../../components/layout/TopBar";
 import type { AppliedDiffMarker } from "../../lib/editor/applied-diff";
+import type {
+  AiActivityTask,
+  AiPatchTaskFailureResult,
+  AiPatchTaskSuccessResult,
+  AiReviewTaskFailureResult,
+  AiReviewTaskSuccessResult
+} from "../../lib/editor/ai-activity";
 import { DEFAULT_MANUSCRIPT_TEXT } from "../../lib/editor/default-manuscript";
 import {
   clearEditorDraftState,
@@ -94,6 +102,7 @@ async function readApiErrorMessage(response: Response, fallback: string): Promis
 }
 
 export default function EditorPage() {
+  const { tasks: aiTasks, trackTask, markTaskSeen, dismissTask } = useAiActivity();
   const [text, setText] = useState(DEFAULT_MANUSCRIPT_TEXT);
   const [revision, setRevision] = useState<ManuscriptRevisionState>(() => deriveManuscriptRevisionState(DEFAULT_MANUSCRIPT_TEXT));
   const [selection, setSelection] = useState<PatchSelection>({ start: 0, end: 0 });
@@ -124,6 +133,7 @@ export default function EditorPage() {
   const [reviewComposer, setReviewComposer] = useState(defaultReviewComposer);
   const imageInsertionGuardRef = useRef<string | null>(null);
   const reviewImagePollControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
     setSettings(readEditorSettings());
@@ -157,6 +167,7 @@ export default function EditorPage() {
 
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
       reviewImagePollControllerRef.current?.abort();
     };
   }, []);
@@ -177,8 +188,10 @@ export default function EditorPage() {
     isReviewImageInFlight ||
     isReviewImageInsertionInFlight ||
     isDocxExportInFlight;
+  const backgroundAiTasks = aiTasks.filter((task) => task.status === "running" || task.unread);
   const hasRailDetailContent =
     isAnyRequestInFlight ||
+    backgroundAiTasks.length > 0 ||
     operations.length > 0 ||
     reviewItems.length > 0 ||
     patchDiagnostics !== null ||
@@ -231,6 +244,96 @@ export default function EditorPage() {
           }
         : current
     );
+  }
+
+  function pushHistoryEntry(entry: RequestHistoryItem) {
+    setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 8));
+  }
+
+  function applyPatchTaskResult(result: AiPatchTaskSuccessResult, taskId?: string) {
+    startTransition(() => {
+      setSelection(result.selection);
+      setOperations(result.payload.operations);
+      setFeedback(result.feedback);
+      setPatchDiagnostics(result.payload.diagnostics);
+      setAppliedDiffs([]);
+      pushHistoryEntry(result.historyEntry);
+    });
+
+    if (taskId) {
+      markTaskSeen(taskId);
+    }
+  }
+
+  function applyReviewTaskResult(result: AiReviewTaskSuccessResult, taskId?: string) {
+    startTransition(() => {
+      setReviewItems(result.payload.items);
+      setCalloutKindOverrides({});
+      setFeedback(result.feedback);
+      setReviewDiagnostics(result.payload.diagnostics);
+      setActiveReviewItem(null);
+      clearActiveReviewImageJob();
+      setActiveProposal(null);
+      setIsReviewComposerOpen(false);
+      setSuppressFloatingPrompt(false);
+      pushHistoryEntry(result.historyEntry);
+    });
+
+    if (taskId) {
+      markTaskSeen(taskId);
+    }
+  }
+
+  function applyPatchTaskFailure(result: AiPatchTaskFailureResult, taskId?: string) {
+    setFeedback({ message: result.message, tone: "error" });
+    setOperations([]);
+    setPatchDiagnostics(result.diagnostics ?? null);
+
+    if (taskId) {
+      markTaskSeen(taskId);
+    }
+  }
+
+  function applyReviewTaskFailure(result: AiReviewTaskFailureResult, taskId?: string) {
+    setFeedback({ message: result.message, tone: "error" });
+    setReviewItems([]);
+    setReviewDiagnostics(result.diagnostics ?? null);
+
+    if (taskId) {
+      markTaskSeen(taskId);
+    }
+  }
+
+  function handleOpenAiTask(task: AiActivityTask) {
+    if (!task.result || task.status === "running") {
+      return;
+    }
+
+    if (task.result.sourceRevisionId !== revision.documentRevisionId) {
+      setFeedback({
+        message: "Результат готовий, але рукопис уже змінився. Запустіть запит ще раз.",
+        tone: "error"
+      });
+      markTaskSeen(task.id);
+      return;
+    }
+
+    if (task.result.kind === "patch") {
+      if (task.result.status === "failed") {
+        applyPatchTaskFailure(task.result, task.id);
+        return;
+      }
+
+      applyPatchTaskResult(task.result, task.id);
+      return;
+    }
+
+    if (task.result.status === "failed") {
+      applyReviewTaskFailure(task.result, task.id);
+      return;
+    }
+
+    applyReviewTaskResult(task.result, task.id);
   }
   useEffect(() => {
     if (!hasHydratedDraft) {
@@ -299,59 +402,100 @@ export default function EditorPage() {
     setPatchDiagnostics(null);
 
     try {
-      const response = await fetch("/api/edit/patch", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json"
+      const taskPromise = (async (): Promise<AiPatchTaskSuccessResult | AiPatchTaskFailureResult> => {
+        const response = await fetch("/api/edit/patch", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (response.status === 401) {
+          const authError = await readApiErrorMessage(
+            response,
+            "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+          );
+          return {
+            kind: "patch",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            selection: effectiveSelection,
+            message: authError,
+            diagnostics: null
+          };
+        }
+
+        const payload = (await response.json().catch(() => null)) as PatchResponse | null;
+
+        if (!payload) {
+          return {
+            kind: "patch",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            selection: effectiveSelection,
+            message: "Сервер повернув некоректну відповідь.",
+            diagnostics: null
+          };
+        }
+
+        if (!response.ok) {
+          return {
+            kind: "patch",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            selection: effectiveSelection,
+            message: payload.error ?? "Не вдалося побудувати локальні правки.",
+            diagnostics: "diagnostics" in payload ? payload.diagnostics : null
+          };
+        }
+
+        const nextFeedback = buildFeedbackMessage(payload, response.ok);
+        return {
+          kind: "patch",
+          status: "completed",
+          sourceRevisionId: revision.documentRevisionId,
+          selection: effectiveSelection,
+          payload,
+          feedback: nextFeedback,
+          historyEntry: createPatchHistoryEntry(payload, nextFeedback)
+        };
+      })();
+      const taskId = trackTask(
+        {
+          kind: "patch",
+          sourceRevisionId: revision.documentRevisionId,
+          title: mode === "custom" ? "Локальні правки" : "Базові правки"
         },
-        body: JSON.stringify(requestBody)
-      });
+        taskPromise
+      );
+      const result = await taskPromise;
 
-      if (response.status === 401) {
-        const authError = await readApiErrorMessage(
-          response,
-          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
-        );
-        setFeedback({ message: authError, tone: "error" });
-        setOperations([]);
-        setPatchDiagnostics(null);
+      if (!isMountedRef.current) {
         return;
       }
 
-      const payload = (await response.json().catch(() => null)) as PatchResponse | null;
-
-      if (!payload) {
-        setFeedback({ message: "Сервер повернув некоректну відповідь.", tone: "error" });
-        setOperations([]);
-        setPatchDiagnostics(null);
+      if (result.status === "failed") {
+        applyPatchTaskFailure(result, taskId);
         return;
       }
 
-      if (!response.ok) {
-        setFeedback({ message: payload.error ?? "Не вдалося побудувати локальні правки.", tone: "error" });
-        setOperations([]);
-        setPatchDiagnostics("diagnostics" in payload ? payload.diagnostics : null);
-        return;
-      }
-
-      const nextFeedback = buildFeedbackMessage(payload, response.ok);
-
-      startTransition(() => {
-        setSelection(effectiveSelection);
-        setOperations(payload.operations);
-        setFeedback(nextFeedback);
-        setPatchDiagnostics(payload.diagnostics);
-        setHistory((current) => [createPatchHistoryEntry(payload, nextFeedback), ...current].slice(0, 8));
-      });
+      applyPatchTaskResult(result, taskId);
     } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+
       setFeedback({
         message: error instanceof Error ? error.message : "Сталася помилка під час запиту до провайдера.",
         tone: "error"
       });
       setOperations([]);
     } finally {
-      setIsPatchRequestInFlight(false);
+      if (isMountedRef.current) {
+        setIsPatchRequestInFlight(false);
+      }
     }
   }
 
@@ -378,61 +522,96 @@ export default function EditorPage() {
     setReviewDiagnostics(null);
 
     try {
-      const response = await fetch("/api/edit/review", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json"
+      const taskPromise = (async (): Promise<AiReviewTaskSuccessResult | AiReviewTaskFailureResult> => {
+        const response = await fetch("/api/edit/review", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (response.status === 401) {
+          const authError = await readApiErrorMessage(
+            response,
+            "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
+          );
+          return {
+            kind: "review",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            message: authError,
+            diagnostics: null
+          };
+        }
+
+        const payload = (await response.json().catch(() => null)) as EditorialReviewResponse | null;
+
+        if (!payload) {
+          return {
+            kind: "review",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            message: "Сервер повернув некоректну відповідь.",
+            diagnostics: null
+          };
+        }
+
+        if (!response.ok) {
+          return {
+            kind: "review",
+            status: "failed",
+            sourceRevisionId: revision.documentRevisionId,
+            message: payload.error ?? "Не вдалося побудувати редакторський review.",
+            diagnostics: "diagnostics" in payload ? payload.diagnostics : null
+          };
+        }
+
+        const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
+        return {
+          kind: "review",
+          status: "completed",
+          sourceRevisionId: revision.documentRevisionId,
+          payload,
+          feedback: nextFeedback,
+          historyEntry: createReviewHistoryEntry(payload, nextFeedback)
+        };
+      })();
+      const taskId = trackTask(
+        {
+          kind: "review",
+          sourceRevisionId: revision.documentRevisionId,
+          title: "Огляд рукопису"
         },
-        body: JSON.stringify(requestBody)
-      });
+        taskPromise
+      );
+      const result = await taskPromise;
 
-      if (response.status === 401) {
-        const authError = await readApiErrorMessage(
-          response,
-          "API відхилив сесію. Оновіть сторінку. Якщо не допоможе, увійдіть знову."
-        );
-        setFeedback({ message: authError, tone: "error" });
-        setReviewItems([]);
-        setReviewDiagnostics(null);
+      if (!isMountedRef.current) {
         return;
       }
 
-      const payload = (await response.json().catch(() => null)) as EditorialReviewResponse | null;
-
-      if (!payload) {
-        setFeedback({ message: "Сервер повернув некоректну відповідь.", tone: "error" });
-        setReviewItems([]);
-        setReviewDiagnostics(null);
+      if (result.status === "failed") {
+        applyReviewTaskFailure(result, taskId);
         return;
       }
 
-      if (!response.ok) {
-        setFeedback({ message: payload.error ?? "Не вдалося побудувати редакторський review.", tone: "error" });
-        setReviewItems([]);
-        setReviewDiagnostics("diagnostics" in payload ? payload.diagnostics : null);
-        return;
-      }
-
-      const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
-
-      startTransition(() => {
-        setReviewItems(payload.items);
-        setCalloutKindOverrides({});
-        setFeedback(nextFeedback);
-        setReviewDiagnostics(payload.diagnostics);
-        setHistory((current) => [createReviewHistoryEntry(payload, nextFeedback), ...current].slice(0, 8));
-        setIsReviewComposerOpen(false);
-        setSuppressFloatingPrompt(false);
-      });
+      applyReviewTaskResult(result, taskId);
     } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+
       setFeedback({
         message: error instanceof Error ? error.message : "Сталася помилка під час редакторського review.",
         tone: "error"
       });
       setReviewItems([]);
     } finally {
-      setIsReviewRequestInFlight(false);
+      if (isMountedRef.current) {
+        setIsReviewRequestInFlight(false);
+      }
     }
   }
 
@@ -1477,6 +1656,7 @@ export default function EditorPage() {
         }
         right={
           <RightOperationsRail
+            aiTasks={backgroundAiTasks}
             canRequestReview={!isAnyRequestInFlight}
             isIdle={!hasRailDetailContent}
             patchDiagnostics={patchDiagnostics}
@@ -1501,6 +1681,8 @@ export default function EditorPage() {
             reviewItemCount={reviewItems.length}
             statusMessage={feedback?.message}
             statusTone={feedback?.tone}
+            onOpenAiTask={handleOpenAiTask}
+            onDismissAiTask={dismissTask}
             onAccept={handleAccept}
             onAcceptAll={handleAcceptAll}
             onReject={handleReject}

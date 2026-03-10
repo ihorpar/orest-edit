@@ -2,6 +2,11 @@
 
 ## 2026-03-10
 
+### Background AI results live above route pages
+Decision: patch and whole-text review requests are tracked in an app-level client activity store, not only inside `/editor` page state.
+
+Reason: route switches to `/settings` or other pages can unmount the editor before the AI response arrives; the result must still surface through a durable top-bar indicator and editor inbox instead of disappearing.
+
 ### Review execution uses full anchored paragraph range
 Decision: when preparing or focusing a whole-text recommendation, selection resolution must preserve the full `anchor.paragraphIds` range and must not shrink execution scope to an excerpt substring match.
 

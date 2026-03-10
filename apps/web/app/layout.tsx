@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { IBM_Plex_Mono, Inter, Lora } from "next/font/google";
+import { AppProviders } from "../components/providers/AppProviders";
 import "./globals.css";
 
 const uiFont = Inter({ subsets: ["latin"], variable: "--font-ui" });
@@ -21,7 +22,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="uk">
-      <body className={`${uiFont.variable} ${monoFont.variable} ${manuscriptFont.variable}`}>{children}</body>
+      <body className={`${uiFont.variable} ${monoFont.variable} ${manuscriptFont.variable}`}>
+        <AppProviders>{children}</AppProviders>
+      </body>
     </html>
   );
 }

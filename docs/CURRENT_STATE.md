@@ -24,6 +24,7 @@ Status: Active handoff
 - Whole-text recommendation detail now renders in a synchronized side overlay instead of squeezing itself into the manuscript flow
 - Image markdown stays in the manuscript source, while the selected image preview now renders in a detached side overlay so pasted/generated images do not change line geometry
 - Review image generation now runs through an async job flow (`queued`/`processing`/`completed`/`failed`) with polling, and the side review detail renders the live job state before insertion
+- Gemini image requests now use image-only modality (`IMAGE`) to match the image-draft generation contract
 - Image-generation failures now include Gemini diagnostics in the surfaced error text (for example `blockReason`, `finishReason`, and a short text snippet when no image bytes are returned)
 - Recommendation detail no longer repeats a long `Фрагмент` excerpt in the right panel; the manuscript highlight and paragraph anchor stay the single source of context
 - Image-proposal prompt now shows a compact preview by default and supports inline edit-before-generate without forcing an extra click just to see the text
@@ -38,6 +39,7 @@ Status: Active handoff
 - Right review rail is now always visible on desktop as the permanent document-action and review area
 - The top bar no longer repeats pending-review status; the idle editor state is now manuscript-first with a slim review card on the right
 - Loading feedback is now contextual: the review button, right-rail loading cards, and floating prompt each show subtle in-place motion instead of a blocking editor overlay
+- Patch and whole-text review requests now survive route switches through an app-level AI activity store; the top bar shows a live AI badge, and the editor right rail exposes unread background results with `Відкрити`
 - Patch API route at `/api/edit/patch`
 - Editorial review API route at `/api/edit/review`
 - Review image route at `/api/edit/review/image` now supports async enqueue (`POST`) and job-status polling (`GET ?jobId=...`)
@@ -110,6 +112,7 @@ Status: Active handoff
 - The floating selection composer no longer repeats the selected text in a separate preview card; the manuscript highlight is the source of truth.
 - The floating selection composer is now custom-only: no separate default-action button remains inside it.
 - Whole-text review is a separate diagnostic flow, not a rewrite flow: it analyzes the full manuscript and returns editor-facing recommendations with exact text anchors.
+- Core AI request results are route-durable for patch and whole-text review: if `/editor` unmounts during processing, unread completions still surface through the global AI badge and the editor inbox when the user returns.
 - Whole-text review anchors against paragraph numbers and excerpt text, while local patching still uses character offsets.
 - After a request is sent, the floating selection composer collapses automatically and can be reopened from its top-right toggle.
 - After accept, the manuscript switches into a short review mode that shows applied edits inline as diffs until the user clicks back into editing.
@@ -199,4 +202,6 @@ Status: Active handoff
 - current local Next listener is on `3001`; code and docs still treat `3000` as the default local port and `PORT` as the production contract
 - a one-line README edit still failed through the native `apply_patch` tool in this session, even after repo text normalization, so shell fallback remains necessary here
 - `npm run typecheck` passed after the review-selection and list-proposal fixes
+- `npm run typecheck` passed after adding the app-level AI activity store, top-bar status badge, and editor result inbox for background patch/review completions
+- `npm run build` passed after the same background-result pass
 - `node --import tsx --test apps/web/test/review-image-insertion.test.ts` passed, including new regressions for full-range review selection and enforced list-shaped proposal output

@@ -16,6 +16,7 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Progress
 
+- [x] (2026-03-10 00:00Z) Moved patch/review request tracking above the route boundary, added a top-bar AI activity badge plus right-rail result inbox, and preserved unread results when the user leaves `/editor` during AI processing.
 - [x] (2026-03-10 00:00Z) Fixed whole-text review range targeting so `Працюй!` now keeps the full anchored paragraph span instead of collapsing to a shorter excerpt match.
 - [x] (2026-03-10 00:00Z) Added list-specific proposal enforcement for `recommendationType = list`: prompt now requires markdown list output, non-list provider output is normalized to a deterministic bullet list, and the review detail apply CTA now reads `Застосувати список`.
 - [x] (2026-03-10 00:00Z) Implemented browser-side DOCX export with a toolbar action, markdown-to-DOCX rendering (headings/lists/tables/code/callouts), image embedding from `asset:`/`data:`/`http(s)`, placeholder warnings for unresolved images, and dedicated export tests.
@@ -94,6 +95,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 - [x] (2026-03-08 11:05Z) Softened technical image-source tokens in the CM6 manuscript so `asset:` references remain source-visible but no longer dominate the manuscript line visually.
 
 ## Surprises & Discoveries
+
+- Observation: draft persistence alone does not solve route-switch trust gaps when the result arrives after the editor page unmounts.
+  Evidence: `apps/web/lib/editor/draft-state.ts` already restored manuscript/session data, but patch/review completions were still owned by `apps/web/app/editor/page.tsx`, so leaving `/editor` during an in-flight request meant the finished result had no visible landing place.
 
 - Observation: excerpt-based selection recovery can silently override a valid multi-paragraph anchor and collapse execution to one paragraph.
   Evidence: `resolveReviewItemSelection()` passed the full range plus `anchor.excerpt`, and `resolveRangeSelection()` preferred excerpt match bounds when found, so a `036-042` recommendation could execute on one paragraph if the excerpt string came from only that paragraph.
@@ -271,6 +275,9 @@ The next major goal is to replace the unstable split between idle markdown previ
 
 ## Decision Log
 
+- Decision: patch and whole-text review requests now publish into an app-level AI activity store above route-level pages, with unread-result surfacing in the top bar and editor rail.
+  Rationale: background AI work is a cross-route activity, not a local panel concern; results must remain visible and reopenable even if `/editor` unmounts during processing.
+  Date/Author: 2026-03-10 / Codex implementation
 - Decision: review-item execution selection now prioritizes anchored paragraph IDs over excerpt text matching.
   Rationale: excerpt text is useful for human context, but using it to narrow execution can break the patch-first contract by shrinking a multi-paragraph recommendation to one paragraph.
   Date/Author: 2026-03-10 / Codex implementation
@@ -486,6 +493,8 @@ The next major goal is to replace the unstable split between idle markdown previ
   Date/Author: 2026-03-08 / Codex + User
 
 ## Outcomes & Retrospective
+
+The latest background-result pass closes the remaining route-switch trust gap for core AI requests. Patch and whole-text review work now continues through an app-level activity store, the top bar shows live AI status and unread completions, and the editor rail exposes an explicit inbox so results can be reopened instead of silently disappearing when the user visits `/settings`.
 
 The latest review-action pass fixed the biggest trust break in whole-text recommendations. Executing `Працюй!` no longer collapses a multi-paragraph anchor to a single excerpt match; it now keeps the full anchored paragraph span, shows the anchored fragment in detail UI, and enforces real markdown list output for `list` recommendations with deterministic local fallback when the provider returns non-list prose.
 

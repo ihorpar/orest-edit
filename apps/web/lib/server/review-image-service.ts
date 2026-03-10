@@ -56,7 +56,7 @@ export async function generateReviewImage(
           }
         ],
         generationConfig: {
-          responseModalities: ["Image"],
+          responseModalities: ["IMAGE"],
           imageConfig: {
             aspectRatio: "4:3",
             imageSize: "2K"

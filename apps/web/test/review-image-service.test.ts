@@ -43,7 +43,7 @@ test("generateReviewImage sends generationConfig with responseModalities and ima
   assert.equal(typeof requestBody.responseModalities, "undefined");
   assert.equal(typeof requestBody.imageConfig, "undefined");
   assert.deepEqual(requestBody.generationConfig, {
-    responseModalities: ["Image"],
+    responseModalities: ["IMAGE"],
     imageConfig: {
       aspectRatio: "4:3",
       imageSize: "2K"
