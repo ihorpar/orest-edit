@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { ChatMessage, ReviewSessionStatus, WholeTextChangeLevel } from "../../lib/editor/review-contract";
+import type { ReviewSessionStatus, WholeTextChangeLevel } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
@@ -16,47 +16,34 @@ export function EditorialReviewDrawer({
     isOpen,
     status,
     expertise,
-    history,
+    reviewItemsCount,
     reviewLoading,
     reviewChangeLevel,
     reviewAdditionalInstructions,
     onReviewChangeLevel,
     onReviewAdditionalInstructionsChange,
     onAnalyze,
-    onChat,
     onGenerateCards,
     onClose
 }: {
     isOpen: boolean;
     status: ReviewSessionStatus;
     expertise: string | null;
-    history: ChatMessage[];
+    reviewItemsCount: number;
     reviewLoading?: boolean;
     reviewChangeLevel: WholeTextChangeLevel;
     reviewAdditionalInstructions: string;
     onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
     onReviewAdditionalInstructionsChange: (value: string) => void;
     onAnalyze: () => void;
-    onChat: (message: string) => void;
-    onGenerateCards: () => void;
+    onGenerateCards: (feedback: string) => void;
     onClose: () => void;
 }) {
     const [inputText, setInputText] = useState("");
-    const chatEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [history, expertise, isOpen]);
 
     if (!isOpen) return null;
 
-    const handleSend = () => {
-        if (!inputText.trim()) return;
-        onChat(inputText.trim());
-        setInputText("");
-    };
-
-    const isSetup = status === "expertise" && !expertise && history.length === 0;
+    const isSetup = status === "expertise" && !expertise;
 
     return (
         <div className="review-drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -68,7 +55,7 @@ export function EditorialReviewDrawer({
                     </button>
                 </header>
 
-                <div className="review-sidebar-body" style={{ height: "calc(100vh - 61px)" }}>
+                <div className="review-sidebar-body" style={{ height: "calc(100vh - 61px)", overflowY: "auto", display: "flex", flexDirection: "column" }}>
                     {isSetup ? (
                         <div className="review-drawer-setup">
                             <p className="mono-ui">Налаштування перевірки</p>
@@ -104,55 +91,42 @@ export function EditorialReviewDrawer({
                             </div>
                         </div>
                     ) : (
-                        <div className="review-chat-flow">
-                            <div className="review-chat-scroll">
+                        <div className="review-analysis-display" style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                            <div style={{ flex: 1, paddingBottom: '20px' }}>
                                 {expertise && (
-                                    <article className="review-chat-expert">
-                                        <div className="review-chat-bubble">
-                                            <ReactMarkdown>{expertise}</ReactMarkdown>
-                                        </div>
-                                    </article>
+                                    <div style={{ fontSize: '14px', lineHeight: 1.6, color: 'var(--ink)' }}>
+                                        <ReactMarkdown>{expertise}</ReactMarkdown>
+                                    </div>
                                 )}
-                                {history.map((msg) => (
-                                    <article key={msg.id} className={`review-chat-msg review-chat-msg-${msg.role}`}>
-                                        <div className="review-chat-bubble">
-                                            <p>{msg.content}</p>
-                                        </div>
-                                    </article>
-                                ))}
-                                {reviewLoading && (
-                                    <article className="review-chat-msg review-chat-msg-assistant">
-                                        <div className="review-chat-bubble">
-                                            <span className="loading-inline-dots">
-                                                <span /><span /><span />
-                                            </span>
-                                        </div>
-                                    </article>
+                                {reviewLoading && !expertise && (
+                                    <div style={{ marginTop: '20px' }}>
+                                        <span className="loading-inline-dots"><span /><span /><span /></span>
+                                    </div>
                                 )}
-                                <div ref={chatEndRef} />
                             </div>
 
-                            <div className="review-chat-input">
-                                <textarea
-                                    className="review-chat-textarea"
-                                    placeholder="Запитати або уточнити..."
-                                    value={inputText}
-                                    onChange={(e) => setInputText(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSend();
-                                        }
-                                    }}
-                                />
-                                <div className="button-row" style={{ justifyContent: "space-between" }}>
-                                    <Button variant="secondary" size="sm" onClick={handleSend} disabled={!inputText.trim() || reviewLoading}>
-                                        Сказати
-                                    </Button>
-                                    <Button variant="primary" size="sm" onClick={onGenerateCards} disabled={reviewLoading}>
-                                        Перейти до карток
-                                    </Button>
-                                </div>
+                            <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid var(--porcelain)' }}>
+                                {reviewItemsCount > 0 && !reviewLoading ? (
+                                    <div style={{ padding: '20px', background: '#f0fdf4', borderRadius: '6px', textAlign: 'center', border: '1px solid #bbf7d0' }}>
+                                        <p style={{ margin: '0 0 12px 0', fontWeight: 500, color: '#166534' }}>Етап завершено. Картки згенеровано.</p>
+                                        <Button variant="primary" onClick={onClose}>Перейти до карток</Button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <textarea
+                                            placeholder="Додатковий коментар (наприклад, з чим ви згодні, а з чим ні)..."
+                                            value={inputText}
+                                            onChange={(e) => setInputText(e.target.value)}
+                                            style={{ width: '100%', minHeight: '80px', padding: '12px', border: '1px solid #eef2f7', borderRadius: '6px', resize: 'vertical', fontSize: '13px', background: '#f8fafc' }}
+                                            disabled={reviewLoading}
+                                        />
+                                        <div className="button-row" style={{ justifyContent: "flex-end", marginTop: '12px' }}>
+                                            <Button variant="primary" onClick={() => onGenerateCards(inputText)} loading={reviewLoading}>
+                                                ШІ, працюй!
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}

@@ -300,7 +300,8 @@ export default function EditorPage() {
 
   function focusReviewItem(item: EditorialReviewItem) {
     const nextSelection = resolveReviewItemSelection(document, revision, item);
-    setSelection(nextSelection);
+    // User requested to not select the paragraph to avoid triggering the local patch toolbar
+    setSelection(EMPTY_BLOCK_SELECTION);
     setFocusedBlockId(nextSelection.focusBlockId ?? nextSelection.anchorBlockId);
     setActiveReviewItemId(item.id);
 
@@ -309,7 +310,7 @@ export default function EditorPage() {
     if (anchorBlockId) {
       window.requestAnimationFrame(() => {
         const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
-        element?.scrollIntoView({ block: "start", behavior: "smooth" });
+        element?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
 
@@ -317,6 +318,21 @@ export default function EditorPage() {
     if (item.status === 'pending') {
       void prepareReviewItem(item);
     }
+  }
+
+  function handleGenerateCards(feedbackText: string) {
+    let nextHistory = reviewChatHistory;
+    if (feedbackText && feedbackText.trim()) {
+      const newUserMsg: ChatMessage = {
+        id: createPatchId("chat"),
+        role: "user",
+        content: feedbackText.trim(),
+        timestamp: new Date().toISOString()
+      };
+      nextHistory = [...reviewChatHistory, newUserMsg];
+      setReviewChatHistory(nextHistory);
+    }
+    void requestEditorialReview("cards", nextHistory);
   }
 
   function handleAcceptProposal(proposalId: string, editedText: string) {
@@ -605,7 +621,9 @@ export default function EditorPage() {
             reviewRevision={revision}
             activeReviewItemId={activeReviewItemId}
             history={history}
+            isReviewDrawerOpen={isReviewDrawerOpen}
             onOpenReviewDrawer={() => setIsReviewDrawerOpen(true)}
+            onCloseReviewDrawer={() => setIsReviewDrawerOpen(false)}
             onOpenLocalComposer={() => setComposerMode("local")}
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
@@ -630,18 +648,14 @@ export default function EditorPage() {
         isOpen={isReviewDrawerOpen}
         status={reviewStatus}
         expertise={reviewExpertise}
-        history={reviewChatHistory}
+        reviewItemsCount={reviewItems.length}
         reviewLoading={isReviewRequestInFlight}
         reviewChangeLevel={reviewComposer.changeLevel}
         reviewAdditionalInstructions={reviewComposer.additionalInstructions}
         onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
         onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
         onAnalyze={() => void requestEditorialReview("expertise")}
-        onChat={handleReviewChat}
-        onGenerateCards={() => {
-          void requestEditorialReview("cards");
-          setIsReviewDrawerOpen(false);
-        }}
+        onGenerateCards={handleGenerateCards}
         onClose={() => setIsReviewDrawerOpen(false)}
       />
     </>
