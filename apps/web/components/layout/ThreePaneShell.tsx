@@ -5,13 +5,15 @@ export function ThreePaneShell({
   center,
   right,
   rightState = "active",
-  rightCollapsed = false
+  rightCollapsed = false,
+  wideRight = false
 }: {
   left?: ReactNode;
   center: ReactNode;
   right: ReactNode;
   rightState?: "idle" | "active";
   rightCollapsed?: boolean;
+  wideRight?: boolean;
 }) {
   return (
     <div
@@ -19,6 +21,7 @@ export function ThreePaneShell({
       data-has-left={left ? "true" : "false"}
       data-right-collapsed={rightCollapsed ? "true" : "false"}
       data-right-state={rightState}
+      data-wide-right={wideRight ? "true" : "false"}
     >
       {left ? <aside className="left-pane">{left}</aside> : null}
       <section className="center-pane">

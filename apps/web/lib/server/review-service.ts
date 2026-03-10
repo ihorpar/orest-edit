@@ -137,6 +137,7 @@ const geminiSchema = {
 type FetchLike = typeof fetch;
 type EditorialReviewProviderResult = {
   items: EditorialReviewItem[];
+  expertise?: string;
   droppedItemCount: number;
   providerUsed: string;
   rawOutput?: string;
@@ -205,6 +206,7 @@ export async function generateEditorialReview(
       blockCount,
       changeLevel: request.changeLevel,
       items: result.items,
+      expertise: result.expertise,
       droppedItemCount: result.droppedItemCount,
       usedFallback: false,
       generatedAt: now(),
@@ -230,6 +232,7 @@ function buildEditorialReviewResponse(input: {
   blockCount: number;
   changeLevel: EditorialReviewRequest["changeLevel"];
   items: EditorialReviewItem[];
+  expertise?: string;
   droppedItemCount: number;
   usedFallback: boolean;
   generatedAt: string;
@@ -239,6 +242,7 @@ function buildEditorialReviewResponse(input: {
   return {
     reviewSessionId: input.reviewSessionId,
     items: input.items,
+    expertise: input.expertise,
     providerUsed: input.providerUsed,
     usedFallback: input.usedFallback,
     error: input.error,
@@ -290,30 +294,41 @@ async function createOpenAiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
+    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+    const body: any = {
+      model: request.modelId,
+      temperature: 0.2,
+      instructions: buildEditorialReviewSystemPrompt(request),
+      input: buildEditorialReviewUserPrompt(request)
+    };
+
+    if (!isExpertise) {
+      body.text = {
+        format: {
+          type: "json_schema",
+          name: "editorial_review",
+          strict: true,
+          schema: openAiSchema
+        }
+      };
+    }
+
     const response = await fetchImpl(openAiEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: request.modelId,
-        temperature: 0.2,
-        instructions: buildEditorialReviewSystemPrompt(request),
-        input: buildEditorialReviewUserPrompt(request),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "editorial_review",
-            strict: true,
-            schema: openAiSchema
-          }
-        }
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
 
     const rawOutput = await readProviderText(response);
+
+    if (isExpertise) {
+      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "openai", rawOutput };
+    }
+
     return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "openai", rawOutput);
   } finally {
     clearTimeout(timeout);
@@ -330,26 +345,37 @@ async function createGeminiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
+    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+    const body: any = {
+      systemInstruction: {
+        parts: [{ text: buildEditorialReviewSystemPrompt(request) }]
+      },
+      contents: [{ role: "user", parts: [{ text: buildEditorialReviewUserPrompt(request) }] }],
+      generationConfig: {
+        temperature: 0.2
+      }
+    };
+
+    if (!isExpertise) {
+      body.generationConfig.responseMimeType = "application/json";
+      body.generationConfig.responseSchema = geminiSchema;
+    }
+
     const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: buildEditorialReviewSystemPrompt(request) }]
-        },
-        contents: [{ role: "user", parts: [{ text: buildEditorialReviewUserPrompt(request) }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json",
-          responseSchema: geminiSchema
-        }
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
 
     const rawOutput = await readGeminiText(response);
+
+    if (isExpertise) {
+      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "gemini", rawOutput };
+    }
+
     return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
   } finally {
     clearTimeout(timeout);
@@ -366,6 +392,11 @@ async function createAnthropicEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
+    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+    const systemPrompt = isExpertise
+      ? `${buildEditorialReviewSystemPrompt(request)} Роби розлогий критичний аналіз тексту.`
+      : `${buildEditorialReviewSystemPrompt(request)} Поверни лише JSON-об'єкт {"items":[...]} без markdown.`;
+
     const response = await fetchImpl(anthropicEndpoint, {
       method: "POST",
       headers: {
@@ -377,13 +408,18 @@ async function createAnthropicEditorialReview(
         model: request.modelId,
         max_tokens: 3600,
         temperature: 0.2,
-        system: `${buildEditorialReviewSystemPrompt(request)} Поверни лише JSON-об'єкт {"items":[...]} без markdown.`,
+        system: systemPrompt,
         messages: [{ role: "user", content: buildEditorialReviewUserPrompt(request) }]
       }),
       signal: controller.signal
     });
 
     const rawOutput = await readAnthropicText(response);
+
+    if (isExpertise) {
+      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "anthropic", rawOutput };
+    }
+
     return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "anthropic", rawOutput);
   } finally {
     clearTimeout(timeout);
@@ -418,25 +454,44 @@ function buildNormalizedReviewResult(
 }
 
 function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): string {
-  return [
+  const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+
+  const basePrompts = [
     request.basePrompt?.trim(),
     request.reviewPrompt?.trim(),
     request.reviewLevelGuide?.trim(),
-    "Ти робиш редакторський review всього документа.",
-    "Кожна рекомендація має бути прив'язана до одного або кількох суміжних block index.",
-    "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+    "Ти робиш редакторський review всього документа."
+  ];
+
+  if (isExpertise) {
+    basePrompts.push(
+      "Зараз етап ЕКСПЕРТИЗИ. Твоє завдання — проаналізувати текст загалом, вказати на структурні, логічні та стилістичні проблеми.",
+      "Зверни особливу увагу на кастомні інструкції користувача.",
+      "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором."
+    );
+  } else {
+    basePrompts.push(
+      "Зараз етап ГЕНЕРАЦІЇ ПРАВОК. На основі попереднього аналізу та діалогу з користувачем, запропонуй конкретні локальні зміни.",
+      "Кожна рекомендація має бути прив'язана до одного або кількох суміжних block index.",
+      "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visualize', 'illustration'.",
+      "Значення suggestedAction: 'rewrite_text', 'prepare_callout', 'prepare_visual'.",
+      "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
+    );
+  }
+
+  return basePrompts.filter(Boolean).join("\n\n");
 }
 
 function buildEditorialReviewUserPrompt(request: EditorialReviewRequest): string {
   const lines = request.document.blocks.map((block, index) => `${index}. [${block.id}] ${getBlockText(block)}`);
+  const historyLines = (request.history ?? []).map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`);
 
   return [
+    historyLines.length > 0 ? `Контекст діалогу:\n${historyLines.join("\n")}` : null,
     `Рівень змін: ${request.changeLevel}/5.`,
-    request.additionalInstructions?.trim() ? `Додаткові інструкції: ${request.additionalInstructions.trim()}` : null,
+    request.additionalInstructions?.trim() ? `Додаткові інструкції користувача: ${request.additionalInstructions.trim()}` : null,
     "Оціни документ по блоках. Поверни лише найцінніші рекомендації.",
+    "Документ:",
     lines.join("\n")
   ]
     .filter(Boolean)

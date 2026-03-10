@@ -30,9 +30,13 @@ import {
   removeBlocksByIds,
   type DividerBlock
 } from "../../lib/editor/document-model";
-import { getEditorialCalloutKindLabel } from "../../lib/editor/review-contract";
+import {
+  getEditorialCalloutKindLabel,
+  type ReviewActionProposal
+} from "../../lib/editor/review-contract";
 import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
+import { BlockDiffOverlay } from "./BlockDiffOverlay";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 import {
   Bold,
@@ -70,7 +74,10 @@ export function BlockEditorSurface({
   onDocumentChange,
   onSelectionChange,
   onFocusedBlockChange,
-  onInsertImage
+  onInsertImage,
+  activeProposal,
+  onAcceptProposal,
+  onRejectProposal
 }: {
   document: EditorDocument;
   selection: BlockSelection;
@@ -80,6 +87,9 @@ export function BlockEditorSurface({
   onSelectionChange: (selection: BlockSelection) => void;
   onFocusedBlockChange: (blockId: string | null) => void;
   onInsertImage: (file: File, anchorBlockId: string | null) => Promise<void>;
+  activeProposal?: ReviewActionProposal | null;
+  onAcceptProposal?: (proposalId: string, editedText: string) => void;
+  onRejectProposal?: (proposalId: string) => void;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
@@ -584,7 +594,17 @@ export function BlockEditorSurface({
               data-block-id={block.id}
               data-selected={isSelected ? "true" : "false"}
               data-focused={isFocused ? "true" : "false"}
+              style={{ position: "relative" }}
             >
+              {activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds[0] === block.id && (
+                <BlockDiffOverlay
+                  oldBlocks={activeProposal.textDiff.oldBlocks}
+                  newBlocks={activeProposal.textDiff.newBlocks}
+                  reason={activeProposal.textDiff.reason}
+                  onAccept={(text) => onAcceptProposal?.(activeProposal.id, text)}
+                  onReject={() => onRejectProposal?.(activeProposal.id)}
+                />
+              )}
               <button
                 type="button"
                 className="block-editor-gutter"

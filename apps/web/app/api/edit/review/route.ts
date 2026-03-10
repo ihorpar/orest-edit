@@ -111,7 +111,9 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
         typeof record.calloutPromptTemplate === "string" && record.calloutPromptTemplate.trim() ? record.calloutPromptTemplate.trim() : undefined,
       changeLevel: changeLevel as EditorialReviewRequest["changeLevel"],
       additionalInstructions:
-        typeof record.additionalInstructions === "string" && record.additionalInstructions.trim() ? record.additionalInstructions.trim() : undefined
+        typeof record.additionalInstructions === "string" && record.additionalInstructions.trim() ? record.additionalInstructions.trim() : undefined,
+      history: Array.isArray(record.history) ? (record.history as any[]) : undefined,
+      currentStatus: (record.currentStatus === "expertise" || record.currentStatus === "cards") ? record.currentStatus : undefined
     }
   };
 }

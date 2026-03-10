@@ -26,6 +26,22 @@ export type EditorialVisualIntent = "diagram" | "comparison" | "process" | "time
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
 export type ReviewActionProposalKind = "text_diff" | "callout_prompt" | "image_prompt" | "stale_anchor";
+export type ReviewSessionStatus = "expertise" | "cards";
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+export interface EditorialReviewSession {
+  sessionId: string;
+  history: ChatMessage[];
+  currentExpertise: string | null;
+  items: EditorialReviewItem[];
+  status: ReviewSessionStatus;
+}
 
 export interface EditorialReviewRequest {
   document: EditorDocument;
@@ -39,6 +55,8 @@ export interface EditorialReviewRequest {
   calloutPromptTemplate?: string;
   changeLevel: WholeTextChangeLevel;
   additionalInstructions?: string;
+  history?: ChatMessage[];
+  currentStatus?: ReviewSessionStatus;
 }
 
 export interface EditorialReviewItem {
@@ -93,6 +111,7 @@ export interface EditorialReviewDiagnostics {
 export interface EditorialReviewResponse {
   reviewSessionId: string;
   items: EditorialReviewItem[];
+  expertise?: string;
   providerUsed: string;
   usedFallback: boolean;
   error?: string;

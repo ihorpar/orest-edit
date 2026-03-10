@@ -5,10 +5,11 @@ import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
 import { TopBar } from "../../components/layout/TopBar";
 import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
+import { EditorialReviewSidebar } from "../../components/layout/EditorialReviewSidebar";
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { Button } from "../../components/ui/Button";
-import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock } from "../../lib/editor/document-model";
-import { createBlockId, createInlineText, EMPTY_BLOCK_SELECTION, insertBlocksAfter, normalizeBlockSelection } from "../../lib/editor/document-model";
+import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
+import { createBlockId, createInlineText, EMPTY_BLOCK_SELECTION, insertBlocksAfter, normalizeBlockSelection, removeBlocksByIds, replaceBlocksByIds } from "../../lib/editor/document-model";
 import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState } from "../../lib/editor/draft-state";
 import { exportDocumentToDocx } from "../../lib/editor/docx-export";
@@ -30,12 +31,14 @@ import {
 import {
   getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
+  type ChatMessage,
   type EditorialReviewDiagnostics,
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type ReviewActionProposal,
   type ReviewActionResponse,
+  type ReviewSessionStatus,
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { DEFAULT_EDITOR_SETTINGS, readEditorSettings, type EditorSettings } from "../../lib/editor/settings";
@@ -79,6 +82,9 @@ export default function EditorPage() {
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
   const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
+  const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
+  const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
+  const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
@@ -219,9 +225,12 @@ export default function EditorPage() {
     }
   }
 
-  async function requestEditorialReview() {
+  async function requestEditorialReview(overrideStatus?: ReviewSessionStatus, overrideHistory?: ChatMessage[]) {
     setIsReviewRequestInFlight(true);
     setFeedback(null);
+
+    const targetStatus = overrideStatus ?? reviewStatus;
+    const targetHistory = overrideHistory ?? reviewChatHistory;
 
     try {
       const requestBody: EditorialReviewRequest = {
@@ -235,7 +244,9 @@ export default function EditorPage() {
         reviewLevelGuide: settings.reviewLevelGuide,
         calloutPromptTemplate: settings.calloutPromptTemplate,
         changeLevel: reviewComposer.changeLevel,
-        additionalInstructions: reviewComposer.additionalInstructions
+        additionalInstructions: reviewComposer.additionalInstructions,
+        currentStatus: targetStatus,
+        history: targetHistory
       };
 
       const response = await fetch("/api/edit/review", {
@@ -247,11 +258,23 @@ export default function EditorPage() {
       const payload = (await response.json()) as EditorialReviewResponse;
       const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
 
-      setReviewItems(payload.items);
+      if (payload.expertise) {
+        setReviewExpertise(payload.expertise);
+        setReviewStatus("expertise");
+      }
+
+      if (payload.items.length > 0 || targetStatus === "cards") {
+        setReviewItems(payload.items);
+        setReviewStatus("cards");
+      }
+
       setReviewDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
       pushHistoryEntry(createHistoryEntry("review", payload.providerUsed, settings.provider, settings.modelId, payload.items.length, payload.diagnostics.droppedItemCount, payload.usedFallback, nextFeedback));
-      setComposerMode(null);
+
+      if (targetStatus === "expertise" && !payload.error) {
+        setComposerMode(null); // Keep sidebar open if it's already open by other means
+      }
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -260,6 +283,45 @@ export default function EditorPage() {
     } finally {
       setIsReviewRequestInFlight(false);
     }
+  }
+
+  function handleReviewChat(message: string) {
+    const newUserMsg: ChatMessage = {
+      id: createPatchId("chat"),
+      role: "user",
+      content: message,
+      timestamp: new Date().toISOString()
+    };
+    const nextHistory = [...reviewChatHistory, newUserMsg];
+    setReviewChatHistory(nextHistory);
+    void requestEditorialReview("expertise", nextHistory);
+  }
+
+  function handleAcceptProposal(proposalId: string, editedText: string) {
+    if (!activeProposal) return;
+
+    if (activeProposal.kind === "text_diff" && activeProposal.textDiff) {
+      const nextBlocks = activeProposal.textDiff.newBlocks.map((b) => {
+        if (b.type === "paragraph" || b.type === "heading") {
+          return { ...b, content: [createInlineText(editedText)] };
+        }
+        return b;
+      });
+
+      const nextDocument = replaceBlocksByIds(document, activeProposal.textDiff.blockIds, nextBlocks);
+      commitDocument(nextDocument);
+      setOperations((current) => current.filter((op) => op.id !== proposalId));
+      setFeedback({ tone: "info", message: "Правку застосовано." });
+    }
+
+    setActiveProposal(null);
+    setActiveReviewItemId(null);
+  }
+
+  function handleRejectProposal(proposalId: string) {
+    setOperations((current) => current.filter((op) => op.id !== proposalId));
+    setActiveProposal(null);
+    setActiveReviewItemId(null);
   }
 
   function acceptOperation(operationId: string) {
@@ -359,16 +421,16 @@ export default function EditorPage() {
           current.map((entry) =>
             entry.id === item.id
               ? {
-                  ...entry,
-                  calloutDraft: {
-                    calloutKind: payload.proposal.calloutDraft!.calloutKind,
-                    title: payload.proposal.calloutDraft!.title,
-                    prompt: payload.proposal.calloutDraft!.prompt,
-                    previewText: payload.proposal.calloutDraft!.previewText ?? "",
-                    summary: payload.proposal.summary
-                  },
-                  status: "ready"
-                }
+                ...entry,
+                calloutDraft: {
+                  calloutKind: payload.proposal.calloutDraft!.calloutKind,
+                  title: payload.proposal.calloutDraft!.title,
+                  prompt: payload.proposal.calloutDraft!.prompt,
+                  previewText: payload.proposal.calloutDraft!.previewText ?? "",
+                  summary: payload.proposal.summary
+                },
+                status: "ready"
+              }
               : entry
           )
         );
@@ -495,6 +557,9 @@ export default function EditorPage() {
               onSelectionChange={setSelection}
               onFocusedBlockChange={setFocusedBlockId}
               onInsertImage={handleInsertImage}
+              activeProposal={activeProposal}
+              onAcceptProposal={handleAcceptProposal}
+              onRejectProposal={handleRejectProposal}
             />
 
             {composerMode ? (
@@ -523,36 +588,56 @@ export default function EditorPage() {
           </main>
         }
         right={
-          <RightOperationsRail
-            aiTasks={[]}
-            canRequestReview={canRequestReview}
-            canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
-            isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
-            patchDiagnostics={patchDiagnostics}
-            reviewDiagnostics={reviewDiagnostics}
-            reviewItems={reviewItems}
-            reviewRevision={revision}
-            activeReviewItemId={activeReviewItemId}
-            history={history}
-            onOpenReviewComposer={() => setComposerMode("review")}
-            onOpenLocalComposer={() => setComposerMode("local")}
-            onFocusReviewItem={focusReviewItem}
-            onPrepareReviewItem={(item) => void prepareReviewItem(item)}
-            onApplyReviewCallout={applyReviewCallout}
-            onDismissReviewItem={dismissReviewItem}
-            reviewLoading={isReviewRequestInFlight}
-            onAccept={acceptOperation}
-            onAcceptAll={acceptAllOperations}
-            onReject={rejectOperation}
-            onRejectAll={rejectAllOperations}
-            operations={operations}
-            reviewItemCount={reviewItems.filter((item) => item.status !== "dismissed").length}
-            statusMessage={feedback?.message}
-            statusTone={feedback?.tone}
-            onOpenAiTask={() => {}}
-            onDismissAiTask={() => {}}
-          />
+          reviewStatus === "expertise" || reviewItems.length > 0 ? (
+            <EditorialReviewSidebar
+              status={reviewStatus}
+              expertise={reviewExpertise}
+              history={reviewChatHistory}
+              reviewItems={reviewItems}
+              reviewLoading={isReviewRequestInFlight}
+              activeReviewItemId={activeReviewItemId}
+              revision={revision}
+              onChat={handleReviewChat}
+              onGenerateCards={() => void requestEditorialReview("cards")}
+              onBackToChat={() => setReviewStatus("expertise")}
+              onFocusReviewItem={focusReviewItem}
+              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
+              onApplyCallout={applyReviewCallout}
+              onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
+            />
+          ) : (
+            <RightOperationsRail
+              aiTasks={[]}
+              canRequestReview={canRequestReview}
+              canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
+              isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
+              patchDiagnostics={patchDiagnostics}
+              reviewDiagnostics={reviewDiagnostics}
+              reviewItems={reviewItems}
+              reviewRevision={revision}
+              activeReviewItemId={activeReviewItemId}
+              history={history}
+              onOpenReviewComposer={() => setComposerMode("review")}
+              onOpenLocalComposer={() => setComposerMode("local")}
+              onFocusReviewItem={focusReviewItem}
+              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
+              onApplyReviewCallout={applyReviewCallout}
+              onDismissReviewItem={dismissReviewItem}
+              reviewLoading={isReviewRequestInFlight}
+              onAccept={acceptOperation}
+              onAcceptAll={acceptAllOperations}
+              onReject={rejectOperation}
+              onRejectAll={rejectAllOperations}
+              operations={operations}
+              reviewItemCount={reviewItems.filter((item) => item.status !== "dismissed").length}
+              statusMessage={feedback?.message}
+              statusTone={feedback?.tone}
+              onOpenAiTask={() => { }}
+              onDismissAiTask={() => { }}
+            />
+          )
         }
+        wideRight={reviewStatus === "expertise" || reviewItems.filter(i => i.status !== 'dismissed').length > 0}
       />
     </>
   );
