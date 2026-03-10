@@ -66,7 +66,7 @@ test("generatePatchResponse uses OPENAI_API_KEY from env when form key is blank"
   assert.ok(requestBody);
   const openAiRequest = requestBody;
   assert.equal(openAiRequest.model, "gpt-5.2");
-  assert.equal(openAiRequest.instructions, "Спрости фрагмент. Ти допомагаєш книжковому редактору, а не лікарю. Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ. Поверни рівно одну локальну правку. Це має бути одна операція replace, яка охоплює весь виділений фрагмент. Кожна операція повинна містити op, start, end, newText, reason і type. start та end мають бути абсолютними індексами в межах виділення. reason пиши коротко, українською, не більше 12 слів. Дозволені type: clarity, structure, terminology, source, tone. Дозволені op: replace, insert, delete. Не дроби відповідь на кілька правок.");
+  assert.equal(openAiRequest.instructions, "Спрости фрагмент. Ти допомагаєш книжковому редактору, а не лікарю. Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ. Зберігай структуру абзаців, списків і порожніх рядків, якщо вона вже є у фрагменті. Поверни рівно одну локальну правку. Це має бути одна операція replace, яка охоплює весь виділений фрагмент. Кожна операція повинна містити op, start, end, newText, reason і type. start та end мають бути абсолютними індексами в межах виділення. reason пиши коротко, українською, не більше 12 слів. Дозволені type: clarity, structure, terminology, source, tone. Дозволені op: replace, insert, delete. Не дроби відповідь на кілька правок.");
   assert.equal(typeof openAiRequest.input, "string");
   assert.deepEqual(openAiRequest.text, {
     format: {
@@ -166,7 +166,7 @@ test("generatePatchResponse parses Gemini generateContent responses", async () =
   });
   assert.equal(response.usedFallback, false);
   assert.equal(response.providerUsed, "gemini");
-  assert.equal(response.operations[0]?.newText, "Жир навколо живота");
+  assert.equal(response.operations[0]?.newText, "Жир навколо живота підсилює ризик.");
 });
 
 test("generatePatchResponse parses Anthropic Messages responses", async () => {
@@ -209,7 +209,7 @@ test("generatePatchResponse parses Anthropic Messages responses", async () => {
   assert.equal(Array.isArray(anthropicRequest.messages), true);
   assert.equal(response.usedFallback, false);
   assert.equal(response.providerUsed, "anthropic");
-  assert.equal(response.operations[0]?.newText, "Тривале запалення");
+  assert.equal(response.operations[0]?.newText, "Тривале запаленнячасто недооцінюють.");
 });
 
 test("generatePatchResponse falls back when no provider key is available", async () => {
@@ -303,6 +303,77 @@ test("generatePatchResponse repairs provider operations that use selection-relat
   assert.equal(response.operations[0]?.start, selectionStart);
   assert.equal(response.operations[0]?.end, selectionEnd);
   assert.equal(response.operations[0]?.oldText, selectedText);
+});
+
+test("generatePatchResponse restores paragraph and list breaks when provider flattens a multiline rewrite", async () => {
+  const text = [
+    "В українській дерматології використовується так званий **експургаторний метод**, який передбачає:",
+    "",
+    "- використання ентеросорбентів",
+    "- спеціальну дієту",
+    "- інколи жовчогінні засоби",
+    "",
+    "Його застосовують для «обривання загострення» дерматозів:",
+    "",
+    "- псоріазу",
+    "- екземи",
+    "- дерматитів",
+    "- нейродерміту [ПВФ 11]"
+  ].join("\n");
+
+  const flattenedRewrite =
+    "В українській дерматології використовують так званий **експургаторний метод**, який передбачає: - використання ентеросорбентів - спеціальну дієту - інколи жовчогінні засоби Його застосовують для «обривання загострення» дерматозів: - псоріазу - екземи - дерматитів - нейродерміту [ПВФ 11]";
+
+  const response = await generatePatchResponse(
+    {
+      text,
+      selectionStart: 0,
+      selectionEnd: text.length,
+      mode: "custom",
+      provider: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test-openai",
+      prompt: "Поясни фрагмент простіше, але збережи форматування."
+    },
+    {
+      now: () => "2026-03-10T03:50:00.000Z",
+      fetchImpl: async () =>
+        createJsonResponse(
+          createOpenAiResponsesPayload({
+            operations: [
+              {
+                op: "replace",
+                start: 0,
+                end: text.length,
+                newText: flattenedRewrite,
+                reason: "Пояснив фрагмент простіше.",
+                type: "clarity"
+              }
+            ]
+          })
+        )
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.equal(
+    response.operations[0]?.newText,
+    [
+      "В українській дерматології використовують так званий **експургаторний метод**, який передбачає:",
+      "",
+      "- використання ентеросорбентів",
+      "- спеціальну дієту",
+      "- інколи жовчогінні засоби",
+      "",
+      "Його застосовують для «обривання загострення» дерматозів:",
+      "",
+      "- псоріазу",
+      "- екземи",
+      "- дерматитів",
+      "- нейродерміту [ПВФ 11]"
+    ].join("\n")
+  );
 });
 
 test("generatePatchResponse repairs string indices in provider operations", async () => {

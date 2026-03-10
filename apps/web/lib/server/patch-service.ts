@@ -201,7 +201,10 @@ export function createFallbackOperations(request: PatchRequest): PatchOperation[
   const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
   const selectedText = getSelectedText(request.text, selection);
   const matches = collectFallbackTermOperations(selectedText, selection.start);
-  const rewrittenText = matches.length > 0 ? rewriteSelectionWithOperations(selectedText, selection.start, matches) : createFallbackRewrite(selectedText, request.prompt);
+  const rewrittenText = preserveStructuredFormatting(
+    selectedText,
+    matches.length > 0 ? rewriteSelectionWithOperations(selectedText, selection.start, matches) : createFallbackRewrite(selectedText, request.prompt)
+  );
 
   return [
     {
@@ -439,6 +442,7 @@ export function buildSystemPrompt(basePrompt?: string): string {
     basePrompt ?? "Спрости складну наукову мову до зрозумілої української.",
     "Ти допомагаєш книжковому редактору, а не лікарю.",
     "Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ.",
+    "Зберігай структуру абзаців, списків і порожніх рядків, якщо вона вже є у фрагменті.",
     "Поверни рівно одну локальну правку.",
     "Це має бути одна операція replace, яка охоплює весь виділений фрагмент.",
     "Кожна операція повинна містити op, start, end, newText, reason і type.",
@@ -689,10 +693,12 @@ function collapseOperationsToSingleRewrite(
   operations: PatchOperation[]
 ): PatchOperation {
   const selectedText = getSelectedText(request.text, selection);
-  const rewrittenText =
+  const rewrittenText = preserveStructuredFormatting(
+    selectedText,
     operations.length === 1 && operations[0]?.op === "replace" && operations[0].start === selection.start && operations[0].end === selection.end
       ? (operations[0].newText ?? selectedText)
-      : rewriteSelectionWithOperations(selectedText, selection.start, operations);
+      : rewriteSelectionWithOperations(selectedText, selection.start, operations)
+  );
 
   return {
     id: operations[0]?.id ?? createPatchId("provider"),
@@ -714,6 +720,113 @@ function rewriteSelectionWithOperations(selectedText: string, absoluteSelectionS
   }));
 
   return applyPatchOperations(selectedText, localOperations);
+}
+
+function preserveStructuredFormatting(source: string, replacement: string): string {
+  const normalizedSource = normalizeLineEndings(source);
+  const normalizedReplacement = normalizeLineEndings(replacement).trim();
+
+  if (!normalizedReplacement || !normalizedSource.includes("\n")) {
+    return normalizedReplacement;
+  }
+
+  const sourceLinePlan = getStructuredLinePlan(normalizedSource);
+
+  if (sourceLinePlan.length < 2) {
+    return normalizedReplacement;
+  }
+
+  let structuredReplacement = normalizedReplacement;
+
+  if (sourceLinePlan.some((line) => line.isList)) {
+    structuredReplacement = structuredReplacement
+      .replace(/\s+((?:[-*+])\s+)/gu, "\n$1")
+      .replace(/\s+((?:\d+[.)])\s+)/gu, "\n$1");
+
+    structuredReplacement = structuredReplacement
+      .split("\n")
+      .flatMap((line) => splitTrailingParagraphAfterListLine(line.trim()))
+      .join("\n");
+  }
+
+  const candidateLines = structuredReplacement
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (candidateLines.length < 2) {
+    return structuredReplacement;
+  }
+
+  const formattedLines: string[] = [];
+
+  candidateLines.forEach((line, index) => {
+    formattedLines.push(line);
+
+    if (sourceLinePlan[index]?.blankAfter) {
+      formattedLines.push("");
+    }
+  });
+
+  return formattedLines.join("\n").trim();
+}
+
+function normalizeLineEndings(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
+}
+
+function getStructuredLinePlan(source: string): Array<{ isList: boolean; blankAfter: boolean }> {
+  const lines = normalizeLineEndings(source).split("\n");
+  const plan: Array<{ isList: boolean; blankAfter: boolean }> = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index]?.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    let lookahead = index + 1;
+    let blankAfter = false;
+
+    while (lookahead < lines.length && !lines[lookahead]?.trim()) {
+      blankAfter = true;
+      lookahead += 1;
+    }
+
+    plan.push({
+      isList: isListLine(trimmed),
+      blankAfter
+    });
+  }
+
+  return plan;
+}
+
+function isListLine(value: string): boolean {
+  return /^([-*+]|\d+[.)])\s+\S/u.test(value.trim());
+}
+
+function splitTrailingParagraphAfterListLine(line: string): string[] {
+  if (!isListLine(line)) {
+    return [line];
+  }
+
+  const boundaries = [...line.matchAll(/\s+(?=[А-ЯІЇЄҐ][а-яіїєґ]{2,}\s)/gu)];
+  const splitAt = boundaries.at(-1)?.index;
+
+  if (splitAt === undefined || splitAt < 18) {
+    return [line];
+  }
+
+  const listPart = line.slice(0, splitAt).trimEnd();
+  const paragraphPart = line.slice(splitAt).trimStart();
+
+  if (!paragraphPart || isListLine(paragraphPart)) {
+    return [line];
+  }
+
+  return [listPart, paragraphPart];
 }
 
 function coerceIndex(value: unknown): number | null {

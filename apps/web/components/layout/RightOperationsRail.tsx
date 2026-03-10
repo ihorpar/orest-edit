@@ -93,7 +93,7 @@ export function RightOperationsRail({
         </Button>
         {!reviewLoading && reviewItemCount > 0 ? (
           <p className="rail-status-copy">
-            Доступно {reviewItemCount} рекомендацій. Відкрий потрібну картку та натисни `Працюй!`.
+            Доступно рекомендацій: {reviewItemCount}
           </p>
         ) : null}
         {shouldShowFeedback ? (

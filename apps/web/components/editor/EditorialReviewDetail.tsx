@@ -100,9 +100,9 @@ export function EditorialReviewDetail({
     <aside className="editorial-review-detail" data-type={item.recommendationType} data-priority={item.priority}>
       <div className="editorial-review-detail-head">
         <div className="editorial-review-detail-meta">
-          <span className="mono-ui suggestion-card-type">{typeLabels[item.recommendationType]}</span>
-          <span className="mono-ui editorial-review-severity">{priorityLabels[item.priority]}</span>
-          <span className="mono-ui suggestion-card-lines">
+          <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
+          <span className={`tag-pill tag-severity-${item.priority}`}>{priorityLabels[item.priority]}</span>
+          <span className="tag-lines">
             Абзаци {getReviewParagraphLabel(item, revision)}
           </span>
         </div>

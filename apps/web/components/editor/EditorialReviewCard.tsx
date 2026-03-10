@@ -50,12 +50,12 @@ export function EditorialReviewCard({
     <article className="editorial-review-card" data-type={item.recommendationType} data-priority={item.priority} data-active={isActive ? "true" : "false"}>
       <div className="editorial-review-head">
         <div className="editorial-review-meta">
-          <span className="mono-ui suggestion-card-type">{typeLabels[item.recommendationType]}</span>
-          <span className="mono-ui suggestion-card-lines">
+          <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
+          <span className={`tag-pill tag-severity-${item.priority}`}>{priorityLabels[item.priority]}</span>
+          <span className="tag-lines">
             Абзаци {getReviewParagraphLabel(item, revision)}
           </span>
         </div>
-        <span className="mono-ui editorial-review-severity">{priorityLabels[item.priority]}</span>
         <button type="button" className="editorial-review-card-close" onClick={() => onDismiss(item)} aria-label="Закрити рекомендацію">
           <svg viewBox="0 0 12 12" aria-hidden="true">
             <path d="M2 2L10 10" />
