@@ -111,9 +111,26 @@ export default function SettingsPage() {
           signal: controller.signal
         });
 
-        const payload = (await response.json()) as SettingsValidationResult;
+        if (response.status === 401) {
+          window.location.assign(`/login?next=${encodeURIComponent("/settings")}`);
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as SettingsValidationResult | null;
 
         if (controller.signal.aborted) {
+          return;
+        }
+
+        if (!payload || typeof payload.message !== "string") {
+          setConnectionStatus({
+            provider: settings.provider,
+            modelId: currentModelId,
+            state: "network_error",
+            keySource: settings.apiKey.trim() ? "api_key" : "missing",
+            message: "Сервер повернув некоректну відповідь.",
+            validatedAt: new Date().toISOString()
+          });
           return;
         }
 

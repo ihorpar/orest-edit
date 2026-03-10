@@ -82,6 +82,15 @@ const defaultReviewComposer = {
   additionalInstructions: ""
 };
 
+function redirectToLoginForCurrentPage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const next = `${window.location.pathname}${window.location.search}`;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+}
+
 export default function EditorPage() {
   const [text, setText] = useState(DEFAULT_MANUSCRIPT_TEXT);
   const [revision, setRevision] = useState<ManuscriptRevisionState>(() => deriveManuscriptRevisionState(DEFAULT_MANUSCRIPT_TEXT));
@@ -296,12 +305,33 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
 
-      const payload = (await response.json()) as PatchResponse;
+      if (response.status === 401) {
+        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
+        redirectToLoginForCurrentPage();
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as PatchResponse | null;
+
+      if (!payload) {
+        setFeedback({ message: "Сервер повернув некоректну відповідь.", tone: "error" });
+        setOperations([]);
+        setPatchDiagnostics(null);
+        return;
+      }
+
+      if (!response.ok) {
+        setFeedback({ message: payload.error ?? "Не вдалося побудувати локальні правки.", tone: "error" });
+        setOperations([]);
+        setPatchDiagnostics("diagnostics" in payload ? payload.diagnostics : null);
+        return;
+      }
+
       const nextFeedback = buildFeedbackMessage(payload, response.ok);
 
       startTransition(() => {
         setSelection(effectiveSelection);
-        setOperations(response.ok ? payload.operations : []);
+        setOperations(payload.operations);
         setFeedback(nextFeedback);
         setPatchDiagnostics(payload.diagnostics);
         setHistory((current) => [createPatchHistoryEntry(payload, nextFeedback), ...current].slice(0, 8));
@@ -348,11 +378,32 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
 
-      const payload = (await response.json()) as EditorialReviewResponse;
+      if (response.status === 401) {
+        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
+        redirectToLoginForCurrentPage();
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as EditorialReviewResponse | null;
+
+      if (!payload) {
+        setFeedback({ message: "Сервер повернув некоректну відповідь.", tone: "error" });
+        setReviewItems([]);
+        setReviewDiagnostics(null);
+        return;
+      }
+
+      if (!response.ok) {
+        setFeedback({ message: payload.error ?? "Не вдалося побудувати редакторський review.", tone: "error" });
+        setReviewItems([]);
+        setReviewDiagnostics("diagnostics" in payload ? payload.diagnostics : null);
+        return;
+      }
+
       const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
 
       startTransition(() => {
-        setReviewItems(response.ok ? payload.items : []);
+        setReviewItems(payload.items);
         setCalloutKindOverrides({});
         setFeedback(nextFeedback);
         setReviewDiagnostics(payload.diagnostics);
@@ -490,7 +541,26 @@ export default function EditorPage() {
         })
       });
 
-      const payload = (await response.json()) as ReviewActionResponse;
+      if (response.status === 401) {
+        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
+        redirectToLoginForCurrentPage();
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as ReviewActionResponse | null;
+
+      if (!payload) {
+        setFeedback({ message: "Сервер повернув некоректну відповідь.", tone: "error" });
+        setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "stale" } : entry)));
+        return;
+      }
+
+      if (!response.ok) {
+        setFeedback({ message: payload.error ?? "Не вдалося підготувати чернетку дії.", tone: "error" });
+        setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "stale" } : entry)));
+        return;
+      }
+
       const nextFeedback = buildReviewActionFeedbackMessage(payload, response.ok);
 
       startTransition(() => {
@@ -593,7 +663,18 @@ export default function EditorPage() {
           async: true
         })
       });
-      const payload = (await response.json()) as ReviewImageGenerationResponse;
+
+      if (response.status === 401) {
+        setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
+        redirectToLoginForCurrentPage();
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as ReviewImageGenerationResponse | null;
+
+      if (!payload) {
+        throw new Error("Сервер повернув некоректну відповідь.");
+      }
 
       if (payload.asset) {
         await finalizeGeneratedReviewImage(payload, proposalId, reviewItemId);
@@ -722,7 +803,17 @@ export default function EditorPage() {
           cache: "no-store",
           signal: controller.signal
         });
-        const payload = (await response.json()) as ReviewImageGenerationResponse;
+        if (response.status === 401) {
+          setFeedback({ message: "Сесія завершилась. Увійдіть повторно.", tone: "error" });
+          redirectToLoginForCurrentPage();
+          return { aborted: true };
+        }
+
+        const payload = (await response.json().catch(() => null)) as ReviewImageGenerationResponse | null;
+
+        if (!payload) {
+          throw new Error("Сервер повернув некоректну відповідь статусу генерації.");
+        }
 
         if (!response.ok) {
           throw new Error(payload.error ?? "Не вдалося перевірити статус генерації зображення.");

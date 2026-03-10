@@ -27,7 +27,12 @@ export async function middleware(request: NextRequest) {
     }
 
     if (pathname.startsWith("/api/")) {
-      return new NextResponse("Password auth is not configured", { status: 503 });
+      return NextResponse.json(
+        {
+          error: "Серверний пароль не налаштовано. Додайте APP_PASSWORD у змінні середовища."
+        },
+        { status: 503 }
+      );
     }
 
     const loginUrl = new URL("/login", request.url);
@@ -53,7 +58,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/")) {
-    return new NextResponse("Unauthorized", { status: 401 });
+    return NextResponse.json({ error: "Потрібна авторизація." }, { status: 401 });
   }
 
   const loginUrl = new URL("/login", request.url);
