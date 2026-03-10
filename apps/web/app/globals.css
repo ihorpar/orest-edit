@@ -101,6 +101,19 @@ textarea {
   color: var(--muted);
 }
 
+.button-reset {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.button-reset:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .nav-link[data-active="true"] {
   color: var(--surgical-blue);
   border-bottom: 1px solid var(--surgical-blue);

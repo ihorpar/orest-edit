@@ -1,10 +1,32 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 
 export function TopBar({
   activePath = "/editor"
 }: {
   activePath?: "/editor" | "/settings";
 }) {
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin"
+      });
+    } finally {
+      window.location.assign("/login");
+    }
+  }
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -25,9 +47,9 @@ export function TopBar({
       </div>
 
       <div className="topbar-right">
-        <Link href="/logout" className="mono-ui nav-link">
+        <button type="button" className="mono-ui nav-link button-reset" onClick={handleLogout} disabled={isLoggingOut}>
           {"\u0412\u0438\u0439\u0442\u0438"}
-        </Link>
+        </button>
       </div>
     </header>
   );
