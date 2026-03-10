@@ -40,6 +40,9 @@ export function EditorialReviewCard({
 
   return (
     <article className="editor-note-card" data-active={isActive ? "true" : "false"}>
+      <button type="button" className="editor-note-dismiss" onClick={() => onDismiss(item)} aria-label="Закрити рекомендацію" title="Закрити">
+        ×
+      </button>
       <div className="editor-note-head">
         <div>
           <p className="editor-note-title">{item.title}</p>
@@ -64,9 +67,6 @@ export function EditorialReviewCard({
             Підготувати
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={() => onDismiss(item)}>
-          ×
-        </Button>
       </div>
     </article>
   );

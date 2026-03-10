@@ -133,6 +133,16 @@ export async function generatePatchResponse(
   try {
     const result = await createProviderOperations(patchRequest, apiKey, fetchImpl);
 
+    if (result.operations.length === 0 && result.droppedOperationCount > 0) {
+      return buildFallbackPatchResponse({
+        patchRequest,
+        requestId,
+        targetBlockCount: targetBlocks.length,
+        error: `${providerDisplayName(patchRequest.provider)} повернув невалідний формат, тому показано локальну fallback-правку.`,
+        generatedAt: now()
+      });
+    }
+
     return buildPatchResponse({
       requestId,
       providerUsed: result.providerUsed,
@@ -143,7 +153,7 @@ export async function generatePatchResponse(
       operations: result.operations,
       droppedOperationCount: result.droppedOperationCount,
       usedFallback: false,
-      error: result.droppedOperationCount > 0 ? `Відкинуто ${result.droppedOperationCount} невалідні правки від провайдера.` : undefined,
+      error: result.droppedOperationCount > 0 ? `Частину відповіді провайдера відкинуто як невалідну.` : undefined,
       generatedAt: now()
     });
   } catch (error) {

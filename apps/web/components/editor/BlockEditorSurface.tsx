@@ -1,7 +1,7 @@
 "use client";
 
-import type { ChangeEvent } from "react";
-import { useMemo, useRef } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createEditorAssetToken } from "../../lib/editor/asset-store";
 import type {
   Block,
@@ -24,7 +24,7 @@ import {
   hasSelectedBlocks,
   normalizeBlockSelection
 } from "../../lib/editor/document-model";
-import { getEditorialCalloutKindLabel, type EditorialCalloutKind } from "../../lib/editor/review-contract";
+import { getEditorialCalloutKindLabel } from "../../lib/editor/review-contract";
 import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
@@ -51,7 +51,22 @@ export function BlockEditorSurface({
   onInsertImage: (file: File, anchorBlockId: string | null) => Promise<void>;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
+  const dragAnchorBlockId = useRef<string | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+
+  useEffect(() => {
+    function handlePointerRelease() {
+      dragAnchorBlockId.current = null;
+    }
+
+    window.addEventListener("mouseup", handlePointerRelease);
+    window.addEventListener("blur", handlePointerRelease);
+
+    return () => {
+      window.removeEventListener("mouseup", handlePointerRelease);
+      window.removeEventListener("blur", handlePointerRelease);
+    };
+  }, []);
 
   function registerEditable(blockId: string, element: HTMLElement | null) {
     if (!element) {
@@ -69,20 +84,52 @@ export function BlockEditorSurface({
     });
   }
 
-  function handleBlockChromeClick(blockId: string, extend: boolean) {
-    const nextSelection = extend && normalizedSelection.anchorBlockId
-      ? {
-          blockIds: [],
-          anchorBlockId: normalizedSelection.anchorBlockId,
-          focusBlockId: blockId
-        }
-      : {
-          blockIds: [blockId],
-          anchorBlockId: blockId,
-          focusBlockId: blockId
-        };
+  function selectBlockRange(anchorBlockId: string, focusBlockId: string) {
+    onSelectionChange(
+      normalizeBlockSelection(document, {
+        blockIds: [],
+        anchorBlockId,
+        focusBlockId
+      })
+    );
+  }
 
-    onSelectionChange(normalizeBlockSelection(document, nextSelection));
+  function handleBlockChromeClick(blockId: string, extend: boolean) {
+    if (extend && normalizedSelection.anchorBlockId) {
+      selectBlockRange(normalizedSelection.anchorBlockId, blockId);
+      onFocusedBlockChange(blockId);
+      return;
+    }
+
+    onSelectionChange(
+      normalizeBlockSelection(document, {
+        blockIds: [blockId],
+        anchorBlockId: blockId,
+        focusBlockId: blockId
+      })
+    );
+    onFocusedBlockChange(blockId);
+  }
+
+  function handleGutterMouseDown(blockId: string, event: ReactMouseEvent<HTMLButtonElement>) {
+    if (disabled || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const anchorBlockId = event.shiftKey && normalizedSelection.anchorBlockId ? normalizedSelection.anchorBlockId : blockId;
+    dragAnchorBlockId.current = anchorBlockId;
+    selectBlockRange(anchorBlockId, blockId);
+    onFocusedBlockChange(blockId);
+  }
+
+  function handleGutterMouseEnter(blockId: string, event: ReactMouseEvent<HTMLButtonElement>) {
+    if (disabled || !dragAnchorBlockId.current || (event.buttons & 1) !== 1) {
+      return;
+    }
+
+    selectBlockRange(dragAnchorBlockId.current, blockId);
+    onFocusedBlockChange(blockId);
   }
 
   function handleFormatCommand(command: "bold" | "italic" | "link") {
@@ -239,7 +286,7 @@ export function BlockEditorSurface({
 
         <div className="block-editor-toolbar-group">
           <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("paragraph")} disabled={disabled} title="Абзац">
-            ¶
+            T
           </button>
           <button type="button" className="block-toolbar-button" onClick={() => handleBlockFormat("heading-1")} disabled={disabled} title="H1">
             H1
@@ -284,12 +331,24 @@ export function BlockEditorSurface({
           const isFocused = focusedBlockId === block.id;
 
           return (
-            <div key={block.id} className="block-editor-row" data-selected={isSelected ? "true" : "false"} data-focused={isFocused ? "true" : "false"}>
+            <div
+              key={block.id}
+              className="block-editor-row"
+              data-block-id={block.id}
+              data-selected={isSelected ? "true" : "false"}
+              data-focused={isFocused ? "true" : "false"}
+            >
               <button
                 type="button"
                 className="block-editor-gutter"
-                onClick={(event) => handleBlockChromeClick(block.id, event.shiftKey)}
-                title="Виділити блок"
+                onMouseDown={(event) => handleGutterMouseDown(block.id, event)}
+                onMouseEnter={(event) => handleGutterMouseEnter(block.id, event)}
+                onClick={(event) => {
+                  if (event.detail === 0) {
+                    handleBlockChromeClick(block.id, event.shiftKey);
+                  }
+                }}
+                title="Виділити блок або діапазон"
               >
                 {formatParagraphLabel(index)}
               </button>
@@ -316,7 +375,9 @@ export function BlockEditorSurface({
       </div>
 
       <div className="block-editor-status mono-ui">
-        {hasSelectedBlocks(normalizedSelection) ? `AI: ${normalizedSelection.blockIds.length} блок(и)` : "AI: блок не вибрано"}
+        {hasSelectedBlocks(normalizedSelection)
+          ? `AI: ${normalizedSelection.blockIds.length} блок(и)`
+          : "AI: блок не вибрано"}
       </div>
     </div>
   );
@@ -403,19 +464,13 @@ function EditableTextBlock({
       : "block-text block-text-paragraph";
 
   return (
-    <div
-      ref={(element) => registerEditable(block.id, element)}
+    <EditableRichText
       className={className}
-      contentEditable={!disabled}
-      suppressContentEditableWarning
+      html={inlineNodesToHtml(block.content)}
+      disabled={disabled}
       onFocus={onFocus}
-      onInput={(event) =>
-        onBlockChange({
-          ...block,
-          content: htmlToInlineNodes(event.currentTarget.innerHTML)
-        })
-      }
-      dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(block.content) }}
+      onChange={(content) => onBlockChange({ ...block, content })}
+      registerElement={(element) => registerEditable(block.id, element)}
     />
   );
 }
@@ -438,17 +493,16 @@ function EditableListBlock({
       <Tag className="block-list">
         {block.items.map((item, index) => (
           <li key={`${block.id}-${index}`}>
-            <div
+            <EditableRichText
               className="block-list-item"
-              contentEditable={!disabled}
-              suppressContentEditableWarning
+              html={inlineNodesToHtml(item)}
+              disabled={disabled}
               onFocus={onFocus}
-              onInput={(event) => {
+              onChange={(content) => {
                 const nextItems = block.items.slice();
-                nextItems[index] = htmlToInlineNodes(event.currentTarget.innerHTML);
+                nextItems[index] = content;
                 onBlockChange({ ...block, items: nextItems });
               }}
-              dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(item) }}
             />
           </li>
         ))}
@@ -482,27 +536,25 @@ function EditableCalloutBlock({
   return (
     <div className="block-callout-shell" data-kind={block.kind}>
       <div className="block-callout-chip mono-ui">{getEditorialCalloutKindLabel(block.kind)}</div>
-      <div
+      <EditableRichText
         className="block-callout-title"
-        contentEditable={!disabled}
-        suppressContentEditableWarning
+        html={inlineNodesToHtml(block.title)}
+        disabled={disabled}
         onFocus={onFocus}
-        onInput={(event) => onBlockChange({ ...block, title: htmlToInlineNodes(event.currentTarget.innerHTML) })}
-        dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(block.title) }}
+        onChange={(title) => onBlockChange({ ...block, title })}
       />
       {block.body.map((paragraph, index) => (
-        <div
+        <EditableRichText
           key={`${block.id}-${index}`}
           className="block-callout-body"
-          contentEditable={!disabled}
-          suppressContentEditableWarning
+          html={inlineNodesToHtml(paragraph)}
+          disabled={disabled}
           onFocus={onFocus}
-          onInput={(event) => {
+          onChange={(content) => {
             const nextBody = block.body.slice();
-            nextBody[index] = htmlToInlineNodes(event.currentTarget.innerHTML);
+            nextBody[index] = content;
             onBlockChange({ ...block, body: nextBody });
           }}
-          dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(paragraph) }}
         />
       ))}
 
@@ -534,17 +586,16 @@ function EditableTableBlock({
             <tr key={`${block.id}-${rowIndex}`}>
               {row.map((cell, cellIndex) => (
                 <td key={`${block.id}-${rowIndex}-${cellIndex}`}>
-                  <div
+                  <EditableRichText
                     className="block-table-cell"
-                    contentEditable={!disabled}
-                    suppressContentEditableWarning
+                    html={inlineNodesToHtml(cell)}
+                    disabled={disabled}
                     onFocus={onFocus}
-                    onInput={(event) => {
+                    onChange={(content) => {
                       const nextRows = block.rows.map((entry) => entry.map((part) => part.slice()));
-                      nextRows[rowIndex][cellIndex] = htmlToInlineNodes(event.currentTarget.innerHTML);
+                      nextRows[rowIndex][cellIndex] = content;
                       onBlockChange({ ...block, rows: nextRows });
                     }}
-                    dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(cell) }}
                   />
                 </td>
               ))}
@@ -595,15 +646,63 @@ function EditableImageBlock({
         onChange={(event) => onBlockChange({ ...block, alt: event.currentTarget.value })}
         disabled={disabled}
       />
-      <div
+      <EditableRichText
         className="block-image-caption"
-        contentEditable={!disabled}
-        suppressContentEditableWarning
+        html={inlineNodesToHtml(block.caption ?? [createInlineText("")])}
+        disabled={disabled}
         onFocus={onFocus}
-        onInput={(event) => onBlockChange({ ...block, caption: htmlToInlineNodes(event.currentTarget.innerHTML) })}
-        dangerouslySetInnerHTML={{ __html: inlineNodesToHtml(block.caption ?? [createInlineText("")]) }}
+        onChange={(caption) => onBlockChange({ ...block, caption })}
       />
     </div>
+  );
+}
+
+function EditableRichText({
+  className,
+  html,
+  disabled,
+  onFocus,
+  onChange,
+  registerElement
+}: {
+  className: string;
+  html: string;
+  disabled?: boolean;
+  onFocus: () => void;
+  onChange: (content: InlineNode[]) => void;
+  registerElement?: (element: HTMLDivElement | null) => void;
+}) {
+  const elementRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const element = elementRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    if (element.innerHTML !== html && window.document.activeElement !== element) {
+      element.innerHTML = html;
+    }
+  }, [html]);
+
+  return (
+    <div
+      ref={(element) => {
+        elementRef.current = element;
+        registerElement?.(element);
+
+        if (element && element.innerHTML !== html) {
+          element.innerHTML = html;
+        }
+      }}
+      className={className}
+      contentEditable={!disabled}
+      suppressContentEditableWarning
+      onFocus={onFocus}
+      onBlur={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
+      onInput={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
+    />
   );
 }
 
@@ -675,7 +774,7 @@ function getBlockPreviewText(block: Block): string {
   }
 
   if (block.type === "image") {
-    return [block.alt, getInlineText(block.caption)].filter(Boolean).join(". ");
+    return [block.alt, getInlineText(block.caption ?? [])].filter(Boolean).join(". ");
   }
 
   return "";
@@ -745,12 +844,7 @@ function htmlToInlineNodes(html: string): InlineNode[] {
   for (const node of nodes) {
     const previous = merged[merged.length - 1];
 
-    if (
-      previous &&
-      previous.bold === node.bold &&
-      previous.italic === node.italic &&
-      previous.link === node.link
-    ) {
+    if (previous && previous.bold === node.bold && previous.italic === node.italic && previous.link === node.link) {
       previous.text += node.text;
     } else {
       merged.push(node);
@@ -765,10 +859,9 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/\"/g, "&quot;");
 }
 
 function escapeAttribute(value: string): string {
-  return escapeHtml(value);
+  return escapeHtml(value).replace(/'/g, "&#39;");
 }

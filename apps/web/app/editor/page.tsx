@@ -281,6 +281,15 @@ export default function EditorPage() {
     setSelection(nextSelection);
     setFocusedBlockId(nextSelection.focusBlockId ?? nextSelection.anchorBlockId);
     setActiveReviewItemId(item.id);
+
+    const anchorBlockId = nextSelection.anchorBlockId;
+
+    if (anchorBlockId) {
+      window.requestAnimationFrame(() => {
+        const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
+        element?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    }
   }
 
   async function prepareReviewItem(item: EditorialReviewItem) {
@@ -533,6 +542,13 @@ function createHistoryEntry(
 }
 
 function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean): RequestFeedback {
+  if (payload.usedFallback && payload.operations.length > 0) {
+    return {
+      tone: "info",
+      message: payload.error || "Провайдер не повернув придатний diff, тому показано локальну fallback-правку."
+    };
+  }
+
   if (!responseOk || payload.error) {
     return {
       tone: responseOk ? "info" : "error",

@@ -382,7 +382,7 @@ export function normalizeEditorialReviewItems(input: {
 export function getReviewParagraphLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState): string {
   const firstBlockId = item.anchor.blockIds[0];
   const index = revision.blockOrder.indexOf(firstBlockId);
-  return index >= 0 ? formatParagraphLabel(index) : "¶?";
+  return index >= 0 ? formatParagraphLabel(index) : "?";
 }
 
 export function reconcileReviewItemsWithRevision(

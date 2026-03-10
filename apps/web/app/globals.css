@@ -1349,16 +1349,20 @@ textarea:focus {
 }
 
 .editor-note-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
   border: 1px solid #eef2f7;
   background: #fcfcfd;
-  padding: 15px 16px;
+  padding: 14px 16px;
 }
 
 .editor-note-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 13px;
   font-weight: 700;
   color: #0f172a;
+  padding-right: 28px;
 }
 
 .editor-note-copy {
@@ -1366,6 +1370,26 @@ textarea:focus {
   font-size: 12px;
   line-height: 1.7;
   color: #475569;
+}
+
+.editor-note-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font: 400 16px/1 "IBM Plex Mono", monospace;
+}
+
+.editor-note-dismiss:hover,
+.editor-note-dismiss:focus-visible {
+  color: #475569;
+  background: #f1f5f9;
+  outline: none;
 }
 
 .floating-textarea {
@@ -4902,8 +4926,8 @@ textarea:focus {
 
 .block-editor-row {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 
@@ -4912,29 +4936,31 @@ textarea:focus {
   top: 76px;
   border: 0;
   background: transparent;
-  color: #64748b;
+  color: #c5d0dc;
   text-align: left;
   padding: 8px 0 0;
   cursor: pointer;
-  font: 600 11px/1 "IBM Plex Mono", monospace;
+  font: 400 10px/1 "IBM Plex Mono", monospace;
+  letter-spacing: 0.03em;
+  user-select: none;
 }
 
 .block-editor-row[data-selected="true"] .block-editor-gutter {
-  color: #0f172a;
+  color: #7c8da0;
 }
 
 .block-editor-block {
   border: 1px solid transparent;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 2px;
 }
 
 .block-editor-row[data-selected="true"] .block-editor-block {
-  border-color: #bfdbfe;
-  background: #f8fbff;
+  border-color: #dbeafe;
+  background: #fafcff;
 }
 
 .block-editor-row[data-focused="true"] .block-editor-block {
-  border-color: #93c5fd;
+  border-color: #bfdbfe;
 }
 
 .block-text {
@@ -5086,7 +5112,7 @@ textarea:focus {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .editor-note-meta {
@@ -5096,6 +5122,8 @@ textarea:focus {
 .editor-note-badge {
   border: 1px solid #dbe4ee;
   padding: 2px 6px;
+  color: #475569;
+  background: #ffffff;
 }
 
 .block-diff-card {
@@ -5123,7 +5151,7 @@ textarea:focus {
   }
 
   .block-editor-row {
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
     gap: 10px;
   }
 }

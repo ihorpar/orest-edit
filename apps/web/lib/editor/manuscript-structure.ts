@@ -100,7 +100,7 @@ export function resolveReviewItemSelection(
 }
 
 export function formatParagraphLabel(blockIndex: number): string {
-  return `¶${blockIndex + 1}`;
+  return String(blockIndex + 1).padStart(3, "0");
 }
 
 export function computeBlockFingerprint(block: Block): string {
