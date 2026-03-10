@@ -227,21 +227,21 @@ export default function EditorPage() {
     setActiveProposal((current) =>
       current && current.id === input.proposalId && current.kind === "image_prompt" && current.imageDraft
         ? {
-            ...current,
-            imageDraft: {
-              ...current.imageDraft,
-              generation: {
-                jobId: input.jobId,
-                status: input.status,
-                requestedAt:
-                  current.imageDraft.generation && current.imageDraft.generation.jobId === input.jobId
-                    ? current.imageDraft.generation.requestedAt
-                    : input.updatedAt,
-                updatedAt: input.updatedAt,
-                error: input.error
-              }
+          ...current,
+          imageDraft: {
+            ...current.imageDraft,
+            generation: {
+              jobId: input.jobId,
+              status: input.status,
+              requestedAt:
+                current.imageDraft.generation && current.imageDraft.generation.jobId === input.jobId
+                  ? current.imageDraft.generation.requestedAt
+                  : input.updatedAt,
+              updatedAt: input.updatedAt,
+              error: input.error
             }
           }
+        }
         : current
     );
   }
@@ -626,18 +626,18 @@ export default function EditorPage() {
     const effectiveItem =
       effectiveCalloutKind || options?.forceRegenerateCallout
         ? {
-            ...item,
-            calloutKind: effectiveCalloutKind ?? item.calloutKind,
-            calloutDraft:
-              options?.forceRegenerateCallout && effectiveCalloutKind
-                ? undefined
+          ...item,
+          calloutKind: effectiveCalloutKind ?? item.calloutKind,
+          calloutDraft:
+            options?.forceRegenerateCallout && effectiveCalloutKind
+              ? undefined
+              : item.calloutDraft
+                ? {
+                  ...item.calloutDraft,
+                  calloutKind: effectiveCalloutKind ?? item.calloutDraft.calloutKind
+                }
                 : item.calloutDraft
-                  ? {
-                      ...item.calloutDraft,
-                      calloutKind: effectiveCalloutKind ?? item.calloutDraft.calloutKind
-                    }
-                  : item.calloutDraft
-          }
+        }
         : item;
     const inlineCalloutProposal =
       options?.forceRegenerateCallout && options.forcedCalloutKind
@@ -658,10 +658,10 @@ export default function EditorPage() {
         current.map((entry) =>
           entry.id === item.id
             ? {
-                ...entry,
-                calloutKind: effectiveCalloutKind ?? entry.calloutKind,
-                status: inlineCalloutProposal ? "ready" : "preparing"
-              }
+              ...entry,
+              calloutKind: effectiveCalloutKind ?? entry.calloutKind,
+              status: inlineCalloutProposal ? "ready" : "preparing"
+            }
             : entry
         )
       );
@@ -676,12 +676,12 @@ export default function EditorPage() {
         calloutKind: inlineCalloutProposal.calloutDraft?.calloutKind ?? effectiveItem.calloutKind,
         calloutDraft: inlineCalloutProposal.calloutDraft
           ? {
-              calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
-              title: inlineCalloutProposal.calloutDraft.title,
-              prompt: inlineCalloutProposal.calloutDraft.prompt,
-              previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
-              summary: inlineCalloutProposal.summary
-            }
+            calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
+            title: inlineCalloutProposal.calloutDraft.title,
+            prompt: inlineCalloutProposal.calloutDraft.prompt,
+            previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
+            summary: inlineCalloutProposal.summary
+          }
           : effectiveItem.calloutDraft,
         status: "ready"
       });
@@ -689,18 +689,18 @@ export default function EditorPage() {
         current.map((entry) =>
           entry.id === item.id
             ? {
-                ...entry,
-                calloutKind: inlineCalloutProposal.calloutDraft?.calloutKind ?? entry.calloutKind,
-                calloutDraft: inlineCalloutProposal.calloutDraft
-                  ? {
-                      calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
-                      title: inlineCalloutProposal.calloutDraft.title,
-                      prompt: inlineCalloutProposal.calloutDraft.prompt,
-                      previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
-                      summary: inlineCalloutProposal.summary
-                    }
-                  : entry.calloutDraft
-              }
+              ...entry,
+              calloutKind: inlineCalloutProposal.calloutDraft?.calloutKind ?? entry.calloutKind,
+              calloutDraft: inlineCalloutProposal.calloutDraft
+                ? {
+                  calloutKind: inlineCalloutProposal.calloutDraft.calloutKind,
+                  title: inlineCalloutProposal.calloutDraft.title,
+                  prompt: inlineCalloutProposal.calloutDraft.prompt,
+                  previewText: inlineCalloutProposal.calloutDraft.previewText ?? "",
+                  summary: inlineCalloutProposal.summary
+                }
+                : entry.calloutDraft
+            }
             : entry
         )
       );
@@ -772,12 +772,12 @@ export default function EditorPage() {
           calloutDraft:
             payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft
               ? {
-                  calloutKind: payload.proposal.calloutDraft.calloutKind,
-                  title: payload.proposal.calloutDraft.title,
-                  prompt: payload.proposal.calloutDraft.prompt,
-                  previewText: payload.proposal.calloutDraft.previewText ?? "",
-                  summary: payload.proposal.summary
-                }
+                calloutKind: payload.proposal.calloutDraft.calloutKind,
+                title: payload.proposal.calloutDraft.title,
+                prompt: payload.proposal.calloutDraft.prompt,
+                previewText: payload.proposal.calloutDraft.previewText ?? "",
+                summary: payload.proposal.summary
+              }
               : effectiveItem.calloutDraft,
           status:
             payload.proposal.kind === "stale_anchor"
@@ -790,24 +790,24 @@ export default function EditorPage() {
           current.map((entry) =>
             entry.id === item.id
               ? {
-                  ...entry,
-                  calloutKind:
-                    payload.proposal.kind === "callout_prompt"
-                      ? payload.proposal.calloutDraft?.calloutKind ?? effectiveCalloutKind ?? entry.calloutKind
-                      : effectiveCalloutKind ?? entry.calloutKind,
-                  calloutDraft:
-                    payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft
-                      ? {
-                          calloutKind: payload.proposal.calloutDraft.calloutKind,
-                          title: payload.proposal.calloutDraft.title,
-                          prompt: payload.proposal.calloutDraft.prompt,
-                          previewText: payload.proposal.calloutDraft.previewText ?? "",
-                          summary: payload.proposal.summary
-                        }
-                      : entry.calloutDraft,
-                  status:
-                    payload.proposal.kind === "stale_anchor" ? "stale" : payload.proposal.kind === "text_diff" || payload.proposal.kind === "callout_prompt" || payload.proposal.kind === "image_prompt" ? "ready" : entry.status
-                }
+                ...entry,
+                calloutKind:
+                  payload.proposal.kind === "callout_prompt"
+                    ? payload.proposal.calloutDraft?.calloutKind ?? effectiveCalloutKind ?? entry.calloutKind
+                    : effectiveCalloutKind ?? entry.calloutKind,
+                calloutDraft:
+                  payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft
+                    ? {
+                      calloutKind: payload.proposal.calloutDraft.calloutKind,
+                      title: payload.proposal.calloutDraft.title,
+                      prompt: payload.proposal.calloutDraft.prompt,
+                      previewText: payload.proposal.calloutDraft.previewText ?? "",
+                      summary: payload.proposal.summary
+                    }
+                    : entry.calloutDraft,
+                status:
+                  payload.proposal.kind === "stale_anchor" ? "stale" : payload.proposal.kind === "text_diff" || payload.proposal.kind === "callout_prompt" || payload.proposal.kind === "image_prompt" ? "ready" : entry.status
+              }
               : entry
           )
         );
@@ -961,20 +961,20 @@ export default function EditorPage() {
     setActiveProposal((current) =>
       current && current.id === proposalId && current.kind === "image_prompt" && current.imageDraft
         ? {
-            ...current,
-            imageDraft: {
-              ...current.imageDraft,
-              generatedAsset: asset,
-              generation: current.imageDraft.generation
-                ? {
-                    ...current.imageDraft.generation,
-                    status: "completed",
-                    updatedAt: new Date().toISOString(),
-                    error: undefined
-                  }
-                : undefined
-            }
+          ...current,
+          imageDraft: {
+            ...current.imageDraft,
+            generatedAsset: asset,
+            generation: current.imageDraft.generation
+              ? {
+                ...current.imageDraft.generation,
+                status: "completed",
+                updatedAt: new Date().toISOString(),
+                error: undefined
+              }
+              : undefined
           }
+        }
         : current
     );
 
@@ -1350,7 +1350,7 @@ export default function EditorPage() {
       delete next[activeProposal.reviewItemId];
       return next;
     });
-    setActiveReviewItem(nextReviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null);
+    setActiveReviewItem(null);
     setFeedback({ message: "Рекомендацію застосовано як текстовий diff.", tone: "info" });
   }
 
@@ -1383,7 +1383,7 @@ export default function EditorPage() {
     const revealStart = titleOffset === -1 ? insertionPoint : insertionPoint + titleOffset + 2;
     const revealEnd = revealStart + Math.max(calloutDraft.title.length, 1);
     const nextRevision = deriveManuscriptRevisionState(nextText, revision);
-    const nextReviewItems = reconcileReviewItemsWithRevision(reviewItems, nextRevision).filter((item) => item.id !== sourceItem.id);
+    const nextReviewItems = reconcileReviewItemsWithRevision(reviewItems, nextRevision, sourceItem.id);
 
     setText(nextText);
     setRevision(nextRevision);
@@ -1582,12 +1582,12 @@ export default function EditorPage() {
     setActiveProposal((current) =>
       current && current.kind === "image_prompt" && current.imageDraft
         ? {
-            ...current,
-            imageDraft: {
-              ...current.imageDraft,
-              prompt: nextPrompt.slice(0, 2400)
-            }
+          ...current,
+          imageDraft: {
+            ...current.imageDraft,
+            prompt: nextPrompt.slice(0, 2400)
           }
+        }
         : current
     );
   }
@@ -1641,9 +1641,9 @@ export default function EditorPage() {
             selectedCalloutKind={
               activeReviewItem
                 ? calloutKindOverrides[activeReviewItem.id] ??
-                  activeProposal?.calloutDraft?.calloutKind ??
-                  activeReviewItem.calloutDraft?.calloutKind ??
-                  activeReviewItem.calloutKind
+                activeProposal?.calloutDraft?.calloutKind ??
+                activeReviewItem.calloutDraft?.calloutKind ??
+                activeReviewItem.calloutKind
                 : undefined
             }
             onCalloutKindChange={handleReviewCalloutKindChange}
@@ -1705,9 +1705,9 @@ export default function EditorPage() {
           onExitReviewMode={
             floatingPromptMode === "review"
               ? () => {
-                  setIsReviewComposerOpen(false);
-                  setSuppressFloatingPrompt(false);
-                }
+                setIsReviewComposerOpen(false);
+                setSuppressFloatingPrompt(false);
+              }
               : undefined
           }
           selectionKey={

@@ -95,18 +95,15 @@ export function EditorialReviewDetail({
   const showCaption = Boolean(normalizedCaption && normalizedCaption !== normalizedAlt);
   const textApplyLabel = item.recommendationType === "list" ? "Застосувати список" : "Застосувати текст";
   const actionButtonStyle = { textTransform: "none", letterSpacing: "0.02em" } as const;
-  const isComplex = item.recommendationType === "callout" || item.recommendationType === "visualize" || item.recommendationType === "illustration";
-  const layout = isComplex && (isActiveProposal || preparing) ? "drawer" : "pendant";
 
   return (
-    <aside className="editorial-review-detail" data-layout={layout} data-type={item.recommendationType} data-priority={item.priority}>
+    <aside className="editorial-review-detail" data-layout="pendant" data-type={item.recommendationType} data-priority={item.priority}>
       <div className="editorial-review-detail-head">
         <div className="editorial-review-detail-meta">
           <span className="tag-pill tag-type">{typeLabels[item.recommendationType]}</span>
           <span className={`tag-pill tag-severity-${item.priority}`}>{priorityLabels[item.priority]}</span>
-          <span className="tag-lines">
-            Абзаци {getReviewParagraphLabel(item, revision)}
-          </span>
+          <span className="tag-lines">Абзаци {getReviewParagraphLabel(item, revision)}</span>
+          {item.status === "applied" && <span className="tag-pill tag-applied">Застосовано</span>}
         </div>
         <button type="button" className="editorial-review-detail-close" onClick={onClose} aria-label="Закрити">
           <svg viewBox="0 0 12 12" aria-hidden="true" className="editorial-review-detail-close-icon">
@@ -115,6 +112,17 @@ export function EditorialReviewDetail({
           </svg>
         </button>
       </div>
+
+      {item.status === "applied" && (
+        <div className="editorial-review-applied-banner">
+          <div className="editorial-review-applied-banner-icon">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M2.5 6.5L4.5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          Эта рекомендація вже успішно застосована до тексту.
+        </div>
+      )}
 
       <h3 className="editorial-review-detail-title">{item.title}</h3>
 
@@ -161,43 +169,49 @@ export function EditorialReviewDetail({
             </p>
           </div>
         ) : null}
-
       </div>
 
       <div className="editorial-review-detail-actions">
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={canApplyPrefilledCallout ? onApplyCallout : onPrepare}
-          loading={canApplyPrefilledCallout || hasCalloutDraftError ? false : preparing}
-          loadingLabel="Готую чернетку…"
-          disabled={hasCalloutDraftError}
-          style={actionButtonStyle}
-        >
-          {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
-        </Button>
-        {isActiveProposal && !canApplyPrefilledCallout ? (
-          <Button variant="secondary" size="sm" onClick={onDiscardProposal} style={actionButtonStyle}>
-            Скасувати
+        {item.status !== "applied" ? (
+          <>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={canApplyPrefilledCallout ? onApplyCallout : onPrepare}
+              loading={canApplyPrefilledCallout || hasCalloutDraftError ? false : preparing}
+              loadingLabel="Готую чернетку…"
+              disabled={hasCalloutDraftError}
+              style={actionButtonStyle}
+            >
+              {canApplyPrefilledCallout ? "Вставити врізку" : hasCalloutDraftError ? "Помилка врізки" : "Працюй!"}
+            </Button>
+            {isActiveProposal && !canApplyPrefilledCallout && (
+              <Button variant="secondary" size="sm" onClick={onDiscardProposal} style={actionButtonStyle}>
+                Скасувати
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
+              Закрити
+            </Button>
+            {hasCalloutDraftError && (
+              <p className="editorial-review-detail-copy" style={{ color: "#b42318", marginTop: "12px" }}>
+                Чернетку врізки не згенеровано. Запусти `Перевірити весь текст` ще раз.
+              </p>
+            )}
+          </>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
+            Закрити
           </Button>
-        ) : null}
-        <Button variant="secondary" size="sm" onClick={onClose} style={actionButtonStyle}>
-          Закрити
-        </Button>
+        )}
       </div>
 
-      {hasCalloutDraftError ? (
-        <p className="editorial-review-detail-copy" style={{ color: "#b42318" }}>
-          Чернетку врізки не згенеровано. Запусти `Перевірити весь текст` ще раз.
-        </p>
-      ) : null}
-
-      {isActiveProposal ? (
+      {item.status !== "applied" && isActiveProposal && (
         <div className="editorial-review-proposal">
           <p className="mono-ui editorial-review-detail-label">Чернетка дії</p>
           <p className="editorial-review-detail-copy editorial-review-proposal-summary">{isActiveProposal.summary}</p>
 
-          {isActiveProposal.kind === "text_diff" && isActiveProposal.textDiff ? (
+          {isActiveProposal.kind === "text_diff" && isActiveProposal.textDiff && (
             <div className="editorial-review-proposal-block">
               <DiffInlineMark
                 oldText={isActiveProposal.textDiff.oldText}
@@ -210,9 +224,9 @@ export function EditorialReviewDetail({
                 </Button>
               </div>
             </div>
-          ) : null}
+          )}
 
-          {isActiveProposal.kind === "callout_prompt" && isActiveProposal.calloutDraft ? (
+          {isActiveProposal.kind === "callout_prompt" && isActiveProposal.calloutDraft && (
             <div className="editorial-review-proposal-block">
               <p className="mono-ui editorial-review-detail-label editorial-review-callout-kind-chip">
                 Врізка: {getEditorialCalloutKindLabel(isActiveProposal.calloutDraft.calloutKind)}
@@ -220,9 +234,9 @@ export function EditorialReviewDetail({
               <p className="editorial-review-detail-copy">
                 <strong>{isActiveProposal.calloutDraft.title}</strong>
               </p>
-              {isActiveProposal.calloutDraft.previewText ? (
+              {isActiveProposal.calloutDraft.previewText && (
                 <blockquote className="editorial-review-callout-preview">{isActiveProposal.calloutDraft.previewText}</blockquote>
-              ) : null}
+              )}
               <div className="button-row editorial-review-proposal-actions">
                 <Button
                   variant="primary"
@@ -235,9 +249,9 @@ export function EditorialReviewDetail({
                 </Button>
               </div>
             </div>
-          ) : null}
+          )}
 
-          {isActiveProposal.kind === "image_prompt" && isActiveProposal.imageDraft ? (
+          {isActiveProposal.kind === "image_prompt" && isActiveProposal.imageDraft && (
             <div className="editorial-review-proposal-block">
               <div className="editorial-review-image-prompt-head">
                 <p className="mono-ui editorial-review-detail-label">Промпт</p>
@@ -252,11 +266,11 @@ export function EditorialReviewDetail({
               <p className="editorial-review-detail-copy">
                 <strong>Alt:</strong> {isActiveProposal.imageDraft.alt}
               </p>
-              {showCaption ? (
+              {showCaption && (
                 <p className="editorial-review-detail-copy">
                   <strong>Підпис:</strong> {isActiveProposal.imageDraft.caption}
                 </p>
-              ) : null}
+              )}
               <div className="button-row editorial-review-proposal-actions">
                 <Button
                   variant="primary"
@@ -281,27 +295,27 @@ export function EditorialReviewDetail({
                   Вставити зображення
                 </Button>
               </div>
-              {imageJobStatusCopy ? <p className="mono-ui editorial-review-image-status">{imageJobStatusCopy}</p> : null}
-              {showImageJobError ? <p className="mono-ui editorial-review-image-status editorial-review-image-status-error">{imageJobError}</p> : null}
-              {isGeneratedImageLoading ? <p className="mono-ui editorial-review-image-status">Завантажую прев'ю…</p> : null}
-              {generatedImageUrl ? (
+              {imageJobStatusCopy && <p className="mono-ui editorial-review-image-status">{imageJobStatusCopy}</p>}
+              {showImageJobError && <p className="mono-ui editorial-review-image-status editorial-review-image-status-error">{imageJobError}</p>}
+              {isGeneratedImageLoading && <p className="mono-ui editorial-review-image-status">Завантажую прев'ю…</p>}
+              {generatedImageUrl && (
                 <div className="editorial-review-image-preview">
                   <img src={generatedImageUrl} alt={isActiveProposal.imageDraft.alt || "Чернеткова ілюстрація"} />
                   <a className="mono-ui editorial-review-image-download" href={generatedImageUrl} download="review-draft-image">
                     Завантажити
                   </a>
                 </div>
-              ) : null}
+              )}
             </div>
-          ) : null}
+          )}
 
-          {isActiveProposal.kind === "stale_anchor" ? (
+          {isActiveProposal.kind === "stale_anchor" && (
             <div className="editorial-review-proposal-block editorial-review-proposal-warning">
               <p className="editorial-review-detail-copy">{isActiveProposal.staleReason}</p>
             </div>
-          ) : null}
+          )}
         </div>
-      ) : null}
+      )}
     </aside>
   );
 }

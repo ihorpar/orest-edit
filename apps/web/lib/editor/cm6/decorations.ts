@@ -230,6 +230,11 @@ export function buildEditorDecorations(input: {
 
   const paragraphs = getManuscriptParagraphs(input.text, input.revision);
   const activeParagraphIds = new Set(input.activeReviewItem?.anchor.paragraphIds ?? []);
+  const appliedParagraphIds = new Set(
+    input.reviewItems
+      .filter((item) => item.status === "applied")
+      .flatMap((item) => item.anchor.paragraphIds)
+  );
 
   paragraphs.forEach((paragraph) => {
     const lines = paragraph.text.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -239,6 +244,8 @@ export function buildEditorDecorations(input: {
 
     if (activeParagraphIds.has(paragraph.id)) {
       addLineDecorations(decorations, doc, paragraph.start, paragraph.end, "cm-orest-review-line");
+    } else if (appliedParagraphIds.has(paragraph.id)) {
+      addLineDecorations(decorations, doc, paragraph.start, paragraph.end, "cm-orest-applied-review-line");
     }
 
     if (isTableParagraph) {
