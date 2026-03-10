@@ -30,7 +30,7 @@ export async function POST(request: Request) {
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           appliedMode: "default",
-          selectionLength: 0,
+          targetBlockCount: 0,
           returnedOperationCount: 0,
           droppedOperationCount: 0,
           generatedAt: new Date().toISOString()
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           appliedMode: "default",
-          selectionLength: 0,
+          targetBlockCount: 0,
           returnedOperationCount: 0,
           droppedOperationCount: 0,
           generatedAt: new Date().toISOString()
@@ -77,12 +77,12 @@ function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | {
 
   const record = body as Record<string, unknown>;
 
-  if (typeof record.text !== "string") {
-    return { ok: false, error: "Поле text є обов'язковим." };
+  if (!record.document || typeof record.document !== "object") {
+    return { ok: false, error: "Поле document є обов'язковим." };
   }
 
-  if (typeof record.selectionStart !== "number" || typeof record.selectionEnd !== "number") {
-    return { ok: false, error: "Потрібно передати selectionStart і selectionEnd." };
+  if (!Array.isArray(record.targetBlockIds)) {
+    return { ok: false, error: "Потрібно передати targetBlockIds." };
   }
 
   const provider = normalizeProvider(typeof record.provider === "string" ? record.provider : "openai");
@@ -91,9 +91,8 @@ function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | {
   return {
     ok: true,
     value: {
-      text: record.text,
-      selectionStart: record.selectionStart,
-      selectionEnd: record.selectionEnd,
+      document: record.document as PatchRequest["document"],
+      targetBlockIds: record.targetBlockIds.filter((item): item is string => typeof item === "string"),
       mode: record.mode === "custom" ? "custom" : "default",
       prompt: typeof record.prompt === "string" ? record.prompt.trim() : undefined,
       provider,

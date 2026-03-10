@@ -32,7 +32,7 @@ export async function POST(request: Request) {
           reviewSessionId: "review-session-invalid-json",
           requestedProvider: "unknown",
           requestedModelId: "unknown",
-          textLength: 0,
+          blockCount: 0,
           changeLevel: 3,
           returnedItemCount: 0,
           droppedItemCount: 0,
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
           reviewSessionId: "review-session-invalid-body",
           requestedProvider: "unknown",
           requestedModelId: "unknown",
-          textLength: 0,
+          blockCount: 0,
           changeLevel: 3,
           returnedItemCount: 0,
           droppedItemCount: 0,
@@ -82,15 +82,15 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
 
   const record = body as Record<string, unknown>;
 
-  if (typeof record.text !== "string") {
-    return { ok: false, error: "Поле text є обов'язковим." };
+  if (!record.document || typeof record.document !== "object") {
+    return { ok: false, error: "Поле document є обов'язковим." };
   }
 
   const provider = normalizeProvider(typeof record.provider === "string" ? record.provider : "openai");
   const modelId = normalizeModelId(provider, typeof record.modelId === "string" ? record.modelId : "");
   const revision = record.revision as ManuscriptRevisionState | undefined;
 
-  if (!revision || typeof revision !== "object" || typeof revision.documentRevisionId !== "string" || !Array.isArray(revision.paragraphOrder)) {
+  if (!revision || typeof revision !== "object" || typeof revision.documentRevisionId !== "string" || !Array.isArray(revision.blockOrder)) {
     return { ok: false, error: "Потрібно передати поточний revision рукопису." };
   }
 
@@ -99,7 +99,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
   return {
     ok: true,
     value: {
-      text: record.text,
+      document: record.document as EditorialReviewRequest["document"],
       revision,
       provider,
       modelId,

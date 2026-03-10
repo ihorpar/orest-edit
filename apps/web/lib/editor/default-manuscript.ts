@@ -1,3 +1,6 @@
+import type { EditorDocument, InlineNode } from "./document-model";
+import { createBlockId } from "./document-model";
+
 export const DEFAULT_MANUSCRIPT_TEXT = `## Вступ
 
 Шкіра - не просто оболонка, яка вкриває наше тіло. Це найбільший орган людини, який щодня веде невидимий діалог із нашим внутрішнім світом. Вона мовчки розповідає історію про те, як ми живемо: що їмо, як спимо, наскільки вміємо справлятися зі стресом.
@@ -359,3 +362,148 @@ export const DEFAULT_MANUSCRIPT_TEXT = `## Вступ
 - другий - через мозок і психіку
 
 Разом вони створюють систему впливу на здоров’я та зовнішній вигляд людини, відкриваючи перспективи для персоналізованої медицини та дерматології майбутнього.`;
+
+export const DEFAULT_EDITOR_DOCUMENT: EditorDocument = createDocumentFromSeed(DEFAULT_MANUSCRIPT_TEXT);
+
+function createDocumentFromSeed(seed: string): EditorDocument {
+  const lines = seed.replace(/\r\n/g, "\n").split("\n");
+  const blocks: EditorDocument["blocks"] = [];
+  let paragraphBuffer: string[] = [];
+
+  function flushParagraph() {
+    const text = paragraphBuffer.join(" ").trim();
+    paragraphBuffer = [];
+
+    if (!text) {
+      return;
+    }
+
+    blocks.push({
+      id: createBlockId("p"),
+      type: "paragraph",
+      content: [{ text }]
+    });
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trimEnd() ?? "";
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    if (trimmed === "---") {
+      flushParagraph();
+      blocks.push({ id: createBlockId("divider"), type: "divider" });
+      continue;
+    }
+
+    const headingMatch = /^(#{1,3})\s+(.*)$/.exec(trimmed);
+
+    if (headingMatch) {
+      flushParagraph();
+      blocks.push({
+        id: createBlockId("h"),
+        type: "heading",
+        level: Math.min(3, headingMatch[1].length) as 1 | 2 | 3,
+        content: parseInlineMarkdown(headingMatch[2])
+      });
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      flushParagraph();
+      const items: InlineNode[][] = [];
+
+      while (index < lines.length) {
+        const listLine = lines[index]?.trim() ?? "";
+
+        if (!/^[-*]\s+/.test(listLine)) {
+          index -= 1;
+          break;
+        }
+
+        items.push(parseInlineMarkdown(listLine.replace(/^[-*]\s+/, "")));
+        index += 1;
+      }
+
+      blocks.push({
+        id: createBlockId("list"),
+        type: "bullet_list",
+        items
+      });
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      flushParagraph();
+      const items: InlineNode[][] = [];
+
+      while (index < lines.length) {
+        const listLine = lines[index]?.trim() ?? "";
+
+        if (!/^\d+\.\s+/.test(listLine)) {
+          index -= 1;
+          break;
+        }
+
+        items.push(parseInlineMarkdown(listLine.replace(/^\d+\.\s+/, "")));
+        index += 1;
+      }
+
+      blocks.push({
+        id: createBlockId("olist"),
+        type: "ordered_list",
+        items
+      });
+      continue;
+    }
+
+    paragraphBuffer.push(trimmed);
+  }
+
+  flushParagraph();
+
+  return {
+    version: 2,
+    blocks
+  };
+}
+
+function parseInlineMarkdown(text: string): InlineNode[] {
+  const nodes: InlineNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+
+    if (start > lastIndex) {
+      nodes.push({ text: text.slice(lastIndex, start) });
+    }
+
+    const token = match[0];
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push({ text: token.slice(2, -2), bold: true });
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      nodes.push({ text: token.slice(1, -1), italic: true });
+    } else {
+      const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+
+      if (linkMatch) {
+        nodes.push({ text: linkMatch[1], link: linkMatch[2] });
+      }
+    }
+
+    lastIndex = start + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push({ text: text.slice(lastIndex) });
+  }
+
+  return nodes.length > 0 ? nodes : [{ text }];
+}

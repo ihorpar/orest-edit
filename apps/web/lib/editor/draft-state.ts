@@ -1,15 +1,20 @@
+import type { EditorDocument } from "./document-model";
 import type { PatchOperation, PatchResponseDiagnostics, PatchSelection } from "./patch-contract";
 import type { ManuscriptRevisionState } from "./manuscript-structure";
-import type { EditorialReviewDiagnostics, EditorialReviewItem, GeneratedReviewImageAsset, ReviewActionProposal, WholeTextChangeLevel } from "./review-contract";
+import type {
+  EditorialReviewDiagnostics,
+  EditorialReviewItem,
+  GeneratedReviewImageAsset,
+  ReviewActionProposal,
+  WholeTextChangeLevel
+} from "./review-contract";
 
-export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v1";
+export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v2";
+export const LEGACY_EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v1";
 
 export interface PersistedAppliedDiffMarker {
   id: string;
-  start: number;
-  end: number;
-  oldText: string;
-  newText?: string;
+  blockIds: string[];
   reason: string;
 }
 
@@ -33,7 +38,7 @@ export interface PersistedHistoryItem {
 }
 
 export interface PersistedEditorDraftState {
-  text: string;
+  document: EditorDocument;
   revision: ManuscriptRevisionState;
   selection: PatchSelection;
   operations: PatchOperation[];
@@ -57,6 +62,16 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
     return null;
   }
 
+  try {
+    const legacyRaw = window.localStorage.getItem(LEGACY_EDITOR_DRAFT_STORAGE_KEY);
+
+    if (legacyRaw) {
+      window.localStorage.removeItem(LEGACY_EDITOR_DRAFT_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore localStorage cleanup failures.
+  }
+
   const raw = window.localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY);
 
   if (!raw) {
@@ -66,7 +81,7 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
   try {
     const parsed = JSON.parse(raw) as PersistedEditorDraftState;
 
-    if (!parsed || typeof parsed !== "object" || typeof parsed.text !== "string") {
+    if (!parsed || typeof parsed !== "object" || !parsed.document || parsed.document.version !== 2 || !Array.isArray(parsed.document.blocks)) {
       return null;
     }
 

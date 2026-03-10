@@ -2,6 +2,11 @@
 
 ## 2026-03-10
 
+### Block-first canonical editor model
+Decision: the canonical manuscript state is now a block-first `EditorDocument` with stable block IDs; patch and review actions are block-anchored and replace whole selected block ranges; markdown is removed from the main editor workflow.
+
+Reason: the product already operates on paragraph-level editorial decisions, so block-first state aligns the editor, AI contracts, and navigation model while removing offset fragility and making a docs-like editing surface viable.
+
 ### Callout recommendations are recoverable, not disposable
 Decision: keep `callout` recommendations as `pending` when initial `calloutPreviewText` is weak, instead of dropping the item during review normalization.
 

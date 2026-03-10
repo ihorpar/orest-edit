@@ -1,10 +1,11 @@
+import type { Block, EditorDocument, InlineNode } from "./document-model";
+import { cloneBlock, getBlock, getBlockText } from "./document-model";
 import { createPatchId } from "./patch-contract";
 import {
   areParagraphIdsResolvable,
   computeAnchorFingerprint,
   formatParagraphLabel,
   getManuscriptParagraphs,
-  getParagraphRangeText,
   type ManuscriptRevisionState
 } from "./manuscript-structure";
 
@@ -27,7 +28,7 @@ export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
 export type ReviewActionProposalKind = "text_diff" | "callout_prompt" | "image_prompt" | "stale_anchor";
 
 export interface EditorialReviewRequest {
-  text: string;
+  document: EditorDocument;
   revision: ManuscriptRevisionState;
   provider: string;
   modelId: string;
@@ -52,8 +53,8 @@ export interface EditorialReviewItem {
   suggestedAction: EditorialReviewSuggestedAction;
   priority: EditorialReviewPriority;
   anchor: {
-    paragraphIds: string[];
-    generationParagraphRange: {
+    blockIds: string[];
+    generationBlockRange: {
       start: number;
       end: number;
     };
@@ -62,7 +63,7 @@ export interface EditorialReviewItem {
   };
   insertionPoint: {
     mode: EditorialReviewInsertionHint;
-    anchorParagraphId: string;
+    anchorBlockId: string;
   };
   calloutKind?: EditorialCalloutKind;
   calloutDraft?: {
@@ -81,7 +82,7 @@ export interface EditorialReviewDiagnostics {
   reviewSessionId: string;
   requestedProvider: string;
   requestedModelId: string;
-  textLength: number;
+  blockCount: number;
   changeLevel: WholeTextChangeLevel;
   returnedItemCount: number;
   droppedItemCount: number;
@@ -99,7 +100,7 @@ export interface EditorialReviewResponse {
 }
 
 export interface ReviewActionRequest {
-  text: string;
+  document: EditorDocument;
   currentRevision: ManuscriptRevisionState;
   item: EditorialReviewItem;
   provider: string;
@@ -121,10 +122,10 @@ export interface ReviewActionProposal {
   summary: string;
   canApplyDirectly: boolean;
   textDiff?: {
-    op: "replace" | "insert";
-    selection: { start: number; end: number };
-    oldText: string;
-    replacement: string;
+    op: "replace_blocks";
+    blockIds: string[];
+    oldBlocks: Block[];
+    newBlocks: Block[];
     reason: string;
   };
   calloutDraft?: {
@@ -205,31 +206,6 @@ export interface ReviewImageGenerationResponse {
   error?: string;
 }
 
-export function resolveReviewImageAssetUrl(asset: GeneratedReviewImageAsset): string | null {
-  const legacyDataUrl = (asset as unknown as { dataUrl?: unknown }).dataUrl;
-
-  if (typeof legacyDataUrl === "string" && legacyDataUrl.trim()) {
-    return legacyDataUrl.trim();
-  }
-
-  if (!asset.source || typeof asset.source !== "object") {
-    return null;
-  }
-
-  if (asset.source.kind === "data_url") {
-    const dataUrl = asset.source.dataUrl.trim();
-    return dataUrl || null;
-  }
-
-  if (asset.source.kind === "asset_token") {
-    const token = asset.source.token.trim();
-    return token || null;
-  }
-
-  const url = asset.source.url.trim();
-  return url || null;
-}
-
 const REVIEW_RECOMMENDATION_TYPES: EditorialReviewRecommendationType[] = [
   "rewrite",
   "expand",
@@ -272,10 +248,7 @@ const CALLOUT_KIND_TITLE_LABELS: Record<EditorialCalloutKind, string> = {
 };
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
-  return REVIEW_CALLOUT_KINDS.map((value) => ({
-    value,
-    label: CALLOUT_KIND_LABELS[value]
-  }));
+  return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: CALLOUT_KIND_LABELS[value] }));
 }
 
 export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind): string {
@@ -292,8 +265,30 @@ export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutK
   return (entry?.[0] as EditorialCalloutKind | undefined) ?? null;
 }
 
+export function resolveReviewImageAssetUrl(asset: GeneratedReviewImageAsset): string | null {
+  const legacyDataUrl = (asset as unknown as { dataUrl?: unknown }).dataUrl;
+
+  if (typeof legacyDataUrl === "string" && legacyDataUrl.trim()) {
+    return legacyDataUrl.trim();
+  }
+
+  if (!asset.source || typeof asset.source !== "object") {
+    return null;
+  }
+
+  if (asset.source.kind === "data_url") {
+    return asset.source.dataUrl.trim() || null;
+  }
+
+  if (asset.source.kind === "asset_token") {
+    return asset.source.token.trim() || null;
+  }
+
+  return asset.source.url.trim() || null;
+}
+
 export function normalizeEditorialReviewItems(input: {
-  text: string;
+  document: EditorDocument;
   revision: ManuscriptRevisionState;
   reviewSessionId: string;
   changeLevel: WholeTextChangeLevel;
@@ -303,7 +298,7 @@ export function normalizeEditorialReviewItems(input: {
     return { items: [], droppedCount: 0 };
   }
 
-  const paragraphs = getManuscriptParagraphs(input.text, input.revision);
+  const paragraphs = getManuscriptParagraphs(input.document, input.revision);
   const normalized: EditorialReviewItem[] = [];
   let droppedCount = 0;
 
@@ -314,90 +309,66 @@ export function normalizeEditorialReviewItems(input: {
     }
 
     const record = candidate as Record<string, unknown>;
-    const paragraphStart = normalizeIndex(record.paragraphStart, paragraphs.length);
-    const paragraphEnd = normalizeIndex(record.paragraphEnd, paragraphs.length);
+    const blockStart = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
+    const blockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
     const title = normalizeCopy(record.title, 90);
     const reason = normalizeCopy(record.reason, 420);
-    const recommendation = normalizeCopy(record.recommendation, 520);
-    const excerpt = normalizeExcerptCopy(record.excerpt, 360);
+    const recommendation = normalizeCopy(record.recommendation, 420);
 
-    if (paragraphStart === null || paragraphEnd === null || paragraphStart > paragraphEnd || !title || !reason || !recommendation) {
+    if (blockStart === null || blockEnd === null || !title || !reason || !recommendation) {
       droppedCount += 1;
       continue;
     }
 
-    const paragraphRange = paragraphs.filter((paragraph) => paragraph.index >= paragraphStart && paragraph.index <= paragraphEnd);
+    const start = Math.min(blockStart, blockEnd);
+    const end = Math.max(blockStart, blockEnd);
+    const blockIds = paragraphs.slice(start, end + 1).map((paragraph) => paragraph.id);
+    const excerpt = normalizeCopy(record.excerpt, 420) ?? blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
+    const insertionAnchor = blockIds[0];
 
-    if (paragraphRange.length === 0) {
+    if (!insertionAnchor) {
       droppedCount += 1;
       continue;
     }
-
-    const paragraphIds = paragraphRange.map((paragraph) => paragraph.id);
-    const derivedExcerpt = getParagraphRangeText(input.revision, paragraphIds).slice(0, 360);
-    const anchorExcerpt = excerpt ?? derivedExcerpt;
-
-    const recommendationType = normalizeRecommendationType(record.recommendationType);
-    const suggestedAction = normalizeSuggestedAction(record.suggestedAction);
-    const calloutKind = normalizeCalloutKind(record.calloutKind);
-    const calloutDraft = normalizeCalloutDraft(record, {
-      recommendation,
-      recommendationType,
-      suggestedAction,
-      calloutKind
-    });
 
     normalized.push({
-      id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`review-${index + 1}`),
+      id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`review-item-${index + 1}`),
       reviewSessionId: input.reviewSessionId,
       documentRevisionId: input.revision.documentRevisionId,
       changeLevel: input.changeLevel,
       title,
       reason,
       recommendation,
-      recommendationType,
-      suggestedAction,
+      recommendationType: normalizeRecommendationType(record.recommendationType),
+      suggestedAction: normalizeSuggestedAction(record.suggestedAction),
       priority: normalizePriority(record.priority),
       anchor: {
-        paragraphIds,
-        generationParagraphRange: {
-          start: paragraphStart,
-          end: paragraphEnd
-        },
-        excerpt: anchorExcerpt,
-        fingerprint: computeAnchorFingerprint(input.revision, paragraphIds, anchorExcerpt)
+        blockIds,
+        generationBlockRange: { start, end },
+        excerpt,
+        fingerprint: computeAnchorFingerprint(input.document, blockIds)
       },
       insertionPoint: {
         mode: normalizeInsertionHint(record.insertionHint),
-        anchorParagraphId: paragraphRange[paragraphRange.length - 1]?.id ?? paragraphRange[0].id
+        anchorBlockId: typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId : insertionAnchor
       },
-      calloutKind: calloutKind ?? (recommendationType === "callout" || suggestedAction === "prepare_callout" ? "quick_fact" : undefined),
-      calloutDraft,
+      calloutKind: normalizeCalloutKind(record.calloutKind),
+      calloutDraft: normalizeCalloutDraft(record),
       visualIntent: normalizeVisualIntent(record.visualIntent),
-      status: calloutDraft ? "ready" : "pending"
+      status: "pending"
     });
   }
 
-  normalized.sort((left, right) => {
-    const paragraphDelta = left.anchor.generationParagraphRange.start - right.anchor.generationParagraphRange.start;
-    if (paragraphDelta !== 0) {
-      return paragraphDelta;
-    }
-
-    return priorityWeight(left.priority) - priorityWeight(right.priority);
-  });
-
   const deduped: EditorialReviewItem[] = [];
 
-  for (const item of normalized) {
-    const duplicate = deduped.find(
-      (candidate) =>
-        candidate.title === item.title &&
-        candidate.anchor.paragraphIds.join(",") === item.anchor.paragraphIds.join(",") &&
-        candidate.recommendationType === item.recommendationType
-    );
-
-    if (duplicate) {
+  for (const item of normalized.sort((left, right) => priorityWeight(left.priority) - priorityWeight(right.priority))) {
+    if (
+      deduped.some(
+        (existing) =>
+          existing.title === item.title ||
+          (existing.anchor.blockIds.join("|") === item.anchor.blockIds.join("|") && existing.recommendationType === item.recommendationType)
+      )
+    ) {
       droppedCount += 1;
       continue;
     }
@@ -405,51 +376,32 @@ export function normalizeEditorialReviewItems(input: {
     deduped.push(item);
   }
 
-  return { items: deduped.slice(0, 8), droppedCount };
+  return { items: deduped, droppedCount };
 }
 
 export function getReviewParagraphLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState): string {
-  const indices = item.anchor.paragraphIds
-    .map((id) => revision.paragraphOrder.indexOf(id))
-    .filter((index) => index >= 0)
-    .sort((left, right) => left - right);
-
-  if (indices.length === 0) {
-    return `${formatParagraphLabel(item.anchor.generationParagraphRange.start)}-${formatParagraphLabel(item.anchor.generationParagraphRange.end)}`;
-  }
-
-  return `${formatParagraphLabel(indices[0] + 1)}-${formatParagraphLabel(indices[indices.length - 1] + 1)}`;
+  const firstBlockId = item.anchor.blockIds[0];
+  const index = revision.blockOrder.indexOf(firstBlockId);
+  return index >= 0 ? formatParagraphLabel(index) : "¶?";
 }
 
 export function reconcileReviewItemsWithRevision(
   items: EditorialReviewItem[],
-  revision: ManuscriptRevisionState,
-  appliedItemId?: string
+  document: EditorDocument,
+  revision: ManuscriptRevisionState
 ): EditorialReviewItem[] {
   return items.map((item) => {
-    if (item.id === appliedItemId) {
-      return {
-        ...item,
-        status: "applied"
-      };
-    }
+    const isResolvable = areParagraphIdsResolvable(revision, item.anchor.blockIds);
+    const nextFingerprint = isResolvable ? computeAnchorFingerprint(document, item.anchor.blockIds) : item.anchor.fingerprint;
+    const isStale = !isResolvable || nextFingerprint !== item.anchor.fingerprint;
 
-    if (item.status === "dismissed" || item.status === "applied") {
+    if (!isStale) {
       return item;
     }
 
-    if (!areParagraphIdsResolvable(revision, item.anchor.paragraphIds)) {
-      return {
-        ...item,
-        status: "stale"
-      };
-    }
-
-    const nextFingerprint = computeAnchorFingerprint(revision, item.anchor.paragraphIds, item.anchor.excerpt);
-
     return {
       ...item,
-      status: nextFingerprint === item.anchor.fingerprint ? (item.status === "ready" ? "ready" : "pending") : "stale"
+      status: item.status === "applied" || item.status === "dismissed" ? item.status : "stale"
     };
   });
 }
@@ -474,47 +426,28 @@ function normalizeCalloutKind(value: unknown): EditorialCalloutKind | undefined 
   return REVIEW_CALLOUT_KINDS.includes(value as EditorialCalloutKind) ? (value as EditorialCalloutKind) : undefined;
 }
 
-function normalizeCalloutDraft(
-  record: Record<string, unknown>,
-  context: {
-    recommendation: string;
-    recommendationType: EditorialReviewRecommendationType;
-    suggestedAction: EditorialReviewSuggestedAction;
-    calloutKind?: EditorialCalloutKind;
-  }
-): EditorialReviewItem["calloutDraft"] | undefined {
-  if (context.recommendationType !== "callout" && context.suggestedAction !== "prepare_callout") {
-    return undefined;
-  }
-
-  const calloutKind = context.calloutKind ?? "quick_fact";
-  const title =
-    normalizeCopy(firstString(record.calloutTitle, record.calloutHeading, record.calloutHeadline, record.calloutLabel), 80) ??
-    fallbackCalloutTitle(calloutKind);
-  const previewText = normalizeCopy(firstString(record.calloutPreviewText, record.calloutText, record.calloutBody, record.calloutDraft), 900) ?? "";
-  const prompt = normalizePromptCopy(firstString(record.calloutPrompt, record.calloutGenerationPrompt, record.prompt), 2400) ?? "";
-  const summary = normalizeCopy(firstString(record.calloutSummary, record.calloutWhy, record.calloutReason), 180) ?? undefined;
-
-  return {
-    calloutKind,
-    title,
-    prompt,
-    previewText,
-    summary
-  };
-}
-
 function normalizeVisualIntent(value: unknown): EditorialVisualIntent | undefined {
   return REVIEW_VISUAL_INTENTS.includes(value as EditorialVisualIntent) ? (value as EditorialVisualIntent) : undefined;
 }
 
-function normalizeIndex(value: unknown, paragraphCount: number): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return null;
+function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReviewItem["calloutDraft"] | undefined {
+  const kind = normalizeCalloutKind(record.calloutKind);
+  const title = normalizeCopy(record.calloutTitle, 90);
+  const prompt = normalizeCopy(record.calloutPrompt, 600);
+  const previewText = normalizeCopy(record.calloutPreviewText, 600);
+  const summary = normalizeCopy(record.calloutSummary, 220);
+
+  if (!kind || !title || !prompt || !previewText) {
+    return undefined;
   }
 
-  const normalized = Math.floor(value);
-  return normalized >= 1 && normalized <= paragraphCount ? normalized : null;
+  return {
+    calloutKind: kind,
+    title,
+    prompt,
+    previewText,
+    summary: summary ?? undefined
+  };
 }
 
 function normalizeCopy(value: unknown, maxLength: number): string | null {
@@ -526,47 +459,15 @@ function normalizeCopy(value: unknown, maxLength: number): string | null {
   return normalized ? normalized.slice(0, maxLength) : null;
 }
 
-function normalizePromptCopy(value: unknown, maxLength: number): string | null {
-  if (typeof value !== "string") {
+function normalizeIndex(value: unknown, length: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return null;
   }
 
-  const normalized = value.trim();
-  return normalized ? normalized.slice(0, maxLength) : null;
-}
-
-function normalizeExcerptCopy(value: unknown, maxLength: number): string | null {
-  const normalized = normalizeCopy(value, maxLength);
-
-  if (!normalized) {
-    return null;
-  }
-
-  return normalized.replace(/^["«]+|["»]+$/g, "").trim();
+  const index = Math.max(0, Math.min(length - 1, Math.floor(value)));
+  return Number.isFinite(index) ? index : null;
 }
 
 function priorityWeight(priority: EditorialReviewPriority): number {
-  if (priority === "high") {
-    return 0;
-  }
-
-  if (priority === "medium") {
-    return 1;
-  }
-
-  return 2;
-}
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return null;
-}
-
-function fallbackCalloutTitle(kind: EditorialCalloutKind): string {
-  return getEditorialCalloutKindTitle(kind);
+  return priority === "high" ? 0 : priority === "medium" ? 1 : 2;
 }

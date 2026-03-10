@@ -1,90 +1,61 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-
 import {
-  applyPatchOperations,
-  normalizePatchOperationsResult,
-  type PatchSelection
+  applyPatchOperation,
+  hasSelection,
+  normalizePatchSelection,
+  preserveInlineFormatting,
+  type PatchOperation
 } from "../lib/editor/patch-contract.ts";
-import { applyMarkdownFormat } from "../lib/editor/markdown-editor.ts";
+import type { EditorDocument } from "../lib/editor/document-model.ts";
 
-test("normalizePatchOperationsResult drops invalid and overlapping operations", () => {
-  const text = "abcdefghij";
-  const selection: PatchSelection = { start: 2, end: 8 };
+function createDocument(): EditorDocument {
+  return {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Складний " }, { text: "термін", bold: true }, { text: " треба пояснити." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Другий абзац." }] }
+    ]
+  };
+}
 
-  const result = normalizePatchOperationsResult(text, selection, [
-    { op: "replace", start: 2, end: 4, newText: "XX", reason: "ok", type: "clarity" },
-    { op: "replace", start: 3, end: 5, newText: "YY", reason: "overlap", type: "clarity" },
-    { op: "replace", start: 0, end: 1, newText: "bad", reason: "outside", type: "clarity" },
-    { op: "delete", start: 6, end: 6, reason: "invalid", type: "clarity" }
-  ]);
+test("normalizePatchSelection keeps contiguous block selection", () => {
+  const document = createDocument();
+  const selection = normalizePatchSelection(document, {
+    blockIds: ["p2", "p1"],
+    anchorBlockId: "p1",
+    focusBlockId: "p2"
+  });
 
-  assert.equal(result.operations.length, 1);
-  assert.equal(result.droppedCount, 3);
-  assert.equal(result.operations[0]?.oldText, "cd");
+  assert.equal(hasSelection(selection), true);
+  assert.deepEqual(selection.blockIds, ["p1", "p2"]);
 });
 
-test("applyPatchOperations applies multiple operations from the end of the text safely", () => {
-  const text = "alpha beta gamma";
-  const operations = [
-    {
-      id: "op-1",
-      op: "replace" as const,
-      start: text.indexOf("alpha"),
-      end: text.indexOf("alpha") + "alpha".length,
-      oldText: "alpha",
-      newText: "один",
-      reason: "Спростив.",
-      type: "clarity" as const
-    },
-    {
-      id: "op-2",
-      op: "replace" as const,
-      start: text.indexOf("gamma"),
-      end: text.indexOf("gamma") + "gamma".length,
-      oldText: "gamma",
-      newText: "три",
-      reason: "Спростив.",
-      type: "clarity" as const
-    }
-  ];
+test("applyPatchOperation replaces selected blocks and preserves ids", () => {
+  const document = createDocument();
+  const operation: PatchOperation = {
+    id: "patch-1",
+    op: "replace_blocks",
+    blockIds: ["p1"],
+    oldBlocks: [document.blocks[0]],
+    newBlocks: [{ id: "temp", type: "paragraph", content: [{ text: "Пояснений термін." }] }],
+    reason: "Спростив блок.",
+    type: "clarity"
+  };
 
-  const next = applyPatchOperations(text, operations);
+  const next = applyPatchOperation(document, operation);
 
-  assert.equal(next, "один beta три");
+  assert.equal(next.blocks[0]?.id, "p1");
+  assert.equal(next.blocks[0]?.type, "paragraph");
+  assert.equal(next.blocks[0]?.content.map((node) => node.text).join(""), "Пояснений термін.");
 });
 
-test("applyMarkdownFormat wraps the selected text in bold markers", () => {
-  const result = applyMarkdownFormat("Простий текст", { start: 0, end: 7 }, "bold");
+test("preserveInlineFormatting keeps unchanged bold segment", () => {
+  const result = preserveInlineFormatting(
+    [{ text: "термін", bold: true }, { text: " і пояснення" }],
+    [{ text: "термін і пояснення" }]
+  );
 
-  assert.equal(result.text, "**Простий** текст");
-  assert.deepEqual(result.selection, { start: 2, end: 9 });
-});
-
-test("applyMarkdownFormat toggles heading markers on the current line", () => {
-  const result = applyMarkdownFormat("Заголовок\nДругий рядок", { start: 0, end: 0 }, "heading-2");
-
-  assert.equal(result.text, "## Заголовок\nДругий рядок");
-  assert.deepEqual(result.selection, { start: 0, end: 12 });
-});
-
-test("applyMarkdownFormat toggles bullet markers for all selected lines", () => {
-  const result = applyMarkdownFormat("перший\nдругий", { start: 0, end: 13 }, "bullet-list");
-
-  assert.equal(result.text, "- перший\n- другий");
-  assert.deepEqual(result.selection, { start: 0, end: 17 });
-});
-
-test("applyMarkdownFormat inserts a table template as a standalone block", () => {
-  const result = applyMarkdownFormat("Вступ", { start: 5, end: 5 }, "table");
-
-  assert.equal(result.text, "Вступ\n\n| Колонка 1 | Колонка 2 |\n| --- | --- |\n| Значення | Значення |");
-  assert.deepEqual(result.selection, { start: 7, end: 70 });
-});
-
-test("applyMarkdownFormat inserts a markdown link and selects the label placeholder", () => {
-  const result = applyMarkdownFormat("Текст", { start: 5, end: 5 }, "link");
-
-  assert.equal(result.text, "Текст[текст посилання](https://example.com)");
-  assert.deepEqual(result.selection, { start: 6, end: 21 });
+  assert.equal(result[0]?.text, "термін");
+  assert.equal(result[0]?.bold, true);
 });

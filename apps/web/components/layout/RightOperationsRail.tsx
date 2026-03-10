@@ -23,6 +23,7 @@ export interface RequestHistoryItem {
 export function RightOperationsRail({
   aiTasks,
   canRequestReview,
+  customPrompt,
   isIdle,
   patchDiagnostics,
   reviewDiagnostics,
@@ -35,8 +36,10 @@ export function RightOperationsRail({
   onPrepareReviewItem,
   onApplyReviewCallout,
   onDismissReviewItem,
+  onPromptChange,
   patchLoading,
   reviewLoading,
+  onRequestPatch,
   onAccept,
   onAcceptAll,
   onReject,
@@ -50,6 +53,7 @@ export function RightOperationsRail({
 }: {
   aiTasks: AiActivityTask[];
   canRequestReview?: boolean;
+  customPrompt: string;
   isIdle?: boolean;
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
@@ -62,8 +66,10 @@ export function RightOperationsRail({
   onPrepareReviewItem: (item: EditorialReviewItem) => void;
   onApplyReviewCallout: (item: EditorialReviewItem) => void;
   onDismissReviewItem: (item: EditorialReviewItem) => void;
+  onPromptChange: (value: string) => void;
   patchLoading?: boolean;
   reviewLoading?: boolean;
+  onRequestPatch: (mode: "default" | "custom") => void;
   onAccept: (id: string) => void;
   onAcceptAll: () => void;
   onReject: (id: string) => void;
@@ -75,28 +81,34 @@ export function RightOperationsRail({
   onOpenAiTask: (task: AiActivityTask) => void;
   onDismissAiTask: (taskId: string) => void;
 }) {
-  const shouldShowFeedback = statusMessage && statusTone === "error";
   return (
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
       <section className="rail-section rail-section-primary">
-        <p className="mono-ui operations-title">Огляд рукопису</p>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onRequestReview}
-          loading={reviewLoading}
-          loadingLabel="Аналізую…"
-          disabled={!canRequestReview}
-          style={{ width: "100%" }}
-        >
-          Перевірити весь текст
+        <p className="mono-ui operations-title">Локальна правка</p>
+        <div className="rail-prompt-stack">
+          <Button variant="primary" size="sm" onClick={() => onRequestPatch("default")} loading={patchLoading}>
+            Покращити
+          </Button>
+          <textarea
+            className="rail-prompt-input"
+            value={customPrompt}
+            onChange={(event) => onPromptChange(event.currentTarget.value)}
+            placeholder="Кастомний запит"
+            rows={3}
+          />
+          <Button variant="secondary" size="sm" onClick={() => onRequestPatch("custom")} disabled={!customPrompt.trim()} loading={patchLoading}>
+            Виконати
+          </Button>
+        </div>
+      </section>
+
+      <section className="rail-section rail-section-primary">
+        <p className="mono-ui operations-title">Огляд документа</p>
+        <Button variant="primary" size="sm" onClick={onRequestReview} loading={reviewLoading} disabled={!canRequestReview}>
+          Перевірити
         </Button>
-        {!reviewLoading && reviewItemCount > 0 ? (
-          <p className="rail-status-copy">
-            Доступно рекомендацій: {reviewItemCount}
-          </p>
-        ) : null}
-        {shouldShowFeedback ? (
+        {reviewItemCount > 0 ? <p className="rail-status-copy">Рекомендацій: {reviewItemCount}</p> : null}
+        {statusMessage ? (
           <p className="rail-status-copy" data-tone={statusTone ?? "info"}>
             {statusMessage}
           </p>
@@ -105,49 +117,44 @@ export function RightOperationsRail({
 
       {aiTasks.length > 0 ? (
         <section className="rail-section">
-          <div className="rail-section-head">
-            <p className="mono-ui operations-title">Результати ШІ</p>
-          </div>
-
+          <p className="mono-ui operations-title">ШІ</p>
           <div className="request-history-stack">
             {aiTasks.map((task) => (
-              <article key={task.id} className="editor-note-card request-status-card ai-task-card" data-tone={getAiActivityTaskTone(task)}>
-                {task.status === "running" ? (
-                  <div className="floating-panel-loading ai-task-loading" role="status" aria-live="polite">
-                    <span className="floating-loading-orb" aria-hidden="true">
-                      <span className="floating-loading-orb-core" />
-                    </span>
-                    <span className="floating-panel-loading-text">
-                      <span className="floating-panel-loading-copy">{getAiTaskRunningTitle(task)}</span>
-                      <span className="mono-ui floating-panel-loading-subcopy">{getAiTaskRunningSubcopy(task)}</span>
-                    </span>
-                    <span className="floating-loading-equalizer" aria-hidden="true">
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="ai-task-card-head">
-                      <div className="ai-task-card-meta">
-                        <span className="ai-task-status-dot" data-tone={getAiActivityTaskTone(task)} aria-hidden="true" />
-                        <p className="editor-note-title">{task.title}</p>
-                      </div>
-                      <span className="mono-ui ai-task-state-chip">{task.status === "failed" ? "помилка" : "готово"}</span>
-                    </div>
-                    <p className="editor-note-copy">{getAiActivityTaskMessage(task)}</p>
-                    <div className="button-row ai-task-card-actions">
-                      <Button variant="primary" size="sm" onClick={() => onOpenAiTask(task)}>
-                        Відкрити
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => onDismissAiTask(task.id)}>
-                        ×
-                      </Button>
-                    </div>
-                  </>
-                )}
+              <article key={task.id} className="editor-note-card" data-tone={getAiActivityTaskTone(task)}>
+                <p className="editor-note-title">{task.title}</p>
+                <p className="editor-note-copy">{getAiActivityTaskMessage(task)}</p>
+                <div className="button-row">
+                  <Button size="sm" variant="secondary" onClick={() => onOpenAiTask(task)}>
+                    Відкрити
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => onDismissAiTask(task.id)}>
+                    ×
+                  </Button>
+                </div>
               </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {operations.length > 0 ? (
+        <section className="rail-section">
+          <div className="rail-section-head">
+            <p className="mono-ui operations-title">Правки</p>
+            {operations.length > 1 ? (
+              <div className="button-row">
+                <Button size="sm" variant="ghost" onClick={onRejectAll}>
+                  Скасувати всі
+                </Button>
+                <Button size="sm" variant="primary" onClick={onAcceptAll}>
+                  Прийняти всі
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          <div className="operations-stack">
+            {operations.map((operation) => (
+              <OperationCard key={operation.id} operation={operation} onAccept={onAccept} onReject={onReject} />
             ))}
           </div>
         </section>
@@ -155,10 +162,7 @@ export function RightOperationsRail({
 
       {reviewItems.length > 0 ? (
         <section className="rail-section">
-          <div className="rail-section-head">
-            <p className="mono-ui operations-title">Рекомендації</p>
-          </div>
-
+          <p className="mono-ui operations-title">Рекомендації</p>
           <div className="operations-stack operations-stack-compact">
             {reviewItems.map((item) => (
               <EditorialReviewCard
@@ -176,88 +180,31 @@ export function RightOperationsRail({
         </section>
       ) : null}
 
-      {patchLoading || operations.length > 0 ? (
-        <section className="rail-section">
-          <div className="rail-section-head">
-            <p className="mono-ui operations-title">Правки на розгляді</p>
-            {operations.length > 1 ? (
-              <div className="button-row">
-                <Button variant="secondary" size="sm" onClick={onRejectAll}>
-                  Відхилити всі
-                </Button>
-                <Button variant="primary" size="sm" onClick={onAcceptAll}>
-                  Прийняти всі
-                </Button>
-              </div>
-            ) : null}
-          </div>
-
-          {patchLoading ? <LoadingState label="Готую локальні правки…" /> : null}
-
-          <div className="operations-stack">
-            {operations.map((operation) => (
-              <OperationCard key={operation.id} operation={operation} onAccept={onAccept} onReject={onReject} />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {reviewDiagnostics ? (
+      {patchDiagnostics ? (
         <details className="rail-disclosure">
-          <summary className="mono-ui">Діагностика огляду</summary>
+          <summary className="mono-ui">Patch</summary>
           <div className="disclosure-body">
-            <div className="request-diagnostics-grid">
-              <p className="editor-note-copy">
-                <strong>Провайдер:</strong> {reviewDiagnostics.requestedProvider} → {reviewDiagnostics.requestedModelId}
-              </p>
-              <p className="editor-note-copy">
-                <strong>Текст:</strong> {reviewDiagnostics.textLength} символів
-              </p>
-              <p className="editor-note-copy">
-                <strong>Рекомендацій:</strong> {reviewDiagnostics.returnedItemCount}
-              </p>
-              <p className="editor-note-copy">
-                <strong>Відкинуто:</strong> {reviewDiagnostics.droppedItemCount}
-              </p>
-            </div>
-            {reviewDiagnostics.rawOutput ? (
-              <details className="diagnostics-raw-output">
-                <summary className="mono-ui">Raw output</summary>
-                <pre className="diagnostics-raw-pre">{reviewDiagnostics.rawOutput}</pre>
-              </details>
-            ) : null}
+            <p className="editor-note-copy">Провайдер: {patchDiagnostics.requestedProvider} → {patchDiagnostics.requestedModelId}</p>
+            <p className="editor-note-copy">Блоків: {patchDiagnostics.targetBlockCount}</p>
+            <p className="editor-note-copy">Правок: {patchDiagnostics.returnedOperationCount}</p>
           </div>
         </details>
       ) : null}
 
-      {patchDiagnostics ? (
+      {reviewDiagnostics ? (
         <details className="rail-disclosure">
-          <summary className="mono-ui">Діагностика правок</summary>
+          <summary className="mono-ui">Review</summary>
           <div className="disclosure-body">
-            <div className="request-diagnostics-grid">
-              <p className="editor-note-copy">
-                <strong>Провайдер:</strong> {patchDiagnostics.requestedProvider} → {patchDiagnostics.requestedModelId}
-              </p>
-              <p className="editor-note-copy">
-                <strong>Режим:</strong> {patchDiagnostics.appliedMode === "custom" ? "кастомний" : "базовий"}
-              </p>
-              <p className="editor-note-copy">
-                <strong>Виділення:</strong> {patchDiagnostics.selectionLength} символів
-              </p>
-              <p className="editor-note-copy">
-                <strong>Правок:</strong> {patchDiagnostics.returnedOperationCount}
-              </p>
-              <p className="editor-note-copy">
-                <strong>Відкинуто:</strong> {patchDiagnostics.droppedOperationCount}
-              </p>
-            </div>
+            <p className="editor-note-copy">Провайдер: {reviewDiagnostics.requestedProvider} → {reviewDiagnostics.requestedModelId}</p>
+            <p className="editor-note-copy">Блоків: {reviewDiagnostics.blockCount}</p>
+            <p className="editor-note-copy">Рекомендацій: {reviewDiagnostics.returnedItemCount}</p>
           </div>
         </details>
       ) : null}
 
       {history.length > 0 ? (
         <details className="rail-disclosure">
-          <summary className="mono-ui">Останні запити</summary>
+          <summary className="mono-ui">Історія</summary>
           <div className="disclosure-body request-history-stack">
             {history.map((entry) => (
               <article key={entry.id} className="editor-note-card request-status-card" data-tone={entry.tone}>
@@ -273,25 +220,4 @@ export function RightOperationsRail({
       ) : null}
     </div>
   );
-}
-
-function LoadingState({ label }: { label: string }) {
-  return (
-    <div className="operations-empty loading-state-card" role="status" aria-live="polite">
-      <span className="loading-inline-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
-      <span className="mono-ui">{label}</span>
-    </div>
-  );
-}
-
-function getAiTaskRunningTitle(task: AiActivityTask) {
-  return task.kind === "review" ? "ШІ готує review…" : "ШІ готує правки…";
-}
-
-function getAiTaskRunningSubcopy(task: AiActivityTask) {
-  return task.kind === "review" ? "аналізую структуру, тон і логіку" : "аналізую фрагмент і готую версію";
 }

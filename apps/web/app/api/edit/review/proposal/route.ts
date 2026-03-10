@@ -91,8 +91,8 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
 
   const record = body as Record<string, unknown>;
 
-  if (typeof record.text !== "string") {
-    return { ok: false, error: "Поле text є обов'язковим." };
+  if (!record.document || typeof record.document !== "object") {
+    return { ok: false, error: "Поле document є обов'язковим." };
   }
 
   if (!record.currentRevision || typeof record.currentRevision !== "object") {
@@ -109,7 +109,7 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
   return {
     ok: true,
     value: {
-      text: record.text,
+      document: record.document as ReviewActionRequest["document"],
       currentRevision: record.currentRevision as ReviewActionRequest["currentRevision"],
       item: record.item as ReviewActionRequest["item"],
       provider,

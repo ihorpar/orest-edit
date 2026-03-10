@@ -1,8 +1,7 @@
+import type { Block, EditorDocument, InlineNode } from "../editor/document-model.ts";
+import { cloneBlock, getBlock, getBlockText, selectedBlocksToPromptText } from "../editor/document-model.ts";
 import {
-  applyPatchOperations,
-  clampSelection,
   createPatchId,
-  getSelectedText,
   normalizePatchOperationsResult,
   type PatchOperation,
   type PatchOperationType,
@@ -14,7 +13,7 @@ import { readServerEnvValue } from "./env.ts";
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
-const requestTimeoutMs = 20000;
+const requestTimeoutMs = 30000;
 const anthropicVersion = "2023-06-01";
 
 const fallbackGlossary: Array<{
@@ -25,14 +24,9 @@ const fallbackGlossary: Array<{
 }> = [
   { pattern: /серцево-судинна система/gi, replacement: "система серця і судин", type: "terminology", reason: "Спростив термін для читача." },
   { pattern: /безперервно/gi, replacement: "постійно", type: "clarity", reason: "Замінив слово на простіше." },
-  { pattern: /переносить/gi, replacement: "доставляє", type: "clarity", reason: "Зробив дієслово зрозумілішим." },
-  { pattern: /гормональні сигнали/gi, replacement: "сигнали гормонів", type: "terminology", reason: "Спростив науковий термін." },
-  { pattern: /перелік факторів ризику/gi, replacement: "список чинників ризику", type: "clarity", reason: "Полегшив складену конструкцію." },
-  { pattern: /фактори ризику/gi, replacement: "чинники ризику", type: "terminology", reason: "Спростив термінологію." },
-  { pattern: /абдомінальне ожиріння/gi, replacement: "жир навколо живота", type: "terminology", reason: "Пояснив медичний термін простіше." },
-  { pattern: /хронічне запалення/gi, replacement: "тривале запалення", type: "terminology", reason: "Зробив термін зрозумілішим." },
-  { pattern: /довгостроковий/gi, replacement: "тривалий", type: "clarity", reason: "Спростив прикметник." },
-  { pattern: /серцево-судинних подій/gi, replacement: "подій із серцем і судинами", type: "terminology", reason: "Пояснив термін простішою мовою." }
+  { pattern: /перелік факторів ризику/gi, replacement: "список чинників ризику", type: "clarity", reason: "Полегшив конструкцію." },
+  { pattern: /абдомінальне ожиріння/gi, replacement: "жир навколо живота", type: "terminology", reason: "Пояснив медичний термін." },
+  { pattern: /хронічне запалення/gi, replacement: "тривале запалення", type: "terminology", reason: "Зробив термін зрозумілішим." }
 ];
 
 const openAiSchema = {
@@ -43,16 +37,20 @@ const openAiSchema = {
       type: "array",
       items: {
         type: "object",
-        additionalProperties: false,
+        additionalProperties: true,
         properties: {
-          op: { type: "string", enum: ["replace", "insert", "delete"] },
-          start: { type: "integer" },
-          end: { type: "integer" },
-          newText: { type: "string" },
+          blockIds: {
+            type: "array",
+            items: { type: "string" }
+          },
+          newBlocks: {
+            type: "array",
+            items: { type: "object" }
+          },
           reason: { type: "string" },
           type: { type: "string", enum: ["clarity", "structure", "terminology", "source", "tone"] }
         },
-        required: ["op", "start", "end", "newText", "reason", "type"]
+        required: ["blockIds", "newBlocks", "reason", "type"]
       }
     }
   },
@@ -67,14 +65,12 @@ const geminiSchema = {
       items: {
         type: "OBJECT",
         properties: {
-          op: { type: "STRING" },
-          start: { type: "INTEGER" },
-          end: { type: "INTEGER" },
-          newText: { type: "STRING" },
+          blockIds: { type: "ARRAY", items: { type: "STRING" } },
+          newBlocks: { type: "ARRAY", items: { type: "OBJECT" } },
           reason: { type: "STRING" },
           type: { type: "STRING" }
         },
-        required: ["op", "start", "end", "newText", "reason", "type"]
+        required: ["blockIds", "newBlocks", "reason", "type"]
       }
     }
   },
@@ -82,7 +78,6 @@ const geminiSchema = {
 } as const;
 
 type FetchLike = typeof fetch;
-
 type ProviderGenerationResult = {
   operations: PatchOperation[];
   droppedOperationCount: number;
@@ -99,25 +94,26 @@ export async function generatePatchResponse(
   patchRequest: PatchRequest,
   options: GeneratePatchResponseOptions = {}
 ): Promise<PatchResponse> {
-  const selection = clampSelection(patchRequest.text, patchRequest.selectionStart, patchRequest.selectionEnd);
   const requestId = createPatchId("request");
-  const selectionLength = selection.end - selection.start;
+  const targetBlocks = patchRequest.targetBlockIds
+    .map((blockId) => getBlock(patchRequest.document, blockId))
+    .filter((block): block is Block => Boolean(block));
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date().toISOString());
 
-  if (selection.start === selection.end) {
+  if (targetBlocks.length === 0) {
     return buildPatchResponse({
       requestId,
       providerUsed: "invalid-selection",
       requestedProvider: patchRequest.provider,
       requestedModelId: patchRequest.modelId,
       mode: patchRequest.mode,
-      selectionLength,
+      targetBlockCount: 0,
       operations: [],
       droppedOperationCount: 0,
       usedFallback: false,
-      error: "Виділення порожнє. Оберіть фрагмент тексту.",
+      error: "Виділення порожнє. Оберіть один або кілька абзаців.",
       generatedAt: now()
     });
   }
@@ -128,7 +124,7 @@ export async function generatePatchResponse(
     return buildFallbackPatchResponse({
       patchRequest,
       requestId,
-      selectionLength,
+      targetBlockCount: targetBlocks.length,
       error: `Немає ${providerDisplayName(patchRequest.provider)} API key у формі або .env, тому показано локальну fallback-правку.`,
       generatedAt: now()
     });
@@ -143,7 +139,7 @@ export async function generatePatchResponse(
       requestedProvider: patchRequest.provider,
       requestedModelId: patchRequest.modelId,
       mode: patchRequest.mode,
-      selectionLength,
+      targetBlockCount: targetBlocks.length,
       operations: result.operations,
       droppedOperationCount: result.droppedOperationCount,
       usedFallback: false,
@@ -154,7 +150,7 @@ export async function generatePatchResponse(
     return buildFallbackPatchResponse({
       patchRequest,
       requestId,
-      selectionLength,
+      targetBlockCount: targetBlocks.length,
       error: error instanceof Error ? error.message : `${providerDisplayName(patchRequest.provider)} недоступний, тому показано локальну fallback-правку.`,
       generatedAt: now()
     });
@@ -172,7 +168,7 @@ export function buildPatchResponse(input: {
   requestedProvider: string;
   requestedModelId: string;
   mode: PatchRequest["mode"];
-  selectionLength: number;
+  targetBlockCount: number;
   operations: PatchOperation[];
   droppedOperationCount: number;
   usedFallback: boolean;
@@ -189,7 +185,7 @@ export function buildPatchResponse(input: {
       requestedProvider: input.requestedProvider,
       requestedModelId: input.requestedModelId,
       appliedMode: input.mode,
-      selectionLength: input.selectionLength,
+      targetBlockCount: input.targetBlockCount,
       returnedOperationCount: input.operations.length,
       droppedOperationCount: input.droppedOperationCount,
       generatedAt: input.generatedAt
@@ -198,24 +194,22 @@ export function buildPatchResponse(input: {
 }
 
 export function createFallbackOperations(request: PatchRequest): PatchOperation[] {
-  const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
-  const selectedText = getSelectedText(request.text, selection);
-  const matches = collectFallbackTermOperations(selectedText, selection.start);
-  const rewrittenText = preserveStructuredFormatting(
-    selectedText,
-    matches.length > 0 ? rewriteSelectionWithOperations(selectedText, selection.start, matches) : createFallbackRewrite(selectedText, request.prompt)
-  );
+  const targetBlocks = request.targetBlockIds
+    .map((blockId) => getBlock(request.document, blockId))
+    .filter((block): block is Block => Boolean(block));
+  const oldBlocks = targetBlocks.map((block) => cloneBlock(block));
+  const rewrittenBlocks = targetBlocks.map((block) => rewriteBlockFallback(block, request.prompt));
+  const type = inferCombinedType(oldBlocks);
 
   return [
     {
       id: createPatchId("fallback"),
-      op: "replace",
-      start: selection.start,
-      end: selection.end,
-      oldText: selectedText,
-      newText: rewrittenText,
-      reason: inferCombinedReason(matches, request),
-      type: inferCombinedType(matches, request)
+      op: "replace_blocks",
+      blockIds: request.targetBlockIds,
+      oldBlocks,
+      newBlocks: rewrittenBlocks,
+      reason: request.prompt?.trim() ? "Підготував локальну чернетку за вашим запитом." : inferCombinedReason(oldBlocks),
+      type
     }
   ];
 }
@@ -233,8 +227,6 @@ async function createProviderOperations(request: PatchRequest, apiKey: string, f
 }
 
 async function createOpenAiOperations(request: PatchRequest, apiKey: string, fetchImpl: FetchLike): Promise<ProviderGenerationResult> {
-  const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
-  const selectedText = getSelectedText(request.text, selection);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -249,7 +241,7 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
         model: request.modelId,
         temperature: request.mode === "custom" ? 0.4 : 0.2,
         instructions: buildSystemPrompt(request.basePrompt),
-        input: buildUserPrompt(request, selectedText),
+        input: buildUserPrompt(request),
         text: {
           format: {
             type: "json_schema",
@@ -257,85 +249,70 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
             strict: true,
             schema: openAiSchema
           }
-        },
-        store: false
+        }
       }),
       signal: controller.signal
     });
 
-    const payload = (await response.json()) as Record<string, unknown>;
+    const rawOutput = await readProviderText(response);
+    const parsed = parsePatchOperations(rawOutput);
 
-    if (!response.ok) {
-      throw new Error(readProviderErrorMessage(payload) ?? `OpenAI повернув статус ${response.status}.`);
-    }
+    const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
-    return buildNormalizedResult(request, selection, parseProviderOperations(readOpenAiContent(payload)), "openai");
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error("OpenAI не відповів вчасно, тому показано локальну fallback-правку.");
-    }
-
-    throw error;
+    return {
+      operations: normalized.operations,
+      droppedOperationCount: normalized.droppedCount,
+      providerUsed: "openai"
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function createGeminiOperations(request: PatchRequest, apiKey: string, fetchImpl: FetchLike): Promise<ProviderGenerationResult> {
-  const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
-  const selectedText = getSelectedText(request.text, selection);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-  const endpoint = `${geminiBaseUrl}/${encodeURIComponent(request.modelId)}:generateContent`;
 
   try {
-    const response = await fetchImpl(endpoint, {
+    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: buildSystemPrompt(request.basePrompt) }]
+        },
         contents: [
           {
             role: "user",
-            parts: [
-              {
-                text: `${buildSystemPrompt(request.basePrompt)}\n\n${buildUserPrompt(request, selectedText)}`
-              }
-            ]
+            parts: [{ text: buildUserPrompt(request) }]
           }
         ],
         generationConfig: {
           temperature: request.mode === "custom" ? 0.4 : 0.2,
           responseMimeType: "application/json",
-          responseJsonSchema: geminiSchema
+          responseSchema: geminiSchema
         }
       }),
       signal: controller.signal
     });
 
-    const payload = (await response.json()) as Record<string, unknown>;
+    const rawOutput = await readGeminiText(response);
+    const parsed = parsePatchOperations(rawOutput);
+    const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
-    if (!response.ok) {
-      throw new Error(readGeminiErrorMessage(payload) ?? `Gemini повернув статус ${response.status}.`);
-    }
-
-    return buildNormalizedResult(request, selection, parseProviderOperations(readGeminiContent(payload)), "gemini");
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error("Gemini не відповів вчасно, тому показано локальну fallback-правку.");
-    }
-
-    throw error;
+    return {
+      operations: normalized.operations,
+      droppedOperationCount: normalized.droppedCount,
+      providerUsed: "gemini"
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function createAnthropicOperations(request: PatchRequest, apiKey: string, fetchImpl: FetchLike): Promise<ProviderGenerationResult> {
-  const selection = clampSelection(request.text, request.selectionStart, request.selectionEnd);
-  const selectedText = getSelectedText(request.text, selection);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -349,86 +326,42 @@ async function createAnthropicOperations(request: PatchRequest, apiKey: string, 
       },
       body: JSON.stringify({
         model: request.modelId,
-        max_tokens: 1200,
+        max_tokens: 2400,
         temperature: request.mode === "custom" ? 0.4 : 0.2,
         system: `${buildSystemPrompt(request.basePrompt)} Поверни лише JSON-об'єкт {"operations":[...]} без markdown.`,
-        messages: [
-          {
-            role: "user",
-            content: buildUserPrompt(request, selectedText)
-          }
-        ]
+        messages: [{ role: "user", content: buildUserPrompt(request) }]
       }),
       signal: controller.signal
     });
 
-    const payload = (await response.json()) as Record<string, unknown>;
+    const rawOutput = await readAnthropicText(response);
+    const parsed = parsePatchOperations(rawOutput);
+    const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
-    if (!response.ok) {
-      throw new Error(readProviderErrorMessage(payload) ?? `Anthropic повернув статус ${response.status}.`);
-    }
-
-    return buildNormalizedResult(request, selection, parseProviderOperations(readAnthropicContent(payload)), "anthropic");
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error("Anthropic не відповів вчасно, тому показано локальну fallback-правку.");
-    }
-
-    throw error;
+    return {
+      operations: normalized.operations,
+      droppedOperationCount: normalized.droppedCount,
+      providerUsed: "anthropic"
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function buildNormalizedResult(
-  request: PatchRequest,
-  selection: { start: number; end: number },
-  operations: unknown,
-  providerUsed: string
-): ProviderGenerationResult {
-  const normalized = normalizePatchOperationsResult(request.text, selection, operations);
-
-  if (normalized.operations.length === 0) {
-    const repairedOperations = repairProviderOperations(operations, selection);
-
-    if (repairedOperations) {
-      const repairedNormalized = normalizePatchOperationsResult(request.text, selection, repairedOperations);
-
-      if (repairedNormalized.operations.length > 0) {
-        return {
-          operations: [collapseOperationsToSingleRewrite(request, selection, repairedNormalized.operations)],
-          droppedOperationCount: repairedNormalized.droppedCount,
-          providerUsed
-        };
-      }
-    }
-  }
-
-  if (normalized.operations.length === 0) {
-    throw new Error(`${providerDisplayName(providerUsed)} повернув порожні або невалідні локальні правки.`);
-  }
-
-  return {
-    operations: [collapseOperationsToSingleRewrite(request, selection, normalized.operations)],
-    droppedOperationCount: normalized.droppedCount,
-    providerUsed
-  };
-}
-
 function buildFallbackPatchResponse(input: {
   patchRequest: PatchRequest;
   requestId: string;
-  selectionLength: number;
+  targetBlockCount: number;
   error: string;
   generatedAt: string;
 }): PatchResponse {
   return buildPatchResponse({
     requestId: input.requestId,
-    providerUsed: input.patchRequest.provider,
+    providerUsed: `fallback:${input.patchRequest.provider}`,
     requestedProvider: input.patchRequest.provider,
     requestedModelId: input.patchRequest.modelId,
     mode: input.patchRequest.mode,
-    selectionLength: input.selectionLength,
+    targetBlockCount: input.targetBlockCount,
     operations: createFallbackOperations(input.patchRequest),
     droppedOperationCount: 0,
     usedFallback: true,
@@ -437,539 +370,223 @@ function buildFallbackPatchResponse(input: {
   });
 }
 
-export function buildSystemPrompt(basePrompt?: string): string {
-  return [
-    basePrompt ?? "Спрости складну наукову мову до зрозумілої української.",
-    "Ти допомагаєш книжковому редактору, а не лікарю.",
-    "Працюй лише в межах виділеного фрагмента. Не переписуй увесь розділ.",
-    "Зберігай структуру абзаців, списків і порожніх рядків, якщо вона вже є у фрагменті.",
-    "Поверни рівно одну локальну правку.",
-    "Це має бути одна операція replace, яка охоплює весь виділений фрагмент.",
-    "Кожна операція повинна містити op, start, end, newText, reason і type.",
-    "start та end мають бути абсолютними індексами в межах виділення.",
-    "reason пиши коротко, українською, не більше 12 слів.",
-    "Дозволені type: clarity, structure, terminology, source, tone.",
-    "Дозволені op: replace, insert, delete.",
-    "Не дроби відповідь на кілька правок."
-  ].join(" ");
+function rewriteBlockFallback(block: Block, prompt?: string): Block {
+  if (block.type === "paragraph") {
+    return {
+      id: block.id,
+      type: "paragraph",
+      content: [createTextNode(rewriteTextFallback(getBlockText(block), prompt))]
+    };
+  }
+
+  if (block.type === "heading") {
+    return {
+      id: block.id,
+      type: "heading",
+      level: block.level,
+      content: [createTextNode(rewriteTextFallback(getBlockText(block), prompt))]
+    };
+  }
+
+  if (block.type === "bullet_list") {
+    return {
+      id: block.id,
+      type: "bullet_list",
+      items: block.items.map((item) => [createTextNode(rewriteTextFallback(item.map((node) => node.text).join(""), prompt))])
+    };
+  }
+
+  if (block.type === "ordered_list") {
+    return {
+      id: block.id,
+      type: "ordered_list",
+      items: block.items.map((item) => [createTextNode(rewriteTextFallback(item.map((node) => node.text).join(""), prompt))])
+    };
+  }
+
+  if (block.type === "callout") {
+    return {
+      id: block.id,
+      type: "callout",
+      kind: block.kind,
+      title: [createTextNode(rewriteTextFallback(block.title.map((node) => node.text).join(""), prompt))],
+      body: block.body.map((part) => [createTextNode(rewriteTextFallback(part.map((node) => node.text).join(""), prompt))])
+    };
+  }
+
+  if (block.type === "table") {
+    return {
+      id: block.id,
+      type: "table",
+      rows: block.rows.map((row) => row.map((cell) => [createTextNode(rewriteTextFallback(cell.map((node) => node.text).join(""), prompt))]))
+    };
+  }
+
+  if (block.type === "image" && block.caption) {
+    return {
+      id: block.id,
+      type: "image",
+      assetId: block.assetId,
+      alt: block.alt,
+      caption: [createTextNode(rewriteTextFallback(block.caption.map((node) => node.text).join(""), prompt))]
+    };
+  }
+
+  return cloneBlock(block);
 }
 
-export function buildUserPrompt(request: PatchRequest, selectedText: string): string {
-  const task = request.mode === "custom" && request.prompt ? request.prompt : "Спрости виділений фрагмент без втрати змісту.";
+function rewriteTextFallback(text: string, prompt?: string): string {
+  let next = text;
+
+  for (const entry of fallbackGlossary) {
+    next = next.replace(entry.pattern, entry.replacement);
+  }
+
+  if (prompt?.trim()) {
+    if (prompt.toLowerCase().includes("спис")) {
+      return next
+        .split(/[.;]\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => `• ${part}`)
+        .join("\n");
+    }
+
+    if (prompt.toLowerCase().includes("корот")) {
+      const sentences = next.split(/(?<=[.!?])\s+/).filter(Boolean);
+      return sentences.slice(0, Math.max(1, Math.ceil(sentences.length * 0.7))).join(" ");
+    }
+  }
+
+  return next;
+}
+
+function inferCombinedReason(blocks: Block[]): string {
+  const text = blocks.map((block) => getBlockText(block)).join(" ");
+  const match = fallbackGlossary.find((entry) => entry.pattern.test(text));
+  return match?.reason ?? "Підготував локальну зрозумілішу версію фрагмента.";
+}
+
+function inferCombinedType(blocks: Block[]): PatchOperationType {
+  const text = blocks.map((block) => getBlockText(block)).join(" ");
+  const match = fallbackGlossary.find((entry) => entry.pattern.test(text));
+  return match?.type ?? "clarity";
+}
+
+function createTextNode(text: string): InlineNode {
+  return { text };
+}
+
+function buildSystemPrompt(basePrompt?: string): string {
+  return [
+    basePrompt?.trim(),
+    "Ти редагуєш український науково-популярний рукопис.",
+    "Працюй тільки в межах виділених блоків.",
+    "Поверни JSON з однією операцією replace_blocks.",
+    "newBlocks має містити готові rich-text blocks без markdown-синтаксису."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildUserPrompt(request: PatchRequest): string {
+  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  const context = buildNeighborContext(request.document, request.targetBlockIds);
 
   return [
-    `Завдання: ${task}`,
-    `Абсолютне виділення: ${request.selectionStart}-${request.selectionEnd}`,
-    `Виділений фрагмент: ${selectedText}`,
-    "Повний текст нижче потрібен лише для контексту.",
-    request.text
+    "Ось вибрані блоки для локальної правки.",
+    request.mode === "custom" && request.prompt?.trim() ? `Додаткова інструкція: ${request.prompt.trim()}` : "Завдання: зроби текст яснішим і природнішим.",
+    `targetBlockIds: ${JSON.stringify(request.targetBlockIds)}`,
+    "Контекст поруч:",
+    context,
+    "Вибрані блоки:",
+    targetText,
+    'Поверни JSON: {"operations":[{"blockIds":[...],"newBlocks":[...],"reason":"...","type":"clarity"}]}'
   ].join("\n\n");
 }
 
-function parseProviderOperations(content: string): unknown {
-  const parsed = JSON.parse(extractJsonObject(content)) as Record<string, unknown>;
-  return parsed.operations;
+function buildNeighborContext(document: EditorDocument, targetBlockIds: string[]): string {
+  const blocks = document.blocks;
+  const startIndex = blocks.findIndex((block) => block.id === targetBlockIds[0]);
+  const endIndex = blocks.findIndex((block) => block.id === targetBlockIds[targetBlockIds.length - 1]);
+  const contextBlocks = blocks.slice(Math.max(0, startIndex - 1), Math.min(blocks.length, endIndex + 2));
+  return contextBlocks.map((block) => `${block.id}: ${getBlockText(block)}`).join("\n");
 }
 
-function readProviderErrorMessage(payload: Record<string, unknown>): string | null {
-  const error = payload.error;
+async function readProviderText(response: Response): Promise<string> {
+  const payload = (await response.json()) as {
+    output_text?: string;
+    output?: Array<{ content?: Array<{ text?: string }> }>;
+    error?: { message?: string };
+  };
 
-  if (!error || typeof error !== "object") {
-    return null;
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "OpenAI недоступний.");
   }
-
-  return typeof (error as Record<string, unknown>).message === "string" ? ((error as Record<string, unknown>).message as string) : null;
-}
-
-function readOpenAiContent(payload: Record<string, unknown>): string {
-  const output = payload.output;
 
   if (typeof payload.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text.trim();
+    return payload.output_text;
   }
 
-  if (!Array.isArray(output) || output.length === 0) {
-    throw new Error("OpenAI не повернув output.");
+  const content = payload.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n").trim();
+
+  if (!content) {
+    throw new Error("OpenAI не повернув коректний JSON.");
   }
 
-  const text = output
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return "";
-      }
-
-      const content = (item as Record<string, unknown>).content;
-
-      if (!Array.isArray(content)) {
-        return "";
-      }
-
-      return content
-        .map((part) => {
-          if (!part || typeof part !== "object") {
-            return "";
-          }
-
-          const record = part as Record<string, unknown>;
-
-          if (record.type === "output_text" && typeof record.text === "string") {
-            return record.text;
-          }
-
-          if (typeof record.text === "string") {
-            return record.text;
-          }
-
-          return "";
-        })
-        .join("");
-    })
-    .join("")
-    .trim();
-
-  if (text) {
-    return text;
-  }
-
-  throw new Error("OpenAI повернув output у неочікуваному форматі.");
+  return content;
 }
 
-function readGeminiErrorMessage(payload: Record<string, unknown>): string | null {
-  const error = payload.error;
-
-  if (!error || typeof error !== "object") {
-    return null;
-  }
-
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" ? message : null;
-}
-
-function readGeminiContent(payload: Record<string, unknown>): string {
-  const candidates = payload.candidates;
-
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    throw new Error("Gemini не повернув candidates.");
-  }
-
-  const content = (candidates[0] as Record<string, unknown>).content;
-
-  if (!content || typeof content !== "object") {
-    throw new Error("Gemini не повернув content.");
-  }
-
-  const parts = (content as Record<string, unknown>).parts;
-
-  if (!Array.isArray(parts) || parts.length === 0) {
-    throw new Error("Gemini не повернув parts.");
-  }
-
-  return parts
-    .map((part) => {
-      if (!part || typeof part !== "object") {
-        return "";
-      }
-
-      const record = part as Record<string, unknown>;
-      return typeof record.text === "string" ? record.text : "";
-    })
-    .join("");
-}
-
-function readAnthropicContent(payload: Record<string, unknown>): string {
-  const content = payload.content;
-
-  if (!Array.isArray(content) || content.length === 0) {
-    throw new Error("Anthropic не повернув content.");
-  }
-
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") {
-        return "";
-      }
-
-      const record = part as Record<string, unknown>;
-      return typeof record.text === "string" ? record.text : "";
-    })
-    .join("");
-}
-
-function extractJsonObject(content: string): string {
-  const trimmed = content.trim();
-
-  if (trimmed.startsWith("```")) {
-    return trimmed.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  }
-
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1) {
-    throw new Error("Провайдер не повернув JSON-об'єкт із правками.");
-  }
-
-  return trimmed.slice(firstBrace, lastBrace + 1);
-}
-
-function repairProviderOperations(operations: unknown, selection: { start: number; end: number }): unknown[] | null {
-  if (!Array.isArray(operations)) {
-    return null;
-  }
-
-  const selectionLength = selection.end - selection.start;
-  let changed = false;
-
-  const repaired = operations.map((candidate) => {
-    if (!candidate || typeof candidate !== "object") {
-      return candidate;
-    }
-
-    const record = { ...(candidate as Record<string, unknown>) };
-    const start = coerceIndex(record.start);
-    const end = coerceIndex(record.end);
-
-    if (start !== record.start && start !== null) {
-      record.start = start;
-      changed = true;
-    }
-
-    if (end !== record.end && end !== null) {
-      record.end = end;
-      changed = true;
-    }
-
-    if (typeof record.op === "string") {
-      const normalizedOp = record.op.trim().toLowerCase();
-
-      if (normalizedOp !== record.op) {
-        record.op = normalizedOp;
-        changed = true;
-      }
-    }
-
-    if (typeof record.newText !== "string") {
-      const replacement = typeof record.replacement === "string" ? record.replacement : typeof record.text === "string" ? record.text : null;
-
-      if (replacement !== null) {
-        record.newText = replacement;
-        changed = true;
-      }
-    }
-
-    if (typeof record.reason !== "string" && typeof record.comment === "string") {
-      record.reason = record.comment;
-      changed = true;
-    }
-
-    if (typeof record.type !== "string" && typeof record.category === "string") {
-      record.type = record.category;
-      changed = true;
-    }
-
-    if (typeof record.start === "number" && typeof record.end === "number") {
-      const appearsRelative =
-        record.start >= 0 &&
-        record.end >= record.start &&
-        record.end <= selectionLength &&
-        (record.start < selection.start || record.end > selection.end);
-
-      if (appearsRelative) {
-        record.start = record.start + selection.start;
-        record.end = record.end + selection.start;
-        changed = true;
-      }
-    }
-
-    return record;
-  });
-
-  return changed ? repaired : null;
-}
-
-function collapseOperationsToSingleRewrite(
-  request: PatchRequest,
-  selection: { start: number; end: number },
-  operations: PatchOperation[]
-): PatchOperation {
-  const selectedText = getSelectedText(request.text, selection);
-  const rewrittenText = preserveStructuredFormatting(
-    selectedText,
-    operations.length === 1 && operations[0]?.op === "replace" && operations[0].start === selection.start && operations[0].end === selection.end
-      ? (operations[0].newText ?? selectedText)
-      : rewriteSelectionWithOperations(selectedText, selection.start, operations)
-  );
-
-  return {
-    id: operations[0]?.id ?? createPatchId("provider"),
-    op: "replace",
-    start: selection.start,
-    end: selection.end,
-    oldText: selectedText,
-    newText: rewrittenText,
-    reason: inferCombinedReason(operations, request),
-    type: inferCombinedType(operations, request)
+async function readGeminiText(response: Response): Promise<string> {
+  const payload = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    error?: { message?: string };
   };
-}
 
-function rewriteSelectionWithOperations(selectedText: string, absoluteSelectionStart: number, operations: PatchOperation[]): string {
-  const localOperations = operations.map((operation) => ({
-    ...operation,
-    start: operation.start - absoluteSelectionStart,
-    end: operation.end - absoluteSelectionStart
-  }));
-
-  return applyPatchOperations(selectedText, localOperations);
-}
-
-function preserveStructuredFormatting(source: string, replacement: string): string {
-  const normalizedSource = normalizeLineEndings(source);
-  const normalizedReplacement = normalizeLineEndings(replacement).trim();
-
-  if (!normalizedReplacement || !normalizedSource.includes("\n")) {
-    return normalizedReplacement;
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "Gemini недоступний.");
   }
 
-  const sourceLinePlan = getStructuredLinePlan(normalizedSource);
+  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
 
-  if (sourceLinePlan.length < 2) {
-    return normalizedReplacement;
+  if (!text) {
+    throw new Error("Gemini не повернув коректний JSON.");
   }
 
-  let structuredReplacement = normalizedReplacement;
-
-  if (sourceLinePlan.some((line) => line.isList)) {
-    structuredReplacement = structuredReplacement
-      .replace(/\s+((?:[-*+])\s+)/gu, "\n$1")
-      .replace(/\s+((?:\d+[.)])\s+)/gu, "\n$1");
-
-    structuredReplacement = structuredReplacement
-      .split("\n")
-      .flatMap((line) => splitTrailingParagraphAfterListLine(line.trim()))
-      .join("\n");
-  }
-
-  const candidateLines = structuredReplacement
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (candidateLines.length < 2) {
-    return structuredReplacement;
-  }
-
-  const formattedLines: string[] = [];
-
-  candidateLines.forEach((line, index) => {
-    formattedLines.push(line);
-
-    if (sourceLinePlan[index]?.blankAfter) {
-      formattedLines.push("");
-    }
-  });
-
-  return formattedLines.join("\n").trim();
+  return text;
 }
 
-function normalizeLineEndings(value: string): string {
-  return value.replace(/\r\n?/g, "\n");
+async function readAnthropicText(response: Response): Promise<string> {
+  const payload = (await response.json()) as {
+    content?: Array<{ text?: string }>;
+    error?: { message?: string };
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "Anthropic недоступний.");
+  }
+
+  const text = payload.content?.map((part) => part.text ?? "").join("\n").trim();
+
+  if (!text) {
+    throw new Error("Anthropic не повернув коректний JSON.");
+  }
+
+  return text;
 }
 
-function getStructuredLinePlan(source: string): Array<{ isList: boolean; blankAfter: boolean }> {
-  const lines = normalizeLineEndings(source).split("\n");
-  const plan: Array<{ isList: boolean; blankAfter: boolean }> = [];
+function parsePatchOperations(content: string): { operations: unknown } {
+  try {
+    return JSON.parse(content) as { operations: unknown };
+  } catch {
+    const match = /\{[\s\S]*\}/.exec(content);
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const trimmed = lines[index]?.trim();
-
-    if (!trimmed) {
-      continue;
+    if (!match) {
+      return { operations: [] };
     }
 
-    let lookahead = index + 1;
-    let blankAfter = false;
-
-    while (lookahead < lines.length && !lines[lookahead]?.trim()) {
-      blankAfter = true;
-      lookahead += 1;
-    }
-
-    plan.push({
-      isList: isListLine(trimmed),
-      blankAfter
-    });
+    return JSON.parse(match[0]) as { operations: unknown };
   }
-
-  return plan;
-}
-
-function isListLine(value: string): boolean {
-  return /^([-*+]|\d+[.)])\s+\S/u.test(value.trim());
-}
-
-function splitTrailingParagraphAfterListLine(line: string): string[] {
-  if (!isListLine(line)) {
-    return [line];
-  }
-
-  const boundaries = [...line.matchAll(/\s+(?=[А-ЯІЇЄҐ][а-яіїєґ]{2,}\s)/gu)];
-  const splitAt = boundaries.at(-1)?.index;
-
-  if (splitAt === undefined || splitAt < 18) {
-    return [line];
-  }
-
-  const listPart = line.slice(0, splitAt).trimEnd();
-  const paragraphPart = line.slice(splitAt).trimStart();
-
-  if (!paragraphPart || isListLine(paragraphPart)) {
-    return [line];
-  }
-
-  return [listPart, paragraphPart];
-}
-
-function coerceIndex(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-
-  if (!/^-?\d+$/.test(trimmed)) {
-    return null;
-  }
-
-  return Number.parseInt(trimmed, 10);
-}
-
-function collectFallbackTermOperations(selectedText: string, absoluteStart: number): PatchOperation[] {
-  const operations: PatchOperation[] = [];
-
-  for (const entry of fallbackGlossary) {
-    const regex = new RegExp(entry.pattern.source, entry.pattern.flags);
-    let match: RegExpExecArray | null = regex.exec(selectedText);
-
-    while (match) {
-      const start = absoluteStart + match.index;
-      const end = start + match[0].length;
-
-      operations.push({
-        id: createPatchId("fallback"),
-        op: "replace",
-        start,
-        end,
-        oldText: match[0],
-        newText: entry.replacement,
-        reason: entry.reason,
-        type: entry.type
-      });
-
-      match = regex.exec(selectedText);
-    }
-  }
-
-  return operations
-    .sort((left, right) => left.start - right.start || left.end - right.end)
-    .filter((operation, index, items) => {
-      const previous = items[index - 1];
-      return !previous || previous.end <= operation.start;
-    });
-}
-
-function createFallbackRewrite(selectedText: string, prompt?: string): string {
-  const original = selectedText.replace(/\s+/g, " ").trim();
-  let rewritten = original;
-  const loweredPrompt = (prompt ?? "").toLowerCase();
-
-  if (/(поясн|термін|читач)/i.test(loweredPrompt)) {
-    rewritten = rewritten.replace(/\bLDL\b/g, '"поганий" холестерин LDL');
-    rewritten = rewritten.replace(/\bHDL\b/g, '"добрий" холестерин HDL');
-  }
-
-  if (/(скорот|коротш)/i.test(loweredPrompt)) {
-    rewritten = rewritten.replace(/\bсаме\b/gi, "");
-    rewritten = rewritten.replace(/\s{2,}/g, " ");
-  }
-
-  rewritten = rewritten.replace(/,\s*але\s/gi, ". Але ");
-  rewritten = rewritten.replace(/,\s*а\s/gi, ". А ");
-  rewritten = rewritten.replace(/\s+([,.])/g, "$1").trim();
-
-  if (rewritten !== original) {
-    return rewritten;
-  }
-
-  if (original.includes(", ")) {
-    return original.replace(", ", ". ");
-  }
-
-  return `${original} Тобто без зайвого ускладнення.`;
-}
-
-function inferFallbackType(prompt?: string): PatchOperationType {
-  const loweredPrompt = (prompt ?? "").toLowerCase();
-
-  if (/(поясн|термін|читач)/i.test(loweredPrompt)) {
-    return "terminology";
-  }
-
-  if (/(скорот|структур|реченн)/i.test(loweredPrompt)) {
-    return "structure";
-  }
-
-  return "clarity";
-}
-
-function inferFallbackReason(prompt?: string): string {
-  const loweredPrompt = (prompt ?? "").toLowerCase();
-
-  if (/(поясн|термін|читач)/i.test(loweredPrompt)) {
-    return "Пояснив термін простішою мовою.";
-  }
-
-  if (/(скорот|коротш)/i.test(loweredPrompt)) {
-    return "Скоротив перевантажену конструкцію.";
-  }
-
-  return "Спростив фразу без втрати змісту.";
-}
-
-function inferCombinedType(operations: PatchOperation[], request: PatchRequest): PatchOperationType {
-  if (operations.length === 1) {
-    return operations[0]?.type ?? inferFallbackType(request.prompt);
-  }
-
-  const uniqueTypes = [...new Set(operations.map((operation) => operation.type))];
-  return uniqueTypes.length === 1 ? uniqueTypes[0] : inferFallbackType(request.prompt);
-}
-
-function inferCombinedReason(operations: PatchOperation[], request: PatchRequest): string {
-  if (operations.length === 1) {
-    return operations[0]?.reason ?? inferFallbackReason(request.prompt);
-  }
-
-  if (request.mode === "custom" && request.prompt) {
-    const loweredPrompt = request.prompt.toLowerCase();
-
-    if (/(скорот|коротш)/i.test(loweredPrompt)) {
-      return "Спростив і скоротив фрагмент.";
-    }
-
-    if (/(поясн|термін|читач)/i.test(loweredPrompt)) {
-      return "Пояснив фрагмент простіше.";
-    }
-  }
-
-  return "Спростив і узгодив фрагмент.";
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function providerDisplayName(provider: string): string {
