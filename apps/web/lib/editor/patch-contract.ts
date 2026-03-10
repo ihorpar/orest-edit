@@ -2,6 +2,7 @@ import type { Block, BlockSelection, EditorDocument, InlineNode } from "./docume
 import {
   cloneBlock,
   cloneEditorDocument,
+  createInlineText,
   getBlock,
   getBlockText,
   getContiguousBlockIds,
@@ -160,7 +161,6 @@ export function normalizePatchOperationsResult(
   }
 
   const targetIds = getContiguousTargetIds(document, targetBlockIds);
-  const oldBlocks = targetIds.map((blockId) => getBlock(document, blockId)).filter((block): block is Block => Boolean(block));
   const normalized: PatchOperation[] = [];
   let droppedCount = 0;
 
@@ -173,8 +173,11 @@ export function normalizePatchOperationsResult(
     const record = candidate as Record<string, unknown>;
     const blockIds = Array.isArray(record.blockIds) ? record.blockIds.filter((item): item is string => typeof item === "string") : targetIds;
     const normalizedBlockIds = getContiguousTargetIds(document, blockIds.length > 0 ? blockIds : targetIds);
+    const operationOldBlocks = normalizedBlockIds.map((blockId) => getBlock(document, blockId)).filter((block): block is Block => Boolean(block));
     const reason = normalizeReason(record.reason);
-    const newBlocks = Array.isArray(record.newBlocks) ? normalizeUnknownBlocks(record.newBlocks) : [];
+    const newBlocks = Array.isArray(record.newBlocks)
+      ? normalizeUnknownBlocks(record.newBlocks)
+      : normalizeLooseReplacementBlocks(record, operationOldBlocks);
 
     if (normalizedBlockIds.join("|") !== targetIds.join("|") || !reason || newBlocks.length === 0) {
       droppedCount += 1;
@@ -185,7 +188,7 @@ export function normalizePatchOperationsResult(
       id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`provider-${index + 1}`),
       op: "replace_blocks",
       blockIds: targetIds,
-      oldBlocks: oldBlocks.map((block) => cloneBlock(block)),
+      oldBlocks: operationOldBlocks.map((block) => cloneBlock(block)),
       newBlocks,
       reason,
       type: normalizePatchType(record.type)
@@ -244,6 +247,10 @@ function normalizeUnknownBlocks(blocks: unknown[]): Block[] {
 }
 
 function normalizeUnknownBlock(block: unknown): Block | null {
+  if (typeof block === "string") {
+    return buildParagraphBlockFromText(block);
+  }
+
   if (!block || typeof block !== "object") {
     return null;
   }
@@ -253,12 +260,12 @@ function normalizeUnknownBlock(block: unknown): Block | null {
   const type = record.type;
 
   if (type === "paragraph") {
-    return { id, type, content: normalizeInlineArray(record.content) };
+    return { id, type, content: normalizeInlineArrayOrText(record.content ?? record.nodes ?? record.inline, record) };
   }
 
   if (type === "heading") {
     const level = record.level === 1 || record.level === 2 || record.level === 3 ? record.level : 2;
-    return { id, type, level, content: normalizeInlineArray(record.content) };
+    return { id, type, level, content: normalizeInlineArrayOrText(record.content ?? record.nodes ?? record.inline, record) };
   }
 
   if (type === "bullet_list" || type === "ordered_list") {
@@ -304,7 +311,7 @@ function normalizeUnknownBlock(block: unknown): Block | null {
 
 function normalizeInlineArray(value: unknown): InlineNode[] {
   if (!Array.isArray(value)) {
-    return [{ text: "" }];
+    return [];
   }
 
   const nodes: InlineNode[] = [];
@@ -323,7 +330,129 @@ function normalizeInlineArray(value: unknown): InlineNode[] {
     });
   }
 
-  return nodes.length > 0 ? nodes : [{ text: "" }];
+  return nodes.length > 0 ? nodes : [];
+}
+
+function normalizeInlineArrayFromTextFields(record: Record<string, unknown>): InlineNode[] {
+  const text = extractLooseReplacementText(record);
+  return text ? [createInlineText(text)] : [createInlineText("")];
+}
+
+function normalizeInlineArrayOrText(value: unknown, record: Record<string, unknown>): InlineNode[] {
+  const normalized = normalizeInlineArray(value);
+  return normalized.length > 0 ? normalized : normalizeInlineArrayFromTextFields(record);
+}
+
+function normalizeLooseReplacementBlocks(record: Record<string, unknown>, oldBlocks: Block[]): Block[] {
+  const text = extractLooseReplacementText(record);
+
+  if (!text) {
+    return [];
+  }
+
+  return buildBlocksFromPlainText(text, oldBlocks);
+}
+
+function extractLooseReplacementText(record: Record<string, unknown>): string | null {
+  const candidates = [record.newText, record.replacement, record.rewrittenText, record.replacementText, record.text, record.content];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const normalized = candidate.trim();
+
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildBlocksFromPlainText(text: string, oldBlocks: Block[]): Block[] {
+  const normalizedText = text.replace(/\r\n?/g, "\n").trim();
+
+  if (!normalizedText) {
+    return oldBlocks.length > 0 ? oldBlocks.map((block) => buildLikeBlock(block, "")) : [buildParagraphBlockFromText("")];
+  }
+
+  if (looksLikeBulletList(normalizedText)) {
+    return [
+      {
+        id: createPatchId("block"),
+        type: "bullet_list",
+        items: normalizedText
+          .split(/\n+/)
+          .map((line) => line.replace(/^\s*[-•*]\s*/, "").trim())
+          .filter(Boolean)
+          .map((line) => [createInlineText(line)])
+      }
+    ];
+  }
+
+  if (looksLikeOrderedList(normalizedText)) {
+    return [
+      {
+        id: createPatchId("block"),
+        type: "ordered_list",
+        items: normalizedText
+          .split(/\n+/)
+          .map((line) => line.replace(/^\s*\d+[.)]\s*/, "").trim())
+          .filter(Boolean)
+          .map((line) => [createInlineText(line)])
+      }
+    ];
+  }
+
+  const paragraphs = normalizedText.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
+
+  if (oldBlocks.length === 1 && paragraphs.length === 1) {
+    return [buildLikeBlock(oldBlocks[0], paragraphs[0])];
+  }
+
+  return paragraphs.map((paragraph, index) => buildLikeBlock(oldBlocks[index], paragraph));
+}
+
+function buildLikeBlock(oldBlock: Block | undefined, text: string): Block {
+  if (oldBlock?.type === "heading") {
+    return { id: createPatchId("block"), type: "heading", level: oldBlock.level, content: [createInlineText(text)] };
+  }
+
+  if (oldBlock?.type === "bullet_list") {
+    return {
+      id: createPatchId("block"),
+      type: "bullet_list",
+      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => [createInlineText(line)])
+    };
+  }
+
+  if (oldBlock?.type === "ordered_list") {
+    return {
+      id: createPatchId("block"),
+      type: "ordered_list",
+      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => [createInlineText(line)])
+    };
+  }
+
+  return buildParagraphBlockFromText(text);
+}
+
+function buildParagraphBlockFromText(text: string): Block {
+  return {
+    id: createPatchId("block"),
+    type: "paragraph",
+    content: [createInlineText(text)]
+  };
+}
+
+function looksLikeBulletList(text: string): boolean {
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  return lines.length > 1 && lines.every((line) => /^[-•*]\s+/.test(line));
+}
+
+function looksLikeOrderedList(text: string): boolean {
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  return lines.length > 1 && lines.every((line) => /^\d+[.)]\s+/.test(line));
 }
 
 function preserveFormattingForPatch(oldBlocks: Block[], newBlocks: Block[]): Block[] {

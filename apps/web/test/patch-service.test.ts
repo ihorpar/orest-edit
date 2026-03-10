@@ -68,7 +68,7 @@ test("generatePatchResponse normalizes provider block operations", async () => {
   assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
 });
 
-test("generatePatchResponse falls back when provider returns invalid block format", async () => {
+test("generatePatchResponse normalizes loose provider text replacement", async () => {
   const response = await generatePatchResponse(createRequest({ apiKey: "test-key" }), {
     fetchImpl: async () =>
       new Response(
@@ -89,8 +89,9 @@ test("generatePatchResponse falls back when provider returns invalid block forma
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
   assert.equal(response.operations.length, 1);
   assert.equal(response.operations[0]?.blockIds[0], "p1");
-  assert.match(response.error ?? "", /fallback/i);
+  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.match(response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0].text : "", /Спростив блок/);
 });
