@@ -432,7 +432,7 @@ export default function SettingsPage() {
                   className="settings-textarea"
                 />
                 <div className="settings-textarea-toolbar">
-                  <p className="settings-field-note">Плейсхолдери: <code>{`{{calloutKind}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>.</p>
+                  <p className="settings-field-note">Плейсхолдери: <code>{`{{calloutKindLabel}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>. Типи врізок мають бути явно розписані в prompt, не лишайте це на інтерпретацію моделі.</p>
                   <Button
                     variant="secondary"
                     size="sm"

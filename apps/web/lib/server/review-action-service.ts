@@ -8,7 +8,7 @@ import type {
   ReviewActionRequest,
   ReviewActionResponse
 } from "../editor/review-contract.ts";
-import { getEditorialCalloutKindLabel, isReplaceReviewType } from "../editor/review-contract.ts";
+import { getEditorialCalloutKindDescription, getEditorialCalloutKindLabel, isReplaceReviewType } from "../editor/review-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 import { generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -344,6 +344,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     return [
       request.calloutPromptTemplate?.trim(),
       `Тип врізки: ${getEditorialCalloutKindLabel(request.item.calloutKind ?? "mechanism")}`,
+      `Що означає цей тип: ${getEditorialCalloutKindDescription(request.item.calloutKind ?? "mechanism")}`,
       `Фрагмент: ${excerpt}`,
       `Рекомендація: ${request.item.recommendation}`
     ]

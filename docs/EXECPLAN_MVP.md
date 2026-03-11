@@ -24,6 +24,9 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-11 00:00Z) Fixed the in-editor preparing state so a single pending review card shows one loader row instead of duplicating across the full anchor range.
 - [x] (2026-03-11 00:00Z) Reframed the next implementation phase around inline manuscript execution, full-paragraph-only replace suggestions, the new callout taxonomy, and Ukrainian prompt contracts.
 - [x] (2026-03-11 00:00Z) Hardened whole-text review taxonomy to the seven-type model, added legacy-to-current normalization for `visualize`/`illustration` and old callout kinds, and made `subsection` preparation fail safely until its dedicated inline flow lands.
+- [x] (2026-03-11 00:00Z) Fixed the broken multi-block review diff editor so proposal editing/apply stays block-aware instead of flattening the whole range into one repeated string.
+- [x] (2026-03-11 00:00Z) Added an active recommendation detail panel in the right rail so `callout` and `visual` recommendations can be prepared, inspected, and applied without relying on unfinished manuscript-inline cards.
+- [x] (2026-03-11 00:00Z) Expanded callout prompt contracts with explicit per-kind behavior text in both settings defaults and runtime provider prompt assembly.
 - [ ] Build anchored manuscript highlighting with one continuous border and one floating execution card per active recommendation.
 - [ ] Rework `rewrite`, `simplify`, `expand`, and `list` into full-block replace flows with constrained output shape.
 - [ ] Implement `subsection` as a dedicated insertion card that inserts a subheading before the first affected block.
@@ -51,6 +54,9 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Observation: repository tests are currently blocked by a platform-mismatched `esbuild` binary inside `node_modules`.
   Evidence: `npm test -w @orest/web` fails before executing TypeScript tests because `tsx` resolves `@esbuild/win32-x64` while this environment needs `@esbuild/linux-x64`.
+
+- Observation: the first post-migration diff editor was structurally incompatible with multi-block review replacements.
+  Evidence: `apps/web/components/editor/BlockDiffOverlay.tsx` used one textarea for all replacement blocks and `apps/web/app/editor/page.tsx` wrote that single edited string back into every block of the proposal.
 
 ## Decision Log
 
@@ -96,7 +102,7 @@ The first implementation milestone is now complete. The runtime contract no long
 
 Validation is partially complete. `npm run typecheck -w @orest/web` passed. `npm run build -w @orest/web` passed. The shared `npm test -w @orest/web` command could not run to completion in this environment because `tsx` depends on an `esbuild` binary installed for Windows rather than Linux/WSL; that blocker is environmental, not caused by the code changes in this milestone. Two new tests were still added to the test entrypoint so they will run once the dependency install is corrected.
 
-The next major gap remains manuscript-first execution UI: anchored highlighting, a single floating inline card, dedicated `subsection` insertion UI, and full replace-type output-shape enforcement. The block-count assumption still stands: `rewrite`, `simplify`, and `expand` preserve the selected block count exactly; `list` may normalize to one structured list block or preserve the selected count, but must never exceed the selected block count.
+The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, and non-text review types now have a working interim execution surface in the right rail. The next major gap remains manuscript-first execution UI: anchored highlighting, a single floating inline card, dedicated `subsection` insertion UI, and full replace-type output-shape enforcement. The block-count assumption still stands: `rewrite`, `simplify`, and `expand` preserve the selected block count exactly; `list` may normalize to one structured list block or preserve the selected count, but must never exceed the selected block count.
 
 ## Context and Orientation
 

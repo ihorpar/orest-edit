@@ -93,7 +93,7 @@ export function BlockEditorSurface({
   activeProposal?: ReviewActionProposal | null;
   preparingReviewItemId?: string | null;
   reviewItems?: EditorialReviewItem[];
-  onAcceptProposal?: (proposalId: string, editedText: string) => void;
+  onAcceptProposal?: (proposalId: string, nextBlocks: Block[]) => void;
   onRejectProposal?: (proposalId: string) => void;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());

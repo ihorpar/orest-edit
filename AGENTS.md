@@ -17,8 +17,11 @@ The main job is to turn dense scientific language into simple, readable Ukrainia
 
 ## Planning workflow
 - Use `PLANS.md` as the rulebook for writing and maintaining execution plans.
-- Use `docs/EXECPLAN_MVP.md` as the living implementation checklist.
-- When doing substantial implementation work, update the `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` sections in `docs/EXECPLAN_MVP.md`.
+- When the user asks for a new plan, create a new ExecPlan file under `docs/plans/` instead of rewriting the current active plan.
+- Keep one clearly identified active plan file for the current implementation phase. Update an existing ExecPlan only when continuing that same plan.
+- Archive superseded or completed plans under `docs/plans/archive/`.
+- `docs/EXECPLAN_MVP.md` may remain the current active implementation checklist, but it is not the only allowed ExecPlan filename.
+- When doing substantial implementation work against an active plan, update that plan's `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` sections.
 - If you make or confirm a durable product or architecture decision, record it in `docs/DECISIONS_LOG.md`.
 - Use `docs/CURRENT_STATE.md` as the current handoff snapshot before making changes.
 - Use `docs/PRD_V1.md` for scope and product constraints, not as a task checklist.
@@ -31,5 +34,5 @@ The main job is to turn dense scientific language into simple, readable Ukrainia
 
 ## Documentation discipline
 - Keep `AGENTS.md` focused on durable project rules and context.
-- Keep temporary scope decisions and active priorities in `docs/CURRENT_STATE.md` or `docs/EXECPLAN_MVP.md`.
+- Keep temporary scope decisions and active priorities in `docs/CURRENT_STATE.md` or the current active ExecPlan under `docs/plans/` (or `docs/EXECPLAN_MVP.md` if that is the active plan).
 - If you change scope, UX direction, or validated behavior, update the relevant docs in `docs/` in the same task.

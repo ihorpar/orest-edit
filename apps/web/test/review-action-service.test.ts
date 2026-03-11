@@ -57,3 +57,65 @@ test("generateReviewAction fails safely for subsection until inline insertion fl
   assert.equal(response.usedFallback, false);
   assert.match(response.error ?? "", /inline-підготовка/i);
 });
+
+test("generateReviewAction injects explicit callout-kind guidance into provider prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Фрагмент про міфи й факти навколо шкіри." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      calloutPromptTemplate: "База prompt.",
+      item: {
+        id: "review-callout-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати врізку",
+        reason: "Читачеві потрібна коротка рамка.",
+        recommendation: "Додати блок міфів і правди.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Фрагмент про міфи й факти навколо шкіри.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "myths_vs_truth",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: "Готовий prompt."
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.input ?? ""), /Що означає цей тип/i);
+  assert.match(String(requestBody?.input ?? ""), /Міф/i);
+  assert.match(String(requestBody?.input ?? ""), /Правда/i);
+});

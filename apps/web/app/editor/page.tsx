@@ -31,6 +31,7 @@ import {
 import {
   getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
+  type GeneratedReviewImageAsset,
   type ChatMessage,
   type EditorialReviewDiagnostics,
   type EditorialReviewItem,
@@ -42,7 +43,7 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { DEFAULT_EDITOR_SETTINGS, readEditorSettings, type EditorSettings } from "../../lib/editor/settings";
-import { storeEditorAssetFromBlob } from "../../lib/editor/asset-store";
+import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
 
 interface RequestFeedback {
   message: string;
@@ -83,6 +84,7 @@ export default function EditorPage() {
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
   const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
   const [preparingReviewItemId, setPreparingReviewItemId] = useState<string | null>(null);
+  const [isReviewImageRequestInFlight, setIsReviewImageRequestInFlight] = useState(false);
   const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
   const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
   const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
@@ -316,18 +318,18 @@ export default function EditorPage() {
     }
 
     // Automatically prepare the item (e.g., generate diff) when focused in compact mode
-    if (item.status === 'pending') {
+    if (item.status === "pending") {
       void prepareReviewItem(item);
-    } else if (item.status === 'ready' && item.activeProposalId) {
-      const existingOp = operations.find(op => op.id === item.activeProposalId);
-      if (existingOp && existingOp.op === 'replace_blocks') {
+    } else if (item.status === "ready" && item.activeProposalId) {
+      const existingOp = operations.find((op) => op.id === item.activeProposalId);
+      if (existingOp && existingOp.op === "replace_blocks") {
         setActiveProposal({
           id: existingOp.id,
           reviewItemId: item.id,
           sourceRevisionId: revision.documentRevisionId,
           targetRevisionId: revision.documentRevisionId,
           canApplyDirectly: true,
-          kind: 'text_diff',
+          kind: "text_diff",
           summary: existingOp.reason,
           textDiff: {
             op: "replace_blocks",
@@ -337,7 +339,11 @@ export default function EditorPage() {
             reason: existingOp.reason
           }
         });
+      } else if (activeProposal?.reviewItemId !== item.id && item.suggestedAction === "prepare_visual") {
+        void prepareReviewItem(item);
       }
+    } else if (item.status === "ready" && activeProposal?.reviewItemId !== item.id && item.suggestedAction === "prepare_visual") {
+      void prepareReviewItem(item);
     }
   }
 
@@ -356,20 +362,16 @@ export default function EditorPage() {
     void requestEditorialReview("cards", nextHistory);
   }
 
-  function handleAcceptProposal(proposalId: string, editedText: string) {
+  function handleAcceptProposal(proposalId: string, nextBlocks: Block[]) {
     if (!activeProposal) return;
 
     if (activeProposal.kind === "text_diff" && activeProposal.textDiff) {
-      const nextBlocks = activeProposal.textDiff.newBlocks.map((b) => {
-        if (b.type === "paragraph" || b.type === "heading") {
-          return { ...b, content: [createInlineText(editedText)] };
-        }
-        return b;
-      });
-
       const nextDocument = replaceBlocksByIds(document, activeProposal.textDiff.blockIds, nextBlocks);
       commitDocument(nextDocument);
       setOperations((current) => current.filter((op) => op.id !== proposalId));
+      setReviewItems((current) =>
+        current.map((entry) => (entry.id === activeProposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
+      );
       setFeedback({ tone: "info", message: "Правку застосовано." });
     }
 
@@ -379,6 +381,9 @@ export default function EditorPage() {
 
   function handleRejectProposal(proposalId: string) {
     setOperations((current) => current.filter((op) => op.id !== proposalId));
+    setReviewItems((current) =>
+      current.map((entry) => (entry.id === activeProposal?.reviewItemId ? { ...entry, status: "pending", activeProposalId: undefined } : entry))
+    );
     setActiveProposal(null);
     setActiveReviewItemId(null);
   }
@@ -393,6 +398,9 @@ export default function EditorPage() {
     const nextDocument = applyPatchOperation(document, operation);
     commitDocument(nextDocument);
     setOperations((current) => rebasePendingOperations(current, operation));
+    setReviewItems((current) =>
+      current.map((entry) => (entry.activeProposalId === operationId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
+    );
     setFeedback({ tone: "info", message: "Правку застосовано." });
   }
 
@@ -409,6 +417,9 @@ export default function EditorPage() {
 
   function rejectOperation(operationId: string) {
     setOperations((current) => current.filter((operation) => operation.id !== operationId));
+    setReviewItems((current) =>
+      current.map((entry) => (entry.activeProposalId === operationId ? { ...entry, status: "pending", activeProposalId: undefined } : entry))
+    );
   }
 
   function rejectAllOperations() {
@@ -488,11 +499,19 @@ export default function EditorPage() {
       }
 
       if (payload.proposal.kind === "image_prompt" && payload.proposal.imageDraft) {
-        setFeedback({ tone: "info", message: "Промпт для зображення підготовлено." });
+        setReviewItems((current) =>
+          current.map((entry) =>
+            entry.id === item.id ? { ...entry, status: "ready", activeProposalId: payload.proposal.id } : entry
+          )
+        );
+        setFeedback({ tone: "info", message: "Промпт для візуалу підготовлено." });
         return;
       }
 
       if (payload.error) {
+        setReviewItems((current) =>
+          current.map((entry) => (entry.id === item.id ? { ...entry, status: response.ok ? entry.status : "stale" } : entry))
+        );
         setFeedback({ tone: response.ok ? "info" : "error", message: payload.error });
       }
     } catch (error) {
@@ -525,8 +544,107 @@ export default function EditorPage() {
     setFeedback({ tone: "info", message: "Врізку вставлено." });
   }
 
+  function updateActiveImagePrompt(prompt: string) {
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "image_prompt" || !current.imageDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        imageDraft: {
+          ...current.imageDraft,
+          prompt
+        }
+      };
+    });
+  }
+
+  async function generateActiveReviewImage() {
+    if (!activeProposal || activeProposal.kind !== "image_prompt" || !activeProposal.imageDraft) {
+      return;
+    }
+
+    setIsReviewImageRequestInFlight(true);
+
+    try {
+      const response = await fetch("/api/edit/review/image", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: activeProposal.imageDraft.prompt,
+          apiKey: settings.apiKey || undefined
+        })
+      });
+      const payload = (await response.json()) as { asset?: GeneratedReviewImageAsset; error?: string };
+
+      if (!response.ok || !payload.asset) {
+        setFeedback({ tone: response.ok ? "info" : "error", message: payload.error || "Не вдалося згенерувати візуал." });
+        return;
+      }
+
+      setActiveProposal((current) => {
+        if (!current || current.kind !== "image_prompt" || !current.imageDraft) {
+          return current;
+        }
+
+        return {
+          ...current,
+          imageDraft: {
+            ...current.imageDraft,
+            generatedAsset: payload.asset
+          }
+        };
+      });
+      setFeedback({ tone: "info", message: "Візуал згенеровано." });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося згенерувати візуал."
+      });
+    } finally {
+      setIsReviewImageRequestInFlight(false);
+    }
+  }
+
+  async function applyActiveReviewImage() {
+    const proposal = activeProposal;
+
+    if (!proposal || proposal.kind !== "image_prompt" || !proposal.imageDraft?.generatedAsset) {
+      return;
+    }
+
+    const asset = proposal.imageDraft.generatedAsset;
+    const stored =
+      asset.source.kind === "data_url"
+        ? await storeEditorAssetFromDataUrl({ dataUrl: asset.source.dataUrl, assetId: asset.assetId, mimeType: asset.mimeType })
+        : asset.source.kind === "asset_token"
+          ? { assetId: asset.assetId, token: asset.source.token, mimeType: asset.mimeType }
+          : { assetId: asset.assetId, token: asset.source.url, mimeType: asset.mimeType };
+
+    const block: ImageBlock = {
+      id: createBlockId("image"),
+      type: "image",
+      assetId: stored.assetId,
+      alt: proposal.imageDraft.alt,
+      caption: proposal.imageDraft.caption ? [createInlineText(proposal.imageDraft.caption)] : [createInlineText("")]
+    };
+
+    const item = reviewItems.find((entry) => entry.id === proposal.reviewItemId);
+    commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]));
+    setReviewItems((current) => current.map((entry) => (entry.id === proposal.reviewItemId ? { ...entry, status: "applied" } : entry)));
+    setActiveProposal(null);
+    setActiveReviewItemId(null);
+    setFeedback({ tone: "info", message: "Візуал вставлено." });
+  }
+
   function dismissReviewItem(item: EditorialReviewItem) {
     setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "dismissed" } : entry)));
+    if (activeReviewItemId === item.id) {
+      setActiveReviewItemId(null);
+      setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
+    }
   }
 
   async function handleInsertImage(file: File, anchorBlockId: string | null) {
@@ -663,6 +781,12 @@ export default function EditorPage() {
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
             onApplyReviewCallout={applyReviewCallout}
+            activeProposal={activeProposal}
+            activeReviewItem={reviewItems.find((item) => item.id === activeReviewItemId) ?? null}
+            onUpdateActiveImagePrompt={updateActiveImagePrompt}
+            onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
+            onApplyActiveReviewImage={() => void applyActiveReviewImage()}
+            reviewImageLoading={isReviewImageRequestInFlight}
             preparingReviewItemId={preparingReviewItemId}
             onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
             reviewLoading={isReviewRequestInFlight}

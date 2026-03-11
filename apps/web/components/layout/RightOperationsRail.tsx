@@ -1,9 +1,10 @@
 import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { EditorialReviewDiagnostics, EditorialReviewItem } from "../../lib/editor/review-contract";
+import type { EditorialReviewDiagnostics, EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
 import { getAiActivityTaskMessage, getAiActivityTaskTone, type AiActivityTask } from "../../lib/editor/ai-activity";
 import { EditorialReviewCard } from "../editor/EditorialReviewCard";
 import { OperationCard } from "../editor/OperationCard";
+import { ReviewRecommendationDetail } from "./ReviewRecommendationDetail";
 import { Button } from "../ui/Button";
 
 export interface RequestHistoryItem {
@@ -38,6 +39,12 @@ export function RightOperationsRail({
   onFocusReviewItem,
   onPrepareReviewItem,
   onApplyReviewCallout,
+  activeReviewItem,
+  activeProposal,
+  onUpdateActiveImagePrompt,
+  onGenerateActiveReviewImage,
+  onApplyActiveReviewImage,
+  reviewImageLoading,
   preparingReviewItemId,
   onDismissReviewItem,
   reviewLoading,
@@ -70,6 +77,12 @@ export function RightOperationsRail({
   onFocusReviewItem: (item: EditorialReviewItem) => void;
   onPrepareReviewItem: (item: EditorialReviewItem) => void;
   onApplyReviewCallout: (item: EditorialReviewItem) => void;
+  activeReviewItem?: EditorialReviewItem | null;
+  activeProposal?: ReviewActionProposal | null;
+  onUpdateActiveImagePrompt: (prompt: string) => void;
+  onGenerateActiveReviewImage: () => void;
+  onApplyActiveReviewImage: () => void;
+  reviewImageLoading?: boolean;
   onDismissReviewItem: (item: EditorialReviewItem) => void;
   reviewLoading?: boolean;
   onAccept: (id: string) => void;
@@ -183,6 +196,18 @@ export function RightOperationsRail({
               />
             ))}
           </div>
+          <ReviewRecommendationDetail
+            item={activeReviewItem ?? null}
+            proposal={activeProposal ?? null}
+            isPreparing={Boolean(activeReviewItem && activeReviewItem.id === preparingReviewItemId)}
+            reviewImageLoading={reviewImageLoading}
+            onPrepare={onPrepareReviewItem}
+            onApplyCallout={onApplyReviewCallout}
+            onDismiss={onDismissReviewItem}
+            onUpdateActiveImagePrompt={onUpdateActiveImagePrompt}
+            onGenerateActiveReviewImage={onGenerateActiveReviewImage}
+            onApplyActiveReviewImage={onApplyActiveReviewImage}
+          />
         </section>
       ) : null}
 

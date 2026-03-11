@@ -264,6 +264,13 @@ const CALLOUT_KIND_TITLE_LABELS: Record<EditorialCalloutKind, string> = {
   myths_vs_truth: "Міфи й правда",
   top_list: "Ключові пункти"
 };
+const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
+  mechanism: "Пояснити причинно-наслідковий механізм простими кроками без лекційного тону.",
+  analogy: "Подати ідею через зрозумілу аналогію та явно не видавати її за буквальний факт.",
+  everyday_application: "Показати, як явище проявляється в повсякденному житті читача.",
+  myths_vs_truth: "Подати короткі пари «Міф / Правда» лише для тверджень, що прямо випливають із фрагмента.",
+  top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
+};
 
 const LEGACY_RECOMMENDATION_TYPE_MAP: Record<string, EditorialReviewRecommendationType> = {
   visualize: "visual",
@@ -288,6 +295,10 @@ export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind): string
 
 export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string {
   return CALLOUT_KIND_TITLE_LABELS[kind];
+}
+
+export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind): string {
+  return CALLOUT_KIND_DESCRIPTIONS[kind];
 }
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
