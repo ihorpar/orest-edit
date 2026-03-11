@@ -13,6 +13,7 @@ import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
+import { ArrowDownToLine, RefreshCcw, Sparkles, X } from "lucide-react";
 
 export function ReviewRecommendationDetail({
   item,
@@ -78,6 +79,7 @@ export function ReviewRecommendationDetail({
   const insertionCopy = revision ? getInsertionContextCopy(item, revision) : null;
   const visualStyleOptions = getVisualStylePresetOptions();
   const selectedVisualStylePreset = normalizeVisualStylePreset(activeVisualStylePreset ?? imageDraft?.visualStylePreset);
+  const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
 
   return (
     <article className="editorial-review-detail" data-layout={layout} data-type={item.recommendationType}>
@@ -91,7 +93,7 @@ export function ReviewRecommendationDetail({
           <h3 className="editorial-review-detail-title">{item.title}</h3>
         </div>
         <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(item)} aria-label="Закрити">
-          <span className="editorial-review-detail-close-icon">×</span>
+          <X className="editorial-review-detail-close-icon" aria-hidden="true" />
         </button>
       </div>
 
@@ -170,7 +172,7 @@ export function ReviewRecommendationDetail({
               {getEditorialCalloutKindDescription(activeCalloutKind)}
             </p>
           </div>
-          <div className="editorial-review-proposal-block">
+          <div className="editorial-review-field-group">
             <p className="editorial-review-detail-label">Заголовок</p>
             <input
               className="editorial-review-callout-title-input"
@@ -198,7 +200,7 @@ export function ReviewRecommendationDetail({
 
       {!isPreparing && item.recommendationType === "subsection" ? (
         <div className="editorial-review-proposal">
-          <div className="editorial-review-proposal-block">
+          <div className="editorial-review-field-group">
             <p className="editorial-review-detail-label">Підзаголовок</p>
             <input
               className="editorial-review-callout-title-input"
@@ -228,8 +230,11 @@ export function ReviewRecommendationDetail({
         <div className="editorial-review-proposal">
           <div className="editorial-review-image-prompt-head">
             <p className="editorial-review-detail-label">Prompt для візуалу</p>
-            <Button size="sm" variant="ghost" onClick={() => onPrepare(item)}>
-              Оновити текст
+            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
+              <span className="button-content">
+                <RefreshCcw className="editorial-review-button-icon" aria-hidden="true" />
+                <span>Оновити текст</span>
+              </span>
             </Button>
           </div>
           <textarea
@@ -251,7 +256,7 @@ export function ReviewRecommendationDetail({
               ))}
             </select>
           </div>
-          <div className="editorial-review-proposal-block">
+          <div className="editorial-review-field-group">
             <p className="editorial-review-detail-label">Підпис</p>
             <input
               className="editorial-review-callout-title-input"
@@ -263,22 +268,32 @@ export function ReviewRecommendationDetail({
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button
               size="sm"
-              variant={imageDraft.generatedAsset ? "secondary" : "primary"}
+              variant={hasGeneratedAsset ? "secondary" : "primary"}
               onClick={onGenerateActiveReviewImage}
               loading={reviewImageLoading}
             >
-              {imageDraft.generatedAsset ? "Згенерувати ще раз" : "Згенерувати"}
+              <span className="button-content">
+                {hasGeneratedAsset ? (
+                  <RefreshCcw className="editorial-review-button-icon" aria-hidden="true" />
+                ) : (
+                  <Sparkles className="editorial-review-button-icon" aria-hidden="true" />
+                )}
+                <span>{hasGeneratedAsset ? "Згенерувати ще раз" : "Згенерувати"}</span>
+              </span>
             </Button>
             <Button
               size="sm"
-              variant={imageDraft.generatedAsset ? "primary" : "ghost"}
+              variant={hasGeneratedAsset ? "primary" : "secondary"}
               onClick={onApplyActiveReviewImage}
-              disabled={!imageDraft.generatedAsset}
+              disabled={!hasGeneratedAsset}
             >
-              Вставити в документ
+              <span className="button-content">
+                <ArrowDownToLine className="editorial-review-button-icon" aria-hidden="true" />
+                <span>Вставити в документ</span>
+              </span>
             </Button>
           </div>
-          {imageDraft.generatedAsset ? (
+          {hasGeneratedAsset ? (
             <div className="editorial-review-image-preview">
               {imageUrl ? <img src={imageUrl} alt={imageDraft.alt} /> : null}
               <p className="editorial-review-image-status">Зображення готове до вставки.</p>

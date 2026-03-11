@@ -24,7 +24,7 @@ Status: Active handoff
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
-- Execution cards now collapse rationale/excerpt into `Чому це запропоновано` details and keep action fields primary
+- Execution cards no longer render duplicated rationale/excerpt context; focus stays on editable fields and CTA actions
 - Callout execution panels no longer render raw prompt text; only kind/title/body + regenerate/insert actions remain
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
 - Visual execution now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) in both manuscript-inline visual cards and manual visual launcher

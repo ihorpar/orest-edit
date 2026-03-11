@@ -114,6 +114,11 @@ Decision: review normalization clips leading/trailing heading blocks from replac
 
 Reason: this prevents accidental inclusion of adjacent structural headings while preserving intentional heading-only ranges.
 
+### Execution cards hide duplicated context text
+Decision: recommendation execution cards do not render repeated recommendation/reason/excerpt context blocks; cards prioritize editable fields, placement note, status, and CTA actions.
+
+Reason: the manuscript already highlights the source range, so repeated context in cards adds visual noise and weakens action clarity.
+
 ## 2026-03-10
 
 ### Block-first canonical editor model

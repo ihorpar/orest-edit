@@ -18,6 +18,7 @@ Deliver a second UX pass that makes list improvements visibly meaningful, preven
 - [x] (2026-03-11 15:28Z) Added local patch near-no-op detection and warning-first operator guidance with repeated-warning escalation.
 - [x] (2026-03-11 15:28Z) Added replace/list range guardrails that clip adjacent heading blocks and surface a concise UI note in recommendation reason.
 - [x] (2026-03-11 15:28Z) Completed validation: `typecheck`, `test` (47 passing), `build` all green.
+- [x] (2026-03-11 17:05Z) Applied visual card consistency pass: unified typography/spacing, full-width form controls, explicit icon sizing, clearer visual CTA hierarchy, and removed redundant context panel from execution cards.
 
 ## Surprises & Discoveries
 - Observation: the screenshot message `Підготував локальну чернетку за вашим запитом.` indicates local patch/fallback behavior rather than typed review execution.
