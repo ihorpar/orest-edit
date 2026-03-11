@@ -27,11 +27,11 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-11 00:00Z) Fixed the broken multi-block review diff editor so proposal editing/apply stays block-aware instead of flattening the whole range into one repeated string.
 - [x] (2026-03-11 00:00Z) Added an active recommendation detail panel in the right rail so `callout` and `visual` recommendations can be prepared, inspected, and applied without relying on unfinished manuscript-inline cards.
 - [x] (2026-03-11 00:00Z) Expanded callout prompt contracts with explicit per-kind behavior text in both settings defaults and runtime provider prompt assembly.
-- [ ] Build anchored manuscript highlighting with one continuous border and one floating execution card per active recommendation.
+- [x] (2026-03-11 00:00Z) Replaced rail-first execution with manuscript-first anchor highlighting, one inline execution surface below the affected range, and dynamic Ukrainian paragraph labels on cards/details.
 - [ ] Rework `rewrite`, `simplify`, `expand`, and `list` into full-block replace flows with constrained output shape.
 - [ ] Implement `subsection` as a dedicated insertion card that inserts a subheading before the first affected block.
-- [ ] Replace the current callout taxonomy with the approved five kinds and build generate/regenerate plus explicit insert flow.
-- [ ] Merge `visualize` and `illustration` into one `visual` family and wire editable Ukrainian image prompts, generation, regeneration, and image block insertion below the affected range.
+- [x] (2026-03-11 00:00Z) Replaced the current callout taxonomy with the approved five kinds and built generate/regenerate plus explicit insert flow.
+- [x] (2026-03-11 00:00Z) Merged `visualize` and `illustration` into one `visual` family and wired editable Ukrainian image prompts, generation, regeneration, and image block insertion below the affected range.
 - [ ] Author and integrate Ukrainian prompt templates for review recommendation generation, each suggestion type, each callout kind, and visual/image prompt generation.
 - [ ] Add regression tests and browser QA for anchor highlighting, stale suggestion handling, block-count constraints, callout/image insertion anchors, and Ukrainian prompt output shape.
 
@@ -57,6 +57,12 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Observation: the first post-migration diff editor was structurally incompatible with multi-block review replacements.
   Evidence: `apps/web/components/editor/BlockDiffOverlay.tsx` used one textarea for all replacement blocks and `apps/web/app/editor/page.tsx` wrote that single edited string back into every block of the proposal.
+
+- Observation: replacing manuscript rows with loaders while a recommendation is preparing breaks both continuity and trust.
+  Evidence: `apps/web/components/editor/BlockEditorSurface.tsx` previously returned `null` for most anchored blocks and replaced the lead block with a dashed loader, which visually looked like empty blocks being inserted into the document.
+
+- Observation: paragraph numbers must stay a UI-layer projection, not part of the persisted review anchor.
+  Evidence: anchor correctness still depends on stable block IDs and fingerprints in `apps/web/lib/editor/manuscript-structure.ts`, but user-facing ranges need to be recomputed from current `revision.blockOrder` after every accepted edit.
 
 ## Decision Log
 
@@ -96,13 +102,17 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
   Rationale: a false replace diff would violate the new contract and make the taxonomy migration unsafe; a visible “not yet implemented” preparation result is safer and easier to validate.
   Date/Author: 2026-03-11 / Codex implementation
 
+- Decision: user-facing review references use dynamic Ukrainian paragraph labels, while model/runtime anchoring continues to use stable block IDs.
+  Rationale: paragraph numbers change after edits, but block IDs must remain the durable reference for anchor resolution and stale detection.
+  Date/Author: 2026-03-11 / Product direction confirmed with user
+
 ## Outcomes & Retrospective
 
 The first implementation milestone is now complete. The runtime contract no longer exposes `visualize` or `illustration` as top-level review types, the approved callout taxonomy is reflected in shared types and defaults, review prompts now describe the seven-type model, and normalization explicitly coerces legacy provider output into the current contract. The editor also now defaults newly inserted callout blocks to the approved taxonomy, and subsection preparation no longer risks generating an invalid replace diff.
 
 Validation is partially complete. `npm run typecheck -w @orest/web` passed. `npm run build -w @orest/web` passed. The shared `npm test -w @orest/web` command could not run to completion in this environment because `tsx` depends on an `esbuild` binary installed for Windows rather than Linux/WSL; that blocker is environmental, not caused by the code changes in this milestone. Two new tests were still added to the test entrypoint so they will run once the dependency install is corrected.
 
-The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, and non-text review types now have a working interim execution surface in the right rail. The next major gap remains manuscript-first execution UI: anchored highlighting, a single floating inline card, dedicated `subsection` insertion UI, and full replace-type output-shape enforcement. The block-count assumption still stands: `rewrite`, `simplify`, and `expand` preserve the selected block count exactly; `list` may normalize to one structured list block or preserve the selected count, but must never exceed the selected block count.
+The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, the manuscript no longer creates fake empty placeholder blocks while AI is preparing a recommendation, and `callout`/`visual` execution now happens from one manuscript-side pendant card below the highlighted anchor range. User-facing cards and detail panels now show dynamic Ukrainian paragraph ranges, while the runtime keeps anchoring by stable block IDs and fingerprints. The next major gap remains dedicated `subsection` insertion UI and full replace-type output-shape enforcement. The block-count assumption still stands: `rewrite`, `simplify`, and `expand` preserve the selected block count exactly; `list` may normalize to one structured list block or preserve the selected count, but must never exceed the selected block count.
 
 ## Context and Orientation
 

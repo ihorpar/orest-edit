@@ -250,6 +250,15 @@ const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
   "top_list"
 ];
 const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["diagram", "comparison", "process", "timeline", "scene", "concept"];
+const REVIEW_RECOMMENDATION_TYPE_LABELS: Record<EditorialReviewRecommendationType, string> = {
+  rewrite: "переписати",
+  expand: "дописати",
+  simplify: "спростити",
+  list: "список",
+  subsection: "підрозділ",
+  callout: "врізка",
+  visual: "візуал"
+};
 const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
   mechanism: "механізм",
   analogy: "аналогія",
@@ -299,6 +308,10 @@ export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string
 
 export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind): string {
   return CALLOUT_KIND_DESCRIPTIONS[kind];
+}
+
+export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecommendationType): string {
+  return REVIEW_RECOMMENDATION_TYPE_LABELS[type];
 }
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
@@ -457,6 +470,21 @@ export function getReviewParagraphLabel(item: EditorialReviewItem, revision: Man
   const firstBlockId = item.anchor.blockIds[0];
   const index = revision.blockOrder.indexOf(firstBlockId);
   return index >= 0 ? formatParagraphLabel(index) : "?";
+}
+
+export function getReviewParagraphRangeLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState): string {
+  const indexes = item.anchor.blockIds
+    .map((blockId) => revision.blockOrder.indexOf(blockId))
+    .filter((index) => index >= 0);
+
+  if (indexes.length === 0) {
+    return "Абз. ?";
+  }
+
+  const start = formatParagraphLabel(Math.min(...indexes));
+  const end = formatParagraphLabel(Math.max(...indexes));
+
+  return start === end ? `Абз. ${start}` : `Абз. ${start}-${end}`;
 }
 
 export function reconcileReviewItemsWithRevision(

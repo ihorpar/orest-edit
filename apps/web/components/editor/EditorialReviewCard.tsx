@@ -1,22 +1,9 @@
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import { getReviewParagraphLabel, type EditorialReviewItem } from "../../lib/editor/review-contract";
-import { Button } from "../ui/Button";
-
-const typeLabels: Record<EditorialReviewItem["recommendationType"], string> = {
-  rewrite: "переписати",
-  expand: "дописати",
-  simplify: "спростити",
-  list: "список",
-  subsection: "підрозділ",
-  callout: "врізка",
-  visual: "візуал"
-};
-
-const priorityLabels: Record<EditorialReviewItem["priority"], string> = {
-  high: "high",
-  medium: "medium",
-  low: "low"
-};
+import {
+  getEditorialRecommendationTypeLabel,
+  getReviewParagraphRangeLabel,
+  type EditorialReviewItem
+} from "../../lib/editor/review-contract";
 
 export function EditorialReviewCard({
   item,
@@ -37,8 +24,8 @@ export function EditorialReviewCard({
   onDismiss: (item: EditorialReviewItem) => void;
   isLoading?: boolean;
 }) {
-  const canApplyCallout = item.suggestedAction === "prepare_callout" && item.calloutDraft;
   const statusLabel = item.status === "ready" ? "ready" : item.status === "applied" ? "applied" : "pending";
+  const rangeLabel = getReviewParagraphRangeLabel(item, revision);
 
   return (
     <article
@@ -62,11 +49,12 @@ export function EditorialReviewCard({
           </svg>
         </button>
       </div>
+      <div className="err-compact-range">{rangeLabel}</div>
       <div className="err-compact-meta">
         {isLoading ? (
           <span className="loading-inline-dots"><span></span><span></span><span></span></span>
         ) : (
-          <>{typeLabels[item.recommendationType]} • {statusLabel}</>
+          <>{getEditorialRecommendationTypeLabel(item.recommendationType)} • {statusLabel}</>
         )}
       </div>
     </article>

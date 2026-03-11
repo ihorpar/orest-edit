@@ -35,9 +35,10 @@ import {
   type ReviewActionProposal,
   type EditorialReviewItem
 } from "../../lib/editor/review-contract";
-import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
+import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
 import { BlockDiffOverlay } from "./BlockDiffOverlay";
+import { ReviewRecommendationDetail } from "../layout/ReviewRecommendationDetail";
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 import {
   Bold,
@@ -69,6 +70,7 @@ type RichTextContext = {
 
 export function BlockEditorSurface({
   document,
+  revision,
   selection,
   focusedBlockId,
   disabled,
@@ -77,12 +79,21 @@ export function BlockEditorSurface({
   onFocusedBlockChange,
   onInsertImage,
   activeProposal,
+  activeReviewItem,
   preparingReviewItemId,
   reviewItems = [],
   onAcceptProposal,
-  onRejectProposal
+  onRejectProposal,
+  onPrepareReviewItem,
+  onApplyReviewCallout,
+  onDismissReviewItem,
+  onUpdateActiveImagePrompt,
+  onGenerateActiveReviewImage,
+  onApplyActiveReviewImage,
+  reviewImageLoading
 }: {
   document: EditorDocument;
+  revision: ManuscriptRevisionState;
   selection: BlockSelection;
   focusedBlockId: string | null;
   disabled?: boolean;
@@ -91,10 +102,18 @@ export function BlockEditorSurface({
   onFocusedBlockChange: (blockId: string | null) => void;
   onInsertImage: (file: File, anchorBlockId: string | null) => Promise<void>;
   activeProposal?: ReviewActionProposal | null;
+  activeReviewItem?: EditorialReviewItem | null;
   preparingReviewItemId?: string | null;
   reviewItems?: EditorialReviewItem[];
   onAcceptProposal?: (proposalId: string, nextBlocks: Block[]) => void;
   onRejectProposal?: (proposalId: string) => void;
+  onPrepareReviewItem?: (item: EditorialReviewItem) => void;
+  onApplyReviewCallout?: (item: EditorialReviewItem) => void;
+  onDismissReviewItem?: (item: EditorialReviewItem) => void;
+  onUpdateActiveImagePrompt?: (prompt: string) => void;
+  onGenerateActiveReviewImage?: () => void;
+  onApplyActiveReviewImage?: () => void;
+  reviewImageLoading?: boolean;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
@@ -447,6 +466,15 @@ export function BlockEditorSurface({
     event.currentTarget.value = "";
   }
 
+  const preparingItem = preparingReviewItemId ? reviewItems.find((item) => item.id === preparingReviewItemId) ?? null : null;
+  const proposalItem = activeProposal ? reviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null : null;
+  const highlightedItem = activeReviewItem ?? proposalItem ?? preparingItem ?? null;
+  const highlightedBlockIds = highlightedItem?.anchor.blockIds ?? [];
+  const highlightedSet = useMemo(() => new Set(highlightedBlockIds), [highlightedBlockIds]);
+  const highlightedStartBlockId = highlightedBlockIds[0] ?? null;
+  const highlightedEndBlockId = highlightedBlockIds[highlightedBlockIds.length - 1] ?? null;
+  const shouldShowInlineDetail = Boolean(highlightedItem) && (!activeProposal || activeProposal.kind !== "text_diff");
+
   return (
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
@@ -591,6 +619,20 @@ export function BlockEditorSurface({
         {document.blocks.map((block, index) => {
           const isSelected = normalizedSelection.blockIds.includes(block.id);
           const isFocused = focusedBlockId === block.id;
+          const isReviewAnchor = highlightedSet.has(block.id);
+          const reviewAnchorState = preparingItem?.id === highlightedItem?.id ? "preparing" : highlightedItem ? "active" : "idle";
+          const reviewAnchorEdge =
+            highlightedStartBlockId === block.id && highlightedEndBlockId === block.id
+              ? "single"
+              : highlightedStartBlockId === block.id
+                ? "start"
+                : highlightedEndBlockId === block.id
+                  ? "end"
+                  : isReviewAnchor
+                    ? "middle"
+                    : "none";
+          const isDiffAnchorEnd = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.at(-1) === block.id;
+          const isInlineDetailAnchor = shouldShowInlineDetail && highlightedEndBlockId === block.id;
 
           return (
             <div
@@ -599,6 +641,9 @@ export function BlockEditorSurface({
               data-block-id={block.id}
               data-selected={isSelected ? "true" : "false"}
               data-focused={isFocused ? "true" : "false"}
+              data-review-anchor={isReviewAnchor ? "true" : "false"}
+              data-review-anchor-state={isReviewAnchor ? reviewAnchorState : "idle"}
+              data-review-anchor-edge={reviewAnchorEdge}
               style={{ position: "relative" }}
             >
 
@@ -613,60 +658,56 @@ export function BlockEditorSurface({
               </button>
 
               <div className="block-editor-block">
-                {(() => {
-                  const preparingItem = preparingReviewItemId ? reviewItems.find(i => i.id === preparingReviewItemId) : null;
-                  const isPreparingBlock = preparingItem?.anchor.blockIds.includes(block.id) ?? false;
-                  const isPreparingLeadBlock = preparingItem?.anchor.blockIds[0] === block.id;
-                  const isActiveDiff = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.includes(block.id);
+                <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
+                  ×
+                </button>
+                <BlockRenderer
+                  block={block}
+                  disabled={disabled}
+                  registerEditable={registerEditable}
+                  onEditFocus={handleEditableFocus}
+                  onTextBlockEnter={splitTextBlock}
+                  onTextBlockBackspace={handleTextBlockBackspace}
+                  onSoftBreak={insertLineBreak}
+                  onListItemEnter={handleListItemEnter}
+                  onListItemBackspace={handleListItemBackspace}
+                  onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
+                  onAddTableRow={addTableRow}
+                  onRemoveTableRow={removeTableRow}
+                  onAddTableColumn={addTableColumn}
+                  onRemoveTableColumn={removeTableColumn}
+                />
 
-                  if (isPreparingBlock && !isActiveDiff) {
-                    if (!isPreparingLeadBlock) {
-                      return null;
-                    }
+                {isDiffAnchorEnd && activeProposal?.kind === "text_diff" && activeProposal.textDiff ? (
+                  <div className="manuscript-review-detail-anchor">
+                    <BlockDiffOverlay
+                      oldBlocks={activeProposal.textDiff.oldBlocks}
+                      newBlocks={activeProposal.textDiff.newBlocks}
+                      reason={activeProposal.textDiff.reason}
+                      onAccept={(nextBlocks) => onAcceptProposal?.(activeProposal.id, nextBlocks)}
+                      onReject={() => onRejectProposal?.(activeProposal.id)}
+                    />
+                  </div>
+                ) : null}
 
-                    return (
-                      <div className="block-preparing-loader" style={{ padding: '12px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '4px', textAlign: 'center' }}>
-                        <span style={{ fontSize: '13px', color: '#64748b' }}>ШІ обробляє блок... <span className="loading-inline-dots"><span></span><span></span><span></span></span></span>
-                      </div>
-                    );
-                  }
-
-                  if (isActiveDiff) {
-                    return activeProposal!.textDiff?.blockIds[0] === block.id ? (
-                      <BlockDiffOverlay
-                        oldBlocks={activeProposal!.textDiff!.oldBlocks}
-                        newBlocks={activeProposal!.textDiff!.newBlocks}
-                        reason={activeProposal!.textDiff!.reason}
-                        onAccept={(text) => onAcceptProposal?.(activeProposal!.id, text)}
-                        onReject={() => onRejectProposal?.(activeProposal!.id)}
-                      />
-                    ) : null;
-                  }
-
-                  return (
-                    <>
-                      <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
-                        ×
-                      </button>
-                      <BlockRenderer
-                        block={block}
-                        disabled={disabled}
-                        registerEditable={registerEditable}
-                        onEditFocus={handleEditableFocus}
-                        onTextBlockEnter={splitTextBlock}
-                        onTextBlockBackspace={handleTextBlockBackspace}
-                        onSoftBreak={insertLineBreak}
-                        onListItemEnter={handleListItemEnter}
-                        onListItemBackspace={handleListItemBackspace}
-                        onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
-                        onAddTableRow={addTableRow}
-                        onRemoveTableRow={removeTableRow}
-                        onAddTableColumn={addTableColumn}
-                        onRemoveTableColumn={removeTableColumn}
-                      />
-                    </>
-                  );
-                })()}
+                {isInlineDetailAnchor && highlightedItem ? (
+                  <div className="manuscript-review-detail-anchor">
+                    <ReviewRecommendationDetail
+                      item={highlightedItem}
+                      revision={revision}
+                      proposal={proposalItem?.id === highlightedItem.id ? activeProposal ?? null : null}
+                      layout="pendant"
+                      isPreparing={preparingItem?.id === highlightedItem.id}
+                      reviewImageLoading={reviewImageLoading}
+                      onPrepare={(item) => onPrepareReviewItem?.(item)}
+                      onApplyCallout={(item) => onApplyReviewCallout?.(item)}
+                      onDismiss={(item) => onDismissReviewItem?.(item)}
+                      onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
+                      onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
+                      onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           );

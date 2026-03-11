@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
-import { normalizeEditorialReviewItems } from "../lib/editor/review-contract.ts";
+import {
+  getEditorialRecommendationTypeLabel,
+  getReviewParagraphRangeLabel,
+  normalizeEditorialReviewItems
+} from "../lib/editor/review-contract.ts";
 
 function createDocument(): EditorDocument {
   return {
@@ -111,4 +115,40 @@ test("normalizeEditorialReviewItems enforces subsection insert semantics", () =>
   assert.equal(normalized.items[0]?.suggestedAction, "insert_text");
   assert.equal(normalized.items[0]?.insertionPoint.mode, "before");
   assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1", "p2"]);
+});
+
+test("review helpers expose dynamic Ukrainian paragraph ranges and type labels", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-3",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Спростити фрагмент",
+        reason: "Фрагмент звучить занадто академічно.",
+        recommendation: "Спростити формулювання.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 2,
+        excerpt: "Перший і другий абзаци",
+        insertionHint: "replace",
+        anchorBlockId: "p1",
+        calloutKind: null,
+        calloutTitle: null,
+        calloutPreviewText: null,
+        calloutSummary: null,
+        calloutPrompt: null,
+        visualIntent: null
+      }
+    ]
+  });
+
+  assert.equal(getReviewParagraphRangeLabel(normalized.items[0]!, revision), "Абз. 002-003");
+  assert.equal(getEditorialRecommendationTypeLabel("simplify"), "спростити");
 });

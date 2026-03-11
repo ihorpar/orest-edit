@@ -4,14 +4,19 @@ import type { EditorialReviewItem, ReviewActionProposal } from "../../lib/editor
 import {
   getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
+  getEditorialRecommendationTypeLabel,
+  getReviewParagraphRangeLabel,
   resolveReviewImageAssetUrl
 } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
+import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 
 export function ReviewRecommendationDetail({
   item,
+  revision,
   proposal,
+  layout = "rail",
   isPreparing,
   reviewImageLoading,
   onPrepare,
@@ -22,7 +27,9 @@ export function ReviewRecommendationDetail({
   onApplyActiveReviewImage
 }: {
   item: EditorialReviewItem | null;
+  revision?: ManuscriptRevisionState | null;
   proposal: ReviewActionProposal | null;
+  layout?: "rail" | "pendant";
   isPreparing?: boolean;
   reviewImageLoading?: boolean;
   onPrepare: (item: EditorialReviewItem) => void;
@@ -43,12 +50,17 @@ export function ReviewRecommendationDetail({
 
   const calloutDraft = proposal?.kind === "callout_prompt" && proposal.calloutDraft ? proposal.calloutDraft : item.calloutDraft;
   const imageDraft = proposal?.kind === "image_prompt" ? proposal.imageDraft : null;
+  const rangeLabel = revision ? getReviewParagraphRangeLabel(item, revision) : null;
 
   return (
-    <article className="editorial-review-detail" data-type={item.recommendationType}>
+    <article className="editorial-review-detail" data-layout={layout} data-type={item.recommendationType}>
       <div className="editorial-review-detail-head">
         <div>
-          <p className="editorial-review-detail-label">{item.recommendationType}</p>
+          <p className="editorial-review-detail-label">
+            {rangeLabel
+              ? `${rangeLabel} • ${getEditorialRecommendationTypeLabel(item.recommendationType)}`
+              : getEditorialRecommendationTypeLabel(item.recommendationType)}
+          </p>
           <h3 className="editorial-review-detail-title">{item.title}</h3>
         </div>
         <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(item)} aria-label="Закрити">

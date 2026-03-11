@@ -8,6 +8,7 @@ import {
   type EditorialReviewResponse
 } from "../editor/review-contract.ts";
 import { getBlockText } from "../editor/document-model.ts";
+import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -467,12 +468,13 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
     basePrompts.push(
       "Зараз етап ЕКСПЕРТИЗИ. Твоє завдання — проаналізувати текст загалом, вказати на структурні, логічні та стилістичні проблеми.",
       "Зверни особливу увагу на кастомні інструкції користувача.",
-      "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором."
+      "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором.",
+      "Якщо посилаєшся на фрагмент, використовуй лише формат «абз. NNN». Не показуй raw block id."
     );
   } else {
     basePrompts.push(
       "Зараз етап ГЕНЕРАЦІЇ ПРАВОК. На основі попереднього аналізу та діалогу з користувачем, запропонуй конкретні локальні зміни.",
-      "Кожна рекомендація має бути прив'язана до одного або кількох суміжних block index.",
+      "Кожна рекомендація має бути прив'язана до одного або кількох суміжних абзаців.",
       "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.",
       "replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.",
       "Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.",
@@ -480,15 +482,24 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
       "Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.",
       "Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
       "Для visual дозволені visualIntent: diagram, comparison, process, timeline, scene, concept.",
+      "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
+      "У полях title, reason і recommendation не згадуй raw block id, коди чи жорстко зашиті номери абзаців. UI покаже діапазон окремо.",
       "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
     );
   }
+
+  basePrompts.push(
+    "IDs у квадратних дужках призначені лише для внутрішньої прив'язки.",
+    "У user-facing тексті не показуй raw id."
+  );
 
   return basePrompts.filter(Boolean).join("\n\n");
 }
 
 function buildEditorialReviewUserPrompt(request: EditorialReviewRequest): string {
-  const lines = request.document.blocks.map((block, index) => `${index}. [${block.id}] ${getBlockText(block)}`);
+  const lines = request.document.blocks.map(
+    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getBlockText(block)}`
+  );
   const historyLines = (request.history ?? []).map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`);
 
   return [

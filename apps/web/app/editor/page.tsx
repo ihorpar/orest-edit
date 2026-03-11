@@ -539,8 +539,10 @@ export default function EditorPage() {
 
     commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]));
     setReviewItems((current) =>
-      current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied" } : entry))
+      current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
     );
+    setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
+    setActiveReviewItemId((current) => (current === item.id ? null : current));
     setFeedback({ tone: "info", message: "Врізку вставлено." });
   }
 
@@ -633,7 +635,9 @@ export default function EditorPage() {
 
     const item = reviewItems.find((entry) => entry.id === proposal.reviewItemId);
     commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]));
-    setReviewItems((current) => current.map((entry) => (entry.id === proposal.reviewItemId ? { ...entry, status: "applied" } : entry)));
+    setReviewItems((current) =>
+      current.map((entry) => (entry.id === proposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
+    );
     setActiveProposal(null);
     setActiveReviewItemId(null);
     setFeedback({ tone: "info", message: "Візуал вставлено." });
@@ -720,6 +724,7 @@ export default function EditorPage() {
 
             <BlockEditorSurface
               document={document}
+              revision={revision}
               selection={normalizedSelection}
               focusedBlockId={focusedBlockId}
               onDocumentChange={commitDocument}
@@ -727,10 +732,18 @@ export default function EditorPage() {
               onFocusedBlockChange={setFocusedBlockId}
               onInsertImage={handleInsertImage}
               activeProposal={activeProposal}
+              activeReviewItem={reviewItems.find((item) => item.id === activeReviewItemId) ?? null}
               preparingReviewItemId={preparingReviewItemId}
               reviewItems={reviewItems}
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}
+              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
+              onApplyReviewCallout={applyReviewCallout}
+              onDismissReviewItem={dismissReviewItem}
+              onUpdateActiveImagePrompt={updateActiveImagePrompt}
+              onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
+              onApplyActiveReviewImage={() => void applyActiveReviewImage()}
+              reviewImageLoading={isReviewImageRequestInFlight}
             />
 
             {composerMode ? (
@@ -781,12 +794,6 @@ export default function EditorPage() {
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
             onApplyReviewCallout={applyReviewCallout}
-            activeProposal={activeProposal}
-            activeReviewItem={reviewItems.find((item) => item.id === activeReviewItemId) ?? null}
-            onUpdateActiveImagePrompt={updateActiveImagePrompt}
-            onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
-            onApplyActiveReviewImage={() => void applyActiveReviewImage()}
-            reviewImageLoading={isReviewImageRequestInFlight}
             preparingReviewItemId={preparingReviewItemId}
             onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
             reviewLoading={isReviewRequestInFlight}

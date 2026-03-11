@@ -4996,10 +4996,51 @@ textarea:focus {
   color: #7c8da0;
 }
 
+.block-editor-row[data-review-anchor="true"] .block-editor-gutter {
+  color: #2563eb;
+}
+
 .block-editor-block {
   position: relative;
   border: 1px solid transparent;
   padding: 8px 10px 8px 2px;
+}
+
+.block-editor-row[data-review-anchor="true"] .block-editor-block {
+  background: #f8fbff;
+  border-color: #dbeafe;
+}
+
+.block-editor-row[data-review-anchor="true"][data-review-anchor-state="preparing"] .block-editor-block {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.block-editor-row[data-review-anchor="true"] .block-editor-block::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #2563eb;
+  border-radius: 999px;
+}
+
+.block-editor-row[data-review-anchor="true"][data-review-anchor-state="preparing"] .block-editor-block::before {
+  background: #94a3b8;
+}
+
+.block-editor-row[data-review-anchor-edge="start"] .block-editor-block,
+.block-editor-row[data-review-anchor-edge="single"] .block-editor-block {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.block-editor-row[data-review-anchor-edge="end"] .block-editor-block,
+.block-editor-row[data-review-anchor-edge="single"] .block-editor-block {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
 
 .block-row-action {
@@ -5378,7 +5419,7 @@ textarea:focus {
   padding: 16px;
   background: #fcfdfe;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-top: 10px;
 }
 
 .diff-block-stack {
@@ -5559,6 +5600,14 @@ textarea:focus {
   font-size: 10px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.err-compact-range {
+  margin: 0;
+  font: 600 10px/1.2 "IBM Plex Mono", monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2563eb;
 }
 
 .review-drawer-setup {

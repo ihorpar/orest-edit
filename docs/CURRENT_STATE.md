@@ -20,12 +20,13 @@ Status: Active handoff
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
 - The editor right rail shows review cards and request history
-- The current review execution UI is still mostly rail-first
-- The only inline manuscript execution UI currently implemented is the text diff overlay
-- The active recommendation in the right rail now exposes a working detail panel for `callout`, `visual`, stale, and text-diff preparation states
+- Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
+- The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
+- Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
+- `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Review-image generation endpoints already exist at `/api/edit/review/image`
-- Review-image generation is not yet wired into the manuscript execution UI
+- Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
 - Browser draft persistence uses `orest-editor-draft-v2`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
@@ -43,10 +44,8 @@ Status: Active handoff
 - No hardened provider normalization yet for arbitrary mixed block output from real models
 - No full clipboard/Word paste pipeline for complex rich-text imports
 - No export patch flow or document version history
-- No sample4-style continuous anchor highlight for whole-text recommendations yet
-- No single floating inline execution card below the full affected block range yet
-- No dedicated inline execution UI for `subsection`, `callout`, or visual/image recommendations yet
-- `callout` and `visual` are currently executable from the right-rail active-detail panel, not yet from the manuscript surface
+- No finalized browser QA yet for the sample4-style anchor highlight continuity and inline card placement
+- No dedicated inline execution UI for `subsection` yet
 - No hard output-shape guard yet for replace-type review suggestions to keep them within the selected block-count ceiling
 - No finalized Ukrainian prompt contract yet for whole-text recommendation generation, replace-type execution, callout generation, or visual/image generation
 
@@ -67,16 +66,15 @@ Status: Active handoff
 - `image` is already a first-class block type
 
 ## Highest-priority next work
-1. Rebuild whole-text review execution around sample4-style anchored highlighting and one floating inline card below the affected range.
-2. Narrow review taxonomy and runtime contracts to the confirmed suggestion model.
-3. Enforce output-shape constraints for replace-type review suggestions so they do not exceed the selected block-count ceiling.
-4. Implement dedicated inline execution flows for `subsection`, `callout`, and visual/image recommendations.
-5. Author and integrate Ukrainian prompt contracts for recommendation generation and execution flows.
-6. Add regression coverage and browser QA for anchor continuity, stale suggestion invalidation, block-count safety, and Ukrainian prompt output.
+1. Enforce output-shape constraints for replace-type review suggestions so they do not exceed the selected block-count ceiling.
+2. Implement the dedicated inline `subsection` insertion card before the anchor range.
+3. Tighten Ukrainian prompt contracts further so review prose avoids stale hard-coded paragraph references.
+4. Add regression coverage and browser QA for anchor continuity, stale suggestion invalidation, callout/image insertion anchors, and Ukrainian prompt output.
+5. Harden the right-rail cards and manuscript card styling to fully match the `sample4` interaction quality.
 
 ## Last validated state
-- `npm run typecheck -w @orest/web` passed on 2026-03-11 after the review detail-panel and block-aware diff fixes
-- `npm run build -w @orest/web` passed on 2026-03-11 after the review detail-panel and block-aware diff fixes
+- `npm run typecheck -w @orest/web` passed on 2026-03-11 after the inline anchor-highlight and manuscript execution-card refactor
+- `npm run build -w @orest/web` passed on 2026-03-11 after the inline anchor-highlight and manuscript execution-card refactor
 - `npm test -w @orest/web` remains blocked in this environment because `tsx` resolves a Windows `esbuild` binary while the workspace is running under Linux/WSL
 - Runtime smoke check was last confirmed against `next start` with `APP_PASSWORD=test-secret`; unauthenticated `/editor` redirected to `/login` and `/login` returned HTTP 200
 - Interactive browser QA was not run in this validation pass because the referenced Playwright interactive tooling was not available in the current tool environment
