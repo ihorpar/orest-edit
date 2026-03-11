@@ -25,33 +25,25 @@ export function BlockDiffOverlay({
     () =>
       newBlocks.map((block, index) => ({
         block,
-        oldText: getBlockText(oldBlocks[index]),
         newText: draftTexts[index] ?? getBlockText(block)
       })),
-    [draftTexts, newBlocks, oldBlocks]
+    [draftTexts, newBlocks]
   );
 
   return (
     <div className="block-diff-inline-container">
       {warning ? <p className="diff-warning">{warning.message}</p> : null}
-      <div className="diff-block-stack">
-        {editableBlocks.map(({ block, oldText, newText }, index) => (
-          <section key={block.id} className="diff-block-card">
-            <div className="diff-section">
-              <p className="diff-label">Було</p>
-              <div className="diff-text-old">{oldText || " "}</div>
-            </div>
-
-            <div className="diff-section">
-              <p className="diff-label">{getBlockEditorLabel(block, index, editableBlocks.length)}</p>
-              <textarea
-                className="diff-textarea diff-add-editor"
-                value={newText}
-                onChange={(event) =>
-                  setDraftTexts((current) => current.map((value, valueIndex) => (valueIndex === index ? event.target.value : value)))
-                }
-              />
-            </div>
+      <div className="diff-proposed-stack">
+        {editableBlocks.map(({ block, newText }, index) => (
+          <section key={block.id} className="diff-proposed-block">
+            {editableBlocks.length > 1 ? <p className="diff-label">Блок {index + 1}</p> : null}
+            <textarea
+              className="diff-proposed-editor"
+              value={newText}
+              onChange={(event) =>
+                setDraftTexts((current) => current.map((value, valueIndex) => (valueIndex === index ? event.target.value : value)))
+              }
+            />
           </section>
         ))}
       </div>
@@ -73,26 +65,6 @@ export function BlockDiffOverlay({
       </div>
     </div>
   );
-}
-
-function getBlockEditorLabel(block: Block, index: number, total: number): string {
-  if (total === 1) {
-    return "Стане";
-  }
-
-  if (block.type === "heading") {
-    return `Підзаголовок ${index + 1}`;
-  }
-
-  if (block.type === "bullet_list") {
-    return `Список ${index + 1}`;
-  }
-
-  if (block.type === "ordered_list") {
-    return `Нумерований список ${index + 1}`;
-  }
-
-  return `Блок ${index + 1}`;
 }
 
 function withEditedBlockText(block: Block, editedText: string): Block {

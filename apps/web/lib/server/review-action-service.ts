@@ -636,6 +636,15 @@ function normalizeReviewTextDiffOperation(
   operation: NonNullable<ReviewActionProposal["textDiff"]>,
   recommendationType: EditorialReviewRecommendationType
 ): NonNullable<ReviewActionProposal["textDiff"]> {
+  if (recommendationType === "list") {
+    const sanitized = operation.newBlocks.map((block) => sanitizeReplacementBlock(block));
+
+    return {
+      ...operation,
+      newBlocks: ensureListRecommendationStructure(sanitized, operation.oldBlocks)
+    };
+  }
+
   const strictTypePreservation = recommendationType === "rewrite" || recommendationType === "simplify" || recommendationType === "expand";
   const normalizedNewBlocks = operation.newBlocks.map((block, index) => {
     const oldBlock = operation.oldBlocks[index];
@@ -651,6 +660,29 @@ function normalizeReviewTextDiffOperation(
     ...operation,
     newBlocks: normalizedNewBlocks
   };
+}
+
+function ensureListRecommendationStructure(newBlocks: Block[], oldBlocks: Block[]): Block[] {
+  if (newBlocks.some((block) => block.type === "bullet_list" || block.type === "ordered_list")) {
+    return newBlocks;
+  }
+
+  const listSource = newBlocks.map((block) => getBlockText(block)).join("\n").trim() || oldBlocks.map((block) => getBlockText(block)).join("\n").trim();
+  const items = splitListItemsForBlock(listSource);
+
+  if (items.length === 0) {
+    return newBlocks;
+  }
+
+  const firstId = newBlocks[0]?.id ?? oldBlocks[0]?.id ?? createPatchId("block");
+
+  return [
+    {
+      id: firstId,
+      type: "bullet_list",
+      items: items.map((item) => [createInlineText(item)])
+    }
+  ];
 }
 
 function normalizeBlocksToExactCount(newBlocks: Block[], oldBlocks: Block[], targetCount: number): Block[] {

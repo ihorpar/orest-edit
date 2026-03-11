@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
 import { TopBar } from "../../components/layout/TopBar";
@@ -104,6 +104,8 @@ export default function EditorPage() {
   const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
+  const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
+  const recentChangeTimeoutRef = useRef<number | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
@@ -176,12 +178,45 @@ export default function EditorPage() {
     setComposerMode((current) => (current === "local" ? null : current));
   }, [normalizedSelection.blockIds]);
 
+  useEffect(
+    () => () => {
+      if (recentChangeTimeoutRef.current) {
+        window.clearTimeout(recentChangeTimeoutRef.current);
+      }
+    },
+    []
+  );
+
   function commitDocument(nextDocument: EditorDocument) {
     const nextRevision = deriveManuscriptRevisionState(nextDocument);
     setDocument(nextDocument);
     setRevision(nextRevision);
     setSelection((current) => normalizeBlockSelection(nextDocument, current));
     setReviewItems((current) => reconcileReviewItemsWithRevision(current, nextDocument, nextRevision));
+  }
+
+  function focusAndHighlightChangedBlocks(blockIds: string[]) {
+    const nextIds = Array.from(new Set(blockIds.filter(Boolean)));
+
+    if (nextIds.length === 0) {
+      return;
+    }
+
+    setRecentlyChangedBlockIds(nextIds);
+
+    if (recentChangeTimeoutRef.current) {
+      window.clearTimeout(recentChangeTimeoutRef.current);
+    }
+
+    recentChangeTimeoutRef.current = window.setTimeout(() => {
+      setRecentlyChangedBlockIds([]);
+      recentChangeTimeoutRef.current = null;
+    }, 30_000);
+
+    window.requestAnimationFrame(() => {
+      const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${nextIds[0]}"]`);
+      anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   function pushHistoryEntry(entry: RequestHistoryItem) {
@@ -426,6 +461,7 @@ export default function EditorPage() {
     if (activeProposal.kind === "text_diff" && activeProposal.textDiff) {
       const nextDocument = replaceBlocksByIds(document, activeProposal.textDiff.blockIds, nextBlocks);
       commitDocument(nextDocument);
+      focusAndHighlightChangedBlocks(activeProposal.textDiff.blockIds);
       setOperations((current) => current.filter((op) => op.id !== proposalId));
       setReviewItems((current) =>
         current.map((entry) => (entry.id === activeProposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -455,6 +491,7 @@ export default function EditorPage() {
 
     const nextDocument = applyPatchOperation(document, operation);
     commitDocument(nextDocument);
+    focusAndHighlightChangedBlocks(operation.blockIds);
     setOperations((current) => rebasePendingOperations(current, operation));
     setReviewItems((current) =>
       current.map((entry) => (entry.activeProposalId === operationId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -469,6 +506,7 @@ export default function EditorPage() {
 
     const nextDocument = applyPatchOperations(document, operations);
     commitDocument(nextDocument);
+    focusAndHighlightChangedBlocks(operations.flatMap((operation) => operation.blockIds));
     setOperations([]);
     setFeedback({ tone: "info", message: "Усі правки застосовано." });
   }
@@ -618,6 +656,7 @@ export default function EditorPage() {
     };
 
     commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]));
+    focusAndHighlightChangedBlocks([block.id]);
     setReviewItems((current) =>
       current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
     );
@@ -656,6 +695,7 @@ export default function EditorPage() {
     }
 
     commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks));
+    focusAndHighlightChangedBlocks(blocks.map((entry) => entry.id));
     setReviewItems((current) =>
       current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
     );
@@ -961,6 +1001,7 @@ export default function EditorPage() {
 
     const item = reviewItems.find((entry) => entry.id === proposal.reviewItemId);
     commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]));
+    focusAndHighlightChangedBlocks([block.id]);
     setReviewItems((current) =>
       current.map((entry) => (entry.id === proposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
     );
@@ -1013,6 +1054,11 @@ export default function EditorPage() {
   }
 
   function handleResetDraft() {
+    if (recentChangeTimeoutRef.current) {
+      window.clearTimeout(recentChangeTimeoutRef.current);
+      recentChangeTimeoutRef.current = null;
+    }
+
     clearEditorDraftState();
     setDocument(DEFAULT_EDITOR_DOCUMENT);
     setRevision(deriveManuscriptRevisionState(DEFAULT_EDITOR_DOCUMENT));
@@ -1035,6 +1081,7 @@ export default function EditorPage() {
     setLocalActionMode(defaultLocalActionMode);
     setManualCalloutPrompt("");
     setManualVisualPrompt("");
+    setRecentlyChangedBlockIds([]);
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -1066,6 +1113,7 @@ export default function EditorPage() {
               activeProposal={activeProposal}
               activeReviewItem={reviewItems.find((item) => item.id === activeReviewItemId) ?? null}
               preparingReviewItemId={preparingReviewItemId}
+              recentlyChangedBlockIds={recentlyChangedBlockIds}
               reviewItems={reviewItems}
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}

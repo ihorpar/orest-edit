@@ -471,6 +471,68 @@ test("generateReviewAction keeps list replacements within selection block ceilin
   assert.ok((response.proposal.textDiff?.newBlocks.length ?? 0) <= 2);
 });
 
+test("generateReviewAction coerces list recommendation into list block when provider returns paragraphs", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Крок А. Крок Б. Крок В." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-2",
+        reviewSessionId: "review-session-4",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Крок А. Крок Б. Крок В.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1"],
+                  newBlocks: [{ type: "paragraph", content: [{ text: "Крок А\nКрок Б\nКрок В" }] }],
+                  reason: "Сформував список.",
+                  type: "structure"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
+});
+
 test("generateReviewAction accepts structured visual JSON with prompt/caption/alt", async () => {
   const document: EditorDocument = {
     version: 2,

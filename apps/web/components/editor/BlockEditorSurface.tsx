@@ -83,6 +83,7 @@ export function BlockEditorSurface({
   activeProposal,
   activeReviewItem,
   preparingReviewItemId,
+  recentlyChangedBlockIds,
   reviewItems = [],
   onAcceptProposal,
   onRejectProposal,
@@ -113,6 +114,7 @@ export function BlockEditorSurface({
   activeProposal?: ReviewActionProposal | null;
   activeReviewItem?: EditorialReviewItem | null;
   preparingReviewItemId?: string | null;
+  recentlyChangedBlockIds?: string[];
   reviewItems?: EditorialReviewItem[];
   onAcceptProposal?: (proposalId: string, nextBlocks: Block[]) => void;
   onRejectProposal?: (proposalId: string) => void;
@@ -493,6 +495,7 @@ export function BlockEditorSurface({
   const highlightedItem = laneState.highlightedItem;
   const highlightedBlockIds = laneState.highlightedBlockIds;
   const highlightedSet = useMemo(() => new Set(highlightedBlockIds), [highlightedBlockIds]);
+  const recentChangeSet = useMemo(() => new Set(recentlyChangedBlockIds ?? []), [recentlyChangedBlockIds]);
   const highlightedStartBlockId = laneState.highlightedStartBlockId;
   const highlightedEndBlockId = laneState.highlightedEndBlockId;
   const shouldShowInlineDetail = laneState.shouldShowInlineDetail;
@@ -669,6 +672,7 @@ export function BlockEditorSurface({
               data-review-anchor-state={isReviewAnchor ? reviewAnchorState : "idle"}
               data-review-anchor-edge={reviewAnchorEdge}
               data-review-replace={isReplaceAnchorBlock ? "old" : "none"}
+              data-recent-change={recentChangeSet.has(block.id) ? "true" : "false"}
               style={{ position: "relative" }}
             >
 

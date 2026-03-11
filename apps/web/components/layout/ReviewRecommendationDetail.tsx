@@ -195,7 +195,12 @@ export function ReviewRecommendationDetail({
 
       {!isPreparing && imageDraft ? (
         <div className="editorial-review-proposal">
-          <p className="editorial-review-detail-label">Prompt для візуалу</p>
+          <div className="editorial-review-image-prompt-head">
+            <p className="editorial-review-detail-label">Prompt для візуалу</p>
+            <Button size="sm" variant="ghost" onClick={() => onPrepare(item)}>
+              Оновити текст
+            </Button>
+          </div>
           <textarea
             className="editorial-review-image-prompt-input"
             value={imageDraft.prompt}
@@ -211,13 +216,20 @@ export function ReviewRecommendationDetail({
           </div>
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
-              Перегенерувати текст
-            </Button>
-            <Button size="sm" variant="secondary" onClick={onGenerateActiveReviewImage} loading={reviewImageLoading}>
+            <Button
+              size="sm"
+              variant={imageDraft.generatedAsset ? "secondary" : "primary"}
+              onClick={onGenerateActiveReviewImage}
+              loading={reviewImageLoading}
+            >
               {imageDraft.generatedAsset ? "Згенерувати ще раз" : "Згенерувати"}
             </Button>
-            <Button size="sm" variant="primary" onClick={onApplyActiveReviewImage} disabled={!imageDraft.generatedAsset}>
+            <Button
+              size="sm"
+              variant={imageDraft.generatedAsset ? "primary" : "ghost"}
+              onClick={onApplyActiveReviewImage}
+              disabled={!imageDraft.generatedAsset}
+            >
               Вставити в документ
             </Button>
           </div>
