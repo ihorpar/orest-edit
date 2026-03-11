@@ -653,7 +653,11 @@ export default function EditorPage() {
             activeReviewItemId={activeReviewItemId}
             history={history}
             isReviewDrawerOpen={isReviewDrawerOpen}
-            onOpenReviewDrawer={() => setIsReviewDrawerOpen(true)}
+            onOpenReviewDrawer={() => {
+              setReviewStatus("expertise");
+              setReviewExpertise(null);
+              setIsReviewDrawerOpen(true);
+            }}
             onCloseReviewDrawer={() => setIsReviewDrawerOpen(false)}
             onOpenLocalComposer={() => setComposerMode("local")}
             onFocusReviewItem={focusReviewItem}
@@ -762,8 +766,15 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     };
   }
 
+  if (payload.expertise && payload.items.length === 0) {
+    return {
+      tone: "info",
+      message: "Експертний аналіз готовий."
+    };
+  }
+
   return {
     tone: "info",
-    message: `Підготовлено ${payload.items.length} рекомендац${payload.items.length === 1 ? "ію" : "ії"}.`
+    message: `Підготовлено ${payload.items.length} карток з рекомендаціями.`
   };
 }
