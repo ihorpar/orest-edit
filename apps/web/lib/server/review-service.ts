@@ -472,7 +472,7 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
   } else {
     basePrompts.push(
       "Зараз етап ГЕНЕРАЦІЇ ПРАВОК. На основі попереднього аналізу та діалогу з користувачем, запропонуй конкретні локальні зміни.",
-      "Кожна рекомендація має бути прив'язана до одного або кількох суміжних block index.",
+      "Кожна рекомендація має бути прив'язана рівно до одного block index.",
       "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visualize', 'illustration'.",
       "Значення suggestedAction: 'rewrite_text', 'prepare_callout', 'prepare_visual'.",
       "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."

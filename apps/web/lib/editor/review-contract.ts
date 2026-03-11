@@ -331,18 +331,19 @@ export function normalizeEditorialReviewItems(input: {
     const record = candidate as Record<string, unknown>;
     const blockStart = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
     const blockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
+    const anchorBlockId = typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
     const title = normalizeCopy(record.title, 90);
     const reason = normalizeCopy(record.reason, 420);
     const recommendation = normalizeCopy(record.recommendation, 420);
+    const resolvedIndex = resolveSingleBlockIndex({ paragraphs, blockStart, blockEnd, anchorBlockId });
 
-    if (blockStart === null || blockEnd === null || !title || !reason || !recommendation) {
+    if (resolvedIndex === null || !title || !reason || !recommendation) {
       droppedCount += 1;
       continue;
     }
 
-    const start = Math.min(blockStart, blockEnd);
-    const end = Math.max(blockStart, blockEnd);
-    const blockIds = paragraphs.slice(start, end + 1).map((paragraph) => paragraph.id);
+    const anchorParagraph = paragraphs[resolvedIndex];
+    const blockIds = anchorParagraph ? [anchorParagraph.id] : [];
     const excerpt = normalizeCopy(record.excerpt, 420) ?? blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
     const insertionAnchor = blockIds[0];
 
@@ -364,13 +365,13 @@ export function normalizeEditorialReviewItems(input: {
       priority: normalizePriority(record.priority),
       anchor: {
         blockIds,
-        generationBlockRange: { start, end },
+        generationBlockRange: { start: resolvedIndex, end: resolvedIndex },
         excerpt,
         fingerprint: computeAnchorFingerprint(input.document, blockIds)
       },
       insertionPoint: {
         mode: normalizeInsertionHint(record.insertionHint),
-        anchorBlockId: typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId : insertionAnchor
+        anchorBlockId: anchorBlockId ?? insertionAnchor
       },
       calloutKind: normalizeCalloutKind(record.calloutKind),
       calloutDraft: normalizeCalloutDraft(record),
@@ -477,6 +478,27 @@ function normalizeCopy(value: unknown, maxLength: number): string | null {
 
   const normalized = value.trim().replace(/\s+/g, " ");
   return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function resolveSingleBlockIndex(input: {
+  paragraphs: Array<{ id: string }>;
+  blockStart: number | null;
+  blockEnd: number | null;
+  anchorBlockId: string | null;
+}): number | null {
+  if (input.anchorBlockId) {
+    const anchorIndex = input.paragraphs.findIndex((paragraph) => paragraph.id === input.anchorBlockId);
+
+    if (anchorIndex >= 0) {
+      return anchorIndex;
+    }
+  }
+
+  if (input.blockStart !== null) {
+    return input.blockStart;
+  }
+
+  return input.blockEnd;
 }
 
 function normalizeIndex(value: unknown, length: number): number | null {

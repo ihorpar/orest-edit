@@ -21,6 +21,7 @@ After this migration, a user can open the editor, edit the manuscript directly i
 - [x] (2026-03-10 00:00Z) Replaced markdown-driven DOCX export with direct export from the block document model, including headings, lists, tables, callouts, images, and inline formatting.
 - [x] (2026-03-10 00:00Z) Rebuilt patch/review/apply tests around block-first contracts and removed legacy markdown/offset test paths.
 - [x] (2026-03-10 00:00Z) Verified the migrated slice with `typecheck`, `test`, `build`, and an authenticated runtime smoke check against `next start`.
+- [x] (2026-03-11 00:00Z) Tightened whole-text review cards to one anchor block per recommendation and fixed the in-editor preparing state so a single pending card shows one loader row instead of duplicating across the anchor range.
 
 ## Surprises & Discoveries
 
@@ -35,6 +36,9 @@ After this migration, a user can open the editor, edit the manuscript directly i
 
 - Observation: direct DOCX export became simpler after removing markdown as the editor source of truth.
   Evidence: export now reads the same block document the user edits, instead of reconstructing semantics from source markup and markdown-specific asset tokens.
+
+- Observation: whole-text review cards felt like duplicate work when the backend allowed multi-block ranges but the editor showed one preparing placeholder per block.
+  Evidence: `apps/web/lib/server/review-service.ts` instructed providers to return "one or more adjacent block indexes", while `apps/web/components/editor/BlockEditorSurface.tsx` rendered the preparing state for every `anchor.blockIds.includes(block.id)` match.
 
 ## Decision Log
 
@@ -54,6 +58,10 @@ After this migration, a user can open the editor, edit the manuscript directly i
   Rationale: draft compatibility would require preserving legacy offset and markdown assumptions that the new editor intentionally removes.
   Date/Author: 2026-03-10 / Codex implementation
 
+- Decision: whole-text review cards normalize to exactly one anchor block, even if a provider returns a wider block range.
+  Rationale: review cards should stay patch-first and visually local; multi-block anchors made one pending recommendation look like several separate in-editor tasks.
+  Date/Author: 2026-03-11 / Codex implementation
+
 ## Outcomes & Retrospective
 
 The latest migration replaces the markdown and offset hybrid with one coherent block-first editor slice. `/editor` is now a docs-like rich block surface, AI requests target selected blocks instead of character ranges, review anchors resolve by block IDs, and DOCX export runs directly from the same block document model the user edits.
@@ -63,3 +71,5 @@ This pass also removes the biggest remaining architecture mismatch in the repo. 
 The implementation is intentionally opinionated. AI edits are contiguous block-range only, apply semantics are whole-block replacement, legacy browser drafts are reset, and markdown is no longer kept as a hidden canonical layer. Those constraints reduce flexibility, but they remove the instability that was blocking a docs-like editor UX.
 
 The remaining work is now mostly hardening and polish rather than another model rewrite: richer provider normalization, stronger paste/import handling, browser interaction QA, and better non-text block proposal previews.
+
+After the initial migration, one follow-up adjustment proved necessary for whole-text review UX. Recommendations can still describe broader editorial intent, but the card anchor itself is now collapsed to one concrete block so preparation states and review focus remain visually singular and predictable.

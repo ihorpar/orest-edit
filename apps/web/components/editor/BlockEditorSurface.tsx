@@ -615,10 +615,15 @@ export function BlockEditorSurface({
               <div className="block-editor-block">
                 {(() => {
                   const preparingItem = preparingReviewItemId ? reviewItems.find(i => i.id === preparingReviewItemId) : null;
-                  const isBeingPrepared = preparingItem?.anchor.blockIds.includes(block.id);
+                  const isPreparingBlock = preparingItem?.anchor.blockIds.includes(block.id) ?? false;
+                  const isPreparingLeadBlock = preparingItem?.anchor.blockIds[0] === block.id;
                   const isActiveDiff = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.includes(block.id);
 
-                  if (isBeingPrepared && !isActiveDiff) {
+                  if (isPreparingBlock && !isActiveDiff) {
+                    if (!isPreparingLeadBlock) {
+                      return null;
+                    }
+
                     return (
                       <div className="block-preparing-loader" style={{ padding: '12px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '4px', textAlign: 'center' }}>
                         <span style={{ fontSize: '13px', color: '#64748b' }}>ШІ обробляє блок... <span className="loading-inline-dots"><span></span><span></span><span></span></span></span>
