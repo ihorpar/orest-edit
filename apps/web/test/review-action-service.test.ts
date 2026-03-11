@@ -517,7 +517,7 @@ test("generateReviewAction coerces list recommendation into list block when prov
               operations: [
                 {
                   blockIds: ["p1"],
-                  newBlocks: [{ type: "paragraph", content: [{ text: "Крок А\nКрок Б\nКрок В" }] }],
+                  newBlocks: [{ type: "paragraph", content: [{ text: "Крок А. Крок Б. Крок В." }] }],
                   reason: "Сформував список.",
                   type: "structure"
                 }
@@ -531,6 +531,7 @@ test("generateReviewAction coerces list recommendation into list block when prov
 
   assert.equal(response.proposal.kind, "text_diff");
   assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
+  assert.equal((response.proposal.textDiff?.newBlocks[0] as { items?: unknown[] } | undefined)?.items?.length, 3);
 });
 
 test("generateReviewAction accepts structured visual JSON with prompt/caption/alt", async () => {

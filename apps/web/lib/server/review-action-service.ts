@@ -762,12 +762,27 @@ function cloneBlockWithText(block: Block, text: string): Block {
 }
 
 function splitListItemsForBlock(text: string): string[] {
-  const items = text
+  const lineItems = text
+    .replace(/\r\n?/g, "\n")
     .split(/\n+/)
     .map((line) => sanitizeListItemText(line))
     .filter(Boolean);
 
-  return items.length > 0 ? items : [""];
+  if (lineItems.length > 1) {
+    return lineItems;
+  }
+
+  const sentenceItems = text
+    .replace(/\r\n?/g, " ")
+    .split(/(?<=[.!?;])\s+/)
+    .map((line) => sanitizeListItemText(line))
+    .filter(Boolean);
+
+  if (sentenceItems.length > 1) {
+    return sentenceItems;
+  }
+
+  return lineItems.length > 0 ? lineItems : [""];
 }
 
 function sanitizeReplacementBlock(block: Block): Block {

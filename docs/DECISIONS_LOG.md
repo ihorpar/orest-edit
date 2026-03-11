@@ -74,6 +74,21 @@ Decision: local selection actions in `Локальна правка` are mode-fi
 
 Reason: this removes ambiguity about which action consumes the current prompt and reduces operator errors caused by mixed CTA meanings.
 
+### List recommendations must stay list-shaped
+Decision: `list` recommendation apply flow enforces list block output during normalization, even if provider output arrives as paragraphs.
+
+Reason: list suggestions should never silently degrade into paragraph replacements; shape enforcement preserves intent and visible UX difference.
+
+### Replace diff reads from manuscript to proposal
+Decision: replace execution keeps source content in manuscript red anchor highlights and renders only proposed editable blocks in the inline card.
+
+Reason: this removes duplicated nested old/new cards and keeps comparison flow clear: source in context, proposal below.
+
+### Apply actions reveal their result in-place
+Decision: after apply/insert, the editor auto-scrolls to the first changed block and highlights all changed blocks for 30 seconds.
+
+Reason: users need immediate spatial confirmation of what changed, especially when edits land outside the current viewport.
+
 ## 2026-03-10
 
 ### Block-first canonical editor model

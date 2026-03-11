@@ -37,14 +37,23 @@ This plan refined manuscript-side execution for three recommendation families:
   - markdown syntax is stripped from replacement text,
   - rewrite/simplify/expand preserve original block shapes to avoid markdown-induced type drift,
   - replace flow computes and surfaces no-op warnings for near-unchanged outputs.
+- [x] (2026-03-11) Follow-up UX corrections from editor feedback:
+  - `list` proposals now coerce paragraph-only provider output into `bullet_list` blocks,
+  - replace execution card now renders only proposed (green) editable blocks without nested bordered old/new cards,
+  - callout/visual draft fields share one typography/input treatment,
+  - visual CTA hierarchy now prioritizes `Згенерувати` until an asset exists.
+- [x] (2026-03-11) Applied-change reveal behavior added:
+  - after `Застосувати`/insert actions, manuscript scrolls to changed content,
+  - affected block(s) are highlighted in green for 30 seconds.
 - [x] (2026-03-11) Removed manuscript replace strikethrough while preserving red anchor highlighting.
 - [x] (2026-03-11) Added/updated regression tests in `apps/web/test/review-action-service.test.ts` for:
   - visual JSON parser + fallback behavior,
   - rewrite markdown artifact stripping,
-  - rewrite/simplify no-op warning signaling.
+  - rewrite/simplify no-op warning signaling,
+  - list proposal coercion when provider returns paragraph blocks.
 - [x] (2026-03-11) Validation completed:
   - `npm run typecheck -w @orest/web`,
-  - `npm run test -w @orest/web` (41/41 pass),
+  - `npm run test -w @orest/web` (43/43 pass),
   - `npm run build -w @orest/web`,
   - runtime QA via `APP_PASSWORD=@orest0krat npm run qa:inline-review -w @orest/web` against local dev server.
 
@@ -53,6 +62,7 @@ This plan refined manuscript-side execution for three recommendation families:
 - The runtime QA script requires a running app at `http://127.0.0.1:3100`; running QA without a dev server fails with `ERR_CONNECTION_REFUSED`.
 - Visual prompt contracts can be tightened to prefer JSON-with-caption without breaking legacy plain-text responses if the parser remains permissive.
 - No-op rewrite detection needs to happen after normalization, otherwise markdown-only deltas can be misclassified as meaningful edits.
+- List-type provider responses frequently arrive as paragraphs; normalization must coerce structure to keep list actions visibly distinct and trustworthy.
 
 ## Decision Log
 
@@ -68,8 +78,20 @@ This plan refined manuscript-side execution for three recommendation families:
   Rationale: prevents markdown artifacts (`#`, `-`, emphasis markers) from leaking into block-editor content.
   Date/Author: 2026-03-11 / Codex implementation
 
+- Decision: `list` recommendations enforce list structure during normalization, even when provider returns paragraph blocks.
+  Rationale: prevents semantic no-op applies where the user requested a list but receives paragraph-shaped output.
+  Date/Author: 2026-03-11 / Codex implementation
+
+- Decision: replace-source content stays in manuscript red anchors while the inline execution card renders only proposed green editable blocks.
+  Rationale: removes duplicated “card-in-card” framing and keeps diff reading direction unambiguous.
+  Date/Author: 2026-03-11 / Codex implementation
+
+- Decision: apply/insert actions auto-scroll to the first changed block and temporarily highlight affected blocks.
+  Rationale: improves post-apply orientation, especially when edits land outside the current viewport.
+  Date/Author: 2026-03-11 / Codex implementation
+
 ## Outcomes & Retrospective
 
-Execution UX for callout/visual/rewrite/simplify is now aligned with the plan goals. Callout panels are action-first and no longer expose raw prompt text. Visual execution keeps editable prompt, now includes editable caption, and can be prefilled from structured AI output when provided. Rewrite/simplify proposals now normalize away markdown artifacts and expose a no-op warning state when output is effectively unchanged. Replace anchor highlights remain red without strikethrough.
+Execution UX for callout/visual/rewrite/simplify is now aligned with the plan goals. Callout panels are action-first and no longer expose raw prompt text. Visual execution keeps editable prompt, includes editable caption, and now prioritizes `Згенерувати` before insert becomes available. Rewrite/simplify proposals normalize away markdown artifacts and expose a no-op warning state when output is effectively unchanged. Replace execution now avoids nested old/new cards by rendering only proposed green blocks inline while manuscript anchors remain red.
 
-Prompt/flow reassessment was implemented in runtime contracts: replace prompts now explicitly require tangible phrasing changes and avoid near-verbatim rewrites, visual prompts now support structured response mode, and no-op quality guardrails are enforced at proposal normalization time.
+Prompt/flow reassessment was implemented in runtime contracts: replace prompts now explicitly require tangible phrasing changes and avoid near-verbatim rewrites, visual prompts support structured response mode, list recommendations coerce to real list blocks when needed, and no-op quality guardrails are enforced at proposal normalization time. Post-apply reveal behavior now scrolls and highlights changed content for 30 seconds.

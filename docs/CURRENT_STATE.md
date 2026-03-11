@@ -30,8 +30,10 @@ Status: Active handoff
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
-- The manuscript now marks active replace-source blocks in red while proposed replacement stays editable in green inside the inline diff card
+- List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
+- The manuscript now marks active replace-source blocks in red while the inline diff card renders only proposed replacement blocks in green (no nested old/new card frames)
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
+- After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
@@ -84,8 +86,8 @@ Status: Active handoff
 3. Harden right-rail/manuscript visual polish further to match `sample4` interaction quality under dense recommendation sets.
 
 ## Last validated state
-- `npm run typecheck -w @orest/web` passed on 2026-03-11 after inline-lane regression helpers/tests were added
-- `npm run build -w @orest/web` passed on 2026-03-11 after inline-lane regression helpers/tests were added
-- `npm run test -w @orest/web` passed on 2026-03-11 (41 tests), including new `review-action-service` coverage for visual JSON caption parsing, rewrite markdown cleanup, and no-op warning signaling
+- `npm run typecheck -w @orest/web` passed on 2026-03-11 after follow-up UX changes (list coercion, flat replace diff, changed-block reveal)
+- `npm run build -w @orest/web` passed on 2026-03-11 after follow-up UX changes (list coercion, flat replace diff, changed-block reveal)
+- `npm run test -w @orest/web` passed on 2026-03-11 (43 tests), including `review-action-service` coverage for visual JSON caption parsing, rewrite markdown cleanup, no-op warning signaling, and list coercion from paragraph output
 - Runtime smoke check with password gate succeeded on 2026-03-11 (`/editor` redirected to `/login` before auth)
 - `npm run qa:inline-review -w @orest/web` passed on 2026-03-11 using `APP_PASSWORD=@orest0krat` + local dev server on `http://127.0.0.1:3100`; validated login gate, multi-block anchor highlighting, and single inline card execution for manual `callout` and `visual`
