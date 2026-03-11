@@ -23,8 +23,9 @@ export type EditorialReviewInsertionHint = "replace" | "before" | "after";
 export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
 export type EditorialVisualIntent = "diagram" | "comparison" | "process" | "timeline" | "scene" | "concept";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
+export type EditorialReviewItemOrigin = "review" | "manual";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
-export type ReviewActionProposalKind = "text_diff" | "callout_prompt" | "image_prompt" | "stale_anchor";
+export type ReviewActionProposalKind = "text_diff" | "subsection_prompt" | "callout_prompt" | "image_prompt" | "stale_anchor";
 export type ReviewSessionStatus = "expertise" | "cards";
 
 export interface ChatMessage {
@@ -90,7 +91,18 @@ export interface EditorialReviewItem {
     previewText: string;
     summary?: string;
   };
+  subsectionDraft?: {
+    title: string;
+    lead?: string;
+    prompt: string;
+    summary?: string;
+  };
   visualIntent?: EditorialVisualIntent;
+  origin?: EditorialReviewItemOrigin;
+  manualRequest?: {
+    source: "floating_local_bar";
+    createdAt: string;
+  };
   activeProposalId?: string;
   status: EditorialReviewItemStatus;
 }
@@ -152,6 +164,12 @@ export interface ReviewActionProposal {
     title: string;
     prompt: string;
     previewText?: string;
+  };
+  subsectionDraft?: {
+    title: string;
+    lead?: string;
+    prompt: string;
+    summary?: string;
   };
   imageDraft?: {
     visualIntent: EditorialVisualIntent;
@@ -280,6 +298,14 @@ const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
   myths_vs_truth: "Подати короткі пари «Міф / Правда» лише для тверджень, що прямо випливають із фрагмента.",
   top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
 };
+const VISUAL_INTENT_LABELS: Record<EditorialVisualIntent, string> = {
+  diagram: "схема",
+  comparison: "порівняння",
+  process: "процес",
+  timeline: "таймлайн",
+  scene: "сцена",
+  concept: "концепт"
+};
 
 const LEGACY_RECOMMENDATION_TYPE_MAP: Record<string, EditorialReviewRecommendationType> = {
   visualize: "visual",
@@ -296,6 +322,14 @@ const LEGACY_CALLOUT_KIND_MAP: Record<string, EditorialCalloutKind> = {
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
   return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: CALLOUT_KIND_LABELS[value] }));
+}
+
+export function getEditorialVisualIntentOptions(): Array<{ value: EditorialVisualIntent; label: string }> {
+  return REVIEW_VISUAL_INTENTS.map((value) => ({ value, label: VISUAL_INTENT_LABELS[value] }));
+}
+
+export function getEditorialVisualIntentLabel(intent: EditorialVisualIntent): string {
+  return VISUAL_INTENT_LABELS[intent];
 }
 
 export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind): string {
@@ -447,6 +481,7 @@ export function normalizeEditorialReviewItems(input: {
       calloutKind: normalizeCalloutKind(record.calloutKind),
       calloutDraft: normalizeCalloutDraft(record),
       visualIntent: normalizeVisualIntent(record.visualIntent),
+      origin: "review",
       status: "pending"
     });
   }

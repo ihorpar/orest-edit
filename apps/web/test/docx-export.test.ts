@@ -17,7 +17,7 @@ test("exportDocumentToDocx builds a docx from block document", async () => {
 
   const result = await exportDocumentToDocx({ document });
 
-  assert.match(result.fileName, /Назва розділу-2026-03-10\.docx$/);
+  assert.match(result.fileName, /^Назва розділу-\d{4}-\d{2}-\d{2}\.docx$/);
   assert.equal(result.warnings.length, 0);
   assert.ok(result.blob.size > 0);
 });

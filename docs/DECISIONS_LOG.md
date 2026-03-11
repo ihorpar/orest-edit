@@ -54,6 +54,11 @@ Decision: `subsection` inserts before the first affected block, while `callout` 
 
 Reason: each insert-type suggestion needs one unambiguous placement rule.
 
+### Manual insert launcher stays in the existing local panel
+Decision: manual AI insert generation for `callout` and `visual` runs from the existing floating `Локальна правка` panel and requires an explicit block selection.
+
+Reason: this preserves manuscript-first interaction, reuses the same inline execution lane, and avoids splitting similar actions across a separate AI panel.
+
 ## 2026-03-10
 
 ### Block-first canonical editor model

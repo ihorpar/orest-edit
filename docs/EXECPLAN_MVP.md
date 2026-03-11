@@ -28,13 +28,15 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-11 00:00Z) Added an active recommendation detail panel in the right rail so `callout` and `visual` recommendations can be prepared, inspected, and applied without relying on unfinished manuscript-inline cards.
 - [x] (2026-03-11 00:00Z) Expanded callout prompt contracts with explicit per-kind behavior text in both settings defaults and runtime provider prompt assembly.
 - [x] (2026-03-11 00:00Z) Replaced rail-first execution with manuscript-first anchor highlighting, one inline execution surface below the affected range, and dynamic Ukrainian paragraph labels on cards/details.
-- [ ] Rework `rewrite`, `simplify`, `expand`, and `list` into full-block replace flows with constrained output shape.
-- [ ] Implement `subsection` as a dedicated insertion card that inserts a subheading before the first affected block.
+- [x] (2026-03-11 00:00Z) Reworked `rewrite`, `simplify`, `expand`, and `list` into constrained full-block replace flows with recommendation-type block-count guardrails.
+- [x] (2026-03-11 00:00Z) Implemented `subsection` as a dedicated inline insertion flow with editable heading/lead draft and insert-before-anchor apply path.
 - [x] (2026-03-11 00:00Z) Replaced the current callout taxonomy with the approved five kinds and built generate/regenerate plus explicit insert flow.
 - [x] (2026-03-11 00:00Z) Merged `visualize` and `illustration` into one `visual` family and wired editable Ukrainian image prompts, generation, regeneration, and image block insertion below the affected range.
 - [x] (2026-03-11 00:00Z) Added callout kind switching plus editable title/body in the manuscript-inline execution card, and hardened callout/image prompts to require editor-compatible plain-text output.
 - [x] (2026-03-11 00:00Z) Fixed insertion anchor fallback so `after` insertions default to the last block in the anchor range when provider payload omits `anchorBlockId`.
-- [ ] Author and integrate Ukrainian prompt templates for review recommendation generation, each suggestion type, each callout kind, and visual/image prompt generation.
+- [x] (2026-03-11 00:00Z) Added dedicated Ukrainian runtime prompt factories for replace-type actions and subsection insertion, plus stronger per-kind anti-hallucination guardrails for callouts.
+- [x] (2026-03-11 00:00Z) Added dedicated regression tests for single inline execution lane state resolution and subsection insert-before anchor edge cases.
+- [x] (2026-03-11 00:00Z) Resolved local `esbuild` platform mismatch and restored green `npm test -w @orest/web` execution in this workspace.
 - [ ] Add regression tests and browser QA for anchor highlighting, stale suggestion handling, block-count constraints, callout/image insertion anchors, and Ukrainian prompt output shape.
 
 ## Surprises & Discoveries
@@ -54,8 +56,11 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - Observation: `docs/sample4.html` already demonstrates the correct composition pattern for this phase.
   Evidence: the sample shows one anchored selection and one floating patch card, not a stack of duplicated placeholders or a right-rail-only execution flow.
 
-- Observation: repository tests are currently blocked by a platform-mismatched `esbuild` binary inside `node_modules`.
-  Evidence: `npm test -w @orest/web` fails before executing TypeScript tests because `tsx` resolves `@esbuild/win32-x64` while this environment needs `@esbuild/linux-x64`.
+- Observation: the previous `esbuild` platform mismatch is fixed for this workspace.
+  Evidence: `npm test -w @orest/web` now runs all suites successfully after installing `@esbuild/linux-x64`.
+
+- Observation: browser QA automation remains blocked by missing runtime libraries for Playwright Chromium.
+  Evidence: Playwright launch fails with `libnspr4.so` missing, and dependency installation via `playwright install-deps` requires unavailable `sudo` access.
 
 - Observation: the first post-migration diff editor was structurally incompatible with multi-block review replacements.
   Evidence: `apps/web/components/editor/BlockDiffOverlay.tsx` used one textarea for all replacement blocks and `apps/web/app/editor/page.tsx` wrote that single edited string back into every block of the proposal.
@@ -68,6 +73,9 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Observation: provider payloads can omit `anchorBlockId`, which made `after` insertions drift to the first anchored block under fallback behavior.
   Evidence: `apps/web/lib/editor/review-contract.ts` now resolves default insertion anchors by insertion mode (`after` => last block, `before` => first block).
+
+- Observation: enforcing replace block-count constraints at review-action normalization avoids breaking generic local patch behavior while still protecting review execution anchors.
+  Evidence: `apps/web/lib/server/review-action-service.ts` now normalizes overflow/underflow output by recommendation type before publishing `text_diff`.
 
 ## Decision Log
 
@@ -115,13 +123,17 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
   Rationale: this prevents `callout`/`visual` inserts from landing mid-range and preserves predictable block ordering for neighboring recommendations.
   Date/Author: 2026-03-11 / Codex implementation
 
+- Decision: `subsection` recommendations now prepare and execute as a first-class `subsection_prompt` flow with editable heading/lead draft and insert-before apply semantics.
+  Rationale: this replaces the earlier temporary fail-safe behavior and aligns runtime execution with the agreed UX contract.
+  Date/Author: 2026-03-11 / Codex implementation
+
 ## Outcomes & Retrospective
 
 The first implementation milestone is now complete. The runtime contract no longer exposes `visualize` or `illustration` as top-level review types, the approved callout taxonomy is reflected in shared types and defaults, review prompts now describe the seven-type model, and normalization explicitly coerces legacy provider output into the current contract. The editor also now defaults newly inserted callout blocks to the approved taxonomy, and subsection preparation no longer risks generating an invalid replace diff.
 
-Validation is partially complete. `npm run typecheck -w @orest/web` passed. `npm run build -w @orest/web` passed. The shared `npm test -w @orest/web` command could not run to completion in this environment because `tsx` depends on an `esbuild` binary installed for Windows rather than Linux/WSL; that blocker is environmental, not caused by the code changes in this milestone. Two new tests were still added to the test entrypoint so they will run once the dependency install is corrected.
+Validation is mostly complete. `npm run typecheck -w @orest/web`, `npm run build -w @orest/web`, and `npm run test -w @orest/web` now pass in this workspace, including new regression suites for inline execution-lane state and subsection insertion helpers.
 
-The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, the manuscript no longer creates fake empty placeholder blocks while AI is preparing a recommendation, and `callout`/`visual` execution now happens from one manuscript-side pendant card below the highlighted anchor range. Callout execution now also supports kind switching and editable draft fields before insertion, and prompt contracts explicitly require plain-text editor-compatible output instead of markdown-style formatting. User-facing cards and detail panels now show dynamic Ukrainian paragraph ranges, while the runtime keeps anchoring by stable block IDs and fingerprints and resolves missing insertion anchors by mode. The next major gap remains dedicated `subsection` insertion UI and full replace-type output-shape enforcement. The block-count assumption still stands: `rewrite`, `simplify`, and `expand` preserve the selected block count exactly; `list` may normalize to one structured list block or preserve the selected count, but must never exceed the selected block count.
+The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, the manuscript no longer creates fake empty placeholder blocks while AI is preparing a recommendation, and `callout`/`visual` execution now happens from one manuscript-side pendant card below the highlighted anchor range. `Subsection` execution is now also live: recommendation preparation yields an editable heading/lead draft, and apply inserts it before the first affected block. Replace-type proposals now enforce recommendation-specific block-count constraints so anchor stability is preserved (`rewrite/simplify/expand` exact count, `list` capped by selection size). Prompt contracts are now centralized and explicit about plain-text editor-compatible output, with per-kind callout guardrails. The remaining validation gap is browser QA: automation currently cannot launch Chromium in this environment due missing system libraries and unavailable `sudo`.
 
 ## Context and Orientation
 

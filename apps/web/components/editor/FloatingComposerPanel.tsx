@@ -1,5 +1,12 @@
 "use client";
-import type { WholeTextChangeLevel } from "../../lib/editor/review-contract";
+import { Quote, Image as ImageIcon, Sparkles } from "lucide-react";
+import {
+  getEditorialCalloutKindOptions,
+  getEditorialVisualIntentOptions,
+  type EditorialCalloutKind,
+  type EditorialVisualIntent,
+  type WholeTextChangeLevel
+} from "../../lib/editor/review-contract";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
   { level: 1, label: "1", description: "Мінімальні зауваги" },
@@ -21,7 +28,15 @@ export function FloatingComposerPanel({
   onReviewChangeLevel,
   onReviewAdditionalInstructionsChange,
   onRequestReview,
-  loading,
+  patchLoading,
+  reviewLoading,
+  manualCalloutKind,
+  manualVisualIntent,
+  onManualCalloutKindChange,
+  onManualVisualIntentChange,
+  onRequestManualCallout,
+  onRequestManualVisual,
+  manualLoadingKind,
   onClose
 }: {
   mode: "local" | "review";
@@ -35,10 +50,21 @@ export function FloatingComposerPanel({
   onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
   onReviewAdditionalInstructionsChange: (value: string) => void;
   onRequestReview: () => void;
-  loading?: boolean;
+  patchLoading?: boolean;
+  reviewLoading?: boolean;
+  manualCalloutKind: EditorialCalloutKind;
+  manualVisualIntent: EditorialVisualIntent;
+  onManualCalloutKindChange: (value: EditorialCalloutKind) => void;
+  onManualVisualIntentChange: (value: EditorialVisualIntent) => void;
+  onRequestManualCallout: () => void;
+  onRequestManualVisual: () => void;
+  manualLoadingKind?: "callout" | "visual" | null;
   onClose: () => void;
 }) {
   const isReview = mode === "review";
+  const calloutOptions = getEditorialCalloutKindOptions();
+  const visualOptions = getEditorialVisualIntentOptions();
+  const manualInFlight = Boolean(manualLoadingKind);
 
   return (
     <section className="floating-panel" data-mode={mode} data-collapsed="false" aria-label={isReview ? "Огляд документа" : "Локальна правка"}>
@@ -87,14 +113,90 @@ export function FloatingComposerPanel({
             <div className="floating-footer">
               <div />
               <div className="send-row">
-                <button type="button" className="send-button mono-ui" onClick={onRequestReview} disabled={loading} aria-label="Запустити огляд" title="Запустити огляд">
-                  {loading ? "…" : "→"}
+                <button type="button" className="send-button mono-ui" onClick={onRequestReview} disabled={reviewLoading} aria-label="Запустити огляд" title="Запустити огляд">
+                  {reviewLoading ? "…" : "→"}
                 </button>
               </div>
             </div>
           </div>
         ) : (
           <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "8px",
+                marginBottom: "10px"
+              }}
+            >
+              <button
+                type="button"
+                className="floating-panel-inline-action"
+                onClick={onRequestManualCallout}
+                disabled={manualInFlight}
+                title="Згенерувати врізку"
+                aria-label="Згенерувати врізку"
+                style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <Quote size={14} />
+                <span>Врізка</span>
+                {manualLoadingKind === "callout" ? <span className="mono-ui">…</span> : null}
+              </button>
+              <button
+                type="button"
+                className="floating-panel-inline-action"
+                onClick={onRequestManualVisual}
+                disabled={manualInFlight}
+                title="Згенерувати візуал"
+                aria-label="Згенерувати візуал"
+                style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <ImageIcon size={14} />
+                <span>Візуал</span>
+                {manualLoadingKind === "visual" ? <span className="mono-ui">…</span> : null}
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "8px",
+                marginBottom: "10px"
+              }}
+            >
+              <label className="mono-ui" style={{ display: "grid", gap: "4px" }}>
+                Тип врізки
+                <select
+                  value={manualCalloutKind}
+                  onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
+                  disabled={manualInFlight}
+                  style={{ height: "32px", borderRadius: "6px", border: "1px solid #d8e0ea", padding: "0 8px", fontSize: "12px" }}
+                >
+                  {calloutOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="mono-ui" style={{ display: "grid", gap: "4px" }}>
+                Тип візуалу
+                <select
+                  value={manualVisualIntent}
+                  onChange={(event) => onManualVisualIntentChange(event.target.value as EditorialVisualIntent)}
+                  disabled={manualInFlight}
+                  style={{ height: "32px", borderRadius: "6px", border: "1px solid #d8e0ea", padding: "0 8px", fontSize: "12px" }}
+                >
+                  {visualOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div className="floating-textarea-shell">
               <textarea
                 className="floating-textarea"
@@ -106,7 +208,8 @@ export function FloatingComposerPanel({
             </div>
             <div className="floating-footer">
               <div className="floating-shortcuts">
-                <button type="button" className="floating-panel-inline-action" onClick={onRequestDefaultPatch} disabled={loading}>
+                <button type="button" className="floating-panel-inline-action" onClick={onRequestDefaultPatch} disabled={patchLoading}>
+                  <Sparkles size={14} />
                   Покращити
                 </button>
               </div>
@@ -115,11 +218,11 @@ export function FloatingComposerPanel({
                   type="button"
                   className="send-button mono-ui"
                   onClick={onRequestCustomPatch}
-                  disabled={loading || !customPrompt.trim()}
+                  disabled={patchLoading || !customPrompt.trim()}
                   aria-label="Запустити кастомну правку"
                   title="Запустити кастомну правку"
                 >
-                  {loading ? "…" : "→"}
+                  {patchLoading ? "…" : "→"}
                 </button>
               </div>
             </div>

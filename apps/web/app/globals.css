@@ -5069,6 +5069,30 @@ textarea:focus {
   background: #94a3b8;
 }
 
+.block-editor-row[data-review-anchor="true"][data-review-anchor-edge="start"] .block-editor-block::before {
+  top: 0;
+  bottom: -2px;
+  border-radius: 999px 999px 0 0;
+}
+
+.block-editor-row[data-review-anchor="true"][data-review-anchor-edge="middle"] .block-editor-block::before {
+  top: -2px;
+  bottom: -2px;
+  border-radius: 0;
+}
+
+.block-editor-row[data-review-anchor="true"][data-review-anchor-edge="end"] .block-editor-block::before {
+  top: -2px;
+  bottom: 0;
+  border-radius: 0 0 999px 999px;
+}
+
+.block-editor-row[data-review-anchor="true"][data-review-anchor-edge="single"] .block-editor-block::before {
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+}
+
 .block-editor-row[data-review-anchor-edge="start"] .block-editor-block,
 .block-editor-row[data-review-anchor-edge="single"] .block-editor-block {
   border-top-left-radius: 12px;
@@ -5122,6 +5146,14 @@ textarea:focus {
   border-left: none;
   border-top: none;
   border-bottom: none;
+}
+
+.block-editor-row[data-review-replace="old"] .block-text,
+.block-editor-row[data-review-replace="old"] .block-list-item {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.06);
+  text-decoration: line-through;
+  text-decoration-color: rgba(180, 35, 24, 0.5);
 }
 
 .block-text {
@@ -5515,9 +5547,11 @@ textarea:focus {
 
 .diff-text-old {
   font-size: 13px;
-  color: var(--muted);
+  color: #b42318;
+  background: #fef3f2;
+  border-color: #fecdd3;
   text-decoration: none;
-  opacity: 0.7;
+  opacity: 1;
 }
 
 .diff-textarea {

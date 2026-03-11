@@ -22,10 +22,13 @@ export function ReviewRecommendationDetail({
   reviewImageLoading,
   onPrepare,
   onApplyCallout,
+  onApplySubsection,
   onDismiss,
   onUpdateActiveCalloutKind,
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
+  onUpdateActiveSubsectionTitle,
+  onUpdateActiveSubsectionLead,
   onUpdateActiveImagePrompt,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage
@@ -38,10 +41,13 @@ export function ReviewRecommendationDetail({
   reviewImageLoading?: boolean;
   onPrepare: (item: EditorialReviewItem) => void;
   onApplyCallout: (item: EditorialReviewItem) => void;
+  onApplySubsection: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
   onUpdateActiveCalloutKind: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
   onUpdateActiveCalloutTitle: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody: (item: EditorialReviewItem, body: string) => void;
+  onUpdateActiveSubsectionTitle: (item: EditorialReviewItem, title: string) => void;
+  onUpdateActiveSubsectionLead: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveImagePrompt: (prompt: string) => void;
   onGenerateActiveReviewImage: () => void;
   onApplyActiveReviewImage: () => void;
@@ -56,9 +62,11 @@ export function ReviewRecommendationDetail({
   }
 
   const calloutDraft = proposal?.kind === "callout_prompt" && proposal.calloutDraft ? proposal.calloutDraft : item.calloutDraft;
+  const subsectionDraft = proposal?.kind === "subsection_prompt" && proposal.subsectionDraft ? proposal.subsectionDraft : item.subsectionDraft;
   const imageDraft = proposal?.kind === "image_prompt" ? proposal.imageDraft : null;
   const activeCalloutKind = calloutDraft?.calloutKind ?? item.calloutKind ?? "mechanism";
   const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
+  const canInsertSubsection = Boolean(subsectionDraft?.title?.trim());
   const rangeLabel = revision ? getReviewParagraphRangeLabel(item, revision) : null;
 
   return (
@@ -87,7 +95,7 @@ export function ReviewRecommendationDetail({
         </div>
       ) : null}
 
-      {!isPreparing && item.status === "pending" && item.recommendationType !== "callout" ? (
+      {!isPreparing && item.status === "pending" && item.recommendationType !== "callout" && item.recommendationType !== "subsection" ? (
         <div className="editorial-review-detail-actions">
           <Button size="sm" variant="primary" onClick={() => onPrepare(item)}>
             Підготувати
@@ -147,6 +155,39 @@ export function ReviewRecommendationDetail({
               {calloutDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
             <Button size="sm" variant="primary" onClick={() => onApplyCallout(item)} disabled={!canInsertCallout}>
+              Вставити
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {!isPreparing && item.recommendationType === "subsection" ? (
+        <div className="editorial-review-proposal">
+          <div className="editorial-review-proposal-block">
+            <p className="editorial-review-detail-label">Підзаголовок</p>
+            <input
+              className="editorial-review-callout-title-input"
+              value={subsectionDraft?.title ?? ""}
+              onChange={(event) => onUpdateActiveSubsectionTitle(item, event.target.value)}
+            />
+            <p className="editorial-review-detail-label">Lead (опційно)</p>
+            <textarea
+              className="editorial-review-callout-body-input"
+              value={subsectionDraft?.lead ?? ""}
+              onChange={(event) => onUpdateActiveSubsectionLead(item, event.target.value)}
+            />
+          </div>
+          {subsectionDraft?.prompt ? (
+            <details className="editorial-review-prompt-details">
+              <summary>Prompt</summary>
+              <pre className="editorial-review-prompt-pre">{subsectionDraft.prompt}</pre>
+            </details>
+          ) : null}
+          <div className="editorial-review-detail-actions editorial-review-proposal-actions">
+            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
+              {subsectionDraft ? "Перегенерувати" : "Згенерувати"}
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => onApplySubsection(item)} disabled={!canInsertSubsection}>
               Вставити
             </Button>
           </div>

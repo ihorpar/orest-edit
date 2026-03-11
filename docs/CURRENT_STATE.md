@@ -25,8 +25,16 @@ Status: Active handoff
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
+- Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
+- The manuscript now marks active replace-source blocks in red while proposed replacement stays editable in green inside the inline diff card
+- `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
+- The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
+- Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
+- Runtime prompt factories now explicitly enforce plain-text, block-editor-compatible output for replace/callout/subsection/image proposal preparation
+- Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
+- Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Browser draft persistence uses `orest-editor-draft-v2`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
@@ -45,9 +53,8 @@ Status: Active handoff
 - No full clipboard/Word paste pipeline for complex rich-text imports
 - No export patch flow or document version history
 - No finalized browser QA yet for the sample4-style anchor highlight continuity and inline card placement
-- No dedicated inline execution UI for `subsection` yet
-- No hard output-shape guard yet for replace-type review suggestions to keep them within the selected block-count ceiling
-- No finalized Ukrainian prompt contract yet for whole-text recommendation generation, replace-type execution, callout generation, or visual/image generation
+- No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
+- No fully automated browser QA coverage yet for the single inline execution lane across replace/subsection/callout/visual flows
 
 ## Current product direction
 - User: book editor
@@ -66,15 +73,13 @@ Status: Active handoff
 - `image` is already a first-class block type
 
 ## Highest-priority next work
-1. Enforce output-shape constraints for replace-type review suggestions so they do not exceed the selected block-count ceiling.
-2. Implement the dedicated inline `subsection` insertion card before the anchor range.
-3. Tighten Ukrainian prompt contracts further so review prose avoids stale hard-coded paragraph references.
-4. Add regression coverage and browser QA for anchor continuity, stale suggestion invalidation, callout/image insertion anchors, and Ukrainian prompt output.
-5. Harden the right-rail cards and manuscript card styling to fully match the `sample4` interaction quality.
+1. Run browser QA for sample4-quality anchor continuity and inline execution behavior across replace/subsection/callout/visual flows.
+2. Provision browser runtime dependencies (or a CI runner with them) so Playwright Chromium can launch (`libnspr4` and related libs).
+3. Harden right-rail/manuscript visual polish further to match `sample4` interaction quality under dense recommendation sets.
 
 ## Last validated state
-- `npm run typecheck -w @orest/web` passed on 2026-03-11 after the inline anchor-highlight and manuscript execution-card refactor
-- `npm run build -w @orest/web` passed on 2026-03-11 after the inline anchor-highlight and manuscript execution-card refactor
-- `npm test -w @orest/web` remains blocked in this environment because `tsx` resolves a Windows `esbuild` binary while the workspace is running under Linux/WSL
-- Runtime smoke check was last confirmed against `next start` with `APP_PASSWORD=test-secret`; unauthenticated `/editor` redirected to `/login` and `/login` returned HTTP 200
-- Interactive browser QA was not run in this validation pass because the referenced Playwright interactive tooling was not available in the current tool environment
+- `npm run typecheck -w @orest/web` passed on 2026-03-11 after inline-lane regression helpers/tests were added
+- `npm run build -w @orest/web` passed on 2026-03-11 after inline-lane regression helpers/tests were added
+- `npm run test -w @orest/web` passed on 2026-03-11 (38 tests), including new suites `review-execution-lane.test.ts` and `review-apply.test.ts`
+- Runtime smoke check with password gate succeeded on 2026-03-11 (`/editor` redirected to `/login` before auth)
+- Playwright browser QA is still blocked in this environment: Chromium launch fails due missing system libraries (`libnspr4.so`), and `playwright install-deps` requires unavailable `sudo` access

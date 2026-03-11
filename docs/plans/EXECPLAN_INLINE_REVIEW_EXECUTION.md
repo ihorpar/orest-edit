@@ -28,23 +28,28 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Normalized top-level types to `rewrite`, `expand`, `simplify`, `list`, `subsection`, `callout`, `visual`.
   - [x] Added legacy coercion for `visualize`/`illustration` and prior callout kinds.
   - [x] Aligned suggestedAction/insertionHint mapping by recommendation type.
-- [ ] Build manuscript anchor highlighting with one continuous left border and one active inline execution card.
+- [x] Add manual insert launch for `callout` and `visual` from the floating `Локальна правка` panel.
+  - [x] Manual launches now create synthetic review items with stable anchor fingerprints, `origin=manual`, and request metadata.
+  - [x] Manual launches now upsert into `reviewItems` before `prepareReviewItem` to guarantee immediate inline anchor resolution.
+  - [x] Repeated same-selection same-type manual launches now dedupe/reuse one item instead of spamming right-rail cards.
+  - [x] Manual launch loading is now tracked separately from local patch loading.
+- [x] Build manuscript anchor highlighting with one continuous left border and one active inline execution card.
   - [x] Active recommendation focus state and scroll-to-anchor behavior are in place.
   - [x] Anchor highlighting is now rendered on manuscript rows via `data-review-anchor*` states.
   - [x] One inline execution surface is rendered below the last block of the active anchor range.
-  - [ ] Visual polish for a truly seamless “continuous border” still needs refinement (current row gap can show tiny seams).
-- [ ] Rebuild `rewrite`, `simplify`, `expand`, and `list` as constrained full-block replace flows.
+  - [x] Border continuity is polished with edge-aware anchor rail rendering for start/middle/end rows.
+- [x] Rebuild `rewrite`, `simplify`, `expand`, and `list` as constrained full-block replace flows.
   - [x] Multi-block diff editing/apply is block-aware (no longer one flattened textarea repeated across blocks).
   - [x] Replace apply still runs through whole-block `replace_blocks` anchored by block IDs.
   - [x] Text diff execution is now manuscript-inline and attached below the affected range.
-  - [ ] Replace-state manuscript rendering (red removed context + green editable replacement inside anchored paragraphs) is still incomplete.
-  - [ ] Block-count output constraints (`rewrite/simplify/expand` exact count, `list` never exceeding selection) are not enforced.
-- [ ] Implement `subsection` as heading insertion before the first affected block.
+  - [x] Replace-state manuscript rendering now marks affected old text in red while keeping editable replacement in green.
+  - [x] Block-count output constraints are enforced in review-action normalization (`rewrite/simplify/expand` exact count, `list` ceiling by selection size).
+- [x] Implement `subsection` as heading insertion before the first affected block.
   - [x] Contract semantics are normalized to `insert_text` + `before`.
-  - [x] Unsafe fallback to generic replace diff is prevented with explicit fail-safe response.
-  - [ ] Subsection proposal card (heading + optional lead) is not implemented.
-  - [ ] Apply-path insertion before the first affected block is not implemented.
-- [ ] Replace the current callout taxonomy and build the full choose-kind, generate, regenerate, and insert flow.
+  - [x] Subsection proposal generation now returns an editable `subsection_prompt` draft.
+  - [x] Subsection proposal card (heading + optional lead) is implemented inline in manuscript execution detail.
+  - [x] Apply-path insertion before the first affected block is implemented.
+- [x] Replace the current callout taxonomy and build the full choose-kind, generate, regenerate, and insert flow.
   - [x] Approved callout kinds (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) are in contract and defaults.
   - [x] Generate/regenerate and insert are working from the manuscript-inline execution card.
   - [x] Inserted output is a first-class `callout` block with distinct block styling.
@@ -60,7 +65,7 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Generate/regenerate/preview/insert behavior exists in manuscript-inline execution flow.
   - [x] Insert creates a first-class `image` block after the recommendation anchor.
   - [x] Execution is manuscript-first; the right rail now acts as recommendation inbox/focus list.
-- [ ] Author dedicated Ukrainian prompt factories for recommendation generation, each suggestion type, each callout kind, and visual/image generation.
+- [x] Author dedicated Ukrainian prompt factories for recommendation generation, each suggestion type, each callout kind, and visual/image generation.
   - [x] Ukrainian defaults exist for review, callout, and image prompt templates in settings.
   - [x] Runtime prompt assembly includes callout-kind description, visual-intent context, and anti-raw-id guidance for user-facing text.
   - [x] Callout/image prompt-template placeholders now interpolate real fragment, recommendation, and intent values instead of leaking literal `{{...}}` tokens to the model.
@@ -68,16 +73,17 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Callout and image proposal prompts now explicitly require plain-text, editor-compatible output (no Markdown formatting in generated content).
   - [x] Generated image prompts are now normalized server-side to strip wrappers such as headings, section labels, and “Ось prompt...” preambles before reaching image generation.
   - [x] Review recommendation generation prompt now requires plain-text strings in user-facing JSON fields (`title/reason/recommendation/callout*`) instead of Markdown formatting.
-  - [ ] Dedicated runtime prompt factories per suggestion type (`rewrite`, `simplify`, `expand`, `list`, `subsection`) are not implemented.
-  - [ ] Runtime enforcement for anti-hallucination clauses is still mostly template-driven, not fully centralized as factories.
+  - [x] Dedicated runtime prompt factories now exist for `rewrite`, `simplify`, `expand`, `list`, and `subsection` action preparation.
+  - [x] Anti-hallucination clauses are now explicit per callout kind, including stronger rules for `analogy` and `myths_vs_truth`.
 - [ ] Add tests and browser validation for the full workflow, including stale-anchor handling, block-count constraints, and Ukrainian prompt output.
-  - [x] Added/updated tests for taxonomy normalization and subsection fail-safe behavior.
+  - [x] Added/updated tests for taxonomy normalization, subsection proposal generation, and replace block-count normalization.
   - [x] Added regression coverage for user-facing dynamic paragraph range labels and recommendation type labels.
   - [x] Stale-anchor detection is implemented via block-ID and fingerprint checks.
   - [x] Added regression tests for insertion-anchor fallback by insertion mode and for callout prompt/output plain-text constraints.
-  - [ ] Full workflow coverage for single inline execution lane and block-count guardrails is not implemented.
-  - [ ] Browser QA pass for sample4-style inline behavior is still pending.
-  - [ ] Test execution is currently blocked in this environment by `esbuild` platform mismatch (Windows binary in WSL/Linux runtime).
+  - [x] Added dedicated regression coverage for single inline execution lane state priority and rendering gates (`active > proposal > preparing`).
+  - [x] Regression coverage for block-count guardrails is added in review-action service tests.
+  - [x] Full `npm test -w @orest/web` now runs green in this workspace after resolving `esbuild` platform mismatch.
+  - [ ] Browser QA pass for sample4-style inline behavior is still pending because Playwright Chromium cannot launch in this environment without system libs (`libnspr4` and related packages) and `sudo` access is unavailable.
 
 ## Surprises & Discoveries
 
@@ -87,14 +93,20 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 - Observation: dynamic Ukrainian paragraph labels can coexist with stable ID anchors without changing persistence contracts.
   Evidence: `review-contract.ts` now computes `Абз. NNN[-NNN]` labels from `revision.blockOrder`, while stale detection still relies on block IDs and fingerprints.
 
-- Observation: the largest remaining functional gaps are now `subsection` execution and replace-output shape constraints.
-  Evidence: `review-action-service.ts` still fails safe for `subsection`, and `patch-contract.ts` still accepts replacement block counts beyond the selected range.
+- Observation: enforcing replace output shape is safer at review-action normalization than in generic patch normalization.
+  Evidence: `review-action-service.ts` now constrains replace proposal block counts by recommendation type before publishing `text_diff`.
 
 - Observation: insertion anchor fallback previously defaulted to the first block even for `after` insertions when provider payload omitted `anchorBlockId`.
   Evidence: `normalizeEditorialReviewItems` now resolves fallback anchors by insertion mode (`before` -> first block, `after` -> last block).
 
-- Observation: test execution remains environment-blocked despite successful typecheck/build.
-  Evidence: `npm test -w @orest/web` fails in this workspace due `esbuild` platform mismatch (Windows binary under WSL/Linux runtime).
+- Observation: synthetic manual launches can fail to highlight inline if the synthetic item is not present in `reviewItems` before preparation starts.
+  Evidence: manuscript highlight resolution in `BlockEditorSurface.tsx` reads `preparingReviewItemId` through `reviewItems`, so manual launch now upserts first and prepares second.
+
+- Observation: the prior `esbuild` platform mismatch is resolved in this workspace.
+  Evidence: both `@esbuild/linux-x64` and `@esbuild/win32-x64` are now present and `npm test -w @orest/web` passes.
+
+- Observation: browser QA automation is currently blocked by missing Linux runtime dependencies for Playwright Chromium.
+  Evidence: Playwright launch fails with `error while loading shared libraries: libnspr4.so`, and `playwright install-deps` cannot run because `sudo` is unavailable in this environment.
 
 - Observation: callout and image prompt settings exposed placeholders before runtime actually interpolated them.
   Evidence: `review-action-service.ts` previously appended raw context lines after the template, while `{{fragment}}`, `{{recommendation}}`, and `{{visualIntent}}` were never replaced.
@@ -144,15 +156,21 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   Rationale: `subsection` inserts before the first affected block; `callout` and `visual` insert after the affected range, which removes ambiguity and matches the intended manuscript flow.
   Date/Author: 2026-03-11 / User-confirmed product direction
 
+- Decision: manual generation for insert-type blocks launches from the existing floating `Локальна правка` panel (selection required), not from a separate AI panel.
+  Rationale: this keeps execution manuscript-first and reuses the single inline execution lane without introducing a second control surface.
+  Date/Author: 2026-03-11 / User-confirmed product direction
+
 ## Outcomes & Retrospective
 
-This phase is now partially complete with a meaningful UX shift: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place, replace diffs render inline below the affected range, and `callout`/`visual` execution runs through a manuscript-inline card while the right rail remains an inbox/focus panel.
+This implementation phase is functionally complete for the core manuscript execution model: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place with continuous left-rail rendering, replace diffs render inline below the affected range with old-context highlighting and editable replacement, and insert-type execution runs through one manuscript-inline card while the right rail remains an inbox/focus panel.
 
 The callout flow is now closer to the intended UX: kind can be switched before generation, generated draft title/body are editable before insertion, and generated callout content is sanitized into editor-friendly plain text. Insertion-anchor fallback also now respects insertion mode, preventing `callout`/`visual` insertions from drifting to the wrong paragraph when provider payloads omit `anchorBlockId`.
 
-The remaining high-impact gaps are narrower and clearer than before: dedicated `subsection` insertion flow, strict replace output-shape guardrails, and deeper prompt-factory hardening by suggestion type.
+Manual insert generation now also matches this manuscript-first model: editors can launch `callout`/`visual` from selected blocks in `Локальна правка`, while synthetic review items are deduped and funneled through the same single inline execution lane.
 
-Validation remains mixed. `typecheck` and `build` pass in this environment, while automated tests are still blocked by platform-specific `esbuild` packaging. Browser QA for final sample4-quality visual continuity is still pending.
+`subsection` insertion flow, replace output-shape guardrails, and per-type runtime prompt factories are now in place. Validation also advanced: full automated tests now run green, including new coverage for single-lane inline execution and subsection insert-before edge cases.
+
+Validation is now mixed for one external reason only. `typecheck`, `build`, and `test` pass in this environment, while browser QA for final sample4-quality visual continuity is still blocked by missing Playwright Chromium system dependencies and unavailable `sudo` access.
 
 ## Context and Orientation
 

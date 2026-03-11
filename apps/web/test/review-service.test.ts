@@ -41,7 +41,7 @@ test("generateEditorialReview builds fallback recommendations without API key", 
 });
 
 test("generateEditorialReview normalizes provider items to block anchors", async () => {
-  const response = await generateEditorialReview(createRequest({ apiKey: "test-key" }), {
+  const response = await generateEditorialReview(createRequest({ apiKey: "test-key", currentStatus: "cards" }), {
     fetchImpl: async () =>
       new Response(
         JSON.stringify({

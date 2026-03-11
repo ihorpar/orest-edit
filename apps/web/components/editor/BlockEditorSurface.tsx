@@ -37,6 +37,7 @@ import {
   type EditorialReviewItem
 } from "../../lib/editor/review-contract";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
+import { resolveReviewExecutionLaneState } from "../../lib/editor/review-execution-lane";
 import { Button } from "../ui/Button";
 import { BlockDiffOverlay } from "./BlockDiffOverlay";
 import { ReviewRecommendationDetail } from "../layout/ReviewRecommendationDetail";
@@ -87,10 +88,13 @@ export function BlockEditorSurface({
   onRejectProposal,
   onPrepareReviewItem,
   onApplyReviewCallout,
+  onApplyReviewSubsection,
   onDismissReviewItem,
   onUpdateActiveCalloutKind,
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
+  onUpdateActiveSubsectionTitle,
+  onUpdateActiveSubsectionLead,
   onUpdateActiveImagePrompt,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
@@ -113,10 +117,13 @@ export function BlockEditorSurface({
   onRejectProposal?: (proposalId: string) => void;
   onPrepareReviewItem?: (item: EditorialReviewItem) => void;
   onApplyReviewCallout?: (item: EditorialReviewItem) => void;
+  onApplyReviewSubsection?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
   onUpdateActiveCalloutKind?: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
   onUpdateActiveCalloutTitle?: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody?: (item: EditorialReviewItem, body: string) => void;
+  onUpdateActiveSubsectionTitle?: (item: EditorialReviewItem, title: string) => void;
+  onUpdateActiveSubsectionLead?: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
@@ -473,14 +480,21 @@ export function BlockEditorSurface({
     event.currentTarget.value = "";
   }
 
-  const preparingItem = preparingReviewItemId ? reviewItems.find((item) => item.id === preparingReviewItemId) ?? null : null;
-  const proposalItem = activeProposal ? reviewItems.find((item) => item.id === activeProposal.reviewItemId) ?? null : null;
-  const highlightedItem = activeReviewItem ?? proposalItem ?? preparingItem ?? null;
-  const highlightedBlockIds = highlightedItem?.anchor.blockIds ?? [];
+  const laneState = resolveReviewExecutionLaneState({
+    reviewItems,
+    activeReviewItem,
+    activeProposal,
+    preparingReviewItemId
+  });
+  const preparingItem = laneState.preparingItem;
+  const proposalItem = laneState.proposalItem;
+  const highlightedItem = laneState.highlightedItem;
+  const highlightedBlockIds = laneState.highlightedBlockIds;
   const highlightedSet = useMemo(() => new Set(highlightedBlockIds), [highlightedBlockIds]);
-  const highlightedStartBlockId = highlightedBlockIds[0] ?? null;
-  const highlightedEndBlockId = highlightedBlockIds[highlightedBlockIds.length - 1] ?? null;
-  const shouldShowInlineDetail = Boolean(highlightedItem) && (!activeProposal || activeProposal.kind !== "text_diff");
+  const highlightedStartBlockId = laneState.highlightedStartBlockId;
+  const highlightedEndBlockId = laneState.highlightedEndBlockId;
+  const shouldShowInlineDetail = laneState.shouldShowInlineDetail;
+  const isReplaceDiffActive = laneState.isReplaceDiffActive;
 
   return (
     <div className="block-editor-shell">
@@ -640,6 +654,7 @@ export function BlockEditorSurface({
                     : "none";
           const isDiffAnchorEnd = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.at(-1) === block.id;
           const isInlineDetailAnchor = shouldShowInlineDetail && highlightedEndBlockId === block.id;
+          const isReplaceAnchorBlock = isReplaceDiffActive && highlightedSet.has(block.id);
 
           return (
             <div
@@ -651,6 +666,7 @@ export function BlockEditorSurface({
               data-review-anchor={isReviewAnchor ? "true" : "false"}
               data-review-anchor-state={isReviewAnchor ? reviewAnchorState : "idle"}
               data-review-anchor-edge={reviewAnchorEdge}
+              data-review-replace={isReplaceAnchorBlock ? "old" : "none"}
               style={{ position: "relative" }}
             >
 
@@ -708,10 +724,13 @@ export function BlockEditorSurface({
                       reviewImageLoading={reviewImageLoading}
                       onPrepare={(item) => onPrepareReviewItem?.(item)}
                       onApplyCallout={(item) => onApplyReviewCallout?.(item)}
+                      onApplySubsection={(item) => onApplyReviewSubsection?.(item)}
                       onDismiss={(item) => onDismissReviewItem?.(item)}
                       onUpdateActiveCalloutKind={(item, kind) => onUpdateActiveCalloutKind?.(item, kind)}
                       onUpdateActiveCalloutTitle={(item, title) => onUpdateActiveCalloutTitle?.(item, title)}
                       onUpdateActiveCalloutBody={(item, body) => onUpdateActiveCalloutBody?.(item, body)}
+                      onUpdateActiveSubsectionTitle={(item, title) => onUpdateActiveSubsectionTitle?.(item, title)}
+                      onUpdateActiveSubsectionLead={(item, lead) => onUpdateActiveSubsectionLead?.(item, lead)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
                       onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
                       onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}

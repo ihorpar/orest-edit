@@ -18,6 +18,8 @@ import {
   resolveReviewItemSelection,
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
+import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
+import { insertBlocksBefore } from "../../lib/editor/review-apply";
 import {
   applyPatchOperation,
   applyPatchOperations,
@@ -30,6 +32,7 @@ import {
 } from "../../lib/editor/patch-contract";
 import {
   type EditorialCalloutKind,
+  type EditorialVisualIntent,
   getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
   type GeneratedReviewImageAsset,
@@ -60,8 +63,11 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
   changeLevel: 3,
   additionalInstructions: ""
 };
+const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
+const defaultManualVisualIntent: EditorialVisualIntent = "diagram";
 
 type ComposerMode = "local" | "review" | null;
+type ManualGenerationKind = "callout" | "visual";
 
 export default function EditorPage() {
   const [document, setDocument] = useState<EditorDocument>(DEFAULT_EDITOR_DOCUMENT);
@@ -90,6 +96,9 @@ export default function EditorPage() {
   const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
   const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
   const [isReviewDrawerOpen, setIsReviewDrawerOpen] = useState(false);
+  const [manualCalloutKind, setManualCalloutKind] = useState<EditorialCalloutKind>(defaultManualCalloutKind);
+  const [manualVisualIntent, setManualVisualIntent] = useState<EditorialVisualIntent>(defaultManualVisualIntent);
+  const [manualGenerationInFlight, setManualGenerationInFlight] = useState<{ kind: ManualGenerationKind; key: string } | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
@@ -363,6 +372,48 @@ export default function EditorPage() {
     void requestEditorialReview("cards", nextHistory);
   }
 
+  function resetActiveExecutionLane() {
+    setActiveReviewItemId(null);
+    setActiveProposal(null);
+    setPreparingReviewItemId(null);
+    setComposerMode(null);
+  }
+
+  async function requestManualInsert(kind: ManualGenerationKind) {
+    const blockIds = normalizedSelection.blockIds;
+
+    if (blockIds.length === 0) {
+      setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для ручної генерації." });
+      return;
+    }
+
+    resetActiveExecutionLane();
+
+    const recommendationType = kind === "callout" ? "callout" : "visual";
+    const draftItem = buildManualReviewItem({
+      document,
+      revision,
+      blockIds,
+      changeLevel: reviewComposer.changeLevel,
+      recommendationType,
+      calloutKind: manualCalloutKind,
+      visualIntent: manualVisualIntent
+    });
+    const upserted = upsertManualReviewItem(reviewItems, draftItem);
+
+    setReviewItems(upserted.items);
+    setActiveReviewItemId(upserted.item.id);
+    setManualGenerationInFlight({ kind, key: upserted.dedupeKey });
+
+    try {
+      await prepareReviewItem(upserted.item);
+    } finally {
+      setManualGenerationInFlight((current) =>
+        current && current.kind === kind && current.key === upserted.dedupeKey ? null : current
+      );
+    }
+  }
+
   function handleAcceptProposal(proposalId: string, nextBlocks: Block[]) {
     if (!activeProposal) return;
 
@@ -428,6 +479,7 @@ export default function EditorPage() {
   }
 
   async function prepareReviewItem(item: EditorialReviewItem) {
+    setReviewItems((current) => (current.some((entry) => entry.id === item.id) ? current : [item, ...current]));
     setActiveReviewItemId(item.id);
     setPreparingReviewItemId(item.id);
 
@@ -474,6 +526,27 @@ export default function EditorPage() {
           )
         );
         setFeedback({ tone: "info", message: "Чернетку правки додано на розгляд." });
+        return;
+      }
+
+      if (payload.proposal.kind === "subsection_prompt" && payload.proposal.subsectionDraft) {
+        setReviewItems((current) =>
+          current.map((entry) =>
+            entry.id === item.id
+              ? {
+                ...entry,
+                subsectionDraft: {
+                  title: payload.proposal.subsectionDraft!.title,
+                  lead: payload.proposal.subsectionDraft!.lead,
+                  prompt: payload.proposal.subsectionDraft!.prompt,
+                  summary: payload.proposal.subsectionDraft!.summary ?? payload.proposal.summary
+                },
+                status: "ready"
+              }
+              : entry
+          )
+        );
+        setFeedback({ tone: "info", message: "Підзаголовок підготовлено." });
         return;
       }
 
@@ -545,6 +618,44 @@ export default function EditorPage() {
     setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     setActiveReviewItemId((current) => (current === item.id ? null : current));
     setFeedback({ tone: "info", message: "Врізку вставлено." });
+  }
+
+  function applyReviewSubsection(item: EditorialReviewItem) {
+    if (!item.subsectionDraft) {
+      return;
+    }
+
+    const title = item.subsectionDraft.title.trim();
+    const lead = item.subsectionDraft.lead?.trim() ?? "";
+
+    if (!title) {
+      return;
+    }
+
+    const blocks: Block[] = [
+      {
+        id: createBlockId("heading"),
+        type: "heading",
+        level: 3,
+        content: [createInlineText(title)]
+      }
+    ];
+
+    if (lead) {
+      blocks.push({
+        id: createBlockId("paragraph"),
+        type: "paragraph",
+        content: [createInlineText(lead)]
+      });
+    }
+
+    commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks));
+    setReviewItems((current) =>
+      current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
+    );
+    setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
+    setActiveReviewItemId((current) => (current === item.id ? null : current));
+    setFeedback({ tone: "info", message: "Підзаголовок вставлено." });
   }
 
   function updateActiveCalloutKind(item: EditorialReviewItem, kind: EditorialCalloutKind) {
@@ -666,6 +777,74 @@ export default function EditorPage() {
         calloutDraft: {
           ...current.calloutDraft,
           previewText: body
+        }
+      };
+    });
+  }
+
+  function updateActiveSubsectionTitle(item: EditorialReviewItem, title: string) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          subsectionDraft: {
+            title,
+            lead: entry.subsectionDraft?.lead ?? "",
+            prompt: entry.subsectionDraft?.prompt ?? "",
+            summary: entry.subsectionDraft?.summary ?? entry.reason
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "subsection_prompt" || current.reviewItemId !== item.id || !current.subsectionDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        subsectionDraft: {
+          ...current.subsectionDraft,
+          title
+        }
+      };
+    });
+  }
+
+  function updateActiveSubsectionLead(item: EditorialReviewItem, lead: string) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          subsectionDraft: {
+            title: entry.subsectionDraft?.title ?? entry.title,
+            lead,
+            prompt: entry.subsectionDraft?.prompt ?? "",
+            summary: entry.subsectionDraft?.summary ?? entry.reason
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "subsection_prompt" || current.reviewItemId !== item.id || !current.subsectionDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        subsectionDraft: {
+          ...current.subsectionDraft,
+          lead
         }
       };
     });
@@ -828,6 +1007,9 @@ export default function EditorPage() {
     setReviewComposer(defaultReviewComposer);
     setComposerMode(null);
     setCustomPrompt("");
+    setManualCalloutKind(defaultManualCalloutKind);
+    setManualVisualIntent(defaultManualVisualIntent);
+    setManualGenerationInFlight(null);
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -864,10 +1046,13 @@ export default function EditorPage() {
               onRejectProposal={handleRejectProposal}
               onPrepareReviewItem={(item) => void prepareReviewItem(item)}
               onApplyReviewCallout={applyReviewCallout}
+              onApplyReviewSubsection={applyReviewSubsection}
               onDismissReviewItem={dismissReviewItem}
               onUpdateActiveCalloutKind={updateActiveCalloutKind}
               onUpdateActiveCalloutTitle={updateActiveCalloutTitle}
               onUpdateActiveCalloutBody={updateActiveCalloutBody}
+              onUpdateActiveSubsectionTitle={updateActiveSubsectionTitle}
+              onUpdateActiveSubsectionLead={updateActiveSubsectionLead}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
@@ -893,7 +1078,15 @@ export default function EditorPage() {
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
                 onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
                 onRequestReview={() => void requestEditorialReview()}
-                loading={composerMode === "review" ? isReviewRequestInFlight : isPatchRequestInFlight}
+                patchLoading={isPatchRequestInFlight}
+                reviewLoading={isReviewRequestInFlight}
+                manualCalloutKind={manualCalloutKind}
+                manualVisualIntent={manualVisualIntent}
+                onManualCalloutKindChange={setManualCalloutKind}
+                onManualVisualIntentChange={setManualVisualIntent}
+                onRequestManualCallout={() => void requestManualInsert("callout")}
+                onRequestManualVisual={() => void requestManualInsert("visual")}
+                manualLoadingKind={manualGenerationInFlight?.kind ?? null}
                 onClose={() => setComposerMode(null)}
               />
             ) : null}

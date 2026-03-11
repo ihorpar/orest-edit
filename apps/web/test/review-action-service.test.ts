@@ -48,14 +48,16 @@ function createRequest(): ReviewActionRequest {
   };
 }
 
-test("generateReviewAction fails safely for subsection until inline insertion flow exists", async () => {
+test("generateReviewAction prepares subsection proposal instead of failing safe", async () => {
   const request = createRequest();
 
-  const response = await generateReviewAction(request);
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
 
-  assert.equal(response.proposal.kind, "stale_anchor");
-  assert.equal(response.usedFallback, false);
-  assert.match(response.error ?? "", /inline-підготовка/i);
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.usedFallback, true);
+  assert.ok(response.proposal.subsectionDraft?.title);
 });
 
 test("generateReviewAction injects explicit callout-kind guidance into provider prompt", async () => {
@@ -325,4 +327,144 @@ test("generateReviewAction parses structured callout draft output and strips mar
   assert.equal(response.proposal.calloutDraft?.previewText, "Шкіра і нервова система мають спільне походження.");
   assert.equal(response.proposal.summary, "Коротко пояснює звязок.");
   assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /\*\*|^-\s/m);
+});
+
+test("generateReviewAction constrains rewrite output to the original block count", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Перший складний абзац." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Другий складний абзац." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-1",
+        reviewSessionId: "review-session-3",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати фрагмент",
+        reason: "Фрагмент перевантажений.",
+        recommendation: "Зробити формулювання яснішими.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1", "p2"],
+          generationBlockRange: { start: 0, end: 1 },
+          excerpt: "Перший складний абзац.\n\nДругий складний абзац.",
+          fingerprint: computeAnchorFingerprint(document, ["p1", "p2"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1", "p2"],
+                  newBlocks: [
+                    { type: "paragraph", content: [{ text: "Оновлений блок 1." }] },
+                    { type: "paragraph", content: [{ text: "Оновлений блок 2." }] },
+                    { type: "paragraph", content: [{ text: "Зайвий блок 3." }] }
+                  ],
+                  reason: "Зробив подачу яснішою.",
+                  type: "clarity"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.proposal.textDiff?.blockIds.length, 2);
+  assert.equal(response.proposal.textDiff?.newBlocks.length, 2);
+  assert.match((response.proposal.textDiff?.newBlocks[1] as any)?.content?.[0]?.text ?? "", /Зайвий блок 3/i);
+});
+
+test("generateReviewAction keeps list replacements within selection block ceiling", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Пункт А. Пункт Б. Пункт В." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Додатковий контекст." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-1",
+        reviewSessionId: "review-session-4",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1", "p2"],
+          generationBlockRange: { start: 0, end: 1 },
+          excerpt: "Пункт А. Пункт Б. Пункт В.",
+          fingerprint: computeAnchorFingerprint(document, ["p1", "p2"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1", "p2"],
+                  newBlocks: [
+                    { type: "bullet_list", items: [[{ text: "Пункт А" }], [{ text: "Пункт Б" }]] },
+                    { type: "paragraph", content: [{ text: "Коментар 1" }] },
+                    { type: "paragraph", content: [{ text: "Коментар 2" }] }
+                  ],
+                  reason: "Сформував список.",
+                  type: "structure"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.ok((response.proposal.textDiff?.newBlocks.length ?? 0) <= 2);
 });

@@ -1,8 +1,9 @@
 import { createPatchId, type PatchRequest } from "../editor/patch-contract.ts";
 import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../editor/manuscript-structure.ts";
-import { getBlockText } from "../editor/document-model.ts";
+import { createInlineText, getBlockText, type Block } from "../editor/document-model.ts";
 import type {
   EditorialCalloutKind,
+  EditorialReviewRecommendationType,
   EditorialVisualIntent,
   ReviewActionDiagnostics,
   ReviewActionProposal,
@@ -63,21 +64,6 @@ export async function generateReviewAction(
     };
   }
 
-  if (request.item.recommendationType === "subsection") {
-    const message = "Рекомендації типу «підрозділ» уже нормалізуються окремо, але inline-підготовка для них ще не реалізована.";
-
-    return {
-      proposal: createStaleProposal(request, message),
-      providerUsed: "unsupported-subsection",
-      usedFallback: false,
-      error: message,
-      diagnostics: {
-        ...diagnosticsBase,
-        proposalKind: "stale_anchor"
-      }
-    };
-  }
-
   if (isReplaceReviewType(request.item.recommendationType)) {
     const patchRequest: PatchRequest = {
       document: request.document,
@@ -112,6 +98,23 @@ export async function generateReviewAction(
       };
     }
 
+    const constrainedOperation = constrainReplaceProposalOperation(operation, request.item.recommendationType);
+
+    if (!constrainedOperation) {
+      const message = "Не вдалося нормалізувати правку до безпечного block-first формату.";
+
+      return {
+        proposal: createStaleProposal(request, message),
+        providerUsed: patchResponse.providerUsed,
+        usedFallback: true,
+        error: message,
+        diagnostics: {
+          ...diagnosticsBase,
+          proposalKind: "stale_anchor"
+        }
+      };
+    }
+
     return {
       proposal: {
         id: createPatchId("proposal"),
@@ -119,14 +122,14 @@ export async function generateReviewAction(
         sourceRevisionId: request.item.documentRevisionId,
         targetRevisionId: request.currentRevision.documentRevisionId,
         kind: "text_diff",
-        summary: operation.reason,
+        summary: constrainedOperation.reason,
         canApplyDirectly: true,
         textDiff: {
           op: "replace_blocks",
-          blockIds: operation.blockIds,
-          oldBlocks: operation.oldBlocks,
-          newBlocks: operation.newBlocks,
-          reason: operation.reason
+          blockIds: constrainedOperation.blockIds,
+          oldBlocks: constrainedOperation.oldBlocks,
+          newBlocks: constrainedOperation.newBlocks,
+          reason: constrainedOperation.reason
         }
       },
       providerUsed: patchResponse.providerUsed,
@@ -143,7 +146,9 @@ export async function generateReviewAction(
 
   if (!apiKey) {
     const fallbackProposal =
-      request.item.suggestedAction === "prepare_callout"
+      request.item.recommendationType === "subsection"
+        ? createFallbackSubsectionProposal(request)
+        : request.item.suggestedAction === "prepare_callout"
         ? createFallbackCalloutProposal(request)
         : createFallbackImagePromptProposal(request);
 
@@ -161,7 +166,9 @@ export async function generateReviewAction(
 
   try {
     const providerResult =
-      request.item.suggestedAction === "prepare_callout"
+      request.item.recommendationType === "subsection"
+        ? await createSubsectionProposal(request, apiKey, fetchImpl)
+        : request.item.suggestedAction === "prepare_callout"
         ? await createCalloutProposal(request, apiKey, fetchImpl)
         : await createImagePromptProposal(request, apiKey, fetchImpl);
 
@@ -177,7 +184,9 @@ export async function generateReviewAction(
     };
   } catch (error) {
     const fallbackProposal =
-      request.item.suggestedAction === "prepare_callout"
+      request.item.recommendationType === "subsection"
+        ? createFallbackSubsectionProposal(request)
+        : request.item.suggestedAction === "prepare_callout"
         ? createFallbackCalloutProposal(request)
         : createFallbackImagePromptProposal(request);
 
@@ -223,17 +232,15 @@ function createStaleProposal(request: ReviewActionRequest, staleReason: string):
 }
 
 function buildTextProposalPrompt(request: ReviewActionRequest): string {
+  const blockCount = request.item.anchor.blockIds.length;
+
   return [
+    buildReplacePromptByType(request.item.recommendationType, blockCount),
     `Редакторська рекомендація: ${request.item.recommendation}`,
-    `Причина: ${request.item.reason}`,
-    "Формат результату: лише повна заміна вибраних блоків у форматі block editor; без markdown-розмітки (**жирного**, # заголовків, markdown-списків або code fences).",
-    "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
-    request.item.recommendationType === "expand" ? "Розкрий логіку ясніше, але не додавай нових фактів." : null,
-    request.item.recommendationType === "list" ? "Поверни структурований список, якщо це робить фрагмент читабельнішим." : null,
-    request.item.recommendationType === "simplify" ? "Спрости мову для широкого читача без втрати змісту." : null
+    `Причина: ${request.item.reason}`
   ]
     .filter(Boolean)
-    .join("\n");
+    .join("\n\n");
 }
 
 function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
@@ -253,6 +260,32 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
       title: getEditorialCalloutKindTitle(calloutKind),
       prompt: buildFallbackCalloutPrompt(calloutKind, excerpt, request.item.recommendation),
       previewText: sanitizeCalloutText(excerpt.slice(0, 220))
+    }
+  };
+}
+
+function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewActionProposal {
+  const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
+  const parsed = parseSubsectionDraftOutput(excerpt, {
+    title: request.item.title,
+    lead: "",
+    summary: request.item.reason
+  });
+  const prompt = buildProviderPrompt(request, "subsection");
+
+  return {
+    id: createPatchId("proposal-subsection"),
+    reviewItemId: request.item.id,
+    sourceRevisionId: request.item.documentRevisionId,
+    targetRevisionId: request.currentRevision.documentRevisionId,
+    kind: "subsection_prompt",
+    summary: parsed.summary,
+    canApplyDirectly: true,
+    subsectionDraft: {
+      title: parsed.title,
+      lead: parsed.lead,
+      prompt,
+      summary: parsed.summary
     }
   };
 }
@@ -317,6 +350,44 @@ async function createCalloutProposal(
   };
 }
 
+async function createSubsectionProposal(
+  request: ReviewActionRequest,
+  apiKey: string,
+  fetchImpl: FetchLike
+): Promise<{ proposal: ReviewActionProposal; providerUsed: string; rawOutput?: string }> {
+  const prompt = buildProviderPrompt(request, "subsection");
+  const result = request.provider === "gemini"
+    ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
+    : request.provider === "anthropic"
+      ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
+      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+  const parsed = parseSubsectionDraftOutput(result, {
+    title: request.item.title,
+    lead: "",
+    summary: request.item.reason
+  });
+
+  return {
+    providerUsed: request.provider,
+    rawOutput: result,
+    proposal: {
+      id: createPatchId("proposal-subsection"),
+      reviewItemId: request.item.id,
+      sourceRevisionId: request.item.documentRevisionId,
+      targetRevisionId: request.currentRevision.documentRevisionId,
+      kind: "subsection_prompt",
+      summary: parsed.summary,
+      canApplyDirectly: true,
+      subsectionDraft: {
+        title: parsed.title,
+        lead: parsed.lead,
+        prompt,
+        summary: parsed.summary
+      }
+    }
+  };
+}
+
 async function createImagePromptProposal(
   request: ReviewActionRequest,
   apiKey: string,
@@ -351,7 +422,7 @@ async function createImagePromptProposal(
   };
 }
 
-function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "image"): string {
+function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "image" | "subsection"): string {
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
 
   if (mode === "callout") {
@@ -366,6 +437,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       template,
       templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
       `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
+      `Додаткове правило для типу: ${getCalloutKindGuardrail(calloutKind)}`,
       templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
       templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
       "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
@@ -376,6 +448,19 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     ]
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  if (mode === "subsection") {
+    return [
+      "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
+      "Поверни лише JSON-об'єкт без markdown: {\"title\":\"...\",\"lead\":\"...\",\"summary\":\"...\"}.",
+      "title: короткий і точний підзаголовок (plain text, один рядок).",
+      "lead: необов'язковий короткий вступний абзац (plain text), можна порожній рядок.",
+      "summary: одне речення, чому цей підзаголовок потрібен тут.",
+      "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
+      `Рекомендація: ${request.item.recommendation}`,
+      `Фрагмент: ${excerpt}`
+    ].join("\n\n");
   }
 
   const visualIntent = request.item.visualIntent ?? "diagram";
@@ -431,6 +516,187 @@ function getVisualIntentPromptGuidance(visualIntent: EditorialVisualIntent): str
   }
 }
 
+function buildReplacePromptByType(type: EditorialReviewRecommendationType, blockCount: number): string {
+  const shared = [
+    "Формат результату: лише повна заміна вибраних блоків у форматі block editor; без markdown-розмітки (**жирного**, # заголовків, markdown-списків або code fences).",
+    "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
+    "Не додавай нових фактів."
+  ];
+
+  if (type === "simplify") {
+    return [
+      "Тип правки: simplify.",
+      "Спрости формулювання для широкого читача без втрати змісту.",
+      `Поверни рівно ${blockCount} replacement blocks.`
+    ]
+      .concat(shared)
+      .join("\n");
+  }
+
+  if (type === "expand") {
+    return [
+      "Тип правки: expand.",
+      "Додай пояснювальні зв'язки і зроби фрагмент яснішим, але без нових фактів.",
+      `Поверни рівно ${blockCount} replacement blocks.`
+    ]
+      .concat(shared)
+      .join("\n");
+  }
+
+  if (type === "list") {
+    return [
+      "Тип правки: list.",
+      "Якщо це природно для змісту, переформатуй у list block.",
+      `Поверни від 1 до ${blockCount} replacement blocks; ніколи не перевищуй кількість вибраних блоків.`
+    ]
+      .concat(shared)
+      .join("\n");
+  }
+
+  return [
+    "Тип правки: rewrite.",
+    "Перепиши фрагмент ясніше і сильніше стилістично без зміни фактичного змісту.",
+    `Поверни рівно ${blockCount} replacement blocks.`
+  ]
+    .concat(shared)
+    .join("\n");
+}
+
+function getCalloutKindGuardrail(kind: EditorialCalloutKind): string {
+  if (kind === "analogy") {
+    return "Явно познач, що це аналогія; не подавай аналогію як буквальний факт.";
+  }
+
+  if (kind === "myths_vs_truth") {
+    return "Додавай лише пари «Міф/Правда», які прямо випливають із фрагмента; не вигадуй тверджень.";
+  }
+
+  if (kind === "top_list") {
+    return "Подавай 3-5 пунктів лише якщо фрагмент природно підтримує перелік.";
+  }
+
+  return "Залишайся в межах фрагмента без вигаданих фактів чи діагнозів.";
+}
+
+function constrainReplaceProposalOperation(
+  operation: ReviewActionProposal["textDiff"],
+  recommendationType: EditorialReviewRecommendationType
+): ReviewActionProposal["textDiff"] | null {
+  if (!operation) {
+    return null;
+  }
+
+  const targetCount = operation.blockIds.length;
+
+  if (targetCount === 0) {
+    return null;
+  }
+
+  let nextNewBlocks = operation.newBlocks.slice();
+
+  if (recommendationType === "list") {
+    if (nextNewBlocks.length > targetCount) {
+      nextNewBlocks = foldOverflowBlocks(nextNewBlocks, targetCount);
+    }
+  } else {
+    nextNewBlocks = normalizeBlocksToExactCount(nextNewBlocks, operation.oldBlocks, targetCount);
+  }
+
+  if (nextNewBlocks.length === 0 || nextNewBlocks.length > targetCount) {
+    return null;
+  }
+
+  return {
+    ...operation,
+    newBlocks: nextNewBlocks
+  };
+}
+
+function normalizeBlocksToExactCount(newBlocks: Block[], oldBlocks: Block[], targetCount: number): Block[] {
+  if (newBlocks.length === targetCount) {
+    return newBlocks;
+  }
+
+  if (newBlocks.length > targetCount) {
+    return foldOverflowBlocks(newBlocks, targetCount);
+  }
+
+  const padded = newBlocks.slice();
+
+  for (let index = padded.length; index < targetCount; index += 1) {
+    const fallback = oldBlocks[index] ?? oldBlocks[oldBlocks.length - 1];
+    padded.push(fallback ? cloneBlockWithText(fallback, getBlockText(fallback)) : { id: createPatchId("block"), type: "paragraph", content: [createInlineText("")] });
+  }
+
+  return padded;
+}
+
+function foldOverflowBlocks(newBlocks: Block[], maxCount: number): Block[] {
+  if (newBlocks.length <= maxCount || maxCount <= 0) {
+    return newBlocks.slice(0, Math.max(0, maxCount));
+  }
+
+  const kept = newBlocks.slice(0, maxCount);
+  const overflowText = newBlocks
+    .slice(maxCount)
+    .map((block) => getBlockText(block).trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!overflowText) {
+    return kept;
+  }
+
+  const lastIndex = kept.length - 1;
+  const last = kept[lastIndex];
+  const lastText = getBlockText(last).trim();
+  const merged = [lastText, overflowText].filter(Boolean).join("\n\n");
+  kept[lastIndex] = cloneBlockWithText(last, merged);
+
+  return kept;
+}
+
+function cloneBlockWithText(block: Block, text: string): Block {
+  const plain = text.replace(/\r\n?/g, "\n");
+
+  if (block.type === "paragraph") {
+    return { ...block, content: [createInlineText(plain)] };
+  }
+
+  if (block.type === "heading") {
+    return { ...block, content: [createInlineText(plain)] };
+  }
+
+  if (block.type === "bullet_list") {
+    return {
+      ...block,
+      items: splitListItemsForBlock(plain).map((item) => [createInlineText(item)])
+    };
+  }
+
+  if (block.type === "ordered_list") {
+    return {
+      ...block,
+      items: splitListItemsForBlock(plain).map((item) => [createInlineText(item)])
+    };
+  }
+
+  return {
+    id: block.id,
+    type: "paragraph",
+    content: [createInlineText(plain)]
+  };
+}
+
+function splitListItemsForBlock(text: string): string[] {
+  const items = text
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+
+  return items.length > 0 ? items : [""];
+}
+
 function normalizeGeneratedImagePrompt(raw: string): string {
   const normalized = raw
     .replace(/\r\n/g, "\n")
@@ -440,7 +706,10 @@ function normalizeGeneratedImagePrompt(raw: string): string {
     .replace(/^\s*\d+\.\s+/gm, "")
     .replace(/^\s*[-*]\s+/gm, "")
     .replace(/^\s*\*\*(.+?)\*\*:\s*/gm, "")
-    .replace(/^\s*(Опис сцени|Стиль|Інструкція для ілюстратора|Technical Breakdown|Visual Narrative|Освітня функція візуалу|Обов'язкові елементи|Чого уникати|Анти-кліше та зайвий декор|Пояснення visualIntent)\s*:?\s*$/gim, " ")
+    .replace(
+      /(Опис сцени|Стиль|Інструкція для ілюстратора|Technical Breakdown|Visual Narrative|Освітня функція візуалу|Обов'язкові елементи|Чого уникати|Анти-кліше та зайвий декор|Пояснення visualIntent)\s*:?\s*/gim,
+      ""
+    )
     .replace(/^\s*Ось\s+.*$/gim, " ")
     .replace(/\$\\rightarrow\$/g, "→")
     .replace(/\*\*/g, "")
@@ -676,6 +945,39 @@ function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: st
     title,
     body: bodyLines.length > 0 ? bodyLines.join("\n") : undefined,
     summary
+  };
+}
+
+function parseSubsectionDraftOutput(
+  rawOutput: string,
+  fallback: { title: string; lead: string; summary: string }
+): { title: string; lead: string; summary: string } {
+  const parsedObject = parseLooseJsonObject(rawOutput);
+  const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "subheading"]) : null;
+  const objectLead = parsedObject ? pickString(parsedObject, ["lead", "intro", "body", "text"]) : null;
+  const objectSummary = parsedObject ? pickString(parsedObject, ["summary", "why", "purpose", "rationale"]) : null;
+
+  const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
+  const fallbackLeadValue = sanitizeCalloutText(fallback.lead);
+  const fallbackSummaryValue = sanitizeCalloutText(fallback.summary) || "Пояснює, чому цей підзаголовок потрібен у цьому місці.";
+
+  if (objectTitle || objectLead || objectSummary) {
+    return {
+      title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
+      lead: sanitizeCalloutText(objectLead ?? fallbackLeadValue),
+      summary: sanitizeCalloutText(objectSummary ?? fallbackSummaryValue) || fallbackSummaryValue
+    };
+  }
+
+  const plain = sanitizeCalloutText(rawOutput);
+  const lines = plain.split("\n").map((line) => line.trim()).filter(Boolean);
+  const title = lines[0] ?? fallbackTitleValue;
+  const lead = lines.slice(1).join(" ").trim();
+
+  return {
+    title: sanitizeCalloutTitle(title || fallbackTitleValue),
+    lead: sanitizeCalloutText(lead || fallbackLeadValue),
+    summary: fallbackSummaryValue
   };
 }
 
