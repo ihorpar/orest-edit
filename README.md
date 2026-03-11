@@ -43,6 +43,24 @@ Notes:
 - if `3000` is already occupied, Next may move to `3001` automatically
 - that local fallback does not mean the app is configured to deploy on both ports
 
+## Browser QA (inline review lane)
+
+Reusable scripted QA for the password-gated editor:
+
+```bash
+APP_PASSWORD='your-password' npm run qa:inline-review -w @orest/web
+```
+
+Preconditions:
+- app is running locally (for example: `APP_PASSWORD='your-password' npm run dev -w @orest/web -- --hostname 127.0.0.1 --port 3100`)
+- Playwright browser dependencies are installed in your WSL/Linux environment
+
+Optional flags:
+- `--url=http://127.0.0.1:3100` to target a non-default local URL
+- `--password=...` to override password from env
+- `--screenshot=/tmp/inline-review-qa.png` to control screenshot path
+- `--no-screenshot` to skip screenshot output
+
 ## Deployment
 
 Short version:

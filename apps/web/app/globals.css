@@ -4502,6 +4502,81 @@ textarea:focus {
   gap: 10px;
 }
 
+.floating-local-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  background: #eef2f7;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 12px;
+}
+
+.floating-local-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.floating-local-mode-tab[data-active="true"] {
+  background: #ffffff;
+  border-color: #d8e0ea;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.floating-local-mode-tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.floating-local-section {
+  display: grid;
+  gap: 10px;
+}
+
+.floating-local-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.floating-local-label {
+  display: grid;
+  gap: 5px;
+}
+
+.floating-local-select {
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #d8e0ea;
+  background: #fff;
+  color: #0f172a;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.floating-local-select:disabled {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.floating-mode-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #64748b;
+}
+
 .floating-panel-mode-switch {
   border: 1px solid #dbe4ef;
   background: #ffffff;

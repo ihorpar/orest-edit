@@ -1,5 +1,6 @@
 "use client";
-import { Quote, Image as ImageIcon, Sparkles } from "lucide-react";
+
+import { FileText, Image as ImageIcon, Search, Sparkles, Wand2 } from "lucide-react";
 import {
   getEditorialCalloutKindOptions,
   getEditorialVisualIntentOptions,
@@ -16,6 +17,8 @@ const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; de
   { level: 5, label: "5", description: "Максимально глибокий огляд" }
 ];
 
+type LocalActionMode = "patch" | "callout" | "visual";
+
 export function FloatingComposerPanel({
   mode,
   selectedBlockCount,
@@ -30,10 +33,16 @@ export function FloatingComposerPanel({
   onRequestReview,
   patchLoading,
   reviewLoading,
+  localActionMode,
+  onLocalActionModeChange,
   manualCalloutKind,
   manualVisualIntent,
   onManualCalloutKindChange,
   onManualVisualIntentChange,
+  manualCalloutPrompt,
+  manualVisualPrompt,
+  onManualCalloutPromptChange,
+  onManualVisualPromptChange,
   onRequestManualCallout,
   onRequestManualVisual,
   manualLoadingKind,
@@ -52,10 +61,16 @@ export function FloatingComposerPanel({
   onRequestReview: () => void;
   patchLoading?: boolean;
   reviewLoading?: boolean;
+  localActionMode: LocalActionMode;
+  onLocalActionModeChange: (mode: LocalActionMode) => void;
   manualCalloutKind: EditorialCalloutKind;
   manualVisualIntent: EditorialVisualIntent;
   onManualCalloutKindChange: (value: EditorialCalloutKind) => void;
   onManualVisualIntentChange: (value: EditorialVisualIntent) => void;
+  manualCalloutPrompt: string;
+  manualVisualPrompt: string;
+  onManualCalloutPromptChange: (value: string) => void;
+  onManualVisualPromptChange: (value: string) => void;
   onRequestManualCallout: () => void;
   onRequestManualVisual: () => void;
   manualLoadingKind?: "callout" | "visual" | null;
@@ -72,7 +87,13 @@ export function FloatingComposerPanel({
         <div className="floating-panel-title-stack">
           <p className="mono-ui">{isReview ? "Огляд документа" : `Локальна правка · ${selectedBlockCount}`}</p>
           <div className="floating-panel-question">
-            {isReview ? "Наскільки глибоко перевірити документ?" : "Що змінити у вибраних абзацах?"}
+            {isReview
+              ? "Наскільки глибоко перевірити документ?"
+              : localActionMode === "patch"
+                ? "Локальна правка вибраних абзаців"
+                : localActionMode === "callout"
+                  ? "Згенерувати врізку для виділеного фрагмента"
+                  : "Згенерувати візуал для виділеного фрагмента"}
           </div>
         </div>
         <div className="floating-panel-header-actions">
@@ -121,111 +142,172 @@ export function FloatingComposerPanel({
           </div>
         ) : (
           <>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                marginBottom: "10px"
-              }}
-            >
+            <div className="floating-local-mode-tabs">
               <button
                 type="button"
-                className="floating-panel-inline-action"
-                onClick={onRequestManualCallout}
-                disabled={manualInFlight}
-                title="Згенерувати врізку"
-                aria-label="Згенерувати врізку"
-                style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: "6px" }}
+                className="floating-local-mode-tab"
+                data-active={localActionMode === "patch" ? "true" : "false"}
+                onClick={() => onLocalActionModeChange("patch")}
+                disabled={patchLoading || manualInFlight}
+                title="Локальна правка"
               >
-                <Quote size={14} />
+                <Search size={14} />
+                <span>Правка</span>
+              </button>
+              <button
+                type="button"
+                className="floating-local-mode-tab"
+                data-active={localActionMode === "callout" ? "true" : "false"}
+                onClick={() => onLocalActionModeChange("callout")}
+                disabled={patchLoading || manualInFlight}
+                title="Генерація врізки"
+              >
+                <FileText size={14} />
                 <span>Врізка</span>
-                {manualLoadingKind === "callout" ? <span className="mono-ui">…</span> : null}
               </button>
               <button
                 type="button"
-                className="floating-panel-inline-action"
-                onClick={onRequestManualVisual}
-                disabled={manualInFlight}
-                title="Згенерувати візуал"
-                aria-label="Згенерувати візуал"
-                style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: "6px" }}
+                className="floating-local-mode-tab"
+                data-active={localActionMode === "visual" ? "true" : "false"}
+                onClick={() => onLocalActionModeChange("visual")}
+                disabled={patchLoading || manualInFlight}
+                title="Генерація візуалу"
               >
-                <ImageIcon size={14} />
+                <Wand2 size={14} />
                 <span>Візуал</span>
-                {manualLoadingKind === "visual" ? <span className="mono-ui">…</span> : null}
               </button>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                marginBottom: "10px"
-              }}
-            >
-              <label className="mono-ui" style={{ display: "grid", gap: "4px" }}>
-                Тип врізки
-                <select
-                  value={manualCalloutKind}
-                  onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
-                  disabled={manualInFlight}
-                  style={{ height: "32px", borderRadius: "6px", border: "1px solid #d8e0ea", padding: "0 8px", fontSize: "12px" }}
-                >
-                  {calloutOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="mono-ui" style={{ display: "grid", gap: "4px" }}>
-                Тип візуалу
-                <select
-                  value={manualVisualIntent}
-                  onChange={(event) => onManualVisualIntentChange(event.target.value as EditorialVisualIntent)}
-                  disabled={manualInFlight}
-                  style={{ height: "32px", borderRadius: "6px", border: "1px solid #d8e0ea", padding: "0 8px", fontSize: "12px" }}
-                >
-                  {visualOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            {localActionMode === "patch" ? (
+              <div className="floating-local-section">
+                <div className="floating-local-actions">
+                  <button type="button" className="floating-panel-inline-action" onClick={onRequestDefaultPatch} disabled={patchLoading}>
+                    <Sparkles size={14} />
+                    Швидко покращити
+                  </button>
+                </div>
+                <div className="floating-textarea-shell">
+                  <textarea
+                    className="floating-textarea"
+                    rows={2}
+                    placeholder="Уточніть, як саме редагувати (необов'язково)"
+                    value={customPrompt}
+                    onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
+                  />
+                </div>
+                <p className="floating-mode-hint">Запит вище використовується лише для режиму «Правка за запитом».</p>
+                <div className="floating-footer">
+                  <div />
+                  <div className="send-row">
+                    <button
+                      type="button"
+                      className="floating-panel-inline-action"
+                      onClick={onRequestCustomPatch}
+                      disabled={patchLoading || !customPrompt.trim()}
+                      aria-label="Виконати правку за запитом"
+                      title="Виконати правку за запитом"
+                    >
+                      <Search size={14} />
+                      Виконати за запитом
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
-            <div className="floating-textarea-shell">
-              <textarea
-                className="floating-textarea"
-                rows={2}
-                placeholder="Кастомний запит для локальної правки"
-                value={customPrompt}
-                onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
-              />
-            </div>
-            <div className="floating-footer">
-              <div className="floating-shortcuts">
-                <button type="button" className="floating-panel-inline-action" onClick={onRequestDefaultPatch} disabled={patchLoading}>
-                  <Sparkles size={14} />
-                  Покращити
-                </button>
+            {localActionMode === "callout" ? (
+              <div className="floating-local-section">
+                <label className="mono-ui floating-local-label">
+                  Тип врізки
+                  <select
+                    className="floating-local-select"
+                    value={manualCalloutKind}
+                    onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
+                    disabled={manualInFlight}
+                  >
+                    {calloutOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="floating-textarea-shell">
+                  <textarea
+                    className="floating-textarea"
+                    rows={2}
+                    placeholder="Додатковий запит для врізки (необов'язково)"
+                    value={manualCalloutPrompt}
+                    onChange={(event) => onManualCalloutPromptChange(event.currentTarget.value)}
+                    disabled={manualInFlight}
+                  />
+                </div>
+                <p className="floating-mode-hint">Цей запит буде враховано під час генерації врізки.</p>
+                <div className="floating-footer">
+                  <div />
+                  <div className="send-row">
+                    <button
+                      type="button"
+                      className="floating-panel-inline-action"
+                      onClick={onRequestManualCallout}
+                      disabled={manualInFlight}
+                      aria-label="Згенерувати врізку"
+                      title="Згенерувати врізку"
+                    >
+                      <FileText size={14} />
+                      {manualLoadingKind === "callout" ? "Генерація…" : "Згенерувати врізку"}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="send-row">
-                <button
-                  type="button"
-                  className="send-button mono-ui"
-                  onClick={onRequestCustomPatch}
-                  disabled={patchLoading || !customPrompt.trim()}
-                  aria-label="Запустити кастомну правку"
-                  title="Запустити кастомну правку"
-                >
-                  {patchLoading ? "…" : "→"}
-                </button>
+            ) : null}
+
+            {localActionMode === "visual" ? (
+              <div className="floating-local-section">
+                <label className="mono-ui floating-local-label">
+                  Тип візуалу
+                  <select
+                    className="floating-local-select"
+                    value={manualVisualIntent}
+                    onChange={(event) => onManualVisualIntentChange(event.target.value as EditorialVisualIntent)}
+                    disabled={manualInFlight}
+                  >
+                    {visualOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="floating-textarea-shell">
+                  <textarea
+                    className="floating-textarea"
+                    rows={2}
+                    placeholder="Додатковий запит для візуалу (необов'язково)"
+                    value={manualVisualPrompt}
+                    onChange={(event) => onManualVisualPromptChange(event.currentTarget.value)}
+                    disabled={manualInFlight}
+                  />
+                </div>
+                <p className="floating-mode-hint">Цей запит буде враховано під час генерації візуалу.</p>
+                <div className="floating-footer">
+                  <div />
+                  <div className="send-row">
+                    <button
+                      type="button"
+                      className="floating-panel-inline-action"
+                      onClick={onRequestManualVisual}
+                      disabled={manualInFlight}
+                      aria-label="Згенерувати візуал"
+                      title="Згенерувати візуал"
+                    >
+                      <ImageIcon size={14} />
+                      {manualLoadingKind === "visual" ? "Генерація…" : "Згенерувати візуал"}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : null}
           </>
         )}
       </div>

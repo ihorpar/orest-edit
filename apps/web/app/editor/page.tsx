@@ -65,9 +65,11 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
 };
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
 const defaultManualVisualIntent: EditorialVisualIntent = "diagram";
+const defaultLocalActionMode = "patch" as const;
 
 type ComposerMode = "local" | "review" | null;
 type ManualGenerationKind = "callout" | "visual";
+type LocalActionMode = "patch" | "callout" | "visual";
 
 export default function EditorPage() {
   const [document, setDocument] = useState<EditorDocument>(DEFAULT_EDITOR_DOCUMENT);
@@ -99,6 +101,9 @@ export default function EditorPage() {
   const [manualCalloutKind, setManualCalloutKind] = useState<EditorialCalloutKind>(defaultManualCalloutKind);
   const [manualVisualIntent, setManualVisualIntent] = useState<EditorialVisualIntent>(defaultManualVisualIntent);
   const [manualGenerationInFlight, setManualGenerationInFlight] = useState<{ kind: ManualGenerationKind; key: string } | null>(null);
+  const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
+  const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
+  const [manualVisualPrompt, setManualVisualPrompt] = useState("");
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
@@ -397,7 +402,8 @@ export default function EditorPage() {
       changeLevel: reviewComposer.changeLevel,
       recommendationType,
       calloutKind: manualCalloutKind,
-      visualIntent: manualVisualIntent
+      visualIntent: manualVisualIntent,
+      manualInstruction: kind === "callout" ? manualCalloutPrompt : manualVisualPrompt
     });
     const upserted = upsertManualReviewItem(reviewItems, draftItem);
 
@@ -1010,6 +1016,9 @@ export default function EditorPage() {
     setManualCalloutKind(defaultManualCalloutKind);
     setManualVisualIntent(defaultManualVisualIntent);
     setManualGenerationInFlight(null);
+    setLocalActionMode(defaultLocalActionMode);
+    setManualCalloutPrompt("");
+    setManualVisualPrompt("");
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -1080,10 +1089,16 @@ export default function EditorPage() {
                 onRequestReview={() => void requestEditorialReview()}
                 patchLoading={isPatchRequestInFlight}
                 reviewLoading={isReviewRequestInFlight}
+                localActionMode={localActionMode}
+                onLocalActionModeChange={setLocalActionMode}
                 manualCalloutKind={manualCalloutKind}
                 manualVisualIntent={manualVisualIntent}
                 onManualCalloutKindChange={setManualCalloutKind}
                 onManualVisualIntentChange={setManualVisualIntent}
+                manualCalloutPrompt={manualCalloutPrompt}
+                manualVisualPrompt={manualVisualPrompt}
+                onManualCalloutPromptChange={setManualCalloutPrompt}
+                onManualVisualPromptChange={setManualVisualPrompt}
                 onRequestManualCallout={() => void requestManualInsert("callout")}
                 onRequestManualVisual={() => void requestManualInsert("visual")}
                 manualLoadingKind={manualGenerationInFlight?.kind ?? null}
@@ -1111,7 +1126,10 @@ export default function EditorPage() {
               setIsReviewDrawerOpen(true);
             }}
             onCloseReviewDrawer={() => setIsReviewDrawerOpen(false)}
-            onOpenLocalComposer={() => setComposerMode("local")}
+            onOpenLocalComposer={() => {
+              setLocalActionMode(defaultLocalActionMode);
+              setComposerMode("local");
+            }}
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
             onApplyReviewCallout={applyReviewCallout}
@@ -1177,6 +1195,13 @@ function createHistoryEntry(
 
 function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean): RequestFeedback {
   if (payload.usedFallback && payload.operations.length > 0) {
+    if (payload.diagnostics.appliedMode === "default") {
+      return {
+        tone: "info",
+        message: "Швидку правку підготовлено в безпечному режимі. Перевірте зміни перед застосуванням."
+      };
+    }
+
     return {
       tone: "info",
       message: payload.error || "Провайдер не повернув придатний diff, тому показано локальну fallback-правку."

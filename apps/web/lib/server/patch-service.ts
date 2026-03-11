@@ -138,7 +138,7 @@ export async function generatePatchResponse(
         patchRequest,
         requestId,
         targetBlockCount: targetBlocks.length,
-        error: `${providerDisplayName(patchRequest.provider)} повернув невалідний формат, тому показано локальну fallback-правку.`,
+        error: "Провайдер не повернув придатний diff, тому застосовано безпечну локальну правку.",
         generatedAt: now()
       });
     }

@@ -17,6 +17,7 @@ export interface BuildManualReviewItemInput {
   recommendationType: "callout" | "visual";
   calloutKind?: EditorialCalloutKind;
   visualIntent?: EditorialVisualIntent;
+  manualInstruction?: string;
   now?: string;
 }
 
@@ -54,6 +55,8 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
     .filter((value) => value.trim().length > 0)
     .join("\n\n");
   const now = input.now ?? new Date().toISOString();
+  const manualInstruction = input.manualInstruction?.trim() ?? "";
+  const instructionSuffix = manualInstruction ? ` Додаткова інструкція: ${manualInstruction}` : "";
 
   return {
     id: createPatchId("manual-review-item"),
@@ -61,11 +64,11 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
     documentRevisionId: input.revision.documentRevisionId,
     changeLevel: input.changeLevel,
     title: input.recommendationType === "callout" ? "Ручна врізка" : "Ручний візуал",
-    reason: "Ручний запит із панелі локальної правки.",
+    reason: `Ручний запит із панелі локальної правки.${instructionSuffix}`,
     recommendation:
       input.recommendationType === "callout"
-        ? "Згенерувати врізку для виділеного фрагмента."
-        : "Згенерувати візуал для виділеного фрагмента.",
+        ? `Згенерувати врізку для виділеного фрагмента.${instructionSuffix}`
+        : `Згенерувати візуал для виділеного фрагмента.${instructionSuffix}`,
     recommendationType: input.recommendationType,
     suggestedAction: input.recommendationType === "callout" ? "prepare_callout" : "prepare_visual",
     priority: "medium",

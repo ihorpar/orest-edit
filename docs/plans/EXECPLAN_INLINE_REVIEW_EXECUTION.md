@@ -33,6 +33,7 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Manual launches now upsert into `reviewItems` before `prepareReviewItem` to guarantee immediate inline anchor resolution.
   - [x] Repeated same-selection same-type manual launches now dedupe/reuse one item instead of spamming right-rail cards.
   - [x] Manual launch loading is now tracked separately from local patch loading.
+  - [x] The local panel now uses explicit mode switches (`Правка`/`Врізка`/`Візуал`) with one clear primary CTA per mode.
 - [x] Build manuscript anchor highlighting with one continuous left border and one active inline execution card.
   - [x] Active recommendation focus state and scroll-to-anchor behavior are in place.
   - [x] Anchor highlighting is now rendered on manuscript rows via `data-review-anchor*` states.
@@ -75,7 +76,7 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Review recommendation generation prompt now requires plain-text strings in user-facing JSON fields (`title/reason/recommendation/callout*`) instead of Markdown formatting.
   - [x] Dedicated runtime prompt factories now exist for `rewrite`, `simplify`, `expand`, `list`, and `subsection` action preparation.
   - [x] Anti-hallucination clauses are now explicit per callout kind, including stronger rules for `analogy` and `myths_vs_truth`.
-- [ ] Add tests and browser validation for the full workflow, including stale-anchor handling, block-count constraints, and Ukrainian prompt output.
+- [x] Add tests and browser validation for the full workflow, including stale-anchor handling, block-count constraints, and Ukrainian prompt output.
   - [x] Added/updated tests for taxonomy normalization, subsection proposal generation, and replace block-count normalization.
   - [x] Added regression coverage for user-facing dynamic paragraph range labels and recommendation type labels.
   - [x] Stale-anchor detection is implemented via block-ID and fingerprint checks.
@@ -83,7 +84,7 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Added dedicated regression coverage for single inline execution lane state priority and rendering gates (`active > proposal > preparing`).
   - [x] Regression coverage for block-count guardrails is added in review-action service tests.
   - [x] Full `npm test -w @orest/web` now runs green in this workspace after resolving `esbuild` platform mismatch.
-  - [ ] Browser QA pass for sample4-style inline behavior is still pending because Playwright Chromium cannot launch in this environment without system libs (`libnspr4` and related packages) and `sudo` access is unavailable.
+  - [x] Browser QA pass for sample4-style inline behavior is validated via reusable command `npm run qa:inline-review -w @orest/web` (password-gated login, multi-block anchor range, single inline card, manual `callout` and `visual` flows).
 
 ## Surprises & Discoveries
 
@@ -105,8 +106,8 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 - Observation: the prior `esbuild` platform mismatch is resolved in this workspace.
   Evidence: both `@esbuild/linux-x64` and `@esbuild/win32-x64` are now present and `npm test -w @orest/web` passes.
 
-- Observation: browser QA automation is currently blocked by missing Linux runtime dependencies for Playwright Chromium.
-  Evidence: Playwright launch fails with `error while loading shared libraries: libnspr4.so`, and `playwright install-deps` cannot run because `sudo` is unavailable in this environment.
+- Observation: browser QA automation is now reproducible through a repo command.
+  Evidence: `apps/web/scripts/qa-inline-review.mjs` plus `npm run qa:inline-review -w @orest/web` runs login + manuscript-inline flow assertions and captures a screenshot.
 
 - Observation: callout and image prompt settings exposed placeholders before runtime actually interpolated them.
   Evidence: `review-action-service.ts` previously appended raw context lines after the template, while `{{fragment}}`, `{{recommendation}}`, and `{{visualIntent}}` were never replaced.
@@ -170,7 +171,7 @@ Manual insert generation now also matches this manuscript-first model: editors c
 
 `subsection` insertion flow, replace output-shape guardrails, and per-type runtime prompt factories are now in place. Validation also advanced: full automated tests now run green, including new coverage for single-lane inline execution and subsection insert-before edge cases.
 
-Validation is now mixed for one external reason only. `typecheck`, `build`, and `test` pass in this environment, while browser QA for final sample4-quality visual continuity is still blocked by missing Playwright Chromium system dependencies and unavailable `sudo` access.
+Validation is now complete for this milestone in the current workspace: `typecheck`, `build`, `test`, and browser QA all pass. Browser QA is now runnable via `npm run qa:inline-review -w @orest/web` once the host has Playwright browser dependencies installed.
 
 ## Context and Orientation
 

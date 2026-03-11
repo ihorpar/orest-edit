@@ -174,12 +174,12 @@ export function normalizePatchOperationsResult(
     const blockIds = Array.isArray(record.blockIds) ? record.blockIds.filter((item): item is string => typeof item === "string") : targetIds;
     const normalizedBlockIds = getContiguousTargetIds(document, blockIds.length > 0 ? blockIds : targetIds);
     const operationOldBlocks = normalizedBlockIds.map((blockId) => getBlock(document, blockId)).filter((block): block is Block => Boolean(block));
-    const reason = normalizeReason(record.reason);
+    const reason = normalizeReason(record.reason) ?? "Покращено читабельність і ясність фрагмента.";
     const newBlocks = Array.isArray(record.newBlocks)
       ? normalizeUnknownBlocks(record.newBlocks)
       : normalizeLooseReplacementBlocks(record, operationOldBlocks);
 
-    if (normalizedBlockIds.join("|") !== targetIds.join("|") || !reason || newBlocks.length === 0) {
+    if (normalizedBlockIds.join("|") !== targetIds.join("|") || newBlocks.length === 0) {
       droppedCount += 1;
       continue;
     }

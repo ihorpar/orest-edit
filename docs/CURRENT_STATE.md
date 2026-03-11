@@ -30,11 +30,13 @@ Status: Active handoff
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
+- The floating `Локальна правка` panel now uses explicit local mode switches (`Правка`, `Врізка`, `Візуал`) so each mode has one unambiguous primary action and mode-specific prompt usage
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
 - Runtime prompt factories now explicitly enforce plain-text, block-editor-compatible output for replace/callout/subsection/image proposal preparation
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
+- Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - Browser draft persistence uses `orest-editor-draft-v2`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
@@ -48,13 +50,11 @@ Status: Active handoff
 - No server-side persistence layer
 - No markdown editing workflow in the main product path
 - No character-offset patch flow
-- No browser interaction E2E coverage yet for the block editor
+- No CI-integrated full browser E2E suite yet for the block editor (current coverage is a local scripted QA command)
 - No hardened provider normalization yet for arbitrary mixed block output from real models
 - No full clipboard/Word paste pipeline for complex rich-text imports
 - No export patch flow or document version history
-- No finalized browser QA yet for the sample4-style anchor highlight continuity and inline card placement
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
-- No fully automated browser QA coverage yet for the single inline execution lane across replace/subsection/callout/visual flows
 
 ## Current product direction
 - User: book editor
@@ -73,8 +73,8 @@ Status: Active handoff
 - `image` is already a first-class block type
 
 ## Highest-priority next work
-1. Run browser QA for sample4-quality anchor continuity and inline execution behavior across replace/subsection/callout/visual flows.
-2. Provision browser runtime dependencies (or a CI runner with them) so Playwright Chromium can launch (`libnspr4` and related libs).
+1. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions).
+2. Add CI wiring for `qa:inline-review` in an environment with Playwright browser dependencies preinstalled.
 3. Harden right-rail/manuscript visual polish further to match `sample4` interaction quality under dense recommendation sets.
 
 ## Last validated state
@@ -82,4 +82,4 @@ Status: Active handoff
 - `npm run build -w @orest/web` passed on 2026-03-11 after inline-lane regression helpers/tests were added
 - `npm run test -w @orest/web` passed on 2026-03-11 (38 tests), including new suites `review-execution-lane.test.ts` and `review-apply.test.ts`
 - Runtime smoke check with password gate succeeded on 2026-03-11 (`/editor` redirected to `/login` before auth)
-- Playwright browser QA is still blocked in this environment: Chromium launch fails due missing system libraries (`libnspr4.so`), and `playwright install-deps` requires unavailable `sudo` access
+- `npm run qa:inline-review -w @orest/web` passed on 2026-03-11 using `APP_PASSWORD=@orest0krat`; validated login gate, multi-block anchor highlighting, and single inline card execution for manual `callout` and `visual`

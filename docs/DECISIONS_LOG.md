@@ -59,6 +59,11 @@ Decision: manual AI insert generation for `callout` and `visual` runs from the e
 
 Reason: this preserves manuscript-first interaction, reuses the same inline execution lane, and avoids splitting similar actions across a separate AI panel.
 
+### Local panel uses explicit action modes
+Decision: local selection actions in `Локальна правка` are mode-first (`Правка`, `Врізка`, `Візуал`) with one primary CTA per mode and mode-scoped prompt fields.
+
+Reason: this removes ambiguity about which action consumes the current prompt and reduces operator errors caused by mixed CTA meanings.
+
 ## 2026-03-10
 
 ### Block-first canonical editor model
