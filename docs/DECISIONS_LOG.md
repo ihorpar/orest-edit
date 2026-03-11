@@ -2,11 +2,6 @@
 
 ## 2026-03-10
 
-### Whole-text review cards anchor to one block
-Decision: normalize each whole-text review card to exactly one anchor block, even if a provider returns a wider `blockStart`/`blockEnd` range.
-
-Reason: the review UI is patch-first and diff-first; one card should resolve to one concrete in-editor target so preparing and focus states stay singular instead of multiplying across a block span.
-
 ### Block-first canonical editor model
 Decision: the canonical manuscript state is now a block-first `EditorDocument` with stable block IDs; patch and review actions are block-anchored and replace whole selected block ranges; markdown is removed from the main editor workflow.
 

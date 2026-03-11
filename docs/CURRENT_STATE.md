@@ -14,7 +14,6 @@ Status: Active handoff
 - AI patch apply semantics are whole-block replacement; accepted edits replace the selected block range
 - Paragraph numbering remains visible for navigation and now tracks block IDs instead of markdown paragraphs
 - Whole-text review anchors to block IDs and proposes block-scoped actions instead of offset-scoped edits
-- Whole-text review cards now normalize to a single anchor block even if a provider returns a wider block range
 - `Працюй!` for whole-text review keeps the full anchored block range instead of collapsing to excerpt matches
 - The editor right rail remains the permanent review/action area on desktop
 - The app still supports provider-backed local patching and whole-text review through `/api/edit/patch`, `/api/edit/review`, and `/api/edit/review/proposal`
