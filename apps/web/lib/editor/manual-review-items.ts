@@ -83,7 +83,7 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
       anchorBlockId: orderedBlockIds[orderedBlockIds.length - 1]
     },
     calloutKind: input.recommendationType === "callout" ? input.calloutKind ?? "mechanism" : undefined,
-    visualIntent: input.recommendationType === "visual" ? input.visualIntent ?? "diagram" : undefined,
+    visualIntent: input.recommendationType === "visual" ? input.visualIntent ?? "infographic" : undefined,
     status: "pending",
     origin: "manual",
     manualRequest: {

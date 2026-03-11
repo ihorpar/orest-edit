@@ -54,7 +54,7 @@ const openAiSchema = {
           calloutPrompt: { anyOf: [{ type: "string" }, { type: "null" }] },
           visualIntent: {
             anyOf: [
-              { type: "string", enum: ["diagram", "comparison", "process", "timeline", "scene", "concept"] },
+              { type: "string", enum: ["infographic", "illustration"] },
               { type: "null" }
             ]
           }
@@ -485,7 +485,7 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
       "Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.",
       "Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.",
       "Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
-      "Для visual дозволені visualIntent: diagram, comparison, process, timeline, scene, concept.",
+      "Для visual дозволені visualIntent: infographic або illustration.",
       "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
       "У полях title, reason і recommendation не згадуй raw block id, коди чи жорстко зашиті номери абзаців. UI покаже діапазон окремо.",
       "Усі текстові поля у JSON (title, reason, recommendation, calloutTitle, calloutPreviewText, calloutSummary) мають бути plain text без markdown-розмітки.",

@@ -166,7 +166,7 @@ test("generateReviewAction renders image template placeholders and adds visual-i
           mode: "after",
           anchorBlockId: "p1"
         },
-        visualIntent: "comparison",
+        visualIntent: "infographic",
         status: "pending"
       }
     },
@@ -186,7 +186,7 @@ test("generateReviewAction renders image template placeholders and adds visual-i
 
   assert.equal(response.proposal.kind, "image_prompt");
   assert.ok(requestBody);
-  assert.match(String(requestBody?.input ?? ""), /Тип: comparison/i);
+  assert.match(String(requestBody?.input ?? ""), /Тип: infographic/i);
   assert.match(String(requestBody?.input ?? ""), /Опиши відмінності між блідістю шкіри та пігментацією/i);
   assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
@@ -235,7 +235,7 @@ test("generateReviewAction appends style guide when image template has no visual
           mode: "after",
           anchorBlockId: "p1"
         },
-        visualIntent: "process",
+        visualIntent: "infographic",
         status: "pending"
       }
     },
@@ -293,7 +293,7 @@ test("generateReviewAction normalizes unknown visualStylePreset to calm_gradient
           mode: "after",
           anchorBlockId: "p1"
         },
-        visualIntent: "diagram",
+        visualIntent: "infographic",
         status: "pending"
       }
     },
@@ -345,7 +345,7 @@ test("generateReviewAction strips editorial wrappers from generated image prompt
           mode: "after",
           anchorBlockId: "p1"
         },
-        visualIntent: "process",
+        visualIntent: "infographic",
         status: "pending"
       }
     },
@@ -801,7 +801,7 @@ test("generateReviewAction accepts structured visual JSON with prompt/caption/al
           mode: "after",
           anchorBlockId: "p1"
         },
-        visualIntent: "comparison",
+        visualIntent: "infographic",
         status: "pending"
       }
     },

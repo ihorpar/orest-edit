@@ -81,7 +81,7 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
   additionalInstructions: ""
 };
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
-const defaultManualVisualIntent: EditorialVisualIntent = "diagram";
+const defaultManualVisualIntent: EditorialVisualIntent = "infographic";
 const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
 const defaultLocalActionMode = "patch" as const;
 

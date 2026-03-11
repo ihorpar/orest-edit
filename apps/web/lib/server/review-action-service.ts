@@ -27,6 +27,7 @@ const anthropicVersion = "2023-06-01";
 const requestTimeoutMs = 45000;
 
 type FetchLike = typeof fetch;
+type InfographicLayout = "comparison" | "process" | "timeline" | "cause_effect" | "layers" | "diagram";
 
 export interface GenerateReviewActionOptions {
   fetchImpl?: FetchLike;
@@ -303,6 +304,7 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
   const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
+  const visualIntent = request.item.visualIntent ?? "infographic";
 
   return {
     id: createPatchId("proposal-image"),
@@ -313,9 +315,9 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     summary: request.item.reason,
     canApplyDirectly: false,
     imageDraft: {
-      visualIntent: request.item.visualIntent ?? "diagram",
+      visualIntent,
       visualStylePreset,
-      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram", visualStyleGuide),
+      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
       alt: request.item.title,
       caption: request.item.recommendation,
       targetModel: "gemini-3.1-flash-image-preview"
@@ -409,13 +411,14 @@ async function createImagePromptProposal(
   const excerpt = getRequestExcerpt(request);
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
   const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
+  const visualIntent = request.item.visualIntent ?? "infographic";
   const result = request.provider === "gemini"
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const parsed = parseImageDraftOutput(result, {
-    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram", visualStyleGuide),
+    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
     caption: request.item.recommendation,
     alt: request.item.title
   });
@@ -432,7 +435,7 @@ async function createImagePromptProposal(
       summary: request.item.reason,
       canApplyDirectly: false,
       imageDraft: {
-        visualIntent: request.item.visualIntent ?? "diagram",
+        visualIntent,
         visualStylePreset,
         prompt: parsed.prompt,
         alt: parsed.alt,
@@ -490,7 +493,10 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     ].join("\n\n");
   }
 
-  const visualIntent = request.item.visualIntent ?? "diagram";
+  const visualIntent = request.item.visualIntent ?? "infographic";
+  const inferredInfographicLayout = visualIntent === "infographic"
+    ? inferInfographicLayout(excerpt, request.item.recommendation)
+    : null;
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
   const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
   const template = interpolatePromptTemplate(request.imagePromptTemplate?.trim(), {
@@ -505,10 +511,11 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
+    inferredInfographicLayout ? `Автовибраний формат інфографіки: ${getInfographicLayoutLabel(inferredInfographicLayout)}.` : null,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualStyleGuide")
       ? null
       : `Обраний стиль (${getVisualStylePresetLabel(visualStylePreset)}): ${visualStyleGuide}`,
-    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`,
+    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent, excerpt, request.item.recommendation)}`,
     "Бажаний формат відповіді: JSON {\"prompt\":\"...\",\"caption\":\"...\",\"alt\":\"...\"}. Поля caption і alt опційні.",
     "Якщо повертаєш не JSON, увесь текст відповіді буде використано як image prompt.",
     "Поле prompt або plain-text відповідь має бути без markdown, нумерації, секцій чи службових пояснень.",
@@ -533,21 +540,78 @@ function templateContainsPlaceholder(template: string | undefined, key: string):
   return template?.includes(`{{${key}}}`) ?? false;
 }
 
-function getVisualIntentPromptGuidance(visualIntent: EditorialVisualIntent): string {
-  switch (visualIntent) {
+function getVisualIntentPromptGuidance(
+  visualIntent: EditorialVisualIntent,
+  fragment: string,
+  recommendation: string
+): string {
+  if (visualIntent === "illustration") {
+    return "Побудуй одну цілісну пояснювальну ілюстрацію або сцену без табличної сітки; головну ідею передай через композиційний центр, 1-2 ключові об'єкти й чіткий візуальний акцент.";
+  }
+
+  const layout = inferInfographicLayout(fragment, recommendation);
+  return `Це інфографіка. Автовибраний формат: ${getInfographicLayoutLabel(layout)}. ${getInfographicLayoutGuidance(layout)}`;
+}
+
+function inferInfographicLayout(fragment: string, recommendation: string): InfographicLayout {
+  const source = `${fragment} ${recommendation}`.toLowerCase();
+
+  if (/(порівня|відмін|різниц|vs|versus|до\/після|before\/after|проти)/i.test(source)) {
+    return "comparison";
+  }
+
+  if (/(таймлайн|хронолог|у часі|по роках|рок[ауів]?|місяц|тижд|дн(і|я)|фаза)/i.test(source)) {
+    return "timeline";
+  }
+
+  if (/(крок|послідов|процес|етап|спочатку|далі|потім|шлях)/i.test(source)) {
+    return "process";
+  }
+
+  if (/(причин|наслід|вплив|веде до|виклика|залеж|вісь|cause|effect)/i.test(source)) {
+    return "cause_effect";
+  }
+
+  if (/(шар|зріз|рівень|епідерм|дерм|бар[’']?єр|мембран|структур)/i.test(source)) {
+    return "layers";
+  }
+
+  return "diagram";
+}
+
+function getInfographicLayoutLabel(layout: InfographicLayout): string {
+  switch (layout) {
     case "comparison":
-      return "Побудуй симетричне порівняння 2 або більше станів з узгодженими ракурсами, спільним масштабом і чітко видимою відмінністю.";
+      return "порівняння";
     case "process":
-      return "Покажи послідовність кроків або фаз у правильному порядку; зв'язки між етапами мають читатися з першого погляду.";
+      return "процес";
     case "timeline":
-      return "Покажи хронологію з виразним напрямком часу та короткими етапами без зайвих сюжетних деталей.";
-    case "scene":
-      return "Покажи одну конкретну сцену або ситуацію, у якій головне явище легко зчитується без декоративного фону.";
-    case "concept":
-      return "Побудуй одну узагальнену пояснювальну ілюстрацію навколо центральної ідеї без перевантаження деталями.";
+      return "таймлайн";
+    case "cause_effect":
+      return "причина → наслідок";
+    case "layers":
+      return "шари / зріз";
     case "diagram":
     default:
-      return "Покажи схему з чіткими відношеннями між елементами; головне має читатися через форму, розташування і підписи.";
+      return "схема зв'язків";
+  }
+}
+
+function getInfographicLayoutGuidance(layout: InfographicLayout): string {
+  switch (layout) {
+    case "comparison":
+      return "Побудуй симетричне порівняння 2 або більше станів в одному масштабі з узгодженими ракурсами та одразу видимою відмінністю.";
+    case "process":
+      return "Покажи послідовність кроків або фаз у правильному напрямку; перехід між етапами має читатися з першого погляду.";
+    case "timeline":
+      return "Побудуй лінію часу з чітким напрямком і короткими етапами без сюжетного шуму.";
+    case "cause_effect":
+      return "Покажи причинно-наслідковий ланцюг із явними зв'язками між тригером, передачею сигналу й результатом.";
+    case "layers":
+      return "Покажи шари або зріз структури з чітким розмежуванням рівнів і мінімумом декоративних деталей.";
+    case "diagram":
+    default:
+      return "Покажи схему з чіткими відношеннями між елементами; головне має зчитуватися через форму, розташування і підписи.";
   }
 }
 
@@ -1103,7 +1167,7 @@ function buildFallbackImagePrompt(
 ): string {
   return [
     "Створи простий навчальний візуал українською мовою.",
-    getVisualIntentPromptGuidance(visualIntent),
+    getVisualIntentPromptGuidance(visualIntent, fragment, recommendation),
     `Стиль: ${visualStyleGuide}`,
     `Спирайся тільки на цей фрагмент: ${fragment}`,
     `Редакторська ціль: ${recommendation}`,

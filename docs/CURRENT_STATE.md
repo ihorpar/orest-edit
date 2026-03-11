@@ -28,6 +28,7 @@ Status: Active handoff
 - Callout execution panels no longer render raw prompt text; only kind/title/body + regenerate/insert actions remain
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
 - Visual execution now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) in both manuscript-inline visual cards and manual visual launcher
+- Visual type selection is now intentionally simplified to two user-facing intents (`інфографіка`, `ілюстрація`); when `інфографіка` is selected, prompt assembly auto-picks a concrete composition subtype from the fragment context
 - The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string

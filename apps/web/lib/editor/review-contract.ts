@@ -21,7 +21,7 @@ export type EditorialReviewSuggestedAction = "rewrite_text" | "insert_text" | "p
 export type EditorialReviewPriority = "high" | "medium" | "low";
 export type EditorialReviewInsertionHint = "replace" | "before" | "after";
 export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
-export type EditorialVisualIntent = "diagram" | "comparison" | "process" | "timeline" | "scene" | "concept";
+export type EditorialVisualIntent = "infographic" | "illustration";
 export type VisualStylePreset = "minimal" | "calm_gradient" | "neo_brutal" | "modern_glass";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
 export type EditorialReviewItemOrigin = "review" | "manual";
@@ -275,7 +275,7 @@ const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
   "myths_vs_truth",
   "top_list"
 ];
-const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["diagram", "comparison", "process", "timeline", "scene", "concept"];
+const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["infographic", "illustration"];
 const REVIEW_RECOMMENDATION_TYPE_LABELS: Record<EditorialReviewRecommendationType, string> = {
   rewrite: "переписати",
   expand: "дописати",
@@ -307,12 +307,8 @@ const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
   top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
 };
 const VISUAL_INTENT_LABELS: Record<EditorialVisualIntent, string> = {
-  diagram: "схема",
-  comparison: "порівняння",
-  process: "процес",
-  timeline: "таймлайн",
-  scene: "сцена",
-  concept: "концепт"
+  infographic: "інфографіка",
+  illustration: "ілюстрація"
 };
 
 const LEGACY_RECOMMENDATION_TYPE_MAP: Record<string, EditorialReviewRecommendationType> = {
@@ -326,6 +322,22 @@ const LEGACY_CALLOUT_KIND_MAP: Record<string, EditorialCalloutKind> = {
   mechanism_explained: "mechanism",
   step_by_step: "top_list",
   myth_vs_fact: "myths_vs_truth"
+};
+const LEGACY_VISUAL_INTENT_MAP: Record<string, EditorialVisualIntent> = {
+  diagram: "infographic",
+  comparison: "infographic",
+  process: "infographic",
+  timeline: "infographic",
+  scene: "illustration",
+  concept: "illustration",
+  schema: "infographic",
+  infographic: "infographic",
+  info_graphic: "infographic",
+  illustration: "illustration",
+  illustrative: "illustration",
+  "інфографіка": "infographic",
+  "ілюстрація": "illustration",
+  "иллюстрация": "illustration"
 };
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
@@ -625,7 +637,17 @@ function normalizeCalloutKind(value: unknown): EditorialCalloutKind | undefined 
 }
 
 function normalizeVisualIntent(value: unknown): EditorialVisualIntent | undefined {
-  return REVIEW_VISUAL_INTENTS.includes(value as EditorialVisualIntent) ? (value as EditorialVisualIntent) : undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "_");
+
+  if (REVIEW_VISUAL_INTENTS.includes(normalized as EditorialVisualIntent)) {
+    return normalized as EditorialVisualIntent;
+  }
+
+  return LEGACY_VISUAL_INTENT_MAP[normalized];
 }
 
 function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReviewItem["calloutDraft"] | undefined {

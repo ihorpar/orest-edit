@@ -19,6 +19,11 @@ Decision: `illustration` is not a separate top-level recommendation type; it is 
 
 Reason: media execution should share one UI flow while still allowing different visual intents.
 
+### Visual intent is intentionally two-level
+Decision: user-facing visual intent options are limited to `infographic` and `illustration`; specific infographic composition (`comparison/process/timeline/cause-effect/layers/diagram`) is auto-inferred from fragment context during prompt assembly.
+
+Reason: editors need low-friction controls, while prompt quality still depends on context-aware composition details.
+
 ### Expand is replace, not insert
 Decision: `expand` belongs to the replace-type family and applies through full-block replacement of the selected anchor range.
 

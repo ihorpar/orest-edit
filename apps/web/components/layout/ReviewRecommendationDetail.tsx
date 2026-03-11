@@ -89,7 +89,7 @@ export function ReviewRecommendationDetail({
   const visualStyleOptions = getVisualStylePresetOptions();
   const visualIntentOptions = getEditorialVisualIntentOptions();
   const selectedVisualStylePreset = normalizeVisualStylePreset(activeVisualStylePreset ?? imageDraft?.visualStylePreset);
-  const selectedVisualIntent = imageDraft?.visualIntent ?? item.visualIntent ?? "diagram";
+  const selectedVisualIntent = imageDraft?.visualIntent ?? item.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
 
   return (
