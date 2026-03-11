@@ -10,7 +10,7 @@ test("exportDocumentToDocx builds a docx from block document", async () => {
       { id: "h1", type: "heading", level: 2, content: [{ text: "Назва розділу" }] },
       { id: "p1", type: "paragraph", content: [{ text: "Текст абзацу." }] },
       { id: "l1", type: "bullet_list", items: [[{ text: "Пункт 1" }], [{ text: "Пункт 2" }]] },
-      { id: "c1", type: "callout", kind: "quick_fact", title: [{ text: "Факт" }], body: [[{ text: "Коротке пояснення." }]] },
+      { id: "c1", type: "callout", kind: "mechanism", title: [{ text: "Як це працює" }], body: [[{ text: "Коротке пояснення." }]] },
       { id: "t1", type: "table", rows: [[[{"text":"A1"}],[{"text":"B1"}]], [[{"text":"A2"}],[{"text":"B2"}]]] }
     ]
   };

@@ -793,8 +793,7 @@ textarea:focus {
 }
 
 /* Wider logic for complex drafting inside the pendant */
-.editorial-review-detail[data-layout="pendant"][data-type="visualize"],
-.editorial-review-detail[data-layout="pendant"][data-type="illustration"],
+.editorial-review-detail[data-layout="pendant"][data-type="visual"],
 .editorial-review-detail[data-layout="pendant"][data-type="callout"] {
   width: min(100%, 640px);
 }
@@ -2821,18 +2820,26 @@ textarea:focus {
   color: #1e293b;
 }
 
+.manuscript-callout[data-kind="analogy"],
 .manuscript-callout[data-kind="mini_story"] {
   border-left-color: #0f766e;
 }
 
+.manuscript-callout[data-kind="mechanism"],
 .manuscript-callout[data-kind="mechanism_explained"] {
   border-left-color: #0284c7;
 }
 
+.manuscript-callout[data-kind="everyday_application"] {
+  border-left-color: #0891b2;
+}
+
+.manuscript-callout[data-kind="top_list"],
 .manuscript-callout[data-kind="step_by_step"] {
   border-left-color: #2563eb;
 }
 
+.manuscript-callout[data-kind="myths_vs_truth"],
 .manuscript-callout[data-kind="myth_vs_fact"] {
   border-left-color: #7c3aed;
 }
@@ -4010,13 +4017,8 @@ textarea:focus {
     border-color: #cfe0f6;
   }
 
-  .editorial-review-card[data-type="visualize"],
-  .editorial-review-detail[data-type="visualize"] {
-    border-left-color: #0f766e;
-  }
-
-  .editorial-review-card[data-type="illustration"],
-  .editorial-review-detail[data-type="illustration"] {
+  .editorial-review-card[data-type="visual"],
+  .editorial-review-detail[data-type="visual"] {
     border-left-color: #7c3aed;
   }
 
@@ -4277,13 +4279,8 @@ textarea:focus {
   border-color: #cfe0f6;
 }
 
-.editorial-review-card[data-type="visualize"],
-.editorial-review-detail[data-type="visualize"] {
-  border-left-color: #0f766e;
-}
-
-.editorial-review-card[data-type="illustration"],
-.editorial-review-detail[data-type="illustration"] {
+.editorial-review-card[data-type="visual"],
+.editorial-review-detail[data-type="visual"] {
   border-left-color: #7c3aed;
 }
 

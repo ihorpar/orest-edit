@@ -1,5 +1,52 @@
 # DECISIONS_LOG
 
+## 2026-03-11
+
+### Multi-block recommendations stay valid
+Decision: whole-text review recommendations may anchor one or more contiguous blocks, but the execution UI must remain singular per recommendation.
+
+Reason: editorial issues often span several adjacent paragraphs, yet the editor should still present one task, one anchor, and one execution card instead of multiplying UI artifacts across the range.
+
+### Final review taxonomy for the inline execution phase
+Decision: the top-level review suggestion types are `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`. `illustration` is not a separate top-level type; it is represented through `visualIntent` inside `visual`.
+
+Reason: the rail and editor need a compact, behavior-oriented taxonomy. Separating visual intent from top-level type keeps the interaction model smaller and easier to execute in place.
+
+### Expand is replace, not insert
+Decision: `expand` belongs to the replace-type family and is applied through full-block replacement of the selected anchor range.
+
+Reason: the current editor safely supports whole-block replacement. Treating `expand` as insertion would create a second ambiguous flow and weaken prompt clarity.
+
+### Full-paragraph-only review apply
+Decision: replace-type review suggestions operate on full blocks only. Phrase-level diffs, character-offset edits, and partial-paragraph apply semantics are out of scope for this phase.
+
+Reason: trust and implementation safety both improve when review apply stays aligned with the block-first editor model instead of mixing block and substring semantics.
+
+### Subsection means subheading insertion
+Decision: `subsection` inserts a subheading before the first affected block and may optionally include a short lead paragraph.
+
+Reason: subsection recommendations are useful only if they have a narrow, predictable effect. “Insert subheading before the fragment” is concrete enough to design, prompt, and test.
+
+### Approved callout taxonomy
+Decision: the allowed callout kinds are `mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, and `top_list`.
+
+Reason: these kinds fit the science-pop and medical-pop editorial use case better than the previous generic taxonomy and map cleanly to distinct manuscript block treatments.
+
+### Ukrainian prompt contracts throughout the review flow
+Decision: recommendation-generation prompts, execution prompts, callout prompts, visual prompt-generation prompts, and generated image prompts are all written in Ukrainian.
+
+Reason: the product language is Ukrainian, and English prompt leakage would make both editor review and manual prompt editing feel inconsistent and lower-trust.
+
+### Insertion anchors by suggestion type
+Decision: `subsection` inserts before the first affected block, while `callout` and `visual` insert after the affected range.
+
+Reason: this creates one unambiguous placement rule per insert-type suggestion and matches the intended “below the fragment” behavior for callouts and visuals.
+
+### Safe subsection handling before inline insertion UI exists
+Decision: until the dedicated inline subsection execution card exists, preparing a `subsection` recommendation must stop with a safe unsupported result instead of falling through to replace-block diff generation.
+
+Reason: the normalized review contract says `subsection` is an insertion-before action. Generating a replace diff for it would violate that contract and produce misleading editor behavior.
+
 ## 2026-03-10
 
 ### Block-first canonical editor model

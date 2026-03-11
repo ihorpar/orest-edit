@@ -9,8 +9,7 @@ const typeLabels: Record<EditorialReviewItem["recommendationType"], string> = {
   list: "список",
   subsection: "підрозділ",
   callout: "врізка",
-  visualize: "схема",
-  illustration: "ілюстрація"
+  visual: "візуал"
 };
 
 const priorityLabels: Record<EditorialReviewItem["priority"], string> = {

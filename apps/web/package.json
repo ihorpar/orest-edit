@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/patch-contract.test.ts test/patch-service.test.ts test/review-service.test.ts test/review-image-service.test.ts test/review-image-job-service.test.ts test/docx-export.test.ts test/password-auth.test.ts"
+    "test": "node --import tsx --test test/patch-contract.test.ts test/patch-service.test.ts test/review-contract.test.ts test/review-service.test.ts test/review-action-service.test.ts test/review-image-service.test.ts test/review-image-job-service.test.ts test/docx-export.test.ts test/password-auth.test.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.2",

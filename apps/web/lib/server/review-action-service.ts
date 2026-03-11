@@ -8,7 +8,7 @@ import type {
   ReviewActionRequest,
   ReviewActionResponse
 } from "../editor/review-contract.ts";
-import { getEditorialCalloutKindLabel } from "../editor/review-contract.ts";
+import { getEditorialCalloutKindLabel, isReplaceReviewType } from "../editor/review-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 import { generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -57,7 +57,22 @@ export async function generateReviewAction(
     };
   }
 
-  if (request.item.suggestedAction === "rewrite_text" || request.item.suggestedAction === "insert_text") {
+  if (request.item.recommendationType === "subsection") {
+    const message = "Рекомендації типу «підрозділ» уже нормалізуються окремо, але inline-підготовка для них ще не реалізована.";
+
+    return {
+      proposal: createStaleProposal(request, message),
+      providerUsed: "unsupported-subsection",
+      usedFallback: false,
+      error: message,
+      diagnostics: {
+        ...diagnosticsBase,
+        proposalKind: "stale_anchor"
+      }
+    };
+  }
+
+  if (isReplaceReviewType(request.item.recommendationType)) {
     const patchRequest: PatchRequest = {
       document: request.document,
       targetBlockIds: request.item.anchor.blockIds,
@@ -205,8 +220,9 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
   return [
     `Редакторська рекомендація: ${request.item.recommendation}`,
     `Причина: ${request.item.reason}`,
+    request.item.recommendationType === "expand" ? "Розкрий логіку ясніше, але не додавай нових фактів." : null,
     request.item.recommendationType === "list" ? "Поверни структурований список, якщо це робить фрагмент читабельнішим." : null,
-    request.item.suggestedAction === "insert_text" ? "Можна додати короткий пояснювальний блок, але працюй локально біля вибраних абзаців." : null
+    request.item.recommendationType === "simplify" ? "Спрости мову для широкого читача без втрати змісту." : null
   ]
     .filter(Boolean)
     .join("\n");
@@ -214,7 +230,7 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
 
 function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
-  const calloutKind: EditorialCalloutKind = request.item.calloutKind ?? "quick_fact";
+  const calloutKind: EditorialCalloutKind = request.item.calloutKind ?? "mechanism";
 
   return {
     id: createPatchId("proposal-callout"),
@@ -278,8 +294,8 @@ async function createCalloutProposal(
       summary: request.item.reason,
       canApplyDirectly: true,
       calloutDraft: {
-        calloutKind: request.item.calloutKind ?? "quick_fact",
-        title: request.item.calloutDraft?.title ?? getEditorialCalloutKindLabel(request.item.calloutKind ?? "quick_fact"),
+        calloutKind: request.item.calloutKind ?? "mechanism",
+        title: request.item.calloutDraft?.title ?? getEditorialCalloutKindLabel(request.item.calloutKind ?? "mechanism"),
         prompt: result,
         previewText: request.item.anchor.excerpt.slice(0, 180)
       }
@@ -327,7 +343,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
   if (mode === "callout") {
     return [
       request.calloutPromptTemplate?.trim(),
-      `Тип врізки: ${getEditorialCalloutKindLabel(request.item.calloutKind ?? "quick_fact")}`,
+      `Тип врізки: ${getEditorialCalloutKindLabel(request.item.calloutKind ?? "mechanism")}`,
       `Фрагмент: ${excerpt}`,
       `Рекомендація: ${request.item.recommendation}`
     ]
@@ -339,7 +355,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     request.imagePromptTemplate?.trim(),
     `Фрагмент: ${excerpt}`,
     `Рекомендація: ${request.item.recommendation}`,
-    `Visual intent: ${request.item.visualIntent ?? "diagram"}`
+    `Тип візуалу: ${request.item.visualIntent ?? "diagram"}`
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -32,18 +32,18 @@ const openAiSchema = {
           recommendation: { type: "string" },
           recommendationType: {
             type: "string",
-            enum: ["rewrite", "expand", "simplify", "list", "subsection", "callout", "visualize", "illustration"]
+            enum: ["rewrite", "expand", "simplify", "list", "subsection", "callout", "visual"]
           },
           suggestedAction: { type: "string", enum: ["rewrite_text", "insert_text", "prepare_callout", "prepare_visual"] },
           priority: { type: "string", enum: ["high", "medium", "low"] },
           blockStart: { type: "integer" },
           blockEnd: { type: "integer" },
           excerpt: { type: "string" },
-          insertionHint: { type: "string", enum: ["replace", "before", "after", "subsection_after"] },
+          insertionHint: { type: "string", enum: ["replace", "before", "after"] },
           anchorBlockId: { anyOf: [{ type: "string" }, { type: "null" }] },
           calloutKind: {
             anyOf: [
-              { type: "string", enum: ["quick_fact", "mini_story", "mechanism_explained", "step_by_step", "myth_vs_fact"] },
+              { type: "string", enum: ["mechanism", "analogy", "everyday_application", "myths_vs_truth", "top_list"] },
               { type: "null" }
             ]
           },
@@ -473,8 +473,13 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
     basePrompts.push(
       "Зараз етап ГЕНЕРАЦІЇ ПРАВОК. На основі попереднього аналізу та діалогу з користувачем, запропонуй конкретні локальні зміни.",
       "Кожна рекомендація має бути прив'язана до одного або кількох суміжних block index.",
-      "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visualize', 'illustration'.",
-      "Значення suggestedAction: 'rewrite_text', 'prepare_callout', 'prepare_visual'.",
+      "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.",
+      "replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.",
+      "Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.",
+      "Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.",
+      "Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.",
+      "Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
+      "Для visual дозволені visualIntent: diagram, comparison, process, timeline, scene, concept.",
       "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
     );
   }
@@ -578,11 +583,11 @@ export function createFallbackEditorialReviewItems(request: EditorialReviewReque
           excerpt: nextText.slice(0, 280),
           insertionHint: "after",
           anchorBlockId: nextBlock.id,
-          calloutKind: "mechanism_explained",
+          calloutKind: "mechanism",
           calloutTitle: "Як це працює",
           calloutPreviewText: nextText.slice(0, 160),
           calloutSummary: "Підсилити пояснення окремою врізкою.",
-          calloutPrompt: buildFallbackCalloutPrompt("mechanism_explained", nextText, "Пояснити механізм простими словами."),
+          calloutPrompt: buildFallbackCalloutPrompt("mechanism", nextText, "Пояснити механізм простими словами."),
           visualIntent: null
         });
       }
@@ -605,7 +610,7 @@ function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialRev
     }
 
     const excerpt = item.anchor.excerpt || item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
-    const kind: EditorialCalloutKind = item.calloutKind ?? "quick_fact";
+    const kind: EditorialCalloutKind = item.calloutKind ?? "mechanism";
 
     return {
       ...item,

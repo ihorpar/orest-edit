@@ -556,7 +556,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
-            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "quick_fact", title: [createInlineText("Короткий факт")], body: [[createInlineText("")]] }))}
+            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "mechanism", title: [createInlineText("Як це працює")], body: [[createInlineText("")]] }))}
             disabled={disabled}
             title="Врізка"
           >
@@ -1168,8 +1168,8 @@ function toCalloutBlock(block: Block): CalloutBlock {
   return {
     id: block.id,
     type: "callout",
-    kind: "quick_fact",
-    title: [createInlineText("Короткий факт")],
+    kind: "mechanism",
+    title: [createInlineText("Як це працює")],
     body: [[createInlineText(getBlockPreviewText(block))]]
   };
 }

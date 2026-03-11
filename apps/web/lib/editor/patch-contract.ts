@@ -284,7 +284,7 @@ function normalizeUnknownBlock(block: unknown): Block | null {
   }
 
   if (type === "callout") {
-    const kind = typeof record.kind === "string" ? record.kind : "quick_fact";
+    const kind = typeof record.kind === "string" ? record.kind : "mechanism";
     const body = Array.isArray(record.body) ? record.body.map((part) => normalizeInlineArray(part)) : [];
     return {
       id,

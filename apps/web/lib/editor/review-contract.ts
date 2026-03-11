@@ -16,12 +16,11 @@ export type EditorialReviewRecommendationType =
   | "list"
   | "subsection"
   | "callout"
-  | "visualize"
-  | "illustration";
+  | "visual";
 export type EditorialReviewSuggestedAction = "rewrite_text" | "insert_text" | "prepare_callout" | "prepare_visual";
 export type EditorialReviewPriority = "high" | "medium" | "low";
-export type EditorialReviewInsertionHint = "replace" | "before" | "after" | "subsection_after";
-export type EditorialCalloutKind = "quick_fact" | "mini_story" | "mechanism_explained" | "step_by_step" | "myth_vs_fact";
+export type EditorialReviewInsertionHint = "replace" | "before" | "after";
+export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
 export type EditorialVisualIntent = "diagram" | "comparison" | "process" | "timeline" | "scene" | "concept";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
@@ -233,8 +232,7 @@ const REVIEW_RECOMMENDATION_TYPES: EditorialReviewRecommendationType[] = [
   "list",
   "subsection",
   "callout",
-  "visualize",
-  "illustration"
+  "visual"
 ];
 const REVIEW_SUGGESTED_ACTIONS: EditorialReviewSuggestedAction[] = [
   "rewrite_text",
@@ -243,28 +241,41 @@ const REVIEW_SUGGESTED_ACTIONS: EditorialReviewSuggestedAction[] = [
   "prepare_visual"
 ];
 const REVIEW_PRIORITIES: EditorialReviewPriority[] = ["high", "medium", "low"];
-const REVIEW_INSERTION_HINTS: EditorialReviewInsertionHint[] = ["replace", "before", "after", "subsection_after"];
+const REVIEW_INSERTION_HINTS: EditorialReviewInsertionHint[] = ["replace", "before", "after"];
 const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
-  "quick_fact",
-  "mini_story",
-  "mechanism_explained",
-  "step_by_step",
-  "myth_vs_fact"
+  "mechanism",
+  "analogy",
+  "everyday_application",
+  "myths_vs_truth",
+  "top_list"
 ];
 const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["diagram", "comparison", "process", "timeline", "scene", "concept"];
 const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
-  quick_fact: "факт",
-  mini_story: "історія",
-  mechanism_explained: "механізм",
-  step_by_step: "покроково",
-  myth_vs_fact: "міф-факт"
+  mechanism: "механізм",
+  analogy: "аналогія",
+  everyday_application: "у побуті",
+  myths_vs_truth: "міфи й правда",
+  top_list: "список"
 };
 const CALLOUT_KIND_TITLE_LABELS: Record<EditorialCalloutKind, string> = {
-  quick_fact: "Короткий факт",
-  mini_story: "Мініісторія",
-  mechanism_explained: "Як це працює",
-  step_by_step: "Покроково",
-  myth_vs_fact: "Міф і факт"
+  mechanism: "Як це працює",
+  analogy: "Аналогія",
+  everyday_application: "У повсякденні",
+  myths_vs_truth: "Міфи й правда",
+  top_list: "Ключові пункти"
+};
+
+const LEGACY_RECOMMENDATION_TYPE_MAP: Record<string, EditorialReviewRecommendationType> = {
+  visualize: "visual",
+  illustration: "visual"
+};
+
+const LEGACY_CALLOUT_KIND_MAP: Record<string, EditorialCalloutKind> = {
+  quick_fact: "mechanism",
+  mini_story: "analogy",
+  mechanism_explained: "mechanism",
+  step_by_step: "top_list",
+  myth_vs_fact: "myths_vs_truth"
 };
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
@@ -281,8 +292,40 @@ export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, "-");
-  const entry = Object.entries(CALLOUT_KIND_LABELS).find(([, label]) => label === normalized);
+  const entry = Object.entries(CALLOUT_KIND_LABELS).find(([, label]) => label.trim().toLowerCase().replace(/\s+/g, "-") === normalized);
   return (entry?.[0] as EditorialCalloutKind | undefined) ?? null;
+}
+
+export function getSuggestedActionForRecommendationType(type: EditorialReviewRecommendationType): EditorialReviewSuggestedAction {
+  if (type === "callout") {
+    return "prepare_callout";
+  }
+
+  if (type === "visual") {
+    return "prepare_visual";
+  }
+
+  if (type === "subsection") {
+    return "insert_text";
+  }
+
+  return "rewrite_text";
+}
+
+export function getInsertionHintForRecommendationType(type: EditorialReviewRecommendationType): EditorialReviewInsertionHint {
+  if (type === "subsection") {
+    return "before";
+  }
+
+  if (type === "callout" || type === "visual") {
+    return "after";
+  }
+
+  return "replace";
+}
+
+export function isReplaceReviewType(type: EditorialReviewRecommendationType): boolean {
+  return getSuggestedActionForRecommendationType(type) === "rewrite_text";
 }
 
 export function resolveReviewImageAssetUrl(asset: GeneratedReviewImageAsset): string | null {
@@ -360,7 +403,7 @@ export function normalizeEditorialReviewItems(input: {
       reason,
       recommendation,
       recommendationType: normalizeRecommendationType(record.recommendationType),
-      suggestedAction: normalizeSuggestedAction(record.suggestedAction),
+      suggestedAction: normalizeSuggestedAction(record.recommendationType, record.suggestedAction),
       priority: normalizePriority(record.priority),
       anchor: {
         blockIds,
@@ -369,7 +412,7 @@ export function normalizeEditorialReviewItems(input: {
         fingerprint: computeAnchorFingerprint(input.document, blockIds)
       },
       insertionPoint: {
-        mode: normalizeInsertionHint(record.insertionHint),
+        mode: normalizeInsertionHint(record.recommendationType, record.insertionHint),
         anchorBlockId: typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId : insertionAnchor
       },
       calloutKind: normalizeCalloutKind(record.calloutKind),
@@ -427,23 +470,63 @@ export function reconcileReviewItemsWithRevision(
 }
 
 function normalizeRecommendationType(value: unknown): EditorialReviewRecommendationType {
-  return REVIEW_RECOMMENDATION_TYPES.includes(value as EditorialReviewRecommendationType) ? (value as EditorialReviewRecommendationType) : "rewrite";
+  if (typeof value === "string") {
+    const normalized = value.trim();
+
+    if (REVIEW_RECOMMENDATION_TYPES.includes(normalized as EditorialReviewRecommendationType)) {
+      return normalized as EditorialReviewRecommendationType;
+    }
+
+    if (normalized in LEGACY_RECOMMENDATION_TYPE_MAP) {
+      return LEGACY_RECOMMENDATION_TYPE_MAP[normalized];
+    }
+  }
+
+  return "rewrite";
 }
 
-function normalizeSuggestedAction(value: unknown): EditorialReviewSuggestedAction {
-  return REVIEW_SUGGESTED_ACTIONS.includes(value as EditorialReviewSuggestedAction) ? (value as EditorialReviewSuggestedAction) : "rewrite_text";
+function normalizeSuggestedAction(recommendationType: unknown, value: unknown): EditorialReviewSuggestedAction {
+  const normalizedType = normalizeRecommendationType(recommendationType);
+  const expected = getSuggestedActionForRecommendationType(normalizedType);
+
+  if (value === expected) {
+    return expected;
+  }
+
+  return REVIEW_SUGGESTED_ACTIONS.includes(value as EditorialReviewSuggestedAction) ? expected : expected;
 }
 
 function normalizePriority(value: unknown): EditorialReviewPriority {
   return REVIEW_PRIORITIES.includes(value as EditorialReviewPriority) ? (value as EditorialReviewPriority) : "medium";
 }
 
-function normalizeInsertionHint(value: unknown): EditorialReviewInsertionHint {
-  return REVIEW_INSERTION_HINTS.includes(value as EditorialReviewInsertionHint) ? (value as EditorialReviewInsertionHint) : "replace";
+function normalizeInsertionHint(recommendationType: unknown, value: unknown): EditorialReviewInsertionHint {
+  const normalizedType = normalizeRecommendationType(recommendationType);
+  const expected = getInsertionHintForRecommendationType(normalizedType);
+
+  if (value === expected) {
+    return expected;
+  }
+
+  if (value === "subsection_after") {
+    return expected;
+  }
+
+  return REVIEW_INSERTION_HINTS.includes(value as EditorialReviewInsertionHint) ? expected : expected;
 }
 
 function normalizeCalloutKind(value: unknown): EditorialCalloutKind | undefined {
-  return REVIEW_CALLOUT_KINDS.includes(value as EditorialCalloutKind) ? (value as EditorialCalloutKind) : undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  if (REVIEW_CALLOUT_KINDS.includes(normalized as EditorialCalloutKind)) {
+    return normalized as EditorialCalloutKind;
+  }
+
+  return LEGACY_CALLOUT_KIND_MAP[normalized];
 }
 
 function normalizeVisualIntent(value: unknown): EditorialVisualIntent | undefined {
