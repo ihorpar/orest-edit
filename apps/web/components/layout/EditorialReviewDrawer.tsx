@@ -106,7 +106,7 @@ export function EditorialReviewDrawer({
                             </div>
 
                             <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid var(--porcelain)' }}>
-                                {reviewItemsCount > 0 && !reviewLoading ? (
+                                {status === "cards" && !reviewLoading ? (
                                     <div style={{ padding: '20px', background: '#f0fdf4', borderRadius: '6px', textAlign: 'center', border: '1px solid #bbf7d0' }}>
                                         <p style={{ margin: '0 0 12px 0', fontWeight: 500, color: '#166534' }}>Етап завершено. Картки згенеровано.</p>
                                         <Button variant="primary" onClick={onClose}>Перейти до карток</Button>

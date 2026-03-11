@@ -253,6 +253,10 @@ textarea:focus {
 .right-pane {
   background: var(--porcelain);
   overflow-y: auto;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  align-self: start;
 }
 
 .left-pane {

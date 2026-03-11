@@ -163,11 +163,11 @@ export function RightOperationsRail({
         </section>
       ) : null}
 
-      {reviewItems.length > 0 ? (
+      {reviewItems.filter(item => item.status !== 'dismissed').length > 0 ? (
         <section className="rail-section">
           <p className="mono-ui operations-title">Рекомендації</p>
           <div className="operations-stack operations-stack-compact">
-            {reviewItems.map((item) => (
+            {reviewItems.filter(item => item.status !== 'dismissed').map((item) => (
               <EditorialReviewCard
                 key={item.id}
                 item={item}
