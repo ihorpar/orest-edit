@@ -5373,49 +5373,38 @@ textarea:focus {
 }
 
 /* Block Diff Overlay */
-.block-diff-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 2px solid var(--surgical-blue);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+.block-diff-inline-container {
+  border: 1px dashed var(--surgical-blue);
+  padding: 16px;
+  background: #fcfdfe;
+  border-radius: 8px;
+  margin-bottom: 20px;
 }
 
-.diff-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.diff-text-old {
+  font-family: var(--font-manuscript, serif);
+  font-size: 18px;
+  line-height: 1.78;
+  color: #dc2626;
+  text-decoration: line-through;
+  opacity: 0.8;
+  padding: 0 4px;
 }
 
-.diff-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+.diff-textarea.diff-add-editor {
+  border: 1px solid #166534 !important;
+  background: #f0fdf4 !important;
+  color: #166534 !important;
+  font-family: var(--font-manuscript, serif) !important;
+  font-size: 18px !important;
+  line-height: 1.78 !important;
+  border-radius: 4px;
+  width: 100%;
 }
 
-.diff-badge {
-  background: var(--surgical-blue);
-  color: #fff;
-  padding: 4px 8px;
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.diff-reason {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.4;
-}
-
-.diff-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.diff-textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(22, 101, 52, 0.2);
 }
 
 .diff-section {

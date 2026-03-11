@@ -38,6 +38,7 @@ export function RightOperationsRail({
   onFocusReviewItem,
   onPrepareReviewItem,
   onApplyReviewCallout,
+  preparingReviewItemId,
   onDismissReviewItem,
   reviewLoading,
   onAccept,
@@ -60,6 +61,7 @@ export function RightOperationsRail({
   reviewItems: EditorialReviewItem[];
   reviewRevision: ManuscriptRevisionState;
   activeReviewItemId?: string | null;
+  preparingReviewItemId?: string | null;
   history: RequestHistoryItem[];
   isReviewDrawerOpen?: boolean;
   onOpenReviewDrawer: () => void;
@@ -177,6 +179,7 @@ export function RightOperationsRail({
                 onPrepare={onPrepareReviewItem}
                 onApplyCallout={onApplyReviewCallout}
                 onDismiss={onDismissReviewItem}
+                isLoading={item.id === preparingReviewItemId}
               />
             ))}
           </div>

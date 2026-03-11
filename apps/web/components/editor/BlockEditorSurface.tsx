@@ -32,7 +32,8 @@ import {
 } from "../../lib/editor/document-model";
 import {
   getEditorialCalloutKindLabel,
-  type ReviewActionProposal
+  type ReviewActionProposal,
+  type EditorialReviewItem
 } from "../../lib/editor/review-contract";
 import { formatParagraphLabel } from "../../lib/editor/manuscript-structure";
 import { Button } from "../ui/Button";
@@ -76,6 +77,8 @@ export function BlockEditorSurface({
   onFocusedBlockChange,
   onInsertImage,
   activeProposal,
+  preparingReviewItemId,
+  reviewItems = [],
   onAcceptProposal,
   onRejectProposal
 }: {
@@ -88,6 +91,8 @@ export function BlockEditorSurface({
   onFocusedBlockChange: (blockId: string | null) => void;
   onInsertImage: (file: File, anchorBlockId: string | null) => Promise<void>;
   activeProposal?: ReviewActionProposal | null;
+  preparingReviewItemId?: string | null;
+  reviewItems?: EditorialReviewItem[];
   onAcceptProposal?: (proposalId: string, editedText: string) => void;
   onRejectProposal?: (proposalId: string) => void;
 }) {
@@ -596,15 +601,7 @@ export function BlockEditorSurface({
               data-focused={isFocused ? "true" : "false"}
               style={{ position: "relative" }}
             >
-              {activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds[0] === block.id && (
-                <BlockDiffOverlay
-                  oldBlocks={activeProposal.textDiff.oldBlocks}
-                  newBlocks={activeProposal.textDiff.newBlocks}
-                  reason={activeProposal.textDiff.reason}
-                  onAccept={(text) => onAcceptProposal?.(activeProposal.id, text)}
-                  onReject={() => onRejectProposal?.(activeProposal.id)}
-                />
-              )}
+
               <button
                 type="button"
                 className="block-editor-gutter"
@@ -616,25 +613,55 @@ export function BlockEditorSurface({
               </button>
 
               <div className="block-editor-block">
-                <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
-                  ×
-                </button>
-                <BlockRenderer
-                  block={block}
-                  disabled={disabled}
-                  registerEditable={registerEditable}
-                  onEditFocus={handleEditableFocus}
-                  onTextBlockEnter={splitTextBlock}
-                  onTextBlockBackspace={handleTextBlockBackspace}
-                  onSoftBreak={insertLineBreak}
-                  onListItemEnter={handleListItemEnter}
-                  onListItemBackspace={handleListItemBackspace}
-                  onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
-                  onAddTableRow={addTableRow}
-                  onRemoveTableRow={removeTableRow}
-                  onAddTableColumn={addTableColumn}
-                  onRemoveTableColumn={removeTableColumn}
-                />
+                {(() => {
+                  const preparingItem = preparingReviewItemId ? reviewItems.find(i => i.id === preparingReviewItemId) : null;
+                  const isBeingPrepared = preparingItem?.anchor.blockIds.includes(block.id);
+                  const isActiveDiff = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.includes(block.id);
+
+                  if (isBeingPrepared && !isActiveDiff) {
+                    return (
+                      <div className="block-preparing-loader" style={{ padding: '12px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '4px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '13px', color: '#64748b' }}>ШІ обробляє блок... <span className="loading-inline-dots"><span></span><span></span><span></span></span></span>
+                      </div>
+                    );
+                  }
+
+                  if (isActiveDiff) {
+                    return activeProposal!.textDiff?.blockIds[0] === block.id ? (
+                      <BlockDiffOverlay
+                        oldBlocks={activeProposal!.textDiff!.oldBlocks}
+                        newBlocks={activeProposal!.textDiff!.newBlocks}
+                        reason={activeProposal!.textDiff!.reason}
+                        onAccept={(text) => onAcceptProposal?.(activeProposal!.id, text)}
+                        onReject={() => onRejectProposal?.(activeProposal!.id)}
+                      />
+                    ) : null;
+                  }
+
+                  return (
+                    <>
+                      <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
+                        ×
+                      </button>
+                      <BlockRenderer
+                        block={block}
+                        disabled={disabled}
+                        registerEditable={registerEditable}
+                        onEditFocus={handleEditableFocus}
+                        onTextBlockEnter={splitTextBlock}
+                        onTextBlockBackspace={handleTextBlockBackspace}
+                        onSoftBreak={insertLineBreak}
+                        onListItemEnter={handleListItemEnter}
+                        onListItemBackspace={handleListItemBackspace}
+                        onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
+                        onAddTableRow={addTableRow}
+                        onRemoveTableRow={removeTableRow}
+                        onAddTableColumn={addTableColumn}
+                        onRemoveTableColumn={removeTableColumn}
+                      />
+                    </>
+                  );
+                })()}
               </div>
             </div>
           );

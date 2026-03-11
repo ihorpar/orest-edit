@@ -21,39 +21,24 @@ export function BlockDiffOverlay({
     );
 
     return (
-        <div className="block-diff-overlay">
-            <div className="diff-card">
-                <div className="diff-head">
-                    <span className="mono-ui diff-badge">Правка ШІ</span>
-                    <p className="diff-reason">{reason}</p>
-                </div>
-
-                <div className="diff-body">
-                    <div className="diff-section diff-section-old">
-                        <span className="mono-ui diff-label">Було:</span>
-                        <div className="diff-text-old">
-                            {oldBlocks.map((b, i) => (
-                                <p key={i} className="diff-del">
-                                    {getBlockText(b)}
-                                </p>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="diff-section diff-section-new">
-                        <span className="mono-ui diff-label">Новий варіант:</span>
-                        <textarea
-                            className="diff-textarea"
-                            value={editedText}
-                            onChange={(e) => setEditedText(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                <div className="diff-footer button-row">
-                    <Button size="sm" variant="ghost" onClick={onReject}>Відхилити</Button>
-                    <Button size="sm" variant="primary" onClick={() => onAccept(editedText)}>Прийняти</Button>
-                </div>
+        <div className="block-diff-inline-container">
+            <div className="diff-text-old">
+                {oldBlocks.map((b, i) => (
+                    <p key={i} style={{ margin: 0, paddingBottom: i === oldBlocks.length - 1 ? 0 : '8px' }}>
+                        {getBlockText(b)}
+                    </p>
+                ))}
+            </div>
+            <textarea
+                className="diff-textarea diff-add-editor"
+                value={editedText}
+                onChange={(e) => setEditedText(e.target.value)}
+                style={{ resize: 'vertical' }}
+            />
+            <div className="diff-footer button-row" style={{ marginTop: '8px' }}>
+                <span className="diff-reason" style={{ marginRight: 'auto' }}>{reason}</span>
+                <Button size="sm" variant="ghost" onClick={onReject}>Скасувати</Button>
+                <Button size="sm" variant="primary" onClick={() => onAccept(editedText)}>Застосувати</Button>
             </div>
         </div>
     );

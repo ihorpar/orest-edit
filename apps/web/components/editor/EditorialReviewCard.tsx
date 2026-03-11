@@ -26,7 +26,8 @@ export function EditorialReviewCard({
   onFocus,
   onPrepare,
   onApplyCallout,
-  onDismiss
+  onDismiss,
+  isLoading
 }: {
   item: EditorialReviewItem;
   revision: ManuscriptRevisionState;
@@ -35,6 +36,7 @@ export function EditorialReviewCard({
   onPrepare: (item: EditorialReviewItem) => void;
   onApplyCallout: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
+  isLoading?: boolean;
 }) {
   const canApplyCallout = item.suggestedAction === "prepare_callout" && item.calloutDraft;
   const statusLabel = item.status === "ready" ? "ready" : item.status === "applied" ? "applied" : "pending";
@@ -62,7 +64,11 @@ export function EditorialReviewCard({
         </button>
       </div>
       <div className="err-compact-meta">
-        {typeLabels[item.recommendationType]} • {statusLabel}
+        {isLoading ? (
+          <span className="loading-inline-dots"><span></span><span></span><span></span></span>
+        ) : (
+          <>{typeLabels[item.recommendationType]} • {statusLabel}</>
+        )}
       </div>
     </article>
   );

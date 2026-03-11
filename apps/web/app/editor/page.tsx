@@ -82,6 +82,7 @@ export default function EditorPage() {
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
   const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
+  const [preparingReviewItemId, setPreparingReviewItemId] = useState<string | null>(null);
   const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
   const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
   const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
@@ -416,6 +417,7 @@ export default function EditorPage() {
 
   async function prepareReviewItem(item: EditorialReviewItem) {
     setActiveReviewItemId(item.id);
+    setPreparingReviewItemId(item.id);
 
     try {
       const response = await fetch("/api/edit/review/proposal", {
@@ -498,6 +500,8 @@ export default function EditorPage() {
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося підготувати рекомендацію."
       });
+    } finally {
+      setPreparingReviewItemId(null);
     }
   }
 
@@ -605,6 +609,8 @@ export default function EditorPage() {
               onFocusedBlockChange={setFocusedBlockId}
               onInsertImage={handleInsertImage}
               activeProposal={activeProposal}
+              preparingReviewItemId={preparingReviewItemId}
+              reviewItems={reviewItems}
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}
             />
@@ -653,6 +659,7 @@ export default function EditorPage() {
             onFocusReviewItem={focusReviewItem}
             onPrepareReviewItem={(item) => void prepareReviewItem(item)}
             onApplyReviewCallout={applyReviewCallout}
+            preparingReviewItemId={preparingReviewItemId}
             onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
             reviewLoading={isReviewRequestInFlight}
             onAccept={acceptOperation}
