@@ -3,6 +3,7 @@ import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../edito
 import { getBlockText } from "../editor/document-model.ts";
 import type {
   EditorialCalloutKind,
+  EditorialVisualIntent,
   ReviewActionDiagnostics,
   ReviewActionProposal,
   ReviewActionRequest,
@@ -262,7 +263,7 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     canApplyDirectly: false,
     imageDraft: {
       visualIntent: request.item.visualIntent ?? "diagram",
-      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation),
+      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram"),
       alt: request.item.title,
       caption: request.item.recommendation,
       targetModel: "gemini-3.1-flash-image-preview"
@@ -341,25 +342,73 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
 
   if (mode === "callout") {
+    const calloutKind = request.item.calloutKind ?? "mechanism";
+    const template = interpolatePromptTemplate(request.calloutPromptTemplate?.trim(), {
+      calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
+      fragment: excerpt,
+      recommendation: request.item.recommendation
+    });
+
     return [
-      request.calloutPromptTemplate?.trim(),
-      `Тип врізки: ${getEditorialCalloutKindLabel(request.item.calloutKind ?? "mechanism")}`,
-      `Що означає цей тип: ${getEditorialCalloutKindDescription(request.item.calloutKind ?? "mechanism")}`,
-      `Фрагмент: ${excerpt}`,
-      `Рекомендація: ${request.item.recommendation}`
+      template,
+      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
+      `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
+      templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
+      templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`
     ]
       .filter(Boolean)
       .join("\n\n");
   }
 
+  const visualIntent = request.item.visualIntent ?? "diagram";
+  const template = interpolatePromptTemplate(request.imagePromptTemplate?.trim(), {
+    visualIntent,
+    fragment: excerpt,
+    recommendation: request.item.recommendation
+  });
+
   return [
-    request.imagePromptTemplate?.trim(),
-    `Фрагмент: ${excerpt}`,
-    `Рекомендація: ${request.item.recommendation}`,
-    `Тип візуалу: ${request.item.visualIntent ?? "diagram"}`
+    template,
+    templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
+    templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
+    templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
+    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function interpolatePromptTemplate(template: string | undefined, replacements: Record<string, string>): string {
+  if (!template?.trim()) {
+    return "";
+  }
+
+  return Object.entries(replacements).reduce(
+    (result, [key, value]) => result.replaceAll(`{{${key}}}`, value.trim()),
+    template.trim()
+  );
+}
+
+function templateContainsPlaceholder(template: string | undefined, key: string): boolean {
+  return template?.includes(`{{${key}}}`) ?? false;
+}
+
+function getVisualIntentPromptGuidance(visualIntent: EditorialVisualIntent): string {
+  switch (visualIntent) {
+    case "comparison":
+      return "Побудуй симетричне порівняння 2 або більше станів з узгодженими ракурсами, спільним масштабом і чітко видимою відмінністю.";
+    case "process":
+      return "Покажи послідовність кроків або фаз у правильному порядку; зв'язки між етапами мають читатися з першого погляду.";
+    case "timeline":
+      return "Покажи хронологію з виразним напрямком часу та короткими етапами без зайвих сюжетних деталей.";
+    case "scene":
+      return "Покажи одну конкретну сцену або ситуацію, у якій головне явище легко зчитується без декоративного фону.";
+    case "concept":
+      return "Побудуй одну узагальнену пояснювальну ілюстрацію навколо центральної ідеї без перевантаження деталями.";
+    case "diagram":
+    default:
+      return "Покажи схему з чіткими відношеннями між елементами; головне має читатися через форму, розташування і підписи.";
+  }
 }
 
 async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: string, fetchImpl: FetchLike): Promise<string> {
@@ -458,8 +507,14 @@ function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, fragment: string
   ].join("\n");
 }
 
-function buildFallbackImagePrompt(fragment: string, recommendation: string): string {
-  return [`Показати ключову ідею фрагмента.`, `Фрагмент: ${fragment}`, `Редакторська ціль: ${recommendation}`].join("\n");
+function buildFallbackImagePrompt(fragment: string, recommendation: string, visualIntent: EditorialVisualIntent): string {
+  return [
+    "Створи простий навчальний візуал українською мовою.",
+    getVisualIntentPromptGuidance(visualIntent),
+    `Спирайся тільки на цей фрагмент: ${fragment}`,
+    `Редакторська ціль: ${recommendation}`,
+    "Без фотореалізму, зайвого декору, медичних кліше та вигаданих фактів."
+  ].join(" ");
 }
 
 function providerDisplayName(provider: string): string {

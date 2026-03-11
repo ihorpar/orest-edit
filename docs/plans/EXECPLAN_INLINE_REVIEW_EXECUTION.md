@@ -30,13 +30,14 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Aligned suggestedAction/insertionHint mapping by recommendation type.
 - [ ] Build manuscript anchor highlighting with one continuous left border and one active inline execution card.
   - [x] Active recommendation focus state and scroll-to-anchor behavior are in place.
-  - [x] Preparing state now shows one lead loader for the anchor range instead of duplicated loaders for each block.
-  - [ ] Continuous left-side anchor border across the full active range is not implemented.
-  - [ ] Single floating execution card below the full anchor range is not implemented.
+  - [x] Anchor highlighting is now rendered on manuscript rows via `data-review-anchor*` states.
+  - [x] One inline execution surface is rendered below the last block of the active anchor range.
+  - [ ] Visual polish for a truly seamless “continuous border” still needs refinement (current row gap can show tiny seams).
 - [ ] Rebuild `rewrite`, `simplify`, `expand`, and `list` as constrained full-block replace flows.
   - [x] Multi-block diff editing/apply is block-aware (no longer one flattened textarea repeated across blocks).
   - [x] Replace apply still runs through whole-block `replace_blocks` anchored by block IDs.
-  - [ ] Replace-state manuscript rendering (red removed context + green editable replacement in one floating lane) is not implemented.
+  - [x] Text diff execution is now manuscript-inline and attached below the affected range.
+  - [ ] Replace-state manuscript rendering (red removed context + green editable replacement inside anchored paragraphs) is still incomplete.
   - [ ] Block-count output constraints (`rewrite/simplify/expand` exact count, `list` never exceeding selection) are not enforced.
 - [ ] Implement `subsection` as heading insertion before the first affected block.
   - [x] Contract semantics are normalized to `insert_text` + `before`.
@@ -45,26 +46,29 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [ ] Apply-path insertion before the first affected block is not implemented.
 - [ ] Replace the current callout taxonomy and build the full choose-kind, generate, regenerate, and insert flow.
   - [x] Approved callout kinds (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) are in contract and defaults.
-  - [x] Generate/regenerate and insert are working in the active recommendation detail panel.
+  - [x] Generate/regenerate and insert are working from the manuscript-inline execution card.
   - [x] Inserted output is a first-class `callout` block with distinct block styling.
   - [ ] Kind switching before generation is not implemented in the execution UI.
-  - [ ] Manuscript-inline callout execution card is not implemented.
-- [ ] Merge `visualize` and `illustration` into one `visual` family with visual intents and editable Ukrainian image prompts.
+  - [x] Manuscript-inline callout execution card is implemented.
+- [x] Merge `visualize` and `illustration` into one `visual` family with visual intents and editable Ukrainian image prompts.
   - [x] Legacy `visualize`/`illustration` inputs normalize to `visual`.
   - [x] `visualIntent` is supported in the review contract and review-generation schema.
-  - [x] Editable Ukrainian image prompt exists in the active recommendation detail panel.
-  - [ ] Manuscript-inline `visual` execution card is not implemented.
-- [ ] Wire review-image generation into the manuscript execution UI, including generate, regenerate, preview, and insert-below behavior.
-  - [x] Generate/regenerate/preview/insert behavior exists in the right-rail active detail flow.
+  - [x] Editable Ukrainian image prompt exists in the manuscript-inline execution card.
+  - [x] Manuscript-inline `visual` execution card is implemented.
+- [x] Wire review-image generation into the manuscript execution UI, including generate, regenerate, preview, and insert-below behavior.
+  - [x] Generate/regenerate/preview/insert behavior exists in manuscript-inline execution flow.
   - [x] Insert creates a first-class `image` block after the recommendation anchor.
-  - [ ] Execution is still rail-first, not manuscript-inline.
+  - [x] Execution is manuscript-first; the right rail now acts as recommendation inbox/focus list.
 - [ ] Author dedicated Ukrainian prompt factories for recommendation generation, each suggestion type, each callout kind, and visual/image generation.
   - [x] Ukrainian defaults exist for review, callout, and image prompt templates in settings.
-  - [x] Runtime prompt assembly includes callout-kind description and visual-intent context.
+  - [x] Runtime prompt assembly includes callout-kind description, visual-intent context, and anti-raw-id guidance for user-facing text.
+  - [x] Callout/image prompt-template placeholders now interpolate real fragment, recommendation, and intent values instead of leaking literal `{{...}}` tokens to the model.
+  - [x] The default visual prompt contract now requests one ready-to-send downstream image prompt rather than a Markdown brief with sections and examples.
   - [ ] Dedicated runtime prompt factories per suggestion type (`rewrite`, `simplify`, `expand`, `list`, `subsection`) are not implemented.
   - [ ] Runtime enforcement for anti-hallucination clauses is still mostly template-driven, not fully centralized as factories.
 - [ ] Add tests and browser validation for the full workflow, including stale-anchor handling, block-count constraints, and Ukrainian prompt output.
   - [x] Added/updated tests for taxonomy normalization and subsection fail-safe behavior.
+  - [x] Added regression coverage for user-facing dynamic paragraph range labels and recommendation type labels.
   - [x] Stale-anchor detection is implemented via block-ID and fingerprint checks.
   - [ ] Full workflow coverage for single inline execution lane and block-count guardrails is not implemented.
   - [ ] Browser QA pass for sample4-style inline behavior is still pending.
@@ -72,17 +76,20 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 
 ## Surprises & Discoveries
 
-- Observation: the repo already has most backend primitives needed for this phase.
-  Evidence: whole-text review generation, review proposal generation, first-class `callout` and `image` blocks, and review-image generation endpoints already exist in `apps/web/lib/server` and `/api/edit/review/*`.
+- Observation: the manuscript-first execution lane landed faster than expected once recommendation focus state was unified.
+  Evidence: `BlockEditorSurface.tsx` now computes one highlighted anchor range and renders one inline execution card at the range end.
 
-- Observation: the largest gap is the interaction contract, not raw capability.
-  Evidence: the current code can generate review items and proposal payloads, but the UI still does not provide the sample4-style manuscript-first execution path.
+- Observation: dynamic Ukrainian paragraph labels can coexist with stable ID anchors without changing persistence contracts.
+  Evidence: `review-contract.ts` now computes `Абз. NNN[-NNN]` labels from `revision.blockOrder`, while stale detection still relies on block IDs and fingerprints.
 
-- Observation: stable block IDs already protect anchors better than pure paragraph numbering.
-  Evidence: `apps/web/lib/editor/manuscript-structure.ts` resolves anchors by `block.id` plus fingerprint rather than visible row number alone.
+- Observation: the largest remaining functional gaps are now `subsection` execution and replace-output shape constraints.
+  Evidence: `review-action-service.ts` still fails safe for `subsection`, and `patch-contract.ts` still accepts replacement block counts beyond the selected range.
 
-- Observation: block-count churn is still the highest-risk implementation area.
-  Evidence: replace normalization in `apps/web/lib/editor/patch-contract.ts` can currently emit more replacement blocks than originally selected, and only the original replaced range preserves IDs.
+- Observation: test execution remains environment-blocked despite successful typecheck/build.
+  Evidence: `npm test -w @orest/web` fails in this workspace due `esbuild` platform mismatch (Windows binary under WSL/Linux runtime).
+
+- Observation: callout and image prompt settings exposed placeholders before runtime actually interpolated them.
+  Evidence: `review-action-service.ts` previously appended raw context lines after the template, while `{{fragment}}`, `{{recommendation}}`, and `{{visualIntent}}` were never replaced.
 
 ## Decision Log
 
@@ -118,17 +125,21 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   Rationale: the editor UI and editorial workflow are Ukrainian, so prompt language should not leak into English.
   Date/Author: 2026-03-11 / User-confirmed product direction
 
+- Decision: the visual prompt factory must output one downstream image prompt, not a formatted editorial spec with headings, examples, or prompt-engineering commentary.
+  Rationale: the execution card is an editable prompt surface for generation, so the output must be concise, directly reusable, and free of meta-explanation.
+  Date/Author: 2026-03-11 / Codex implementation pass
+
 - Decision: insertion anchors are explicit by suggestion type.
   Rationale: `subsection` inserts before the first affected block; `callout` and `visual` insert after the affected range, which removes ambiguity and matches the intended manuscript flow.
   Date/Author: 2026-03-11 / User-confirmed product direction
 
 ## Outcomes & Retrospective
 
-This plan exists because the current app already has the technical substrate for review generation, but not yet the correct product execution model. The work here is primarily about aligning contracts, prompts, UI state, and apply behavior with the editorial workflow we agreed on.
+This phase is now partially complete with a meaningful UX shift: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place, replace diffs render inline below the affected range, and `callout`/`visual` execution runs through a manuscript-inline card while the right rail remains an inbox/focus panel.
 
-The plan is intentionally strict. It treats prompt design as part of product behavior, not as implementation detail. It also treats output-shape constraints as a core trust feature, not just a backend validation detail. The biggest implementation risk is still structural churn during replace-type apply, so the plan repeatedly centers block-count safety, stale-anchor invalidation, and single-card execution.
+The remaining high-impact gaps are narrower and clearer than before: dedicated `subsection` insertion flow, strict replace output-shape guardrails, and deeper prompt-factory hardening by suggestion type. Visual prompt generation is now materially safer because placeholder interpolation works and the default contract asks for one reusable downstream prompt instead of a mini brief.
 
-If implemented faithfully, this phase should remove the biggest mismatch between the current app and the intended product: the app will stop behaving like “review cards plus ad hoc proposal handling” and start behaving like a manuscript-first editorial workbench.
+Validation remains mixed. `typecheck` and `build` pass in this environment, while automated tests are still blocked by platform-specific `esbuild` packaging. Browser QA for final sample4-quality visual continuity is still pending.
 
 ## Context and Orientation
 

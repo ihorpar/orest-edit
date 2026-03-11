@@ -73,7 +73,7 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
       provider: "openai",
       modelId: "gpt-5.4",
       apiKey: "test-key",
-      calloutPromptTemplate: "База prompt.",
+      calloutPromptTemplate: "База prompt. Контекст: {{fragment}}. Порада: {{recommendation}}. Тип: {{calloutKindLabel}}.",
       item: {
         id: "review-callout-1",
         reviewSessionId: "review-session-1",
@@ -118,4 +118,71 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Що означає цей тип/i);
   assert.match(String(requestBody?.input ?? ""), /Міф/i);
   assert.match(String(requestBody?.input ?? ""), /Правда/i);
+  assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
+  assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
+  assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
+});
+
+test("generateReviewAction renders image template placeholders and adds visual-intent guidance", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Опиши відмінності між блідістю шкіри та пігментацією." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      imagePromptTemplate: "Збери один prompt. Тип: {{visualIntent}}. Контекст: {{fragment}}. Порада: {{recommendation}}.",
+      item: {
+        id: "review-visual-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати порівняльний візуал",
+        reason: "Матеріал легше сприймається у порівнянні.",
+        recommendation: "Покажи поруч два стани шкіри в одному порівняльному візуалі.",
+        recommendationType: "visual",
+        suggestedAction: "prepare_visual",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Опиши відмінності між блідістю шкіри та пігментацією.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        visualIntent: "comparison",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: "Готовий image prompt."
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.input ?? ""), /Тип: comparison/i);
+  assert.match(String(requestBody?.input ?? ""), /Опиши відмінності між блідістю шкіри та пігментацією/i);
+  assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
+  assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
+  assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}/i);
 });

@@ -44,6 +44,11 @@ Decision: recommendation-generation prompts, execution prompts, callout prompts,
 
 Reason: the product language is Ukrainian, and prompt language should match the editing workflow.
 
+### Visual prompt output is downstream-ready
+Decision: the visual prompt factory must output one ready-to-send image-generation prompt, not a formatted spec with headings, examples, or prompt-engineering commentary.
+
+Reason: the editor is editing the actual downstream prompt, so meta-formatting reduces reuse and increases drift between review intent and generation input.
+
 ### Insertion anchors by suggestion type
 Decision: `subsection` inserts before the first affected block, while `callout` and `visual` insert after the affected range.
 
