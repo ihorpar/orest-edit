@@ -96,6 +96,7 @@ export function BlockEditorSurface({
   onUpdateActiveSubsectionTitle,
   onUpdateActiveSubsectionLead,
   onUpdateActiveImagePrompt,
+  onUpdateActiveImageCaption,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
   reviewImageLoading
@@ -125,6 +126,7 @@ export function BlockEditorSurface({
   onUpdateActiveSubsectionTitle?: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveSubsectionLead?: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
+  onUpdateActiveImageCaption?: (caption: string) => void;
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
   reviewImageLoading?: boolean;
@@ -707,6 +709,7 @@ export function BlockEditorSurface({
                       oldBlocks={activeProposal.textDiff.oldBlocks}
                       newBlocks={activeProposal.textDiff.newBlocks}
                       reason={activeProposal.textDiff.reason}
+                      warning={activeProposal.textDiff.warning}
                       onAccept={(nextBlocks) => onAcceptProposal?.(activeProposal.id, nextBlocks)}
                       onReject={() => onRejectProposal?.(activeProposal.id)}
                     />
@@ -732,6 +735,7 @@ export function BlockEditorSurface({
                       onUpdateActiveSubsectionTitle={(item, title) => onUpdateActiveSubsectionTitle?.(item, title)}
                       onUpdateActiveSubsectionLead={(item, lead) => onUpdateActiveSubsectionLead?.(item, lead)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
+                      onUpdateActiveImageCaption={(caption) => onUpdateActiveImageCaption?.(caption)}
                       onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
                       onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}
                     />

@@ -11,7 +11,7 @@ import {
 } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
-import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
+import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 
 export function ReviewRecommendationDetail({
   item,
@@ -30,6 +30,7 @@ export function ReviewRecommendationDetail({
   onUpdateActiveSubsectionTitle,
   onUpdateActiveSubsectionLead,
   onUpdateActiveImagePrompt,
+  onUpdateActiveImageCaption,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage
 }: {
@@ -49,6 +50,7 @@ export function ReviewRecommendationDetail({
   onUpdateActiveSubsectionTitle: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveSubsectionLead: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveImagePrompt: (prompt: string) => void;
+  onUpdateActiveImageCaption: (caption: string) => void;
   onGenerateActiveReviewImage: () => void;
   onApplyActiveReviewImage: () => void;
 }) {
@@ -68,6 +70,7 @@ export function ReviewRecommendationDetail({
   const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
   const canInsertSubsection = Boolean(subsectionDraft?.title?.trim());
   const rangeLabel = revision ? getReviewParagraphRangeLabel(item, revision) : null;
+  const insertionCopy = revision ? getInsertionContextCopy(item, revision) : null;
 
   return (
     <article className="editorial-review-detail" data-layout={layout} data-type={item.recommendationType}>
@@ -85,10 +88,6 @@ export function ReviewRecommendationDetail({
         </button>
       </div>
 
-      <p className="editorial-review-detail-copy">{item.recommendation}</p>
-      <p className="editorial-review-detail-action">{item.reason}</p>
-      <blockquote className="editorial-review-detail-excerpt">{item.anchor.excerpt}</blockquote>
-
       {isPreparing ? (
         <div className="editorial-review-proposal">
           <p className="editorial-review-image-status">ШІ готує цю рекомендацію…</p>
@@ -105,7 +104,17 @@ export function ReviewRecommendationDetail({
 
       {!isPreparing && proposal?.kind === "text_diff" ? (
         <div className="editorial-review-proposal">
-          <p className="editorial-review-proposal-summary">Чернетка відкрита прямо в рукописі. Перегляньте й застосуйте її в центрі сторінки.</p>
+          <p className="editorial-review-proposal-summary">Чернетка відкрита в рукописі.</p>
+          {proposal.textDiff?.warning ? (
+            <div className="editorial-review-proposal-block editorial-review-proposal-warning">
+              <p className="editorial-review-proposal-summary">{proposal.textDiff.warning.message}</p>
+            </div>
+          ) : null}
+          <div className="editorial-review-detail-actions editorial-review-proposal-actions">
+            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
+              Перегенерувати
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -144,12 +153,7 @@ export function ReviewRecommendationDetail({
               onChange={(event) => onUpdateActiveCalloutBody(item, event.target.value)}
             />
           </div>
-          {calloutDraft?.prompt ? (
-            <details className="editorial-review-prompt-details">
-              <summary>Prompt</summary>
-              <pre className="editorial-review-prompt-pre">{calloutDraft.prompt}</pre>
-            </details>
-          ) : null}
+          {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
               {calloutDraft ? "Перегенерувати" : "Згенерувати"}
@@ -177,12 +181,7 @@ export function ReviewRecommendationDetail({
               onChange={(event) => onUpdateActiveSubsectionLead(item, event.target.value)}
             />
           </div>
-          {subsectionDraft?.prompt ? (
-            <details className="editorial-review-prompt-details">
-              <summary>Prompt</summary>
-              <pre className="editorial-review-prompt-pre">{subsectionDraft.prompt}</pre>
-            </details>
-          ) : null}
+          {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
               {subsectionDraft ? "Перегенерувати" : "Згенерувати"}
@@ -196,18 +195,25 @@ export function ReviewRecommendationDetail({
 
       {!isPreparing && imageDraft ? (
         <div className="editorial-review-proposal">
-          <div className="editorial-review-image-prompt-head">
-            <p className="editorial-review-detail-label">Prompt для візуалу</p>
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
-              Оновити prompt
-            </Button>
-          </div>
+          <p className="editorial-review-detail-label">Prompt для візуалу</p>
           <textarea
             className="editorial-review-image-prompt-input"
             value={imageDraft.prompt}
             onChange={(event) => onUpdateActiveImagePrompt(event.target.value)}
           />
+          <div className="editorial-review-proposal-block">
+            <p className="editorial-review-detail-label">Підпис</p>
+            <input
+              className="editorial-review-callout-title-input"
+              value={imageDraft.caption ?? ""}
+              onChange={(event) => onUpdateActiveImageCaption(event.target.value)}
+            />
+          </div>
+          {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
+            <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
+              Перегенерувати текст
+            </Button>
             <Button size="sm" variant="secondary" onClick={onGenerateActiveReviewImage} loading={reviewImageLoading}>
               {imageDraft.generatedAsset ? "Згенерувати ще раз" : "Згенерувати"}
             </Button>
@@ -218,10 +224,10 @@ export function ReviewRecommendationDetail({
           {imageDraft.generatedAsset ? (
             <div className="editorial-review-image-preview">
               {imageUrl ? <img src={imageUrl} alt={imageDraft.alt} /> : null}
-              <p className="editorial-review-image-status">Зображення готове. Після вставки воно з’явиться нижче виділеного фрагмента.</p>
+              <p className="editorial-review-image-status">Зображення готове до вставки.</p>
             </div>
           ) : (
-            <p className="editorial-review-image-status">Промпт готовий. Запустіть генерацію, щоб побачити preview.</p>
+            <p className="editorial-review-image-status">Промпт готовий до генерації.</p>
           )}
         </div>
       ) : null}
@@ -233,6 +239,28 @@ export function ReviewRecommendationDetail({
           </div>
         </div>
       ) : null}
+
+      <details className="editorial-review-context-details">
+        <summary>Чому це запропоновано</summary>
+        <p className="editorial-review-detail-copy">{item.recommendation}</p>
+        <p className="editorial-review-detail-action">{item.reason}</p>
+        <blockquote className="editorial-review-detail-excerpt">{item.anchor.excerpt}</blockquote>
+      </details>
     </article>
   );
+}
+
+function getInsertionContextCopy(item: EditorialReviewItem, revision: ManuscriptRevisionState): string | null {
+  if (item.insertionPoint.mode !== "before" && item.insertionPoint.mode !== "after") {
+    return null;
+  }
+
+  const anchorIndex = revision.blockOrder.indexOf(item.insertionPoint.anchorBlockId);
+
+  if (anchorIndex < 0) {
+    return null;
+  }
+
+  const paragraph = formatParagraphLabel(anchorIndex);
+  return item.insertionPoint.mode === "before" ? `Вставка перед Абз. ${paragraph}` : `Вставка після Абз. ${paragraph}`;
 }

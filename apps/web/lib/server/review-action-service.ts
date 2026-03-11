@@ -1,6 +1,6 @@
 import { createPatchId, type PatchRequest } from "../editor/patch-contract.ts";
 import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../editor/manuscript-structure.ts";
-import { createInlineText, getBlockText, type Block } from "../editor/document-model.ts";
+import { createInlineText, getBlockText, getInlineText, type Block } from "../editor/document-model.ts";
 import type {
   EditorialCalloutKind,
   EditorialReviewRecommendationType,
@@ -115,6 +115,13 @@ export async function generateReviewAction(
       };
     }
 
+    const normalizedOperation = normalizeReviewTextDiffOperation(constrainedOperation, request.item.recommendationType);
+    const qualityWarning = detectReplaceNoOpWarning(
+      request.item.recommendationType,
+      normalizedOperation.oldBlocks,
+      normalizedOperation.newBlocks
+    );
+
     return {
       proposal: {
         id: createPatchId("proposal"),
@@ -126,10 +133,11 @@ export async function generateReviewAction(
         canApplyDirectly: true,
         textDiff: {
           op: "replace_blocks",
-          blockIds: constrainedOperation.blockIds,
-          oldBlocks: constrainedOperation.oldBlocks,
-          newBlocks: constrainedOperation.newBlocks,
-          reason: constrainedOperation.reason
+          blockIds: normalizedOperation.blockIds,
+          oldBlocks: normalizedOperation.oldBlocks,
+          newBlocks: normalizedOperation.newBlocks,
+          reason: normalizedOperation.reason,
+          warning: qualityWarning ?? undefined
         }
       },
       providerUsed: patchResponse.providerUsed,
@@ -394,11 +402,17 @@ async function createImagePromptProposal(
   fetchImpl: FetchLike
 ): Promise<{ proposal: ReviewActionProposal; providerUsed: string; rawOutput?: string }> {
   const prompt = buildProviderPrompt(request, "image");
+  const excerpt = getRequestExcerpt(request);
   const result = request.provider === "gemini"
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+  const parsed = parseImageDraftOutput(result, {
+    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram"),
+    caption: request.item.recommendation,
+    alt: request.item.title
+  });
 
   return {
     providerUsed: request.provider,
@@ -413,9 +427,9 @@ async function createImagePromptProposal(
       canApplyDirectly: false,
       imageDraft: {
         visualIntent: request.item.visualIntent ?? "diagram",
-        prompt: normalizeGeneratedImagePrompt(result),
-        alt: request.item.title,
-        caption: request.item.recommendation,
+        prompt: parsed.prompt,
+        alt: parsed.alt,
+        caption: parsed.caption,
         targetModel: "gemini-3.1-flash-image-preview"
       }
     }
@@ -423,7 +437,7 @@ async function createImagePromptProposal(
 }
 
 function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "image" | "subsection"): string {
-  const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
+  const excerpt = getRequestExcerpt(request);
 
   if (mode === "callout") {
     const calloutKind = request.item.calloutKind ?? "mechanism";
@@ -476,7 +490,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
     `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`,
-    "Формат відповіді: поверни один готовий image prompt як plain text без markdown, нумерації, секцій чи службових пояснень.",
+    "Бажаний формат відповіді: JSON {\"prompt\":\"...\",\"caption\":\"...\",\"alt\":\"...\"}. Поля caption і alt опційні.",
+    "Якщо повертаєш не JSON, увесь текст відповіді буде використано як image prompt.",
+    "Поле prompt або plain-text відповідь має бути без markdown, нумерації, секцій чи службових пояснень.",
     "Поверни текст тільки українською мовою."
   ]
     .filter(Boolean)
@@ -520,13 +536,16 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
   const shared = [
     "Формат результату: лише повна заміна вибраних блоків у форматі block editor; без markdown-розмітки (**жирного**, # заголовків, markdown-списків або code fences).",
     "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
-    "Не додавай нових фактів."
+    "Не додавай нових фактів.",
+    "Зміни мають бути відчутними на рівні формулювань, а не косметичними.",
+    "Не повторюй вихідний текст дослівно."
   ];
 
   if (type === "simplify") {
     return [
       "Тип правки: simplify.",
       "Спрости формулювання для широкого читача без втрати змісту.",
+      "Пояснюй терміни простими словами, скорочуй перевантажені конструкції.",
       `Поверни рівно ${blockCount} replacement blocks.`
     ]
       .concat(shared)
@@ -556,6 +575,7 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
   return [
     "Тип правки: rewrite.",
     "Перепиши фрагмент ясніше і сильніше стилістично без зміни фактичного змісту.",
+    "Перебудуй синтаксис і лексику так, щоб текст читався інакше та легше.",
     `Поверни рівно ${blockCount} replacement blocks.`
   ]
     .concat(shared)
@@ -609,6 +629,27 @@ function constrainReplaceProposalOperation(
   return {
     ...operation,
     newBlocks: nextNewBlocks
+  };
+}
+
+function normalizeReviewTextDiffOperation(
+  operation: NonNullable<ReviewActionProposal["textDiff"]>,
+  recommendationType: EditorialReviewRecommendationType
+): NonNullable<ReviewActionProposal["textDiff"]> {
+  const strictTypePreservation = recommendationType === "rewrite" || recommendationType === "simplify" || recommendationType === "expand";
+  const normalizedNewBlocks = operation.newBlocks.map((block, index) => {
+    const oldBlock = operation.oldBlocks[index];
+
+    if (strictTypePreservation && oldBlock) {
+      return cloneBlockWithText(oldBlock, sanitizeReplacementText(getBlockText(block)));
+    }
+
+    return sanitizeReplacementBlock(block);
+  });
+
+  return {
+    ...operation,
+    newBlocks: normalizedNewBlocks
   };
 }
 
@@ -691,10 +732,145 @@ function cloneBlockWithText(block: Block, text: string): Block {
 function splitListItemsForBlock(text: string): string[] {
   const items = text
     .split(/\n+/)
-    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .map((line) => sanitizeListItemText(line))
     .filter(Boolean);
 
   return items.length > 0 ? items : [""];
+}
+
+function sanitizeReplacementBlock(block: Block): Block {
+  if (block.type === "paragraph" || block.type === "heading") {
+    return cloneBlockWithText(block, sanitizeReplacementText(getBlockText(block)));
+  }
+
+  if (block.type === "bullet_list") {
+    return {
+      ...block,
+      items: block.items.map((item) => [createInlineText(sanitizeListItemText(getInlineText(item)))])
+    };
+  }
+
+  if (block.type === "ordered_list") {
+    return {
+      ...block,
+      items: block.items.map((item) => [createInlineText(sanitizeListItemText(getInlineText(item)))])
+    };
+  }
+
+  if (block.type === "callout") {
+    return {
+      ...block,
+      title: [createInlineText(sanitizeReplacementText(getInlineText(block.title)))],
+      body: block.body.map((part) => [createInlineText(sanitizeReplacementText(getInlineText(part)))])
+    };
+  }
+
+  return block;
+}
+
+function sanitizeListItemText(value: string): string {
+  return sanitizeReplacementText(value).replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+}
+
+function sanitizeReplacementText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function detectReplaceNoOpWarning(
+  recommendationType: EditorialReviewRecommendationType,
+  oldBlocks: Block[],
+  newBlocks: Block[]
+): { code: "no_op"; message: string; similarity: number } | null {
+  if (recommendationType !== "rewrite" && recommendationType !== "simplify") {
+    return null;
+  }
+
+  const source = canonicalizeBlocksForComparison(oldBlocks);
+  const candidate = canonicalizeBlocksForComparison(newBlocks);
+
+  if (!source || !candidate) {
+    return null;
+  }
+
+  const similarity = computeDiceSimilarity(source, candidate);
+
+  if (similarity < 0.94) {
+    return null;
+  }
+
+  return {
+    code: "no_op",
+    message: "Чернетка майже не змінює текст. Перегенеруйте, щоб отримати виразнішу правку.",
+    similarity
+  };
+}
+
+function canonicalizeBlocksForComparison(blocks: Block[]): string {
+  return blocks
+    .map((block) => sanitizeReplacementText(getBlockText(block)).toLowerCase())
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function computeDiceSimilarity(left: string, right: string): number {
+  if (left === right) {
+    return 1;
+  }
+
+  if (left.length < 2 || right.length < 2) {
+    return 0;
+  }
+
+  const leftPairs = createBigramCounts(left);
+  const rightPairs = createBigramCounts(right);
+  let overlap = 0;
+  let leftCount = 0;
+  let rightCount = 0;
+
+  for (const value of leftPairs.values()) {
+    leftCount += value;
+  }
+
+  for (const value of rightPairs.values()) {
+    rightCount += value;
+  }
+
+  for (const [pair, leftValue] of leftPairs.entries()) {
+    const rightValue = rightPairs.get(pair) ?? 0;
+    overlap += Math.min(leftValue, rightValue);
+  }
+
+  if (leftCount === 0 || rightCount === 0) {
+    return 0;
+  }
+
+  return (2 * overlap) / (leftCount + rightCount);
+}
+
+function createBigramCounts(value: string): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (let index = 0; index < value.length - 1; index += 1) {
+    const pair = value.slice(index, index + 2);
+    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+  }
+
+  return counts;
 }
 
 function normalizeGeneratedImagePrompt(raw: string): string {
@@ -720,6 +896,36 @@ function normalizeGeneratedImagePrompt(raw: string): string {
     .replace(/^(Prompt для генерації візуалу|Prompt для генерації|Prompt|Інструкція|Технічне завдання)\s*/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function parseImageDraftOutput(
+  rawOutput: string,
+  fallback: { prompt: string; caption: string; alt: string }
+): { prompt: string; caption: string; alt: string } {
+  const parsedObject = parseLooseJsonObject(rawOutput);
+  const objectPrompt = parsedObject ? pickString(parsedObject, ["prompt", "imagePrompt", "promptText", "text", "content"]) : null;
+  const objectCaption = parsedObject ? pickString(parsedObject, ["caption", "imageCaption", "figcaption"]) : null;
+  const objectAlt = parsedObject ? pickString(parsedObject, ["alt", "altText", "alt_text"]) : null;
+
+  const fallbackPromptValue = normalizeGeneratedImagePrompt(fallback.prompt) || fallback.prompt.trim();
+  const fallbackCaptionValue = sanitizeImageCaption(fallback.caption);
+  const fallbackAltValue = sanitizeImageAlt(fallback.alt);
+
+  if (objectPrompt || objectCaption || objectAlt) {
+    return {
+      prompt: normalizeGeneratedImagePrompt(objectPrompt ?? fallbackPromptValue) || fallbackPromptValue,
+      caption: sanitizeImageCaption(objectCaption ?? fallbackCaptionValue),
+      alt: sanitizeImageAlt(objectAlt ?? fallbackAltValue)
+    };
+  }
+
+  const plainPrompt = normalizeGeneratedImagePrompt(rawOutput);
+
+  return {
+    prompt: plainPrompt || fallbackPromptValue,
+    caption: fallbackCaptionValue,
+    alt: fallbackAltValue
+  };
 }
 
 async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: string, fetchImpl: FetchLike): Promise<string> {
@@ -986,6 +1192,14 @@ function sanitizeCalloutTitle(value: string): string {
   return plain.slice(0, 140);
 }
 
+function sanitizeImageCaption(value: string): string {
+  return sanitizeCalloutText(value).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+function sanitizeImageAlt(value: string): string {
+  return sanitizeCalloutText(value).replace(/\s+/g, " ").trim().slice(0, 140);
+}
+
 function sanitizeCalloutText(value: string): string {
   return value
     .replace(/\r\n?/g, "\n")
@@ -1000,4 +1214,11 @@ function sanitizeCalloutText(value: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function getRequestExcerpt(request: ReviewActionRequest): string {
+  return (
+    request.item.anchor.excerpt ||
+    request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n")
+  );
 }

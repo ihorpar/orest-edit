@@ -5227,8 +5227,7 @@ textarea:focus {
 .block-editor-row[data-review-replace="old"] .block-list-item {
   color: #b42318;
   background: rgba(180, 35, 24, 0.06);
-  text-decoration: line-through;
-  text-decoration-color: rgba(180, 35, 24, 0.5);
+  text-decoration: none;
 }
 
 .block-text {
@@ -5651,6 +5650,44 @@ textarea:focus {
   justify-content: flex-end;
   padding-top: 8px;
   border-top: 1px solid var(--porcelain);
+}
+
+.diff-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.editorial-review-context-details {
+  margin-top: 14px;
+  border-top: 1px solid #e6edf5;
+  padding-top: 10px;
+}
+
+.editorial-review-context-details summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.editorial-review-context-details .editorial-review-detail-copy,
+.editorial-review-context-details .editorial-review-detail-action,
+.editorial-review-context-details .editorial-review-detail-excerpt {
+  margin-top: 10px;
+}
+
+.editorial-review-insertion-note {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* Review Drawer Overlay */

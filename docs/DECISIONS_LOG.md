@@ -49,6 +49,16 @@ Decision: the visual prompt factory must output one ready-to-send image-generati
 
 Reason: the editor is editing the actual downstream prompt, so meta-formatting reduces reuse and increases drift between review intent and generation input.
 
+### Visual proposal parser is dual-mode
+Decision: visual proposal parsing accepts structured JSON with `prompt` plus optional `caption`/`alt`, and still accepts legacy plain-text prompt output.
+
+Reason: providers are inconsistent; dual-mode parsing enables richer metadata without breaking existing generation flow.
+
+### Rewrite/simplify quality warning guardrail
+Decision: rewrite/simplify proposals run normalized-text similarity checks and surface a no-op warning when output is too close to source.
+
+Reason: near-regurgitation proposals should be explicit to the editor so regenerate can be chosen intentionally.
+
 ### Insertion anchors by suggestion type
 Decision: `subsection` inserts before the first affected block, while `callout` and `visual` insert after the affected range.
 

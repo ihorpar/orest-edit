@@ -158,6 +158,11 @@ export interface ReviewActionProposal {
     oldBlocks: Block[];
     newBlocks: Block[];
     reason: string;
+    warning?: {
+      code: "no_op";
+      message: string;
+      similarity: number;
+    };
   };
   calloutDraft?: {
     calloutKind: EditorialCalloutKind;

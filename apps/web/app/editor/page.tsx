@@ -872,6 +872,22 @@ export default function EditorPage() {
     });
   }
 
+  function updateActiveImageCaption(caption: string) {
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "image_prompt" || !current.imageDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        imageDraft: {
+          ...current.imageDraft,
+          caption
+        }
+      };
+    });
+  }
+
   async function generateActiveReviewImage() {
     if (!activeProposal || activeProposal.kind !== "image_prompt" || !activeProposal.imageDraft) {
       return;
@@ -1063,6 +1079,7 @@ export default function EditorPage() {
               onUpdateActiveSubsectionTitle={updateActiveSubsectionTitle}
               onUpdateActiveSubsectionLead={updateActiveSubsectionLead}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
+              onUpdateActiveImageCaption={updateActiveImageCaption}
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
               reviewImageLoading={isReviewImageRequestInFlight}

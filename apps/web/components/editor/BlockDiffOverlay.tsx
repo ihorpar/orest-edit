@@ -8,12 +8,14 @@ export function BlockDiffOverlay({
   oldBlocks,
   newBlocks,
   reason,
+  warning,
   onAccept,
   onReject
 }: {
   oldBlocks: Block[];
   newBlocks: Block[];
   reason: string;
+  warning?: { code: "no_op"; message: string; similarity: number };
   onAccept: (nextBlocks: Block[]) => void;
   onReject: () => void;
 }) {
@@ -31,6 +33,7 @@ export function BlockDiffOverlay({
 
   return (
     <div className="block-diff-inline-container">
+      {warning ? <p className="diff-warning">{warning.message}</p> : null}
       <div className="diff-block-stack">
         {editableBlocks.map(({ block, oldText, newText }, index) => (
           <section key={block.id} className="diff-block-card">

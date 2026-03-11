@@ -38,6 +38,7 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-11 00:00Z) Added dedicated regression tests for single inline execution lane state resolution and subsection insert-before anchor edge cases.
 - [x] (2026-03-11 00:00Z) Resolved local `esbuild` platform mismatch and restored green `npm test -w @orest/web` execution in this workspace.
 - [x] (2026-03-11 00:00Z) Added reusable browser QA command `npm run qa:inline-review -w @orest/web` and validated password-gated inline execution flow (single-lane anchors + manual `callout`/`visual`).
+- [x] (2026-03-11 00:00Z) Completed callout/visual/rewrite-simplify UX pass: hidden callout prompt UI, visual caption parsing+editing, insertion-context labels, collapsible rationale section, no-op warning state for rewrite/simplify, and markdown-leakage cleanup in replace normalization.
 
 ## Surprises & Discoveries
 
@@ -125,6 +126,14 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Decision: `subsection` recommendations now prepare and execute as a first-class `subsection_prompt` flow with editable heading/lead draft and insert-before apply semantics.
   Rationale: this replaces the earlier temporary fail-safe behavior and aligns runtime execution with the agreed UX contract.
+  Date/Author: 2026-03-11 / Codex implementation
+
+- Decision: rewrite/simplify quality guardrails are enforced during review-action normalization (markdown cleanup + near-no-op detection), and no-op outputs surface as explicit warnings with manual regenerate.
+  Rationale: quality checks must happen on normalized block-editor text to avoid false confidence from markdown-only deltas and to keep patch-first review trustworthy.
+  Date/Author: 2026-03-11 / Codex implementation
+
+- Decision: visual prompt proposals accept dual-mode provider output: preferred JSON (`prompt`, optional `caption`, optional `alt`) with plain-text fallback.
+  Rationale: this allows richer media metadata when available while preserving backward compatibility with current provider behavior.
   Date/Author: 2026-03-11 / Codex implementation
 
 ## Outcomes & Retrospective

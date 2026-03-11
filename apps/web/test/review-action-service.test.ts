@@ -188,7 +188,8 @@ test("generateReviewAction renders image template placeholders and adds visual-i
   assert.match(String(requestBody?.input ?? ""), /Опиши відмінності між блідістю шкіри та пігментацією/i);
   assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
-  assert.match(String(requestBody?.input ?? ""), /один готовий image prompt як plain text/i);
+  assert.match(String(requestBody?.input ?? ""), /Бажаний формат відповіді:\s*JSON/i);
+  assert.match(String(requestBody?.input ?? ""), /увесь текст відповіді буде використано як image prompt/i);
   assert.match(String(requestBody?.input ?? ""), /тільки українською мовою/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}/i);
 });
@@ -269,6 +270,7 @@ test("generateReviewAction strips editorial wrappers from generated image prompt
   assert.match(prompt, /Ліворуч: капсула або корисні бактерії/i);
   assert.match(prompt, /Послідовність має зчитуватися зліва направо/i);
   assert.doesNotMatch(prompt, /Ось детально розроблений prompt|###|Інструкція для ілюстратора|Пояснення visualIntent|\*\*/i);
+  assert.equal(response.proposal.imageDraft?.caption, "Покажи послідовність впливу від кишківника до шкіри.");
 });
 
 test("generateReviewAction parses structured callout draft output and strips markdown syntax", async () => {
@@ -467,4 +469,252 @@ test("generateReviewAction keeps list replacements within selection block ceilin
 
   assert.equal(response.proposal.kind, "text_diff");
   assert.ok((response.proposal.textDiff?.newBlocks.length ?? 0) <= 2);
+});
+
+test("generateReviewAction accepts structured visual JSON with prompt/caption/alt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Поясни різницю між еритемою та пігментацією." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-visual-json-1",
+        reviewSessionId: "review-session-5",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Порівняння станів",
+        reason: "Потрібно візуально зіставити ознаки.",
+        recommendation: "Зробити порівняльний візуал для двох станів шкіри.",
+        recommendationType: "visual",
+        suggestedAction: "prepare_visual",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Поясни різницю між еритемою та пігментацією.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        visualIntent: "comparison",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"prompt":"Порівняльна схема двох станів шкіри без декоративного фону.","caption":"Порівняння еритеми та пігментації","alt":"Схема порівняння двох станів шкіри"}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  assert.equal(response.proposal.imageDraft?.prompt, "Порівняльна схема двох станів шкіри без декоративного фону.");
+  assert.equal(response.proposal.imageDraft?.caption, "Порівняння еритеми та пігментації");
+  assert.equal(response.proposal.imageDraft?.alt, "Схема порівняння двох станів шкіри");
+});
+
+test("generateReviewAction strips markdown artifacts from rewrite replacements", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Складний абзац про причини та наслідки." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-2",
+        reviewSessionId: "review-session-6",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати абзац",
+        reason: "Текст виглядає перевантажено.",
+        recommendation: "Спростити й зробити яснішим.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Складний абзац про причини та наслідки.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1"],
+                  newBlocks: [{ type: "paragraph", content: [{ text: "# **Простіше** пояснення\n- Перший пункт" }] }],
+                  reason: "Оновив подачу.",
+                  type: "clarity"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  const nextText = (response.proposal.textDiff?.newBlocks[0] as { content: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "";
+  assert.equal(nextText, "Простіше пояснення\nПерший пункт");
+  assert.doesNotMatch(nextText, /^#|^\s*-\s|\*\*/m);
+});
+
+test("generateReviewAction preserves leading numeric prose in rewrite replacements", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Поточний фрагмент." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-numeric-1",
+        reviewSessionId: "review-session-8",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати фрагмент",
+        reason: "Потрібен ясніший варіант.",
+        recommendation: "Зробити формулювання чіткішим.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Поточний фрагмент.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1"],
+                  newBlocks: [{ type: "paragraph", content: [{ text: "2024. Дані лишаються релевантними.\n1) 500 мг щодня протягом 8 тижнів." }] }],
+                  reason: "Уточнив формулювання.",
+                  type: "clarity"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  const nextText = (response.proposal.textDiff?.newBlocks[0] as { content: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "";
+  assert.match(nextText, /^2024\./m);
+  assert.match(nextText, /^1\)\s500 мг/m);
+});
+
+test("generateReviewAction marks rewrite/simplify no-op proposals with warning", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Текст уже доволі простий для читача." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-simplify-1",
+        reviewSessionId: "review-session-7",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Спростити абзац",
+        reason: "Потрібен простіший варіант.",
+        recommendation: "Переформулювати доступніше.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Текст уже доволі простий для читача.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  blockIds: ["p1"],
+                  newBlocks: [{ type: "paragraph", content: [{ text: "Текст уже доволі простий для читача." }] }],
+                  reason: "Оновив стиль.",
+                  type: "clarity"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.proposal.textDiff?.warning?.code, "no_op");
+  assert.match(response.proposal.textDiff?.warning?.message ?? "", /майже не змінює текст/i);
 });
