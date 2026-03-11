@@ -484,6 +484,7 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
       "Для visual дозволені visualIntent: diagram, comparison, process, timeline, scene, concept.",
       "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
       "У полях title, reason і recommendation не згадуй raw block id, коди чи жорстко зашиті номери абзаців. UI покаже діапазон окремо.",
+      "Усі текстові поля у JSON (title, reason, recommendation, calloutTitle, calloutPreviewText, calloutSummary) мають бути plain text без markdown-розмітки.",
       "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
     );
   }

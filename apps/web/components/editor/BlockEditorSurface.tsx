@@ -31,6 +31,7 @@ import {
   type DividerBlock
 } from "../../lib/editor/document-model";
 import {
+  type EditorialCalloutKind,
   getEditorialCalloutKindLabel,
   type ReviewActionProposal,
   type EditorialReviewItem
@@ -87,6 +88,9 @@ export function BlockEditorSurface({
   onPrepareReviewItem,
   onApplyReviewCallout,
   onDismissReviewItem,
+  onUpdateActiveCalloutKind,
+  onUpdateActiveCalloutTitle,
+  onUpdateActiveCalloutBody,
   onUpdateActiveImagePrompt,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
@@ -110,6 +114,9 @@ export function BlockEditorSurface({
   onPrepareReviewItem?: (item: EditorialReviewItem) => void;
   onApplyReviewCallout?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
+  onUpdateActiveCalloutKind?: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
+  onUpdateActiveCalloutTitle?: (item: EditorialReviewItem, title: string) => void;
+  onUpdateActiveCalloutBody?: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
@@ -702,6 +709,9 @@ export function BlockEditorSurface({
                       onPrepare={(item) => onPrepareReviewItem?.(item)}
                       onApplyCallout={(item) => onApplyReviewCallout?.(item)}
                       onDismiss={(item) => onDismissReviewItem?.(item)}
+                      onUpdateActiveCalloutKind={(item, kind) => onUpdateActiveCalloutKind?.(item, kind)}
+                      onUpdateActiveCalloutTitle={(item, title) => onUpdateActiveCalloutTitle?.(item, title)}
+                      onUpdateActiveCalloutBody={(item, body) => onUpdateActiveCalloutBody?.(item, body)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
                       onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
                       onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}

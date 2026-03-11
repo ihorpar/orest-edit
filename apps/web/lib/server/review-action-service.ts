@@ -9,7 +9,12 @@ import type {
   ReviewActionRequest,
   ReviewActionResponse
 } from "../editor/review-contract.ts";
-import { getEditorialCalloutKindDescription, getEditorialCalloutKindLabel, isReplaceReviewType } from "../editor/review-contract.ts";
+import {
+  getEditorialCalloutKindDescription,
+  getEditorialCalloutKindLabel,
+  getEditorialCalloutKindTitle,
+  isReplaceReviewType
+} from "../editor/review-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 import { generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -221,6 +226,8 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
   return [
     `Редакторська рекомендація: ${request.item.recommendation}`,
     `Причина: ${request.item.reason}`,
+    "Формат результату: лише повна заміна вибраних блоків у форматі block editor; без markdown-розмітки (**жирного**, # заголовків, markdown-списків або code fences).",
+    "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
     request.item.recommendationType === "expand" ? "Розкрий логіку ясніше, але не додавай нових фактів." : null,
     request.item.recommendationType === "list" ? "Поверни структурований список, якщо це робить фрагмент читабельнішим." : null,
     request.item.recommendationType === "simplify" ? "Спрости мову для широкого читача без втрати змісту." : null
@@ -243,9 +250,9 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
     canApplyDirectly: true,
     calloutDraft: {
       calloutKind,
-      title: getEditorialCalloutKindLabel(calloutKind),
+      title: getEditorialCalloutKindTitle(calloutKind),
       prompt: buildFallbackCalloutPrompt(calloutKind, excerpt, request.item.recommendation),
-      previewText: excerpt.slice(0, 180)
+      previewText: sanitizeCalloutText(excerpt.slice(0, 220))
     }
   };
 }
@@ -282,6 +289,12 @@ async function createCalloutProposal(
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+  const calloutKind = request.item.calloutKind ?? "mechanism";
+  const parsed = parseCalloutDraftOutput(result, {
+    title: request.item.calloutDraft?.title ?? getEditorialCalloutKindTitle(calloutKind),
+    body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, 220),
+    summary: request.item.reason
+  });
 
   return {
     providerUsed: request.provider,
@@ -292,13 +305,13 @@ async function createCalloutProposal(
       sourceRevisionId: request.item.documentRevisionId,
       targetRevisionId: request.currentRevision.documentRevisionId,
       kind: "callout_prompt",
-      summary: request.item.reason,
+      summary: parsed.summary,
       canApplyDirectly: true,
       calloutDraft: {
-        calloutKind: request.item.calloutKind ?? "mechanism",
-        title: request.item.calloutDraft?.title ?? getEditorialCalloutKindLabel(request.item.calloutKind ?? "mechanism"),
-        prompt: result,
-        previewText: request.item.anchor.excerpt.slice(0, 180)
+        calloutKind,
+        title: parsed.title,
+        prompt,
+        previewText: parsed.body
       }
     }
   };
@@ -329,7 +342,7 @@ async function createImagePromptProposal(
       canApplyDirectly: false,
       imageDraft: {
         visualIntent: request.item.visualIntent ?? "diagram",
-        prompt: result,
+        prompt: normalizeGeneratedImagePrompt(result),
         alt: request.item.title,
         caption: request.item.recommendation,
         targetModel: "gemini-3.1-flash-image-preview"
@@ -354,7 +367,12 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
       `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
       templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`
+      templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
+      "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
+      "Схема JSON: {\"title\":\"...\",\"body\":\"...\",\"summary\":\"...\"}.",
+      "title: короткий заголовок врізки (1 рядок, plain text).",
+      "body: основний текст врізки у вигляді plain text для block editor; без **жирного**, списків markdown, # заголовків або code fences.",
+      "summary: одне коротке речення, навіщо ця врізка саме тут."
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -372,7 +390,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
-    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`
+    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`,
+    "Формат відповіді: поверни один готовий image prompt як plain text без markdown, нумерації, секцій чи службових пояснень.",
+    "Поверни текст тільки українською мовою."
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -409,6 +429,28 @@ function getVisualIntentPromptGuidance(visualIntent: EditorialVisualIntent): str
     default:
       return "Покажи схему з чіткими відношеннями між елементами; головне має читатися через форму, розташування і підписи.";
   }
+}
+
+function normalizeGeneratedImagePrompt(raw: string): string {
+  const normalized = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^[-*_]{3,}\s*$/gm, " ")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/^\s*\*\*(.+?)\*\*:\s*/gm, "")
+    .replace(/^\s*(Опис сцени|Стиль|Інструкція для ілюстратора|Technical Breakdown|Visual Narrative|Освітня функція візуалу|Обов'язкові елементи|Чого уникати|Анти-кліше та зайвий декор|Пояснення visualIntent)\s*:?\s*$/gim, " ")
+    .replace(/^\s*Ось\s+.*$/gim, " ")
+    .replace(/\$\\rightarrow\$/g, "→")
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized
+    .replace(/^(Prompt для генерації візуалу|Prompt для генерації|Prompt|Інструкція|Технічне завдання)\s*/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: string, fetchImpl: FetchLike): Promise<string> {
@@ -503,7 +545,8 @@ function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, fragment: string
   return [
     `Тип врізки: ${getEditorialCalloutKindLabel(kind)}.`,
     `Фрагмент: ${fragment}`,
-    `Рекомендація: ${recommendation}`
+    `Рекомендація: ${recommendation}`,
+    "Поверни plain text без markdown, придатний для block editor."
   ].join("\n");
 }
 
@@ -527,4 +570,132 @@ function providerDisplayName(provider: string): string {
   }
 
   return "OpenAI";
+}
+
+function parseCalloutDraftOutput(
+  rawOutput: string,
+  fallback: { title: string; body: string; summary: string }
+): { title: string; body: string; summary: string } {
+  const parsedObject = parseLooseJsonObject(rawOutput);
+  const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "calloutTitle", "header"]) : null;
+  const objectBody = parsedObject ? pickString(parsedObject, ["body", "text", "draft", "content", "calloutText"]) : null;
+  const objectSummary = parsedObject ? pickString(parsedObject, ["summary", "why", "purpose", "rationale"]) : null;
+
+  const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
+  const fallbackBodyValue = sanitizeCalloutText(fallback.body);
+  const fallbackSummaryValue = sanitizeCalloutText(fallback.summary) || "Коротко поясни, чому ця врізка потрібна саме тут.";
+
+  if (objectTitle || objectBody || objectSummary) {
+    return {
+      title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
+      body: sanitizeCalloutText(objectBody ?? fallbackBodyValue) || fallbackBodyValue,
+      summary: sanitizeCalloutText(objectSummary ?? fallbackSummaryValue) || fallbackSummaryValue
+    };
+  }
+
+  const plain = sanitizeCalloutText(rawOutput);
+  const fromLabels = parseCalloutDraftFromLabels(plain);
+
+  return {
+    title: sanitizeCalloutTitle(fromLabels.title ?? fallbackTitleValue),
+    body: sanitizeCalloutText(fromLabels.body ?? fallbackBodyValue) || fallbackBodyValue,
+    summary: sanitizeCalloutText(fromLabels.summary ?? fallbackSummaryValue) || fallbackSummaryValue
+  };
+}
+
+function parseLooseJsonObject(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    const match = /\{[\s\S]*\}/.exec(trimmed);
+
+    if (!match) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(match[0]) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function pickString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: string; summary?: string } {
+  const lines = plain.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  let title: string | undefined;
+  let summary: string | undefined;
+  const bodyLines: string[] = [];
+
+  for (const line of lines) {
+    if (!title) {
+      const titleMatch = /^(?:заголовок|title)\s*[:\-]\s*(.+)$/i.exec(line);
+
+      if (titleMatch?.[1]) {
+        title = titleMatch[1].trim();
+        continue;
+      }
+    }
+
+    if (!summary) {
+      const summaryMatch = /^(?:навіщо|summary|purpose|rationale)\s*[:\-]\s*(.+)$/i.exec(line);
+
+      if (summaryMatch?.[1]) {
+        summary = summaryMatch[1].trim();
+        continue;
+      }
+    }
+
+    if (!/^(?:текст|body|чернетка)\s*[:\-]\s*$/i.test(line)) {
+      bodyLines.push(line);
+    }
+  }
+
+  return {
+    title,
+    body: bodyLines.length > 0 ? bodyLines.join("\n") : undefined,
+    summary
+  };
+}
+
+function sanitizeCalloutTitle(value: string): string {
+  const plain = sanitizeCalloutText(value).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  return plain.slice(0, 140);
+}
+
+function sanitizeCalloutText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

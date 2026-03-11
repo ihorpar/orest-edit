@@ -4123,12 +4123,50 @@ textarea:focus {
     gap: 8px;
   }
 
+  .editorial-review-callout-kind-select {
+    width: 100%;
+    border: 1px solid #d9e2ec;
+    background: #fbfcfe;
+    color: #0f172a;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .editorial-review-callout-kind-select:focus {
+    outline: none;
+    border-color: #93c5fd;
+  }
+
   .editorial-review-callout-kind-copy {
     color: #475569;
   }
 
   .editorial-review-callout-kind-chip {
     color: #b45309;
+  }
+
+  .editorial-review-callout-title-input,
+  .editorial-review-callout-body-input {
+    width: 100%;
+    border: 1px solid #e2e8f0;
+    background: #fbfcfe;
+    color: #0f172a;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .editorial-review-callout-title-input:focus,
+  .editorial-review-callout-body-input:focus {
+    outline: none;
+    border-color: #93c5fd;
+  }
+
+  .editorial-review-callout-body-input {
+    min-height: 110px;
+    resize: vertical;
   }
 
   .editorial-review-proposal-actions {

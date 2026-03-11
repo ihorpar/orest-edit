@@ -118,6 +118,8 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Що означає цей тип/i);
   assert.match(String(requestBody?.input ?? ""), /Міф/i);
   assert.match(String(requestBody?.input ?? ""), /Правда/i);
+  assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
+  assert.match(String(requestBody?.input ?? ""), /без \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
@@ -184,5 +186,143 @@ test("generateReviewAction renders image template placeholders and adds visual-i
   assert.match(String(requestBody?.input ?? ""), /Опиши відмінності між блідістю шкіри та пігментацією/i);
   assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
+  assert.match(String(requestBody?.input ?? ""), /один готовий image prompt як plain text/i);
+  assert.match(String(requestBody?.input ?? ""), /тільки українською мовою/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}/i);
+});
+
+test("generateReviewAction strips editorial wrappers from generated image prompt output", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Поясни вісь кишківник-шкіра через послідовність впливу." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-visual-2",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Показати вісь кишківник-шкіра",
+        reason: "Текст легше зчитується як схема.",
+        recommendation: "Покажи послідовність впливу від кишківника до шкіри.",
+        recommendationType: "visual",
+        suggestedAction: "prepare_visual",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Поясни вісь кишківник-шкіра через послідовність впливу.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        visualIntent: "process",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: `Ось детально розроблений prompt для створення чернеткової ілюстрації.
+
+---
+
+### Prompt для генерації візуалу
+
+**Опис сцени:**
+Мінімалістична лінійна схема, що демонструє шлях впливу від кишківника до шкіри.
+
+**Стиль:**
+Плоска векторна чернетка, чисті лінії, білий фон.
+
+### Інструкція для ілюстратора
+
+**1. Що саме показати:**
+* Ліворуч: капсула або корисні бактерії.
+* Центр: стилізований кишечник.
+* Праворуч: схематичний зріз шкіри.
+
+**Пояснення visualIntent:**
+Послідовність має зчитуватися зліва направо.`
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  const prompt = response.proposal.imageDraft?.prompt ?? "";
+  assert.match(prompt, /Мінімалістична лінійна схема/i);
+  assert.match(prompt, /Ліворуч: капсула або корисні бактерії/i);
+  assert.match(prompt, /Послідовність має зчитуватися зліва направо/i);
+  assert.doesNotMatch(prompt, /Ось детально розроблений prompt|###|Інструкція для ілюстратора|Пояснення visualIntent|\*\*/i);
+});
+
+test("generateReviewAction parses structured callout draft output and strips markdown syntax", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Шкіра і нервова система мають спільне ембріональне походження." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-2",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати аналогію",
+        reason: "Аналогія зніме когнітивне навантаження.",
+        recommendation: "Подати ідею через порівняння з побутовим образом.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Шкіра і нервова система мають спільне ембріональне походження.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "analogy",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"title":"**Шкіра — дзеркало мозку**","body":"- **Шкіра** і нервова система мають спільне походження.","summary":"**Коротко пояснює звязок.**"}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  assert.equal(response.proposal.calloutDraft?.title, "Шкіра — дзеркало мозку");
+  assert.equal(response.proposal.calloutDraft?.previewText, "Шкіра і нервова система мають спільне походження.");
+  assert.equal(response.proposal.summary, "Коротко пояснює звязок.");
+  assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /\*\*|^-\s/m);
 });

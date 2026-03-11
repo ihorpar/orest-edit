@@ -411,12 +411,17 @@ export function normalizeEditorialReviewItems(input: {
     const end = Math.max(blockStart, blockEnd);
     const blockIds = paragraphs.slice(start, end + 1).map((paragraph) => paragraph.id);
     const excerpt = normalizeCopy(record.excerpt, 420) ?? blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
-    const insertionAnchor = blockIds[0];
+    const recommendationType = normalizeRecommendationType(record.recommendationType);
+    const insertionMode = normalizeInsertionHint(recommendationType, record.insertionHint);
+    const insertionAnchor = resolveInsertionAnchor(blockIds, insertionMode);
 
     if (!insertionAnchor) {
       droppedCount += 1;
       continue;
     }
+
+    const requestedAnchorBlockId =
+      typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
 
     normalized.push({
       id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`review-item-${index + 1}`),
@@ -426,8 +431,8 @@ export function normalizeEditorialReviewItems(input: {
       title,
       reason,
       recommendation,
-      recommendationType: normalizeRecommendationType(record.recommendationType),
-      suggestedAction: normalizeSuggestedAction(record.recommendationType, record.suggestedAction),
+      recommendationType,
+      suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
       priority: normalizePriority(record.priority),
       anchor: {
         blockIds,
@@ -436,8 +441,8 @@ export function normalizeEditorialReviewItems(input: {
         fingerprint: computeAnchorFingerprint(input.document, blockIds)
       },
       insertionPoint: {
-        mode: normalizeInsertionHint(record.recommendationType, record.insertionHint),
-        anchorBlockId: typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId : insertionAnchor
+        mode: insertionMode,
+        anchorBlockId: requestedAnchorBlockId && getBlock(input.document, requestedAnchorBlockId) ? requestedAnchorBlockId : insertionAnchor
       },
       calloutKind: normalizeCalloutKind(record.calloutKind),
       calloutDraft: normalizeCalloutDraft(record),
@@ -608,6 +613,14 @@ function normalizeIndex(value: unknown, length: number): number | null {
 
   const index = Math.max(0, Math.min(length - 1, Math.floor(value)));
   return Number.isFinite(index) ? index : null;
+}
+
+function resolveInsertionAnchor(blockIds: string[], insertionMode: EditorialReviewInsertionHint): string {
+  if (insertionMode === "after") {
+    return blockIds[blockIds.length - 1] ?? blockIds[0] ?? "";
+  }
+
+  return blockIds[0] ?? "";
 }
 
 function priorityWeight(priority: EditorialReviewPriority): number {

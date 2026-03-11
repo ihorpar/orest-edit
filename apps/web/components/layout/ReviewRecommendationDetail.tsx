@@ -1,9 +1,10 @@
 "use client";
 
-import type { EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
+import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal } from "../../lib/editor/review-contract";
 import {
   getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
+  getEditorialCalloutKindOptions,
   getEditorialRecommendationTypeLabel,
   getReviewParagraphRangeLabel,
   resolveReviewImageAssetUrl
@@ -22,6 +23,9 @@ export function ReviewRecommendationDetail({
   onPrepare,
   onApplyCallout,
   onDismiss,
+  onUpdateActiveCalloutKind,
+  onUpdateActiveCalloutTitle,
+  onUpdateActiveCalloutBody,
   onUpdateActiveImagePrompt,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage
@@ -35,6 +39,9 @@ export function ReviewRecommendationDetail({
   onPrepare: (item: EditorialReviewItem) => void;
   onApplyCallout: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
+  onUpdateActiveCalloutKind: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
+  onUpdateActiveCalloutTitle: (item: EditorialReviewItem, title: string) => void;
+  onUpdateActiveCalloutBody: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveImagePrompt: (prompt: string) => void;
   onGenerateActiveReviewImage: () => void;
   onApplyActiveReviewImage: () => void;
@@ -50,6 +57,8 @@ export function ReviewRecommendationDetail({
 
   const calloutDraft = proposal?.kind === "callout_prompt" && proposal.calloutDraft ? proposal.calloutDraft : item.calloutDraft;
   const imageDraft = proposal?.kind === "image_prompt" ? proposal.imageDraft : null;
+  const activeCalloutKind = calloutDraft?.calloutKind ?? item.calloutKind ?? "mechanism";
+  const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
   const rangeLabel = revision ? getReviewParagraphRangeLabel(item, revision) : null;
 
   return (
@@ -78,7 +87,7 @@ export function ReviewRecommendationDetail({
         </div>
       ) : null}
 
-      {!isPreparing && item.status === "pending" ? (
+      {!isPreparing && item.status === "pending" && item.recommendationType !== "callout" ? (
         <div className="editorial-review-detail-actions">
           <Button size="sm" variant="primary" onClick={() => onPrepare(item)}>
             Підготувати
@@ -92,31 +101,52 @@ export function ReviewRecommendationDetail({
         </div>
       ) : null}
 
-      {!isPreparing && calloutDraft ? (
+      {!isPreparing && item.recommendationType === "callout" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-callout-kind-row">
             <p className="editorial-review-detail-label">Тип врізки</p>
-            <div className="editorial-review-callout-kind-copy">
-              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutKindLabel(calloutDraft.calloutKind)}</strong>
+            <select
+              className="editorial-review-callout-kind-select"
+              value={activeCalloutKind}
+              onChange={(event) => onUpdateActiveCalloutKind(item, event.target.value as EditorialCalloutKind)}
+            >
+              {getEditorialCalloutKindOptions().map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="editorial-review-callout-kind-copy">
+              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutKindLabel(activeCalloutKind)}</strong>
               {" "}
-              {getEditorialCalloutKindDescription(calloutDraft.calloutKind)}
-            </div>
+              {getEditorialCalloutKindDescription(activeCalloutKind)}
+            </p>
           </div>
           <div className="editorial-review-proposal-block">
             <p className="editorial-review-detail-label">Заголовок</p>
-            <p className="editorial-review-proposal-summary">{calloutDraft.title}</p>
+            <input
+              className="editorial-review-callout-title-input"
+              value={calloutDraft?.title ?? ""}
+              onChange={(event) => onUpdateActiveCalloutTitle(item, event.target.value)}
+            />
             <p className="editorial-review-detail-label">Чернетка</p>
-            <p className="editorial-review-callout-preview">{calloutDraft.previewText}</p>
+            <textarea
+              className="editorial-review-callout-body-input"
+              value={calloutDraft?.previewText ?? ""}
+              onChange={(event) => onUpdateActiveCalloutBody(item, event.target.value)}
+            />
           </div>
-          <details className="editorial-review-prompt-details">
-            <summary>Prompt</summary>
-            <pre className="editorial-review-prompt-pre">{calloutDraft.prompt}</pre>
-          </details>
+          {calloutDraft?.prompt ? (
+            <details className="editorial-review-prompt-details">
+              <summary>Prompt</summary>
+              <pre className="editorial-review-prompt-pre">{calloutDraft.prompt}</pre>
+            </details>
+          ) : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" onClick={() => onPrepare(item)}>
-              Перегенерувати
+              {calloutDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
-            <Button size="sm" variant="primary" onClick={() => onApplyCallout(item)}>
+            <Button size="sm" variant="primary" onClick={() => onApplyCallout(item)} disabled={!canInsertCallout}>
               Вставити
             </Button>
           </div>

@@ -48,7 +48,8 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Approved callout kinds (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) are in contract and defaults.
   - [x] Generate/regenerate and insert are working from the manuscript-inline execution card.
   - [x] Inserted output is a first-class `callout` block with distinct block styling.
-  - [ ] Kind switching before generation is not implemented in the execution UI.
+  - [x] Kind switching before generation is implemented in the execution UI.
+  - [x] Callout title/body are editable before insertion from the manuscript-inline card.
   - [x] Manuscript-inline callout execution card is implemented.
 - [x] Merge `visualize` and `illustration` into one `visual` family with visual intents and editable Ukrainian image prompts.
   - [x] Legacy `visualize`/`illustration` inputs normalize to `visual`.
@@ -64,12 +65,16 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Runtime prompt assembly includes callout-kind description, visual-intent context, and anti-raw-id guidance for user-facing text.
   - [x] Callout/image prompt-template placeholders now interpolate real fragment, recommendation, and intent values instead of leaking literal `{{...}}` tokens to the model.
   - [x] The default visual prompt contract now requests one ready-to-send downstream image prompt rather than a Markdown brief with sections and examples.
+  - [x] Callout and image proposal prompts now explicitly require plain-text, editor-compatible output (no Markdown formatting in generated content).
+  - [x] Generated image prompts are now normalized server-side to strip wrappers such as headings, section labels, and “Ось prompt...” preambles before reaching image generation.
+  - [x] Review recommendation generation prompt now requires plain-text strings in user-facing JSON fields (`title/reason/recommendation/callout*`) instead of Markdown formatting.
   - [ ] Dedicated runtime prompt factories per suggestion type (`rewrite`, `simplify`, `expand`, `list`, `subsection`) are not implemented.
   - [ ] Runtime enforcement for anti-hallucination clauses is still mostly template-driven, not fully centralized as factories.
 - [ ] Add tests and browser validation for the full workflow, including stale-anchor handling, block-count constraints, and Ukrainian prompt output.
   - [x] Added/updated tests for taxonomy normalization and subsection fail-safe behavior.
   - [x] Added regression coverage for user-facing dynamic paragraph range labels and recommendation type labels.
   - [x] Stale-anchor detection is implemented via block-ID and fingerprint checks.
+  - [x] Added regression tests for insertion-anchor fallback by insertion mode and for callout prompt/output plain-text constraints.
   - [ ] Full workflow coverage for single inline execution lane and block-count guardrails is not implemented.
   - [ ] Browser QA pass for sample4-style inline behavior is still pending.
   - [ ] Test execution is currently blocked in this environment by `esbuild` platform mismatch (Windows binary in WSL/Linux runtime).
@@ -85,11 +90,17 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 - Observation: the largest remaining functional gaps are now `subsection` execution and replace-output shape constraints.
   Evidence: `review-action-service.ts` still fails safe for `subsection`, and `patch-contract.ts` still accepts replacement block counts beyond the selected range.
 
+- Observation: insertion anchor fallback previously defaulted to the first block even for `after` insertions when provider payload omitted `anchorBlockId`.
+  Evidence: `normalizeEditorialReviewItems` now resolves fallback anchors by insertion mode (`before` -> first block, `after` -> last block).
+
 - Observation: test execution remains environment-blocked despite successful typecheck/build.
   Evidence: `npm test -w @orest/web` fails in this workspace due `esbuild` platform mismatch (Windows binary under WSL/Linux runtime).
 
 - Observation: callout and image prompt settings exposed placeholders before runtime actually interpolated them.
   Evidence: `review-action-service.ts` previously appended raw context lines after the template, while `{{fragment}}`, `{{recommendation}}`, and `{{visualIntent}}` were never replaced.
+
+- Observation: even with a stronger image meta-prompt, provider outputs can still come back as human-facing briefs with section labels.
+  Evidence: visual prompt responses may include wrappers like `Ось prompt`, `### Prompt`, `Опис сцени`, or `Пояснення visualIntent`, which need cleanup before downstream image generation.
 
 ## Decision Log
 
@@ -137,7 +148,9 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 
 This phase is now partially complete with a meaningful UX shift: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place, replace diffs render inline below the affected range, and `callout`/`visual` execution runs through a manuscript-inline card while the right rail remains an inbox/focus panel.
 
-The remaining high-impact gaps are narrower and clearer than before: dedicated `subsection` insertion flow, strict replace output-shape guardrails, and deeper prompt-factory hardening by suggestion type. Visual prompt generation is now materially safer because placeholder interpolation works and the default contract asks for one reusable downstream prompt instead of a mini brief.
+The callout flow is now closer to the intended UX: kind can be switched before generation, generated draft title/body are editable before insertion, and generated callout content is sanitized into editor-friendly plain text. Insertion-anchor fallback also now respects insertion mode, preventing `callout`/`visual` insertions from drifting to the wrong paragraph when provider payloads omit `anchorBlockId`.
+
+The remaining high-impact gaps are narrower and clearer than before: dedicated `subsection` insertion flow, strict replace output-shape guardrails, and deeper prompt-factory hardening by suggestion type.
 
 Validation remains mixed. `typecheck` and `build` pass in this environment, while automated tests are still blocked by platform-specific `esbuild` packaging. Browser QA for final sample4-quality visual continuity is still pending.
 

@@ -152,3 +152,63 @@ test("review helpers expose dynamic Ukrainian paragraph ranges and type labels",
   assert.equal(getReviewParagraphRangeLabel(normalized.items[0]!, revision), "Абз. 002-003");
   assert.equal(getEditorialRecommendationTypeLabel("simplify"), "спростити");
 });
+
+test("normalizeEditorialReviewItems resolves insertion anchors by mode when anchorBlockId is missing", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-4",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Винести врізку",
+        reason: "Краще дати окремий пояснювальний блок після фрагмента.",
+        recommendation: "Додати врізку після двох абзаців.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 2,
+        excerpt: "Перший і другий абзаци",
+        insertionHint: "after",
+        anchorBlockId: null,
+        calloutKind: "mechanism",
+        calloutTitle: null,
+        calloutPreviewText: null,
+        calloutSummary: null,
+        calloutPrompt: null,
+        visualIntent: null
+      },
+      {
+        title: "Додати підзаголовок",
+        reason: "Потрібна локальна структура перед фрагментом.",
+        recommendation: "Додати підзаголовок перед абзацами.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "low",
+        blockStart: 1,
+        blockEnd: 2,
+        excerpt: "Перший і другий абзаци",
+        insertionHint: "before",
+        anchorBlockId: null,
+        calloutKind: null,
+        calloutTitle: null,
+        calloutPreviewText: null,
+        calloutSummary: null,
+        calloutPrompt: null,
+        visualIntent: null
+      }
+    ]
+  });
+
+  const callout = normalized.items.find((item) => item.recommendationType === "callout");
+  const subsection = normalized.items.find((item) => item.recommendationType === "subsection");
+
+  assert.equal(callout?.insertionPoint.mode, "after");
+  assert.equal(callout?.insertionPoint.anchorBlockId, "p2");
+  assert.equal(subsection?.insertionPoint.mode, "before");
+  assert.equal(subsection?.insertionPoint.anchorBlockId, "p1");
+});

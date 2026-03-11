@@ -29,6 +29,7 @@ import {
   type RequestMode
 } from "../../lib/editor/patch-contract";
 import {
+  type EditorialCalloutKind,
   getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
   type GeneratedReviewImageAsset,
@@ -534,7 +535,7 @@ export default function EditorPage() {
       type: "callout",
       kind: item.calloutDraft.calloutKind,
       title: [createInlineText(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind))],
-      body: [[createInlineText(item.calloutDraft.previewText)]]
+      body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText)
     };
 
     commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]));
@@ -544,6 +545,130 @@ export default function EditorPage() {
     setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     setActiveReviewItemId((current) => (current === item.id ? null : current));
     setFeedback({ tone: "info", message: "Врізку вставлено." });
+  }
+
+  function updateActiveCalloutKind(item: EditorialReviewItem, kind: EditorialCalloutKind) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        const fallbackTitle = getEditorialCalloutKindTitle(kind);
+        const draft = entry.calloutDraft ?? {
+          calloutKind: kind,
+          title: fallbackTitle,
+          prompt: "",
+          previewText: "",
+          summary: entry.reason
+        };
+
+        return {
+          ...entry,
+          calloutKind: kind,
+          calloutDraft: {
+            ...draft,
+            calloutKind: kind,
+            title: draft.title.trim() ? draft.title : fallbackTitle
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "callout_prompt" || current.reviewItemId !== item.id) {
+        return current;
+      }
+
+      const fallbackTitle = getEditorialCalloutKindTitle(kind);
+      const draft = current.calloutDraft ?? {
+        calloutKind: kind,
+        title: fallbackTitle,
+        prompt: "",
+        previewText: ""
+      };
+
+      return {
+        ...current,
+        calloutDraft: {
+          ...draft,
+          calloutKind: kind,
+          title: draft.title.trim() ? draft.title : fallbackTitle
+        }
+      };
+    });
+  }
+
+  function updateActiveCalloutTitle(item: EditorialReviewItem, title: string) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        const kind = entry.calloutDraft?.calloutKind ?? entry.calloutKind ?? "mechanism";
+        return {
+          ...entry,
+          calloutDraft: {
+            calloutKind: kind,
+            title,
+            prompt: entry.calloutDraft?.prompt ?? "",
+            previewText: entry.calloutDraft?.previewText ?? "",
+            summary: entry.calloutDraft?.summary ?? entry.reason
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "callout_prompt" || current.reviewItemId !== item.id || !current.calloutDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        calloutDraft: {
+          ...current.calloutDraft,
+          title
+        }
+      };
+    });
+  }
+
+  function updateActiveCalloutBody(item: EditorialReviewItem, body: string) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        const kind = entry.calloutDraft?.calloutKind ?? entry.calloutKind ?? "mechanism";
+        return {
+          ...entry,
+          calloutDraft: {
+            calloutKind: kind,
+            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
+            prompt: entry.calloutDraft?.prompt ?? "",
+            previewText: body,
+            summary: entry.calloutDraft?.summary ?? entry.reason
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "callout_prompt" || current.reviewItemId !== item.id || !current.calloutDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        calloutDraft: {
+          ...current.calloutDraft,
+          previewText: body
+        }
+      };
+    });
   }
 
   function updateActiveImagePrompt(prompt: string) {
@@ -740,6 +865,9 @@ export default function EditorPage() {
               onPrepareReviewItem={(item) => void prepareReviewItem(item)}
               onApplyReviewCallout={applyReviewCallout}
               onDismissReviewItem={dismissReviewItem}
+              onUpdateActiveCalloutKind={updateActiveCalloutKind}
+              onUpdateActiveCalloutTitle={updateActiveCalloutTitle}
+              onUpdateActiveCalloutBody={updateActiveCalloutBody}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
@@ -908,4 +1036,14 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     tone: "info",
     message: `Підготовлено ${payload.items.length} карток з рекомендаціями.`
   };
+}
+
+function splitCalloutDraftIntoParagraphs(text: string) {
+  const parts = text
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return (parts.length > 0 ? parts : [""]).map((part) => [createInlineText(part)]);
 }
