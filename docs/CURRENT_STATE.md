@@ -27,6 +27,8 @@ Status: Active handoff
 - Execution cards now collapse rationale/excerpt into `Чому це запропоновано` details and keep action fields primary
 - Callout execution panels no longer render raw prompt text; only kind/title/body + regenerate/insert actions remain
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
+- Visual execution now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) in both manuscript-inline visual cards and manual visual launcher
+- The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
@@ -35,6 +37,8 @@ Status: Active handoff
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
+- Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
+- Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
@@ -42,7 +46,11 @@ Status: Active handoff
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
 - Runtime prompt factories now explicitly enforce plain-text, block-editor-compatible output for replace/callout/subsection/image proposal preparation
+- Image prompt assembly now supports `{{visualStyleGuide}}` and always injects style guidance, including fallback injection when placeholder is removed from template
+- `top_list` callout prompt contracts now require source-bound multi-line `Назва: пояснення` entries and include two-shot examples directly in the template
+- Callout parsing/sanitization is now kind-aware for `top_list`, preserving multi-line readability and normalizing entries into actionable `Назва: пояснення` lines
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
+- Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - Browser draft persistence uses `orest-editor-draft-v2`
@@ -86,8 +94,8 @@ Status: Active handoff
 3. Harden right-rail/manuscript visual polish further to match `sample4` interaction quality under dense recommendation sets.
 
 ## Last validated state
-- `npm run typecheck -w @orest/web` passed on 2026-03-11 after follow-up UX changes (list coercion, flat replace diff, changed-block reveal)
-- `npm run build -w @orest/web` passed on 2026-03-11 after follow-up UX changes (list coercion, flat replace diff, changed-block reveal)
-- `npm run test -w @orest/web` passed on 2026-03-11 (43 tests), including `review-action-service` coverage for visual JSON caption parsing, rewrite markdown cleanup, no-op warning signaling, and list coercion from paragraph output
+- `npm run typecheck -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
+- `npm run build -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
+- `npm run test -w @orest/web` passed on 2026-03-11 (47 tests), including new coverage for top_list normalization, numeric-line preservation in callout cleanup, range clipping, and callout template hardening
 - Runtime smoke check with password gate succeeded on 2026-03-11 (`/editor` redirected to `/login` before auth)
 - `npm run qa:inline-review -w @orest/web` passed on 2026-03-11 using `APP_PASSWORD=@orest0krat` + local dev server on `http://127.0.0.1:3100`; validated login gate, multi-block anchor highlighting, and single inline card execution for manual `callout` and `visual`

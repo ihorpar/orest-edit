@@ -73,6 +73,8 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] The default visual prompt contract now requests one ready-to-send downstream image prompt rather than a Markdown brief with sections and examples.
   - [x] Callout and image proposal prompts now explicitly require plain-text, editor-compatible output (no Markdown formatting in generated content).
   - [x] Generated image prompts are now normalized server-side to strip wrappers such as headings, section labels, and “Ось prompt...” preambles before reaching image generation.
+  - [x] Visual prompt preparation now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) with browser-local persistence of the last selected preset.
+  - [x] Runtime image prompt assembly now supports `{{visualStyleGuide}}` interpolation and fallback style-guide injection when the placeholder is absent.
   - [x] Review recommendation generation prompt now requires plain-text strings in user-facing JSON fields (`title/reason/recommendation/callout*`) instead of Markdown formatting.
   - [x] Dedicated runtime prompt factories now exist for `rewrite`, `simplify`, `expand`, `list`, and `subsection` action preparation.
   - [x] Anti-hallucination clauses are now explicit per callout kind, including stronger rules for `analogy` and `myths_vs_truth`.
@@ -115,6 +117,9 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 - Observation: even with a stronger image meta-prompt, provider outputs can still come back as human-facing briefs with section labels.
   Evidence: visual prompt responses may include wrappers like `Ось prompt`, `### Prompt`, `Опис сцени`, or `Пояснення visualIntent`, which need cleanup before downstream image generation.
 
+- Observation: style control needs to be local to visual generation flows, not global in `/settings`, to avoid unwanted style lock-in across unrelated recommendations.
+  Evidence: manual and manuscript-inline visual actions share one execution lane but are user-triggered per-fragment, so local style state with last-used persistence maps better to actual editing behavior.
+
 ## Decision Log
 
 - Decision: a review recommendation may anchor one or more contiguous blocks, but the execution UI remains singular per recommendation.
@@ -152,6 +157,10 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 - Decision: the visual prompt factory must output one downstream image prompt, not a formatted editorial spec with headings, examples, or prompt-engineering commentary.
   Rationale: the execution card is an editable prompt surface for generation, so the output must be concise, directly reusable, and free of meta-explanation.
   Date/Author: 2026-03-11 / Codex implementation pass
+
+- Decision: visual generation uses four local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) with `calm_gradient` default and localStorage persistence of the last selected preset.
+  Rationale: editors need per-visual art-direction control while keeping the global settings model focused on provider/prompt templates.
+  Date/Author: 2026-03-11 / User-confirmed direction + Codex implementation pass
 
 - Decision: insertion anchors are explicit by suggestion type.
   Rationale: `subsection` inserts before the first affected block; `callout` and `visual` insert after the affected range, which removes ambiguity and matches the intended manuscript flow.

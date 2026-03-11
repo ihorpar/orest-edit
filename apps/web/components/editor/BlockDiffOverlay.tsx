@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { Block } from "../../lib/editor/document-model";
 import { createInlineText, getBlockText } from "../../lib/editor/document-model";
 import { Button } from "../ui/Button";
 
 export function BlockDiffOverlay({
-  oldBlocks,
+  oldBlocks: _oldBlocks,
   newBlocks,
   reason,
   warning,
@@ -20,6 +20,7 @@ export function BlockDiffOverlay({
   onReject: () => void;
 }) {
   const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => getBlockText(block)));
+  const textareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
 
   const editableBlocks = useMemo(
     () =>
@@ -30,19 +31,37 @@ export function BlockDiffOverlay({
     [draftTexts, newBlocks]
   );
 
+  useLayoutEffect(() => {
+    for (const { block } of editableBlocks) {
+      const textarea = textareaRefs.current.get(block.id);
+
+      if (textarea) {
+        autosizeTextarea(textarea);
+      }
+    }
+  }, [editableBlocks]);
+
   return (
     <div className="block-diff-inline-container">
       {warning ? <p className="diff-warning">{warning.message}</p> : null}
       <div className="diff-proposed-stack">
         {editableBlocks.map(({ block, newText }, index) => (
           <section key={block.id} className="diff-proposed-block">
-            {editableBlocks.length > 1 ? <p className="diff-label">Блок {index + 1}</p> : null}
             <textarea
               className="diff-proposed-editor"
               value={newText}
+              ref={(element) => {
+                if (!element) {
+                  textareaRefs.current.delete(block.id);
+                  return;
+                }
+
+                textareaRefs.current.set(block.id, element);
+              }}
               onChange={(event) =>
                 setDraftTexts((current) => current.map((value, valueIndex) => (valueIndex === index ? event.target.value : value)))
               }
+              onInput={(event) => autosizeTextarea(event.currentTarget)}
             />
           </section>
         ))}
@@ -111,4 +130,9 @@ function splitListItems(text: string): string[] {
     .filter(Boolean);
 
   return items.length > 0 ? items : [""];
+}
+
+function autosizeTextarea(textarea: HTMLTextAreaElement) {
+  textarea.style.height = "0px";
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 56)}px`;
 }

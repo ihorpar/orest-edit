@@ -5578,13 +5578,14 @@ textarea:focus {
 
 .diff-proposed-editor {
   width: 100%;
-  min-height: 86px;
+  min-height: 56px;
   border: 0;
   border-radius: 0;
   background: rgba(22, 101, 52, 0.12);
   color: #166534;
   padding: 10px 12px;
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
   font-family: var(--font-manuscript, serif);
   font-size: 1.05rem;
   line-height: 1.7;
@@ -5744,6 +5745,47 @@ textarea:focus {
   font-family: var(--font-manuscript, serif);
   font-style: italic;
   margin: 0;
+}
+
+.review-stage-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 16px 24px 10px;
+  border-bottom: 1px solid #eef2f7;
+  background: #fcfdff;
+}
+
+.review-stage-button {
+  border: 1px solid #dbe4ee;
+  background: #ffffff;
+  color: #475569;
+  padding: 8px 10px;
+  font: 600 12px/1.3 var(--font-ui, sans-serif);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.review-stage-button[data-active="true"] {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.review-stage-button:disabled {
+  cursor: not-allowed;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.review-stage-copy {
+  margin: 0;
+  padding: 10px 24px 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* Compact Editorial Cards */

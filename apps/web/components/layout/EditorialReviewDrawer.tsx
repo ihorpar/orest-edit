@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import type { ReviewSessionStatus, WholeTextChangeLevel } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
 
@@ -40,10 +39,15 @@ export function EditorialReviewDrawer({
     onClose: () => void;
 }) {
     const [inputText, setInputText] = useState("");
+    const hasExpertise = Boolean(expertise?.trim());
+    const isSetup = status === "expertise" && !hasExpertise;
+    const canGenerateCards = hasExpertise && !reviewLoading;
+    const expertiseForDisplay = useMemo(
+      () => (expertise ? localizeExpertiseMarkdown(expertise) : null),
+      [expertise]
+    );
 
     if (!isOpen) return null;
-
-    const isSetup = status === "expertise" && !expertise;
 
     return (
         <div className="review-drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -56,6 +60,34 @@ export function EditorialReviewDrawer({
                 </header>
 
                 <div className="review-sidebar-body" style={{ height: "calc(100vh - 61px)", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                    <div className="review-stage-controls">
+                        <button
+                            type="button"
+                            className="review-stage-button"
+                            data-active={status === "expertise" ? "true" : "false"}
+                            onClick={onAnalyze}
+                            disabled={reviewLoading}
+                        >
+                            1. Експертиза
+                        </button>
+                        <button
+                            type="button"
+                            className="review-stage-button"
+                            data-active={status === "cards" ? "true" : "false"}
+                            onClick={() => onGenerateCards(inputText)}
+                            disabled={!canGenerateCards}
+                        >
+                            2. Картки
+                        </button>
+                    </div>
+                    <p className="review-stage-copy">
+                        {status === "cards"
+                            ? "Етап 2 з 2: картки згенеровано."
+                            : hasExpertise
+                                ? "Етап 1 з 2 завершено. Додайте коментар (за потреби) і згенеруйте картки."
+                                : "Етап 1 з 2: запустіть експертизу документа."}
+                    </p>
+
                     {isSetup ? (
                         <div className="review-drawer-setup">
                             <p className="mono-ui">Налаштування перевірки</p>
@@ -87,18 +119,18 @@ export function EditorialReviewDrawer({
                             </div>
 
                             <div style={{ marginTop: "16px" }}>
-                                <Button variant="primary" onClick={onAnalyze} loading={reviewLoading}>Аналіз ШІ</Button>
+                                <Button variant="primary" onClick={onAnalyze} loading={reviewLoading}>Запустити експертизу</Button>
                             </div>
                         </div>
                     ) : (
                         <div className="review-analysis-display" style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
                             <div style={{ flex: 1, paddingBottom: '20px' }}>
-                                {expertise && (
+                                {expertiseForDisplay && (
                                     <div style={{ fontSize: '14px', lineHeight: 1.6, color: 'var(--ink)' }}>
-                                        <ReactMarkdown>{expertise}</ReactMarkdown>
+                                        <ReactMarkdown>{expertiseForDisplay}</ReactMarkdown>
                                     </div>
                                 )}
-                                {reviewLoading && !expertise && (
+                                {reviewLoading && !expertiseForDisplay && (
                                     <div style={{ marginTop: '20px' }}>
                                         <span className="loading-inline-dots"><span /><span /><span /></span>
                                     </div>
@@ -114,15 +146,15 @@ export function EditorialReviewDrawer({
                                 ) : (
                                     <>
                                         <textarea
-                                            placeholder="Додатковий коментар (наприклад, з чим ви згодні, а з чим ні)..."
+                                            placeholder="Коментар до експертизи (опційно): що залишити, що переформулювати, на чому сфокусувати картки."
                                             value={inputText}
                                             onChange={(e) => setInputText(e.target.value)}
                                             style={{ width: '100%', minHeight: '80px', padding: '12px', border: '1px solid #eef2f7', borderRadius: '6px', resize: 'vertical', fontSize: '13px', background: '#f8fafc' }}
                                             disabled={reviewLoading}
                                         />
                                         <div className="button-row" style={{ justifyContent: "flex-end", marginTop: '12px' }}>
-                                            <Button variant="primary" onClick={() => onGenerateCards(inputText)} loading={reviewLoading}>
-                                                ШІ, працюй!
+                                            <Button variant="primary" onClick={() => onGenerateCards(inputText)} loading={reviewLoading} disabled={!canGenerateCards}>
+                                                Згенерувати картки
                                             </Button>
                                         </div>
                                     </>
@@ -134,4 +166,54 @@ export function EditorialReviewDrawer({
             </div>
         </div>
     );
+}
+
+const expertiseTokenMap: Record<string, string> = {
+  rewrite_text: "переписати фрагмент",
+  insert_text: "додати вставку",
+  prepare_callout: "підготувати врізку",
+  prepare_visual: "підготувати візуал",
+  rewrite: "переписати",
+  simplify: "спростити",
+  expand: "розширити",
+  list: "оформити списком",
+  subsection: "додати підзаголовок",
+  callout: "врізка",
+  visual: "візуал",
+  visualize: "візуал",
+  illustration: "візуал",
+  mechanism: "механізм",
+  analogy: "аналогія",
+  everyday_application: "практичне застосування",
+  myths_vs_truth: "міфи та правда",
+  top_list: "топ-список",
+  diagram: "схема",
+  comparison: "порівняння",
+  process: "процес",
+  timeline: "таймлайн",
+  scene: "сцена",
+  concept: "концепт",
+  mechanism_explained: "механізм"
+};
+
+function localizeExpertiseMarkdown(value: string): string {
+  let next = value.replace(/\r\n?/g, "\n");
+
+  next = next
+    .replace(/Suggested Action\s*:/gi, "Рекомендована дія:")
+    .replace(/Callout Kind\s*:/gi, "Тип врізки:")
+    .replace(/Visual Intent\s*:/gi, "Тип візуалу:")
+    .replace(/Recommendation\s*:/gi, "Рекомендація:")
+    .replace(/What doesn't work\s*:/gi, "Що не працює:");
+
+  for (const [token, label] of Object.entries(expertiseTokenMap)) {
+    const pattern = new RegExp(`\\b${escapeRegExp(token)}\\b`, "gi");
+    next = next.replace(pattern, label);
+  }
+
+  return next;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

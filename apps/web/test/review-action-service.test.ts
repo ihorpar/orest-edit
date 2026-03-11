@@ -142,7 +142,9 @@ test("generateReviewAction renders image template placeholders and adds visual-i
       provider: "openai",
       modelId: "gpt-5.4",
       apiKey: "test-key",
-      imagePromptTemplate: "Збери один prompt. Тип: {{visualIntent}}. Контекст: {{fragment}}. Порада: {{recommendation}}.",
+      visualStylePreset: "neo_brutal",
+      imagePromptTemplate:
+        "Збери один prompt. Тип: {{visualIntent}}. Стиль: {{visualStyleGuide}}. Контекст: {{fragment}}. Порада: {{recommendation}}.",
       item: {
         id: "review-visual-1",
         reviewSessionId: "review-session-1",
@@ -188,10 +190,124 @@ test("generateReviewAction renders image template placeholders and adds visual-i
   assert.match(String(requestBody?.input ?? ""), /Опиши відмінності між блідістю шкіри та пігментацією/i);
   assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
+  assert.match(String(requestBody?.input ?? ""), /Нео-бруталізм/i);
   assert.match(String(requestBody?.input ?? ""), /Бажаний формат відповіді:\s*JSON/i);
   assert.match(String(requestBody?.input ?? ""), /увесь текст відповіді буде використано як image prompt/i);
   assert.match(String(requestBody?.input ?? ""), /тільки українською мовою/i);
-  assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}/i);
+  assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}|\{\{visualStyleGuide\}\}/i);
+});
+
+test("generateReviewAction appends style guide when image template has no visualStyleGuide placeholder", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Поясни шлях сигналу від кишківника до шкіри." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      visualStylePreset: "modern_glass",
+      imagePromptTemplate: "Збери один prompt. Тип: {{visualIntent}}. Контекст: {{fragment}}.",
+      item: {
+        id: "review-visual-style-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Показати процес",
+        reason: "Потрібна наочність процесу.",
+        recommendation: "Показати послідовність кроків як процес.",
+        recommendationType: "visual",
+        suggestedAction: "prepare_visual",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Поясни шлях сигналу від кишківника до шкіри.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        visualIntent: "process",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({ output_text: "Готовий image prompt." }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  assert.equal(response.proposal.imageDraft?.visualStylePreset, "modern_glass");
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.input ?? ""), /Обраний стиль \(Modern glass\):/i);
+  assert.match(String(requestBody?.input ?? ""), /liquid-glass/i);
+});
+
+test("generateReviewAction normalizes unknown visualStylePreset to calm_gradient", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Сформуй візуал." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      visualStylePreset: "broken-style" as unknown as "minimal",
+      item: {
+        id: "review-visual-style-2",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Показати схему",
+        reason: "Потрібна схема.",
+        recommendation: "Підготуй просту схему.",
+        recommendationType: "visual",
+        suggestedAction: "prepare_visual",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Сформуй візуал.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        visualIntent: "diagram",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ output_text: "Готовий image prompt." }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+    }
+  );
+
+  assert.equal(response.proposal.kind, "image_prompt");
+  assert.equal(response.proposal.imageDraft?.visualStylePreset, "calm_gradient");
 });
 
 test("generateReviewAction strips editorial wrappers from generated image prompt output", async () => {
@@ -329,6 +445,122 @@ test("generateReviewAction parses structured callout draft output and strips mar
   assert.equal(response.proposal.calloutDraft?.previewText, "Шкіра і нервова система мають спільне походження.");
   assert.equal(response.proposal.summary, "Коротко пояснює звязок.");
   assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /\*\*|^-\s/m);
+});
+
+test("generateReviewAction normalizes top_list callout body into actionable multi-line entries", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Цибуля та яблука містять кверцетин, полуниця містить фізетин." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-top-list-1",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати практичний список",
+        reason: "Читачеві потрібен короткий прикладний перелік.",
+        recommendation: "Зробити врізку-список із джерелами.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Цибуля та яблука містять кверцетин, полуниця містить фізетин.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "top_list",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"title":"Де шукати сенолітики","body":"- Цибуля (джерело кверцетину)\\n- Яблука - також містять кверцетин\\n- Полуниця: містить фізетин","summary":"Практичний список джерел."}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  const body = response.proposal.calloutDraft?.previewText ?? "";
+  const lines = body.split("\n").filter(Boolean);
+  assert.ok(lines.length >= 3);
+  assert.ok(lines.every((line) => line.includes(":")));
+  assert.doesNotMatch(body, /^\s*[-*•]\s+/m);
+});
+
+test("generateReviewAction preserves leading numeric lines in callout body cleanup", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Базовий фрагмент." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-numeric-1",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати врізку",
+        reason: "Потрібна компактна довідка.",
+        recommendation: "Дай практичну довідку з цифрами.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Базовий фрагмент.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "mechanism",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"title":"Коротка довідка","body":"2024. Оновлені дані збережено.\\n1) 500 мг щодня протягом 8 тижнів.","summary":"Пояснює, як читати числа у фрагменті."}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  const body = response.proposal.calloutDraft?.previewText ?? "";
+  assert.match(body, /^2024\./m);
+  assert.match(body, /^1\)\s500 мг/m);
 });
 
 test("generateReviewAction constrains rewrite output to the original block count", async () => {

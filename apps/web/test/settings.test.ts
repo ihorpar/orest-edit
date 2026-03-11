@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CALLOUT_PROMPT_TEMPLATE } from "../lib/editor/settings.ts";
+import {
+  DEFAULT_CALLOUT_PROMPT_TEMPLATE,
+  DEFAULT_IMAGE_PROMPT_TEMPLATE,
+  getVisualStylePresetGuide,
+  getVisualStylePresetOptions,
+  normalizeVisualStylePreset
+} from "../lib/editor/settings.ts";
 
 test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind explicitly", () => {
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /mechanism:/i);
@@ -9,4 +15,25 @@ test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind exp
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /everyday_application:/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /myths_vs_truth:/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /top_list:/i);
+});
+
+test("DEFAULT_CALLOUT_PROMPT_TEMPLATE hardens top_list schema with two-shot examples", () => {
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /calloutKind=top_list/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Назва \(1-2 слова\): пояснення \(1 речення\)/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /2-shot приклади/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Добре:/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Погано:/i);
+});
+
+test("DEFAULT_IMAGE_PROMPT_TEMPLATE documents visualStyleGuide placeholder", () => {
+  assert.match(DEFAULT_IMAGE_PROMPT_TEMPLATE, /\{\{visualStyleGuide\}\}/);
+});
+
+test("visual style preset helpers expose all supported presets and fallback safely", () => {
+  const options = getVisualStylePresetOptions().map((option) => option.value);
+
+  assert.deepEqual(options, ["minimal", "calm_gradient", "neo_brutal", "modern_glass"]);
+  assert.match(getVisualStylePresetGuide("modern_glass"), /liquid-glass/i);
+  assert.equal(normalizeVisualStylePreset("neo_brutal"), "neo_brutal");
+  assert.equal(normalizeVisualStylePreset("unknown-style"), "calm_gradient");
 });

@@ -460,7 +460,7 @@ export default function SettingsPage() {
                   className="settings-textarea"
                 />
                 <div className="settings-textarea-toolbar">
-                  <p className="settings-field-note">Плейсхолдери: <code>{`{{visualIntent}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>.</p>
+                  <p className="settings-field-note">Плейсхолдери: <code>{`{{visualIntent}}`}</code>, <code>{`{{visualStyleGuide}}`}</code>, <code>{`{{fragment}}`}</code>, <code>{`{{recommendation}}`}</code>.</p>
                   <Button
                     variant="secondary"
                     size="sm"

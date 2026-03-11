@@ -493,7 +493,8 @@ function buildSystemPrompt(basePrompt?: string): string {
     "Ти редагуєш український науково-популярний рукопис.",
     "Працюй тільки в межах виділених блоків.",
     "Поверни JSON з однією операцією replace_blocks.",
-    "newBlocks має містити готові rich-text blocks без markdown-синтаксису."
+    "newBlocks має містити готові rich-text blocks без markdown-синтаксису.",
+    "Роби відчутне переформулювання: міняй синтаксис і лексику, не повертай майже ідентичний текст."
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -506,6 +507,7 @@ function buildUserPrompt(request: PatchRequest): string {
   return [
     "Ось вибрані блоки для локальної правки.",
     request.mode === "custom" && request.prompt?.trim() ? `Додаткова інструкція: ${request.prompt.trim()}` : "Завдання: зроби текст яснішим і природнішим.",
+    "Критично: результат має помітно відрізнятися від оригіналу на рівні формулювань, але без вигаданих фактів.",
     `targetBlockIds: ${JSON.stringify(request.targetBlockIds)}`,
     "Контекст поруч:",
     context,

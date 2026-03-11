@@ -22,6 +22,7 @@ export type EditorialReviewPriority = "high" | "medium" | "low";
 export type EditorialReviewInsertionHint = "replace" | "before" | "after";
 export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
 export type EditorialVisualIntent = "diagram" | "comparison" | "process" | "timeline" | "scene" | "concept";
+export type VisualStylePreset = "minimal" | "calm_gradient" | "neo_brutal" | "modern_glass";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
 export type EditorialReviewItemOrigin = "review" | "manual";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
@@ -142,6 +143,7 @@ export interface ReviewActionRequest {
   reviewLevelGuide?: string;
   calloutPromptTemplate?: string;
   imagePromptTemplate?: string;
+  visualStylePreset?: VisualStylePreset;
 }
 
 export interface ReviewActionProposal {
@@ -178,6 +180,7 @@ export interface ReviewActionProposal {
   };
   imageDraft?: {
     visualIntent: EditorialVisualIntent;
+    visualStylePreset?: VisualStylePreset;
     prompt: string;
     alt: string;
     caption?: string;
@@ -440,6 +443,7 @@ export function normalizeEditorialReviewItems(input: {
     const title = normalizeCopy(record.title, 90);
     const reason = normalizeCopy(record.reason, 420);
     const recommendation = normalizeCopy(record.recommendation, 420);
+    const recommendationType = normalizeRecommendationType(record.recommendationType);
 
     if (blockStart === null || blockEnd === null || !title || !reason || !recommendation) {
       droppedCount += 1;
@@ -448,9 +452,16 @@ export function normalizeEditorialReviewItems(input: {
 
     const start = Math.min(blockStart, blockEnd);
     const end = Math.max(blockStart, blockEnd);
-    const blockIds = paragraphs.slice(start, end + 1).map((paragraph) => paragraph.id);
-    const excerpt = normalizeCopy(record.excerpt, 420) ?? blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
-    const recommendationType = normalizeRecommendationType(record.recommendationType);
+    const guardedRange = applyReplaceRangeGuard(paragraphs, { start, end }, recommendationType);
+    const blockIds = paragraphs.slice(guardedRange.start, guardedRange.end + 1).map((paragraph) => paragraph.id);
+
+    if (blockIds.length === 0) {
+      droppedCount += 1;
+      continue;
+    }
+
+    const fallbackExcerpt = blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
+    const excerpt = guardedRange.clipped ? fallbackExcerpt : normalizeCopy(record.excerpt, 420) ?? fallbackExcerpt;
     const insertionMode = normalizeInsertionHint(recommendationType, record.insertionHint);
     const insertionAnchor = resolveInsertionAnchor(blockIds, insertionMode);
 
@@ -468,14 +479,14 @@ export function normalizeEditorialReviewItems(input: {
       documentRevisionId: input.revision.documentRevisionId,
       changeLevel: input.changeLevel,
       title,
-      reason,
+      reason: guardedRange.clipped ? appendRangeClipNote(reason) : reason,
       recommendation,
       recommendationType,
       suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
       priority: normalizePriority(record.priority),
       anchor: {
         blockIds,
-        generationBlockRange: { start, end },
+        generationBlockRange: { start: guardedRange.start, end: guardedRange.end },
         excerpt,
         fingerprint: computeAnchorFingerprint(input.document, blockIds)
       },
@@ -653,6 +664,48 @@ function normalizeIndex(value: unknown, length: number): number | null {
 
   const index = Math.max(0, Math.min(length - 1, Math.floor(value)));
   return Number.isFinite(index) ? index : null;
+}
+
+function applyReplaceRangeGuard(
+  paragraphs: ReturnType<typeof getManuscriptParagraphs>,
+  range: { start: number; end: number },
+  recommendationType: EditorialReviewRecommendationType
+): { start: number; end: number; clipped: boolean } {
+  if (!isReplaceReviewType(recommendationType)) {
+    return { ...range, clipped: false };
+  }
+
+  const hasNonHeading = paragraphs.slice(range.start, range.end + 1).some((paragraph) => paragraph.type !== "heading");
+
+  if (!hasNonHeading) {
+    return { ...range, clipped: false };
+  }
+
+  let nextStart = range.start;
+  let nextEnd = range.end;
+  let clipped = false;
+
+  while (nextStart < nextEnd && paragraphs[nextStart]?.type === "heading") {
+    nextStart += 1;
+    clipped = true;
+  }
+
+  while (nextEnd > nextStart && paragraphs[nextEnd]?.type === "heading") {
+    nextEnd -= 1;
+    clipped = true;
+  }
+
+  return { start: nextStart, end: nextEnd, clipped };
+}
+
+function appendRangeClipNote(reason: string): string {
+  const note = "Діапазон автоматично обрізано, щоб не захопити сусідній заголовок.";
+
+  if (reason.includes(note)) {
+    return reason;
+  }
+
+  return `${reason} ${note}`.slice(0, 420);
 }
 
 function resolveInsertionAnchor(blockIds: string[], insertionMode: EditorialReviewInsertionHint): string {

@@ -32,6 +32,7 @@ import {
 } from "../../lib/editor/document-model";
 import {
   type EditorialCalloutKind,
+  type VisualStylePreset,
   getEditorialCalloutKindLabel,
   type ReviewActionProposal,
   type EditorialReviewItem
@@ -98,6 +99,8 @@ export function BlockEditorSurface({
   onUpdateActiveSubsectionLead,
   onUpdateActiveImagePrompt,
   onUpdateActiveImageCaption,
+  onUpdateActiveVisualStylePreset,
+  activeVisualStylePreset,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
   reviewImageLoading
@@ -129,6 +132,8 @@ export function BlockEditorSurface({
   onUpdateActiveSubsectionLead?: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
   onUpdateActiveImageCaption?: (caption: string) => void;
+  onUpdateActiveVisualStylePreset?: (preset: VisualStylePreset) => void;
+  activeVisualStylePreset?: VisualStylePreset;
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
   reviewImageLoading?: boolean;
@@ -740,6 +745,8 @@ export function BlockEditorSurface({
                       onUpdateActiveSubsectionLead={(item, lead) => onUpdateActiveSubsectionLead?.(item, lead)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
                       onUpdateActiveImageCaption={(caption) => onUpdateActiveImageCaption?.(caption)}
+                      onUpdateActiveVisualStylePreset={(preset) => onUpdateActiveVisualStylePreset?.(preset)}
+                      activeVisualStylePreset={activeVisualStylePreset}
                       onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
                       onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}
                     />

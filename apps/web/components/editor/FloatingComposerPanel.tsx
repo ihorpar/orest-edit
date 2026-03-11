@@ -6,8 +6,10 @@ import {
   getEditorialVisualIntentOptions,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
+  type VisualStylePreset,
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
+import { getVisualStylePresetOptions } from "../../lib/editor/settings";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
   { level: 1, label: "1", description: "Мінімальні зауваги" },
@@ -37,8 +39,10 @@ export function FloatingComposerPanel({
   onLocalActionModeChange,
   manualCalloutKind,
   manualVisualIntent,
+  manualVisualStylePreset,
   onManualCalloutKindChange,
   onManualVisualIntentChange,
+  onManualVisualStylePresetChange,
   manualCalloutPrompt,
   manualVisualPrompt,
   onManualCalloutPromptChange,
@@ -65,8 +69,10 @@ export function FloatingComposerPanel({
   onLocalActionModeChange: (mode: LocalActionMode) => void;
   manualCalloutKind: EditorialCalloutKind;
   manualVisualIntent: EditorialVisualIntent;
+  manualVisualStylePreset: VisualStylePreset;
   onManualCalloutKindChange: (value: EditorialCalloutKind) => void;
   onManualVisualIntentChange: (value: EditorialVisualIntent) => void;
+  onManualVisualStylePresetChange: (value: VisualStylePreset) => void;
   manualCalloutPrompt: string;
   manualVisualPrompt: string;
   onManualCalloutPromptChange: (value: string) => void;
@@ -79,6 +85,7 @@ export function FloatingComposerPanel({
   const isReview = mode === "review";
   const calloutOptions = getEditorialCalloutKindOptions();
   const visualOptions = getEditorialVisualIntentOptions();
+  const visualStyleOptions = getVisualStylePresetOptions();
   const manualInFlight = Boolean(manualLoadingKind);
 
   return (
@@ -273,6 +280,21 @@ export function FloatingComposerPanel({
                     disabled={manualInFlight}
                   >
                     {visualOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="mono-ui floating-local-label">
+                  Стиль візуалу
+                  <select
+                    className="floating-local-select"
+                    value={manualVisualStylePreset}
+                    onChange={(event) => onManualVisualStylePresetChange(event.target.value as VisualStylePreset)}
+                    disabled={manualInFlight}
+                  >
+                    {visualStyleOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>

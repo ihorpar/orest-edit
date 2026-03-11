@@ -9,7 +9,16 @@ import { EditorialReviewDrawer } from "../../components/layout/EditorialReviewDr
 import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
 import { Button } from "../../components/ui/Button";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
-import { createBlockId, createInlineText, EMPTY_BLOCK_SELECTION, insertBlocksAfter, normalizeBlockSelection, removeBlocksByIds, replaceBlocksByIds } from "../../lib/editor/document-model";
+import {
+  createBlockId,
+  createInlineText,
+  EMPTY_BLOCK_SELECTION,
+  getBlockText,
+  insertBlocksAfter,
+  normalizeBlockSelection,
+  removeBlocksByIds,
+  replaceBlocksByIds
+} from "../../lib/editor/document-model";
 import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState } from "../../lib/editor/draft-state";
 import { exportDocumentToDocx } from "../../lib/editor/docx-export";
@@ -32,6 +41,7 @@ import {
 } from "../../lib/editor/patch-contract";
 import {
   type EditorialCalloutKind,
+  type VisualStylePreset,
   type EditorialVisualIntent,
   getEditorialCalloutKindTitle,
   reconcileReviewItemsWithRevision,
@@ -46,7 +56,14 @@ import {
   type ReviewSessionStatus,
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
-import { DEFAULT_EDITOR_SETTINGS, readEditorSettings, type EditorSettings } from "../../lib/editor/settings";
+import {
+  DEFAULT_EDITOR_SETTINGS,
+  DEFAULT_VISUAL_STYLE_PRESET,
+  VISUAL_STYLE_PRESET_STORAGE_KEY,
+  normalizeVisualStylePreset,
+  readEditorSettings,
+  type EditorSettings
+} from "../../lib/editor/settings";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
 
 interface RequestFeedback {
@@ -65,6 +82,7 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
 };
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
 const defaultManualVisualIntent: EditorialVisualIntent = "diagram";
+const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
 const defaultLocalActionMode = "patch" as const;
 
 type ComposerMode = "local" | "review" | null;
@@ -104,13 +122,18 @@ export default function EditorPage() {
   const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
+  const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const recentChangeTimeoutRef = useRef<number | null>(null);
+  const reviewNoOpStreakRef = useRef<Record<string, number>>({});
+  const patchNoOpStreakRef = useRef<Record<string, number>>({});
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
 
   useEffect(() => {
     setSettings(readEditorSettings());
+    const lastVisualStyle = normalizeVisualStylePreset(window.localStorage.getItem(VISUAL_STYLE_PRESET_STORAGE_KEY), defaultVisualStylePreset);
+    setVisualStylePreset(lastVisualStyle);
     const draft = readEditorDraftState();
 
     if (draft) {
@@ -131,6 +154,13 @@ export default function EditorPage() {
 
     setHasHydratedDraft(true);
   }, []);
+
+  function persistVisualStylePreset(preset: VisualStylePreset) {
+    setVisualStylePreset(preset);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(VISUAL_STYLE_PRESET_STORAGE_KEY, preset);
+    }
+  }
 
   useEffect(() => {
     if (!hasHydratedDraft) {
@@ -261,7 +291,23 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as PatchResponse;
-      const nextFeedback = buildPatchFeedbackMessage(payload, response.ok);
+      let nextFeedback = buildPatchFeedbackMessage(payload, response.ok);
+      const noOpAssessment = assessPatchNoOp(payload.operations);
+      const patchStreakKey = `${mode}:${targetBlockIds.join("|")}`;
+
+      if (response.ok && !payload.error && noOpAssessment.isNoOp) {
+        const nextStreak = (patchNoOpStreakRef.current[patchStreakKey] ?? 0) + 1;
+        patchNoOpStreakRef.current[patchStreakKey] = nextStreak;
+        nextFeedback = {
+          tone: "info",
+          message:
+            nextStreak >= 2
+              ? "Повторна локальна чернетка майже без змін. Уточніть інструкцію: що саме спростити або переписати і в якому форматі очікуєте результат."
+              : "Локальна чернетка майже не змінює текст. Уточніть запит або перегенеруйте."
+        };
+      } else if (response.ok && !payload.error) {
+        patchNoOpStreakRef.current[patchStreakKey] = 0;
+      }
 
       setOperations(payload.operations);
       setPatchDiagnostics(payload.diagnostics);
@@ -430,6 +476,9 @@ export default function EditorPage() {
     resetActiveExecutionLane();
 
     const recommendationType = kind === "callout" ? "callout" : "visual";
+    if (kind === "visual") {
+      persistVisualStylePreset(visualStylePreset);
+    }
     const draftItem = buildManualReviewItem({
       document,
       revision,
@@ -462,6 +511,7 @@ export default function EditorPage() {
       const nextDocument = replaceBlocksByIds(document, activeProposal.textDiff.blockIds, nextBlocks);
       commitDocument(nextDocument);
       focusAndHighlightChangedBlocks(activeProposal.textDiff.blockIds);
+      reviewNoOpStreakRef.current[activeProposal.reviewItemId] = 0;
       setOperations((current) => current.filter((op) => op.id !== proposalId));
       setReviewItems((current) =>
         current.map((entry) => (entry.id === activeProposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -526,6 +576,11 @@ export default function EditorPage() {
     setReviewItems((current) => (current.some((entry) => entry.id === item.id) ? current : [item, ...current]));
     setActiveReviewItemId(item.id);
     setPreparingReviewItemId(item.id);
+    const requestVisualStylePreset = normalizeVisualStylePreset(visualStylePreset, defaultVisualStylePreset);
+
+    if (item.recommendationType === "visual") {
+      persistVisualStylePreset(requestVisualStylePreset);
+    }
 
     try {
       const response = await fetch("/api/edit/review/proposal", {
@@ -543,19 +598,20 @@ export default function EditorPage() {
           reviewPrompt: settings.reviewPrompt,
           reviewLevelGuide: settings.reviewLevelGuide,
           calloutPromptTemplate: settings.calloutPromptTemplate,
-          imagePromptTemplate: settings.imagePromptTemplate
+          imagePromptTemplate: settings.imagePromptTemplate,
+          visualStylePreset: requestVisualStylePreset
         })
       });
       const payload = (await response.json()) as ReviewActionResponse;
 
-      setActiveProposal(payload.proposal);
-
       if (payload.proposal.kind === "text_diff" && payload.proposal.textDiff) {
-        const textDiff = payload.proposal.textDiff;
+        const proposal = maybeEscalateReviewNoOpWarning(payload.proposal, item.id, reviewNoOpStreakRef.current);
+        const textDiff = proposal.textDiff!;
+        setActiveProposal(proposal);
         setOperations((current) => [
           ...current,
           {
-            id: payload.proposal.id,
+            id: proposal.id,
             op: "replace_blocks",
             blockIds: textDiff.blockIds,
             oldBlocks: textDiff.oldBlocks,
@@ -566,12 +622,15 @@ export default function EditorPage() {
         ]);
         setReviewItems((current) =>
           current.map((entry) =>
-            entry.id === item.id ? { ...entry, status: "ready", activeProposalId: payload.proposal.id } : entry
+            entry.id === item.id ? { ...entry, status: "ready", activeProposalId: proposal.id } : entry
           )
         );
         setFeedback({ tone: "info", message: "Чернетку правки додано на розгляд." });
         return;
       }
+
+      reviewNoOpStreakRef.current[item.id] = 0;
+      setActiveProposal(payload.proposal);
 
       if (payload.proposal.kind === "subsection_prompt" && payload.proposal.subsectionDraft) {
         setReviewItems((current) =>
@@ -617,6 +676,9 @@ export default function EditorPage() {
       }
 
       if (payload.proposal.kind === "image_prompt" && payload.proposal.imageDraft) {
+        persistVisualStylePreset(
+          normalizeVisualStylePreset(payload.proposal.imageDraft.visualStylePreset, requestVisualStylePreset)
+        );
         setReviewItems((current) =>
           current.map((entry) =>
             entry.id === item.id ? { ...entry, status: "ready", activeProposalId: payload.proposal.id } : entry
@@ -652,7 +714,7 @@ export default function EditorPage() {
       type: "callout",
       kind: item.calloutDraft.calloutKind,
       title: [createInlineText(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind))],
-      body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText)
+      body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText, item.calloutDraft.calloutKind)
     };
 
     commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]));
@@ -928,11 +990,32 @@ export default function EditorPage() {
     });
   }
 
+  function updateActiveVisualStylePreset(preset: VisualStylePreset) {
+    const normalizedPreset = normalizeVisualStylePreset(preset, defaultVisualStylePreset);
+    persistVisualStylePreset(normalizedPreset);
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "image_prompt" || !current.imageDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        imageDraft: {
+          ...current.imageDraft,
+          visualStylePreset: normalizedPreset
+        }
+      };
+    });
+  }
+
   async function generateActiveReviewImage() {
     if (!activeProposal || activeProposal.kind !== "image_prompt" || !activeProposal.imageDraft) {
       return;
     }
 
+    persistVisualStylePreset(
+      normalizeVisualStylePreset(activeProposal.imageDraft.visualStylePreset ?? visualStylePreset, defaultVisualStylePreset)
+    );
     setIsReviewImageRequestInFlight(true);
 
     try {
@@ -1128,6 +1211,8 @@ export default function EditorPage() {
               onUpdateActiveSubsectionLead={updateActiveSubsectionLead}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
               onUpdateActiveImageCaption={updateActiveImageCaption}
+              onUpdateActiveVisualStylePreset={updateActiveVisualStylePreset}
+              activeVisualStylePreset={visualStylePreset}
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
               reviewImageLoading={isReviewImageRequestInFlight}
@@ -1158,8 +1243,10 @@ export default function EditorPage() {
                 onLocalActionModeChange={setLocalActionMode}
                 manualCalloutKind={manualCalloutKind}
                 manualVisualIntent={manualVisualIntent}
+                manualVisualStylePreset={visualStylePreset}
                 onManualCalloutKindChange={setManualCalloutKind}
                 onManualVisualIntentChange={setManualVisualIntent}
+                onManualVisualStylePresetChange={persistVisualStylePreset}
                 manualCalloutPrompt={manualCalloutPrompt}
                 manualVisualPrompt={manualVisualPrompt}
                 onManualCalloutPromptChange={setManualCalloutPrompt}
@@ -1321,12 +1408,141 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
   };
 }
 
-function splitCalloutDraftIntoParagraphs(text: string) {
-  const parts = text
-    .replace(/\r\n?/g, "\n")
-    .split(/\n\s*\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+function splitCalloutDraftIntoParagraphs(text: string, kind: EditorialCalloutKind) {
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const parts =
+    kind === "top_list"
+      ? normalized.split("\n").map((part) => part.trim()).filter(Boolean)
+      : normalized.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
 
   return (parts.length > 0 ? parts : [""]).map((part) => [createInlineText(part)]);
+}
+
+function maybeEscalateReviewNoOpWarning(
+  proposal: ReviewActionProposal,
+  itemId: string,
+  streakState: Record<string, number>
+): ReviewActionProposal {
+  if (proposal.kind !== "text_diff" || !proposal.textDiff?.warning || proposal.textDiff.warning.code !== "no_op") {
+    streakState[itemId] = 0;
+    return proposal;
+  }
+
+  const nextStreak = (streakState[itemId] ?? 0) + 1;
+  streakState[itemId] = nextStreak;
+
+  if (nextStreak < 2) {
+    return proposal;
+  }
+
+  return {
+    ...proposal,
+    textDiff: {
+      ...proposal.textDiff,
+      warning: {
+        ...proposal.textDiff.warning,
+        message:
+          "Друга no-op чернетка поспіль. Поточна інструкція занадто розмита: уточніть, що саме переписати/спростити, для кого і який формат результату очікуєте."
+      }
+    }
+  };
+}
+
+function assessPatchNoOp(operations: PatchOperation[]): { isNoOp: boolean; maxSimilarity: number } {
+  if (operations.length === 0) {
+    return { isNoOp: false, maxSimilarity: 0 };
+  }
+
+  let maxSimilarity = 0;
+  let allNearNoOp = true;
+
+  for (const operation of operations) {
+    const source = canonicalizeNoOpText(operation.oldBlocks);
+    const candidate = canonicalizeNoOpText(operation.newBlocks);
+
+    if (!source || !candidate) {
+      allNearNoOp = false;
+      continue;
+    }
+
+    const similarity = computeNoOpDiceSimilarity(source, candidate);
+    maxSimilarity = Math.max(maxSimilarity, similarity);
+
+    if (similarity < 0.94) {
+      allNearNoOp = false;
+    }
+  }
+
+  return { isNoOp: allNearNoOp, maxSimilarity };
+}
+
+function canonicalizeNoOpText(blocks: Block[]): string {
+  return blocks
+    .map((block) => sanitizeNoOpText(getBlockText(block)).toLowerCase())
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeNoOpText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function computeNoOpDiceSimilarity(left: string, right: string): number {
+  if (left === right) {
+    return 1;
+  }
+
+  if (left.length < 2 || right.length < 2) {
+    return 0;
+  }
+
+  const leftPairs = createNoOpBigramCounts(left);
+  const rightPairs = createNoOpBigramCounts(right);
+  let overlap = 0;
+  let leftCount = 0;
+  let rightCount = 0;
+
+  for (const value of leftPairs.values()) {
+    leftCount += value;
+  }
+
+  for (const value of rightPairs.values()) {
+    rightCount += value;
+  }
+
+  for (const [pair, leftValue] of leftPairs.entries()) {
+    overlap += Math.min(leftValue, rightPairs.get(pair) ?? 0);
+  }
+
+  if (leftCount === 0 || rightCount === 0) {
+    return 0;
+  }
+
+  return (2 * overlap) / (leftCount + rightCount);
+}
+
+function createNoOpBigramCounts(value: string): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (let index = 0; index < value.length - 1; index += 1) {
+    const pair = value.slice(index, index + 2);
+    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+  }
+
+  return counts;
 }

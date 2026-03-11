@@ -469,7 +469,11 @@ function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): stri
       "Зараз етап ЕКСПЕРТИЗИ. Твоє завдання — проаналізувати текст загалом, вказати на структурні, логічні та стилістичні проблеми.",
       "Зверни особливу увагу на кастомні інструкції користувача.",
       "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором.",
-      "Якщо посилаєшся на фрагмент, використовуй лише формат «абз. NNN». Не показуй raw block id."
+      "Пиши лише українською мовою.",
+      "Якщо посилаєшся на фрагмент, використовуй лише формат «абз. NNN». Не показуй raw block id.",
+      "Не показуй технічні поля або службові ключі: Suggested Action, recommendationType, suggestedAction, calloutKind, visualIntent, insertionHint, blockStart, blockEnd.",
+      "Не використовуй enum-коди або snake_case значення: rewrite_text, insert_text, prepare_callout, prepare_visual, mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
+      "Описуй дії лише людськими українськими формулюваннями: переписати, спростити, розширити, оформити списком, додати підзаголовок, додати врізку, додати візуал."
     );
   } else {
     basePrompts.push(

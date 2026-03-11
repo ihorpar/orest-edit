@@ -212,3 +212,43 @@ test("normalizeEditorialReviewItems resolves insertion anchors by mode when anch
   assert.equal(subsection?.insertionPoint.mode, "before");
   assert.equal(subsection?.insertionPoint.anchorBlockId, "p1");
 });
+
+test("normalizeEditorialReviewItems clips adjacent structural heading from replace/list range", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "h1", type: "heading", level: 2, content: [{ text: "Зміна кольору шкіри" }] },
+      { id: "p1", type: "paragraph", content: [{ text: "Ціаноз шкіри може свідчити про системні порушення." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Охряно-сірий колір шкіри можливий при нирковій недостатності." }] },
+      { id: "h2", type: "heading", level: 2, content: [{ text: "Сухість шкіри" }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-5",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Стисни у короткий перелік.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 3,
+        excerpt: "Ціаноз... Сухість шкіри",
+        insertionHint: "replace",
+        anchorBlockId: "p1"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1", "p2"]);
+  assert.equal(normalized.items[0]?.anchor.generationBlockRange.end, 2);
+  assert.match(normalized.items[0]?.reason ?? "", /автоматично обрізано/i);
+});

@@ -16,6 +16,7 @@ import {
   getEditorialCalloutKindTitle,
   isReplaceReviewType
 } from "../editor/review-contract.ts";
+import { getVisualStylePresetGuide, getVisualStylePresetLabel, normalizeVisualStylePreset } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -267,7 +268,7 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
       calloutKind,
       title: getEditorialCalloutKindTitle(calloutKind),
       prompt: buildFallbackCalloutPrompt(calloutKind, excerpt, request.item.recommendation),
-      previewText: sanitizeCalloutText(excerpt.slice(0, 220))
+      previewText: normalizeCalloutBodyByKind(excerpt.slice(0, 220), calloutKind)
     }
   };
 }
@@ -300,6 +301,8 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
 
 function createFallbackImagePromptProposal(request: ReviewActionRequest): ReviewActionProposal {
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
+  const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
+  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
 
   return {
     id: createPatchId("proposal-image"),
@@ -311,7 +314,8 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     canApplyDirectly: false,
     imageDraft: {
       visualIntent: request.item.visualIntent ?? "diagram",
-      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram"),
+      visualStylePreset,
+      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram", visualStyleGuide),
       alt: request.item.title,
       caption: request.item.recommendation,
       targetModel: "gemini-3.1-flash-image-preview"
@@ -335,7 +339,7 @@ async function createCalloutProposal(
     title: request.item.calloutDraft?.title ?? getEditorialCalloutKindTitle(calloutKind),
     body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, 220),
     summary: request.item.reason
-  });
+  }, calloutKind);
 
   return {
     providerUsed: request.provider,
@@ -403,13 +407,15 @@ async function createImagePromptProposal(
 ): Promise<{ proposal: ReviewActionProposal; providerUsed: string; rawOutput?: string }> {
   const prompt = buildProviderPrompt(request, "image");
   const excerpt = getRequestExcerpt(request);
+  const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
+  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
   const result = request.provider === "gemini"
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const parsed = parseImageDraftOutput(result, {
-    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram"),
+    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, request.item.visualIntent ?? "diagram", visualStyleGuide),
     caption: request.item.recommendation,
     alt: request.item.title
   });
@@ -427,6 +433,7 @@ async function createImagePromptProposal(
       canApplyDirectly: false,
       imageDraft: {
         visualIntent: request.item.visualIntent ?? "diagram",
+        visualStylePreset,
         prompt: parsed.prompt,
         alt: parsed.alt,
         caption: parsed.caption,
@@ -452,6 +459,12 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
       `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
       `Додаткове правило для типу: ${getCalloutKindGuardrail(calloutKind)}`,
+      calloutKind === "top_list"
+        ? "Для top_list: body має містити 3-5 рядків; кожен рядок у форматі «Назва (1-2 слова): пояснення (1 речення)»."
+        : null,
+      calloutKind === "top_list"
+        ? "Зберігай multi-line структуру: один пункт = один рядок, не склеюй усе в один абзац."
+        : null,
       templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
       templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
       "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
@@ -478,8 +491,11 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
   }
 
   const visualIntent = request.item.visualIntent ?? "diagram";
+  const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
+  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
   const template = interpolatePromptTemplate(request.imagePromptTemplate?.trim(), {
     visualIntent,
+    visualStyleGuide,
     fragment: excerpt,
     recommendation: request.item.recommendation
   });
@@ -489,6 +505,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
+    templateContainsPlaceholder(request.imagePromptTemplate, "visualStyleGuide")
+      ? null
+      : `Обраний стиль (${getVisualStylePresetLabel(visualStylePreset)}): ${visualStyleGuide}`,
     `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent)}`,
     "Бажаний формат відповіді: JSON {\"prompt\":\"...\",\"caption\":\"...\",\"alt\":\"...\"}. Поля caption і alt опційні.",
     "Якщо повертаєш не JSON, увесь текст відповіді буде використано як image prompt.",
@@ -538,7 +557,8 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
     "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
     "Не додавай нових фактів.",
     "Зміни мають бути відчутними на рівні формулювань, а не косметичними.",
-    "Не повторюй вихідний текст дослівно."
+    "Не повторюй вихідний текст дослівно.",
+    "Міняй синтаксис і лексику: перероби структуру речень, не обмежуйся дрібними підстановками слів."
   ];
 
   if (type === "simplify") {
@@ -546,6 +566,7 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
       "Тип правки: simplify.",
       "Спрости формулювання для широкого читача без втрати змісту.",
       "Пояснюй терміни простими словами, скорочуй перевантажені конструкції.",
+      "Прибери канцеляризми, складні звороти та зайві вставні конструкції; кожне речення має стати простішим за оригінал.",
       `Поверни рівно ${blockCount} replacement blocks.`
     ]
       .concat(shared)
@@ -565,7 +586,8 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
   if (type === "list") {
     return [
       "Тип правки: list.",
-      "Якщо це природно для змісту, переформатуй у list block.",
+      "Переформатуй зміст у list block, коли є дискретні пункти.",
+      "Кожен пункт роби у форматі «Назва: пояснення», де назва коротка (1-2 слова).",
       `Поверни від 1 до ${blockCount} replacement blocks; ніколи не перевищуй кількість вибраних блоків.`
     ]
       .concat(shared)
@@ -576,6 +598,7 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
     "Тип правки: rewrite.",
     "Перепиши фрагмент ясніше і сильніше стилістично без зміни фактичного змісту.",
     "Перебудуй синтаксис і лексику так, щоб текст читався інакше та легше.",
+    "Уникай перефразування на 1-2 слова; потрібна помітна редакторська різниця в кожному блоці.",
     `Поверни рівно ${blockCount} replacement blocks.`
   ]
     .concat(shared)
@@ -592,7 +615,7 @@ function getCalloutKindGuardrail(kind: EditorialCalloutKind): string {
   }
 
   if (kind === "top_list") {
-    return "Подавай 3-5 пунктів лише якщо фрагмент природно підтримує перелік.";
+    return "Подавай 3-5 пунктів у multi-line форматі «Назва: пояснення»; працюй лише з фактами фрагмента і не вигадуй нові джерела.";
   }
 
   return "Залишайся в межах фрагмента без вигаданих фактів чи діагнозів.";
@@ -1072,10 +1095,16 @@ function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, fragment: string
   ].join("\n");
 }
 
-function buildFallbackImagePrompt(fragment: string, recommendation: string, visualIntent: EditorialVisualIntent): string {
+function buildFallbackImagePrompt(
+  fragment: string,
+  recommendation: string,
+  visualIntent: EditorialVisualIntent,
+  visualStyleGuide: string
+): string {
   return [
     "Створи простий навчальний візуал українською мовою.",
     getVisualIntentPromptGuidance(visualIntent),
+    `Стиль: ${visualStyleGuide}`,
     `Спирайся тільки на цей фрагмент: ${fragment}`,
     `Редакторська ціль: ${recommendation}`,
     "Без фотореалізму, зайвого декору, медичних кліше та вигаданих фактів."
@@ -1096,7 +1125,8 @@ function providerDisplayName(provider: string): string {
 
 function parseCalloutDraftOutput(
   rawOutput: string,
-  fallback: { title: string; body: string; summary: string }
+  fallback: { title: string; body: string; summary: string },
+  calloutKind: EditorialCalloutKind
 ): { title: string; body: string; summary: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "calloutTitle", "header"]) : null;
@@ -1104,13 +1134,13 @@ function parseCalloutDraftOutput(
   const objectSummary = parsedObject ? pickString(parsedObject, ["summary", "why", "purpose", "rationale"]) : null;
 
   const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
-  const fallbackBodyValue = sanitizeCalloutText(fallback.body);
+  const fallbackBodyValue = normalizeCalloutBodyByKind(fallback.body, calloutKind);
   const fallbackSummaryValue = sanitizeCalloutText(fallback.summary) || "Коротко поясни, чому ця врізка потрібна саме тут.";
 
   if (objectTitle || objectBody || objectSummary) {
     return {
       title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
-      body: sanitizeCalloutText(objectBody ?? fallbackBodyValue) || fallbackBodyValue,
+      body: normalizeCalloutBodyByKind(objectBody ?? fallbackBodyValue, calloutKind) || fallbackBodyValue,
       summary: sanitizeCalloutText(objectSummary ?? fallbackSummaryValue) || fallbackSummaryValue
     };
   }
@@ -1120,7 +1150,7 @@ function parseCalloutDraftOutput(
 
   return {
     title: sanitizeCalloutTitle(fromLabels.title ?? fallbackTitleValue),
-    body: sanitizeCalloutText(fromLabels.body ?? fallbackBodyValue) || fallbackBodyValue,
+    body: normalizeCalloutBodyByKind(fromLabels.body ?? fallbackBodyValue, calloutKind) || fallbackBodyValue,
     summary: sanitizeCalloutText(fromLabels.summary ?? fallbackSummaryValue) || fallbackSummaryValue
   };
 }
@@ -1252,7 +1282,7 @@ function sanitizeCalloutText(value: string): string {
     .replace(/\r\n?/g, "\n")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/^\s{0,3}#{1,6}\s*/gm, "")
-    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
@@ -1261,6 +1291,80 @@ function sanitizeCalloutText(value: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function normalizeCalloutBodyByKind(value: string, calloutKind: EditorialCalloutKind): string {
+  const plain = sanitizeCalloutText(value);
+
+  if (calloutKind !== "top_list") {
+    return plain;
+  }
+
+  const normalizedLines = plain
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => normalizeTopListLine(line))
+    .filter(Boolean);
+
+  if (normalizedLines.length === 0) {
+    return plain;
+  }
+
+  return normalizedLines.join("\n");
+}
+
+function normalizeTopListLine(line: string): string {
+  const stripped = line
+    .replace(/^\s*[-*•]\s+/, "")
+    .replace(/^\s*\d{1,2}[.)]\s+/, "")
+    .trim();
+
+  if (!stripped) {
+    return "";
+  }
+
+  const colonMatch = /^([^:]{1,48}):\s*(.+)$/.exec(stripped);
+
+  if (colonMatch?.[1] && colonMatch[2]) {
+    return `${collapseTopListTitle(colonMatch[1])}: ${normalizeTopListDescription(colonMatch[2])}`;
+  }
+
+  const dashMatch = /^(.{1,48}?)\s*[—-]\s*(.+)$/.exec(stripped);
+
+  if (dashMatch?.[1] && dashMatch[2]) {
+    return `${collapseTopListTitle(dashMatch[1])}: ${normalizeTopListDescription(dashMatch[2])}`;
+  }
+
+  const bracketMatch = /^(.{1,48}?)\s*\((.+)\)$/.exec(stripped);
+
+  if (bracketMatch?.[1] && bracketMatch[2]) {
+    return `${collapseTopListTitle(bracketMatch[1])}: ${normalizeTopListDescription(bracketMatch[2])}`;
+  }
+
+  const words = stripped.split(/\s+/);
+  const title = collapseTopListTitle(words.slice(0, 2).join(" "));
+  const description = normalizeTopListDescription(stripped.slice(title.length).replace(/^[,;:.\-–—\s]+/, ""));
+  return description ? `${title}: ${description}` : stripped;
+}
+
+function collapseTopListTitle(value: string): string {
+  return value
+    .replace(/[.,;:!?]+$/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .join(" ");
+}
+
+function normalizeTopListDescription(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function getRequestExcerpt(request: ReviewActionRequest): string {

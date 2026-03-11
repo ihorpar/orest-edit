@@ -54,6 +54,16 @@ Decision: visual proposal parsing accepts structured JSON with `prompt` plus opt
 
 Reason: providers are inconsistent; dual-mode parsing enables richer metadata without breaking existing generation flow.
 
+### Local visual-style presets for prompt preparation
+Decision: visual prompt preparation supports four local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) chosen in visual generation UI, with `calm_gradient` as default and browser-local persistence of the last used preset.
+
+Reason: editors need controllable modern art direction without turning global settings into a style lock for every visual recommendation.
+
+### modern_glass wording policy
+Decision: `modern_glass` guidance may mention `liquid-glass` aesthetics, but must avoid direct brand-copy wording (for example, “as in Apple products”).
+
+Reason: this preserves the intended visual direction while keeping prompts vendor-neutral and product-safe.
+
 ### Rewrite/simplify quality warning guardrail
 Decision: rewrite/simplify proposals run normalized-text similarity checks and surface a no-op warning when output is too close to source.
 
@@ -88,6 +98,21 @@ Reason: this removes duplicated nested old/new cards and keeps comparison flow c
 Decision: after apply/insert, the editor auto-scrolls to the first changed block and highlights all changed blocks for 30 seconds.
 
 Reason: users need immediate spatial confirmation of what changed, especially when edits land outside the current viewport.
+
+### top_list callout contract is strict multi-line
+Decision: `calloutKind=top_list` output must be source-bound multi-line entries in `Назва: пояснення` format, reinforced with two-shot prompt examples and kind-aware normalization.
+
+Reason: flat one-paragraph drafts were not actionable enough for editorial workflows.
+
+### Repeated no-op proposals escalate in UI messaging
+Decision: `rewrite/simplify` no-op warnings remain warning-first, but consecutive no-op generations for the same review item escalate with explicit guidance to strengthen instructions.
+
+Reason: repeated near-identical outputs are typically prompt/flow quality issues and need clear operator direction.
+
+### Replace/list ranges clip accidental heading spillover
+Decision: review normalization clips leading/trailing heading blocks from replace-type ranges when mixed with prose content and appends a clipping note to recommendation reason.
+
+Reason: this prevents accidental inclusion of adjacent structural headings while preserving intentional heading-only ranges.
 
 ## 2026-03-10
 
