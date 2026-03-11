@@ -92,6 +92,7 @@ export interface EditorialReviewItem {
     summary?: string;
   };
   visualIntent?: EditorialVisualIntent;
+  activeProposalId?: string;
   status: EditorialReviewItemStatus;
 }
 

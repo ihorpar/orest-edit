@@ -317,6 +317,26 @@ export default function EditorPage() {
     // Automatically prepare the item (e.g., generate diff) when focused in compact mode
     if (item.status === 'pending') {
       void prepareReviewItem(item);
+    } else if (item.status === 'ready' && item.activeProposalId) {
+      const existingOp = operations.find(op => op.id === item.activeProposalId);
+      if (existingOp && existingOp.op === 'replace_blocks') {
+        setActiveProposal({
+          id: existingOp.id,
+          reviewItemId: item.id,
+          sourceRevisionId: revision.documentRevisionId,
+          targetRevisionId: revision.documentRevisionId,
+          canApplyDirectly: true,
+          kind: 'text_diff',
+          summary: existingOp.reason,
+          textDiff: {
+            op: "replace_blocks",
+            blockIds: existingOp.blockIds,
+            oldBlocks: existingOp.oldBlocks,
+            newBlocks: existingOp.newBlocks,
+            reason: existingOp.reason
+          }
+        });
+      }
     }
   }
 
@@ -434,6 +454,11 @@ export default function EditorPage() {
             type: "clarity"
           }
         ]);
+        setReviewItems((current) =>
+          current.map((entry) =>
+            entry.id === item.id ? { ...entry, status: "ready", activeProposalId: payload.proposal.id } : entry
+          )
+        );
         setFeedback({ tone: "info", message: "Чернетку правки додано на розгляд." });
         return;
       }
