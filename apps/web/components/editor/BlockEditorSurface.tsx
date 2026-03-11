@@ -32,6 +32,7 @@ import {
 } from "../../lib/editor/document-model";
 import {
   type EditorialCalloutKind,
+  type EditorialVisualIntent,
   type VisualStylePreset,
   getEditorialCalloutKindLabel,
   type ReviewActionProposal,
@@ -97,6 +98,7 @@ export function BlockEditorSurface({
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
   onUpdateActiveSubsectionLead,
+  onUpdateActiveVisualIntent,
   onUpdateActiveImagePrompt,
   onUpdateActiveImageCaption,
   onUpdateActiveVisualStylePreset,
@@ -121,7 +123,7 @@ export function BlockEditorSurface({
   reviewItems?: EditorialReviewItem[];
   onAcceptProposal?: (proposalId: string, nextBlocks: Block[]) => void;
   onRejectProposal?: (proposalId: string) => void;
-  onPrepareReviewItem?: (item: EditorialReviewItem) => void;
+  onPrepareReviewItem?: (item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) => void;
   onApplyReviewCallout?: (item: EditorialReviewItem) => void;
   onApplyReviewSubsection?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
@@ -130,6 +132,7 @@ export function BlockEditorSurface({
   onUpdateActiveCalloutBody?: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle?: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveSubsectionLead?: (item: EditorialReviewItem, lead: string) => void;
+  onUpdateActiveVisualIntent?: (item: EditorialReviewItem, intent: EditorialVisualIntent) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
   onUpdateActiveImageCaption?: (caption: string) => void;
   onUpdateActiveVisualStylePreset?: (preset: VisualStylePreset) => void;
@@ -734,7 +737,7 @@ export function BlockEditorSurface({
                       layout="pendant"
                       isPreparing={preparingItem?.id === highlightedItem.id}
                       reviewImageLoading={reviewImageLoading}
-                      onPrepare={(item) => onPrepareReviewItem?.(item)}
+                      onPrepare={(item, options) => onPrepareReviewItem?.(item, options)}
                       onApplyCallout={(item) => onApplyReviewCallout?.(item)}
                       onApplySubsection={(item) => onApplyReviewSubsection?.(item)}
                       onDismiss={(item) => onDismissReviewItem?.(item)}
@@ -743,6 +746,7 @@ export function BlockEditorSurface({
                       onUpdateActiveCalloutBody={(item, body) => onUpdateActiveCalloutBody?.(item, body)}
                       onUpdateActiveSubsectionTitle={(item, title) => onUpdateActiveSubsectionTitle?.(item, title)}
                       onUpdateActiveSubsectionLead={(item, lead) => onUpdateActiveSubsectionLead?.(item, lead)}
+                      onUpdateActiveVisualIntent={(item, intent) => onUpdateActiveVisualIntent?.(item, intent)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
                       onUpdateActiveImageCaption={(caption) => onUpdateActiveImageCaption?.(caption)}
                       onUpdateActiveVisualStylePreset={(preset) => onUpdateActiveVisualStylePreset?.(preset)}

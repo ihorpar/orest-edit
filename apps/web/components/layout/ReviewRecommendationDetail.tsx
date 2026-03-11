@@ -1,11 +1,18 @@
 "use client";
 
-import type { EditorialCalloutKind, EditorialReviewItem, ReviewActionProposal, VisualStylePreset } from "../../lib/editor/review-contract";
+import type {
+  EditorialCalloutKind,
+  EditorialReviewItem,
+  EditorialVisualIntent,
+  ReviewActionProposal,
+  VisualStylePreset
+} from "../../lib/editor/review-contract";
 import {
   getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindOptions,
   getEditorialRecommendationTypeLabel,
+  getEditorialVisualIntentOptions,
   getReviewParagraphRangeLabel,
   resolveReviewImageAssetUrl
 } from "../../lib/editor/review-contract";
@@ -31,6 +38,7 @@ export function ReviewRecommendationDetail({
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
   onUpdateActiveSubsectionLead,
+  onUpdateActiveVisualIntent,
   onUpdateActiveImagePrompt,
   onUpdateActiveImageCaption,
   onUpdateActiveVisualStylePreset,
@@ -44,7 +52,7 @@ export function ReviewRecommendationDetail({
   layout?: "rail" | "pendant";
   isPreparing?: boolean;
   reviewImageLoading?: boolean;
-  onPrepare: (item: EditorialReviewItem) => void;
+  onPrepare: (item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) => void;
   onApplyCallout: (item: EditorialReviewItem) => void;
   onApplySubsection: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
@@ -53,6 +61,7 @@ export function ReviewRecommendationDetail({
   onUpdateActiveCalloutBody: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveSubsectionLead: (item: EditorialReviewItem, lead: string) => void;
+  onUpdateActiveVisualIntent: (item: EditorialReviewItem, intent: EditorialVisualIntent) => void;
   onUpdateActiveImagePrompt: (prompt: string) => void;
   onUpdateActiveImageCaption: (caption: string) => void;
   onUpdateActiveVisualStylePreset: (preset: VisualStylePreset) => void;
@@ -78,7 +87,9 @@ export function ReviewRecommendationDetail({
   const rangeLabel = revision ? getReviewParagraphRangeLabel(item, revision) : null;
   const insertionCopy = revision ? getInsertionContextCopy(item, revision) : null;
   const visualStyleOptions = getVisualStylePresetOptions();
+  const visualIntentOptions = getEditorialVisualIntentOptions();
   const selectedVisualStylePreset = normalizeVisualStylePreset(activeVisualStylePreset ?? imageDraft?.visualStylePreset);
+  const selectedVisualIntent = imageDraft?.visualIntent ?? item.visualIntent ?? "diagram";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
 
   return (
@@ -114,6 +125,20 @@ export function ReviewRecommendationDetail({
       {!isPreparing && item.status === "pending" && item.recommendationType === "visual" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-callout-kind-row">
+            <p className="editorial-review-detail-label">Тип візуалу</p>
+            <select
+              className="editorial-review-callout-kind-select"
+              value={selectedVisualIntent}
+              onChange={(event) => onUpdateActiveVisualIntent(item, event.target.value as EditorialVisualIntent)}
+            >
+              {visualIntentOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="editorial-review-callout-kind-row">
             <p className="editorial-review-detail-label">Стиль візуалу</p>
             <select
               className="editorial-review-callout-kind-select"
@@ -128,7 +153,11 @@ export function ReviewRecommendationDetail({
             </select>
           </div>
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="primary" onClick={() => onPrepare(item)}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onPrepare(item, { visualStylePreset: selectedVisualStylePreset })}
+            >
               Підготувати
             </Button>
           </div>
@@ -243,11 +272,36 @@ export function ReviewRecommendationDetail({
             onChange={(event) => onUpdateActiveImagePrompt(event.target.value)}
           />
           <div className="editorial-review-callout-kind-row">
+            <p className="editorial-review-detail-label">Тип візуалу</p>
+            <select
+              className="editorial-review-callout-kind-select"
+              value={selectedVisualIntent}
+              onChange={(event) => {
+                const nextIntent = event.target.value as EditorialVisualIntent;
+                onUpdateActiveVisualIntent(item, nextIntent);
+                onPrepare(
+                  { ...item, visualIntent: nextIntent },
+                  { visualStylePreset: selectedVisualStylePreset }
+                );
+              }}
+            >
+              {visualIntentOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="editorial-review-callout-kind-row">
             <p className="editorial-review-detail-label">Стиль візуалу</p>
             <select
               className="editorial-review-callout-kind-select"
               value={selectedVisualStylePreset}
-              onChange={(event) => onUpdateActiveVisualStylePreset(event.target.value as VisualStylePreset)}
+              onChange={(event) => {
+                const nextPreset = event.target.value as VisualStylePreset;
+                onUpdateActiveVisualStylePreset(nextPreset);
+                onPrepare(item, { visualStylePreset: nextPreset });
+              }}
             >
               {visualStyleOptions.map((option) => (
                 <option key={option.value} value={option.value}>

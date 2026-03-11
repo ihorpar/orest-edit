@@ -572,11 +572,14 @@ export default function EditorPage() {
     setOperations([]);
   }
 
-  async function prepareReviewItem(item: EditorialReviewItem) {
+  async function prepareReviewItem(item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) {
     setReviewItems((current) => (current.some((entry) => entry.id === item.id) ? current : [item, ...current]));
     setActiveReviewItemId(item.id);
     setPreparingReviewItemId(item.id);
-    const requestVisualStylePreset = normalizeVisualStylePreset(visualStylePreset, defaultVisualStylePreset);
+    const requestVisualStylePreset = normalizeVisualStylePreset(
+      options?.visualStylePreset ?? visualStylePreset,
+      defaultVisualStylePreset
+    );
 
     if (item.recommendationType === "visual") {
       persistVisualStylePreset(requestVisualStylePreset);
@@ -990,11 +993,13 @@ export default function EditorPage() {
     });
   }
 
-  function updateActiveVisualStylePreset(preset: VisualStylePreset) {
-    const normalizedPreset = normalizeVisualStylePreset(preset, defaultVisualStylePreset);
-    persistVisualStylePreset(normalizedPreset);
+  function updateActiveVisualIntent(item: EditorialReviewItem, intent: EditorialVisualIntent) {
+    setReviewItems((current) =>
+      current.map((entry) => (entry.id === item.id ? { ...entry, visualIntent: intent } : entry))
+    );
+
     setActiveProposal((current) => {
-      if (!current || current.kind !== "image_prompt" || !current.imageDraft) {
+      if (!current || current.kind !== "image_prompt" || current.reviewItemId !== item.id || !current.imageDraft) {
         return current;
       }
 
@@ -1002,7 +1007,32 @@ export default function EditorPage() {
         ...current,
         imageDraft: {
           ...current.imageDraft,
-          visualStylePreset: normalizedPreset
+          visualIntent: intent,
+          generatedAsset: undefined
+        }
+      };
+    });
+  }
+
+  function updateActiveVisualStylePreset(preset: VisualStylePreset) {
+    const normalizedPreset = normalizeVisualStylePreset(preset, defaultVisualStylePreset);
+    persistVisualStylePreset(normalizedPreset);
+    setActiveProposal((current) => {
+      if (
+        !current ||
+        current.kind !== "image_prompt" ||
+        !current.imageDraft ||
+        current.reviewItemId !== activeReviewItemId
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        imageDraft: {
+          ...current.imageDraft,
+          visualStylePreset: normalizedPreset,
+          generatedAsset: undefined
         }
       };
     });
@@ -1200,7 +1230,7 @@ export default function EditorPage() {
               reviewItems={reviewItems}
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}
-              onPrepareReviewItem={(item) => void prepareReviewItem(item)}
+              onPrepareReviewItem={(item, options) => void prepareReviewItem(item, options)}
               onApplyReviewCallout={applyReviewCallout}
               onApplyReviewSubsection={applyReviewSubsection}
               onDismissReviewItem={dismissReviewItem}
@@ -1209,6 +1239,7 @@ export default function EditorPage() {
               onUpdateActiveCalloutBody={updateActiveCalloutBody}
               onUpdateActiveSubsectionTitle={updateActiveSubsectionTitle}
               onUpdateActiveSubsectionLead={updateActiveSubsectionLead}
+              onUpdateActiveVisualIntent={updateActiveVisualIntent}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
               onUpdateActiveImageCaption={updateActiveImageCaption}
               onUpdateActiveVisualStylePreset={updateActiveVisualStylePreset}
