@@ -109,22 +109,20 @@ export function EditorialReviewDrawer({
                         {isSetup ? (
                             <div className="review-drawer-setup">
                                 <p className="mono-ui">Налаштування перевірки</p>
-                                <div className="floating-review-scale">
+                                <div className="review-level-cards">
                                     {reviewLevelOptions.map((option) => (
                                         <button
                                             key={option.level}
                                             type="button"
-                                            className="floating-review-scale-button"
+                                            className="review-level-card"
                                             data-active={reviewChangeLevel === option.level ? "true" : "false"}
                                             onClick={() => onReviewChangeLevel(option.level)}
                                         >
-                                            <span className="mono-ui">{option.label}</span>
+                                            <div className="review-level-card-number">{option.level}</div>
+                                            <div className="review-level-card-label">{option.description}</div>
                                         </button>
                                     ))}
                                 </div>
-                                <p className="floating-review-description">
-                                    {reviewLevelOptions.find((option) => option.level === reviewChangeLevel)?.description}
-                                </p>
 
                                 <div className="floating-textarea-shell">
                                     <textarea

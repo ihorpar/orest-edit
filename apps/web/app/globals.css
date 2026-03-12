@@ -5969,7 +5969,8 @@ textarea:focus {
   width: min(85vw, 540px);
   height: 100%;
   background: #fff;
-  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -6074,36 +6075,60 @@ textarea:focus {
   gap: 20px;
 }
 
-.floating-review-scale {
+.review-level-cards {
   display: flex;
-  background: #f1f5f9;
-  border-radius: 8px;
-  padding: 4px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.floating-review-scale-button {
-  flex: 1;
-  padding: 8px 0;
-  border: none;
-  background: transparent;
-  color: #64748b;
-  border-radius: 6px;
+.review-level-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 12px;
   cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.review-level-card:hover {
+  border-color: var(--surgical-blue);
+  background: #f8faff;
+}
+
+.review-level-card[data-active="true"] {
+  border-color: var(--surgical-blue);
+  background: #f0f7ff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.review-level-card-number {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #64748b;
+  flex-shrink: 0;
   transition: all 0.2s ease;
 }
 
-.floating-review-scale-button[data-active="true"] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.review-level-card[data-active="true"] .review-level-card-number {
+  background: var(--surgical-blue);
+  color: #fff;
 }
 
-.floating-review-description {
-  margin: 0;
-  font-size: 13px;
-  color: #475569;
-  line-height: 1.5;
-  padding: 0 4px;
+.review-level-card-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
 }
 
 .floating-textarea-shell {
