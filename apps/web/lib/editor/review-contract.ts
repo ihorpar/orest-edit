@@ -51,13 +51,18 @@ export interface EditorialReviewRequest {
   modelId: string;
   apiKey?: string;
   basePrompt?: string;
+  /** @deprecated Use expertisePrompt + cardsPrompt instead */
   reviewPrompt?: string;
+  expertisePrompt?: string;
+  cardsPrompt?: string;
   reviewLevelGuide?: string;
   calloutPromptTemplate?: string;
   changeLevel: WholeTextChangeLevel;
   additionalInstructions?: string;
   history?: ChatMessage[];
   currentStatus?: ReviewSessionStatus;
+  /** Expertise text from stage 1 — fed into card generation in stage 2 */
+  expertise?: string;
 }
 
 export interface EditorialReviewItem {
@@ -139,7 +144,10 @@ export interface ReviewActionRequest {
   modelId: string;
   apiKey?: string;
   basePrompt?: string;
+  /** @deprecated Use expertisePrompt + cardsPrompt instead */
   reviewPrompt?: string;
+  expertisePrompt?: string;
+  cardsPrompt?: string;
   reviewLevelGuide?: string;
   calloutPromptTemplate?: string;
   imagePromptTemplate?: string;

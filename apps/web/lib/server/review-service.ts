@@ -9,6 +9,7 @@ import {
 } from "../editor/review-contract.ts";
 import { getBlockText } from "../editor/document-model.ts";
 import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
+import { CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -456,52 +457,49 @@ function buildNormalizedReviewResult(
 
 function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): string {
   const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+  return isExpertise ? buildExpertiseSystemPrompt(request) : buildCardsSystemPrompt(request);
+}
 
-  const basePrompts = [
+function buildExpertiseSystemPrompt(request: EditorialReviewRequest): string {
+  const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
+
+  return [
     request.basePrompt?.trim(),
-    request.reviewPrompt?.trim(),
+    request.expertisePrompt?.trim(),
+    "Ти робиш редакторський review всього документа.",
+    `Рівень змін: ${request.changeLevel}/5. ${levelGuidance.expertiseTone}`,
+    "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором.",
+    "Пиши лише українською мовою.",
+    "Якщо посилаєшся на фрагмент, використовуй формат \u00abабз. NNN\u00bb.",
+    "Не показуй технічні поля, enum-коди або JSON-ключі.",
+    "IDs у квадратних дужках призначені для внутрішньої прив'язки. Не показуй їх."
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildCardsSystemPrompt(request: EditorialReviewRequest): string {
+  const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
+
+  return [
+    request.basePrompt?.trim(),
+    request.cardsPrompt?.trim() || request.reviewPrompt?.trim(),
     request.reviewLevelGuide?.trim(),
-    "Ти робиш редакторський review всього документа."
-  ];
-
-  if (isExpertise) {
-    basePrompts.push(
-      "Зараз етап ЕКСПЕРТИЗИ. Твоє завдання — проаналізувати текст загалом, вказати на структурні, логічні та стилістичні проблеми.",
-      "Зверни особливу увагу на кастомні інструкції користувача.",
-      "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором.",
-      "Пиши лише українською мовою.",
-      "Якщо посилаєшся на фрагмент, використовуй лише формат «абз. NNN». Не показуй raw block id.",
-      "Не показуй технічні поля або службові ключі: Suggested Action, recommendationType, suggestedAction, calloutKind, visualIntent, insertionHint, blockStart, blockEnd.",
-      "Не використовуй enum-коди або snake_case значення: rewrite_text, insert_text, prepare_callout, prepare_visual, mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
-      "Описуй дії лише людськими українськими формулюваннями: переписати, спростити, розширити, оформити списком, додати підзаголовок, додати врізку, додати візуал."
-    );
-  } else {
-    basePrompts.push(
-      "Зараз етап ГЕНЕРАЦІЇ ПРАВОК. На основі попереднього аналізу та діалогу з користувачем, запропонуй конкретні локальні зміни.",
-      "Кожна рекомендація має бути прив'язана до одного або кількох суміжних абзаців.",
-      "Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.",
-      "replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.",
-      "Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.",
-      "Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.",
-      "Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.",
-      "Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.",
-      "Для visual дозволені visualIntent: infographic або illustration.",
-      "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
-      "У полях title, reason і recommendation не згадуй raw block id, коди чи жорстко зашиті номери абзаців. UI покаже діапазон окремо.",
-      "Усі текстові поля у JSON (title, reason, recommendation, calloutTitle, calloutPreviewText, calloutSummary) мають бути plain text без markdown-розмітки.",
-      "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю."
-    );
-  }
-
-  basePrompts.push(
-    "IDs у квадратних дужках призначені лише для внутрішньої прив'язки.",
-    "У user-facing тексті не показуй raw id."
-  );
-
-  return basePrompts.filter(Boolean).join("\n\n");
+    "Ти робиш редакторський review всього документа.",
+    `Рівень змін: ${request.changeLevel}/5. ${levelGuidance.cardsGuidance}`,
+    `Максимум рекомендацій: ${levelGuidance.maxCards}.`,
+    "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
+    "У полях title, reason і recommendation не згадуй raw block id.",
+    "Усі текстові поля у JSON мають бути plain text без markdown-розмітки.",
+    "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю.",
+    "IDs у квадратних дужках призначені лише для внутрішньої прив'язки. Не показуй їх у user-facing тексті."
+  ].filter(Boolean).join("\n\n");
 }
 
 function buildEditorialReviewUserPrompt(request: EditorialReviewRequest): string {
+  const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+  return isExpertise ? buildExpertiseUserPrompt(request) : buildCardsUserPrompt(request);
+}
+
+function buildExpertiseUserPrompt(request: EditorialReviewRequest): string {
   const lines = request.document.blocks.map(
     (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getBlockText(block)}`
   );
@@ -511,7 +509,28 @@ function buildEditorialReviewUserPrompt(request: EditorialReviewRequest): string
     historyLines.length > 0 ? `Контекст діалогу:\n${historyLines.join("\n")}` : null,
     `Рівень змін: ${request.changeLevel}/5.`,
     request.additionalInstructions?.trim() ? `Додаткові інструкції користувача: ${request.additionalInstructions.trim()}` : null,
-    "Оціни документ по блоках. Поверни лише найцінніші рекомендації.",
+    "Зроби повний аналіз документа: загальний огляд і детальний поблочний розбір проблемних місць.",
+    "Документ:",
+    lines.join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildCardsUserPrompt(request: EditorialReviewRequest): string {
+  const lines = request.document.blocks.map(
+    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getBlockText(block)}`
+  );
+  const historyLines = (request.history ?? []).map((msg) => `${msg.role === "user" ? "КОРИСТУВАЧ" : "СИСТЕМА"}: ${msg.content}`);
+
+  return [
+    request.expertise?.trim()
+      ? `Результат попередньої експертизи:\n${request.expertise.trim()}`
+      : null,
+    historyLines.length > 0 ? `Зворотний зв'язок від користувача:\n${historyLines.join("\n")}` : null,
+    `Рівень змін: ${request.changeLevel}/5.`,
+    request.additionalInstructions?.trim() ? `Додаткові інструкції: ${request.additionalInstructions.trim()}` : null,
+    "На основі експертизи та зворотного зв'язку згенеруй конкретні локальні правки. Кожна правка — окрема картка.",
     "Документ:",
     lines.join("\n")
   ]

@@ -149,7 +149,11 @@ export function EditorialReviewDrawer({
                         <div style={{ width: '100%' }}>
                             {status === "cards" && !reviewLoading ? (
                                 <div className="review-success-panel">
-                                    <p className="success-message">Етап завершено. Картки згенеровано.</p>
+                                    <p className="success-message">
+                                        {reviewItemsCount > 0
+                                            ? `Згенеровано ${reviewItemsCount} ${pluralizeCards(reviewItemsCount)}.`
+                                            : "Етап завершено. Картки згенеровано."}
+                                    </p>
                                     <Button variant="primary" onClick={onClose} style={{ width: '100%' }}>Перейти до карток</Button>
                                 </div>
                             ) : (
@@ -226,4 +230,12 @@ function localizeExpertiseMarkdown(value: string): string {
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pluralizeCards(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return "картку";
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "картки";
+    return "карток";
 }

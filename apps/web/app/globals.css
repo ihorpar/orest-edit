@@ -6185,34 +6185,36 @@ textarea:focus {
 
 /* Compact Editorial Cards in Sidebar */
 .operations-stack-compact {
-  gap: 12px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .editorial-review-card-compact {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid #eef2f7;
-  border-left: 3px solid var(--surgical-blue);
+  border-left: 3px solid #cbd5e1;
   background: #ffffff;
-  border-radius: 8px;
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease-out;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .editorial-review-card-compact:hover {
+  border-color: #dbe4ef;
+  border-left-color: var(--surgical-blue);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
   transform: translateY(-1px);
-  border-color: #dbeafe;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .editorial-review-card-compact[data-active="true"] {
-  background: #f8fbff;
-  border-color: #2563eb;
-  border-left-width: 4px;
+  background: #fafcff;
+  border-color: #bae6fd;
+  border-left-color: var(--surgical-blue);
+  border-left-width: 3px;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
 }
 
@@ -6225,38 +6227,47 @@ textarea:focus {
 
 .err-compact-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   margin: 0;
-  line-height: 1.5;
-  color: #0f172a;
-  text-transform: none;
+  line-height: 1.45;
+  color: #1e293b;
   font-family: var(--font-ui, sans-serif);
+}
+
+.err-compact-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.err-compact-range {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.editorial-review-card-compact:hover .err-compact-range,
+.editorial-review-card-compact[data-active="true"] .err-compact-range {
+  color: #1d4ed8;
+  background: #eff6ff;
 }
 
 .err-compact-meta {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: #94a3b8;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
 }
-
-.err-compact-range {
-  font-size: 10px;
-  font-family: var(--font-mono, monospace);
-  font-weight: 700;
-  color: #2563eb;
-  background: #eff6ff;
-  padding: 1px 5px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
 
 .editorial-review-card-close {
   flex-shrink: 0;
@@ -6272,11 +6283,18 @@ textarea:focus {
   cursor: pointer;
   transition: all 0.2s;
   margin: -2px -4px 0 0;
+  opacity: 0;
+}
+
+.editorial-review-card-compact:hover .editorial-review-card-close,
+.editorial-review-card-compact[data-active="true"] .editorial-review-card-close {
+  opacity: 1;
 }
 
 .editorial-review-card-close:hover {
   background: #fee2e2;
   color: #dc2626;
+  opacity: 1;
 }
 
 /* Sidebar Note Cards (AI Tasks, History, etc.) */

@@ -106,6 +106,8 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,
       basePrompt: typeof record.basePrompt === "string" && record.basePrompt.trim() ? record.basePrompt.trim() : undefined,
       reviewPrompt: typeof record.reviewPrompt === "string" && record.reviewPrompt.trim() ? record.reviewPrompt.trim() : undefined,
+      expertisePrompt: typeof record.expertisePrompt === "string" && record.expertisePrompt.trim() ? record.expertisePrompt.trim() : undefined,
+      cardsPrompt: typeof record.cardsPrompt === "string" && record.cardsPrompt.trim() ? record.cardsPrompt.trim() : undefined,
       reviewLevelGuide: typeof record.reviewLevelGuide === "string" && record.reviewLevelGuide.trim() ? record.reviewLevelGuide.trim() : undefined,
       calloutPromptTemplate:
         typeof record.calloutPromptTemplate === "string" && record.calloutPromptTemplate.trim() ? record.calloutPromptTemplate.trim() : undefined,
@@ -113,7 +115,8 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       additionalInstructions:
         typeof record.additionalInstructions === "string" && record.additionalInstructions.trim() ? record.additionalInstructions.trim() : undefined,
       history: Array.isArray(record.history) ? (record.history as any[]) : undefined,
-      currentStatus: (record.currentStatus === "expertise" || record.currentStatus === "cards") ? record.currentStatus : undefined
+      currentStatus: (record.currentStatus === "expertise" || record.currentStatus === "cards") ? record.currentStatus : undefined,
+      expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined
     }
   };
 }

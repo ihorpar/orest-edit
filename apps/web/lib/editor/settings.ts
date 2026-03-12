@@ -1,4 +1,4 @@
-import type { VisualStylePreset } from "./review-contract.ts";
+import type { VisualStylePreset, WholeTextChangeLevel } from "./review-contract.ts";
 
 export type ProviderId = "openai" | "gemini" | "anthropic";
 export type ModelIdValidationState = "valid" | "missing" | "invalid";
@@ -16,7 +16,10 @@ export interface EditorSettings {
   modelId: string;
   apiKey: string;
   basePrompt: string;
+  /** @deprecated Use expertisePrompt + cardsPrompt instead */
   reviewPrompt: string;
+  expertisePrompt: string;
+  cardsPrompt: string;
   reviewLevelGuide: string;
   calloutPromptTemplate: string;
   imagePromptTemplate: string;
@@ -56,8 +59,80 @@ const VISUAL_STYLE_PRESET_GUIDES: Record<VisualStylePreset, string> = {
 
 export const DEFAULT_BASE_PROMPT =
   "Ти редактор українського науково-популярного рукопису. Перетворюй щільну наукову мову на ясну, природну українську без втрати змісту й авторського наміру. Працюй локально в межах виділеного фрагмента. Пріоритети: 1) пояснити терміни для широкого читача без спотворення фактів, 2) ущільнити перевантажені речення без втрати логіки, 3) вирівняти тон так, щоб текст звучав доказово, спокійно й редакторськи чисто. Не додавай нових фактів, не роби рекламних обіцянок, не підміняй наукову невизначеність категоричними висновками.";
-export const DEFAULT_REVIEW_PROMPT = `Ти робиш редакторський review всього рукопису, а не переписуєш текст автоматично. Поверни тільки найцінніші рекомендації, прив'язані до конкретних блоків. Кожна рекомендація має містити: що саме не працює, чому це заважає читачеві, що саме пропонується зробити далі, який це recommendationType і який suggestedAction має підготувати система. Дозволені recommendationType: rewrite, expand, simplify, list, subsection, callout, visual. replace-типи rewrite, expand, simplify, list мають suggestedAction=rewrite_text та insertionHint=replace. subsection має suggestedAction=insert_text та insertionHint=before. callout має suggestedAction=prepare_callout та insertionHint=after. visual має suggestedAction=prepare_visual та insertionHint=after. Якщо обираєш callout, також вкажи calloutKind: mechanism, analogy, everyday_application, myths_vs_truth або top_list. Якщо обираєш visual, також вкажи visualIntent: infographic або illustration. Не пропонуй часткових правок усередині абзацу.`;
+
+export const DEFAULT_EXPERTISE_PROMPT = `Ти робиш експертизу українського науково-популярного рукопису як досвідчений редактор і критик pop-science текстів.
+
+Загальний огляд (обов'язкова секція на початку):
+1. Читабельність: наскільки легко тече текст? Чи не спотикається читач на перевантажених конструкціях?
+2. Зрозумілість: чи зрозуміє неспеціаліст ключові ідеї? Чи достатньо пояснень для широкого читача?
+3. Практична цінність: чи може читач щось застосувати у побуті після прочитання? Чи є "що з цим робити"?
+4. Структура: чи логічна послідовність розділів? Де тримається увага, а де провисає?
+5. Сильні сторони тексту: конкретно, що вже працює добре.
+6. Головні слабкі місця: що найбільше потребує уваги.
+
+Після загального огляду — детальний поблочний аналіз проблемних місць.
+
+Ти можеш рекомендувати такі типи дій (описуй їх людськими формулюваннями, без технічних кодів):
+- Переписати або спростити фрагмент
+- Розширити пояснення
+- Оформити перелік списком
+- Додати підзаголовок для кращої навігації
+- Додати пояснювальну врізку (механізм, аналогія, приклад з побуту, міфи vs правда, ключові пункти)
+- Додати візуал (інфографіку або ілюстрацію)
+
+Не показуй технічні коди, enum-значення або JSON-поля. Пиши природною українською.`;
+
+export const DEFAULT_CARDS_PROMPT = `Ти генеруєш конкретні локальні правки на основі попередньої експертизи документа та зворотного зв'язку від користувача.
+
+Кожна рекомендація має бути прив'язана до одного або кількох суміжних абзаців.
+Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.
+replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.
+Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.
+Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.
+Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.
+Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.
+Для visual дозволені visualIntent: infographic або illustration.
+Для blockStart і blockEnd використовуй нульову нумерацію рядків документа.
+У полях title, reason і recommendation не згадуй raw block id.
+Усі текстові поля plain text без markdown-розмітки.
+Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю.`;
+
+/** @deprecated Kept for backward-compat with old localStorage. Use DEFAULT_EXPERTISE_PROMPT + DEFAULT_CARDS_PROMPT instead. */
+export const DEFAULT_REVIEW_PROMPT = DEFAULT_CARDS_PROMPT;
+
 export const DEFAULT_REVIEW_LEVEL_GUIDE = `Рівень 1 — Легкий марафет: зберігай структуру і тон майже без змін, виправляй тільки явні перевантаження, дрібні неясності та надто складні формулювання. Рівень 2 — Трохи підчистити: можна локально підсилювати логіку, ущільнювати речення і радити списки чи короткі вставки, але без серйозної перебудови. Рівень 3 — Добряче пройтись: можна сміливо спрощувати, дробити важкі абзаци, радити врізки, списки, локальні доповнення і окремі візуалізації, але не перебудовувати весь розділ. Рівень 4 — Розібрати на гвинтики: дозволено глибоко перекомпоновувати проблемні місця, виносити частини в окремі підрозділи, активно радити врізки й структурні переформатування. Рівень 5 — Згорів сарай — гори хата: дозволено радикально перебудовувати подачу фрагментів, дробити, переносити, пропонувати нові підрозділи, врізки та візуалізації, якщо це реально покращує читабельність.`;
+
+export const CHANGE_LEVEL_GUIDANCE: Record<WholeTextChangeLevel, {
+  expertiseTone: string;
+  maxCards: number;
+  cardsGuidance: string;
+}> = {
+  1: {
+    expertiseTone: "Текст загалом добрий. Будь обережний і делікатний — зміни мають бути мінімальними. Фокусуйся лише на явних проблемах: перевантаженнях, фактичних неточностях або незрозумілих місцях. Не пропонуй змін заради змін.",
+    maxCards: 5,
+    cardsGuidance: "Поверни не більше 5 рекомендацій. Лише найважливіші правки — те, що справді заважає читачу."
+  },
+  2: {
+    expertiseTone: "Текст має хорошу основу, але потребує шліфування. Можна локально підсилювати логіку та ущільнювати речення, але не перебудовувати структуру.",
+    maxCards: 6,
+    cardsGuidance: "Поверни не більше 6 рекомендацій. Фокус на шліфуванні формулювань і локальному покращенні."
+  },
+  3: {
+    expertiseTone: "Можна сміливо вказувати на проблеми та пропонувати помірні зміни: спрощення щільних абзаців, додавання врізок і списків, локальні доповнення.",
+    maxCards: 10,
+    cardsGuidance: "Поверни до 10 рекомендацій. Покрий і текстові правки, і структурні покращення (врізки, списки, підзаголовки)."
+  },
+  4: {
+    expertiseTone: "Будь відверто критичний. Дозволено глибоко перекомпоновувати проблемні місця, виносити частини в окремі підрозділи, активно радити врізки, візуали та структурні переформатування.",
+    maxCards: 15,
+    cardsGuidance: "Поверни до 15 рекомендацій. Активно пропонуй врізки, візуали, підзаголовки та суттєві переписування."
+  },
+  5: {
+    expertiseTone: "Це майже повний ре-едитинг. Будь максимально критичний і сміливий. Дозволено радикально перебудовувати подачу, дробити, переносити, пропонувати нові підрозділи, врізки та візуалізації.",
+    maxCards: 25,
+    cardsGuidance: "Поверни до 25 рекомендацій. Покрий весь документ: переписування, спрощення, врізки, візуали, підзаголовки, списки."
+  }
+};
 export const DEFAULT_CALLOUT_PROMPT_TEMPLATE = `Створи чернетку врізки для українського науково-популярного рукопису. Використай тип: {{calloutKindLabel}}.
 
 Розшифровка типів:
@@ -194,6 +269,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   apiKey: "",
   basePrompt: DEFAULT_BASE_PROMPT,
   reviewPrompt: DEFAULT_REVIEW_PROMPT,
+  expertisePrompt: DEFAULT_EXPERTISE_PROMPT,
+  cardsPrompt: DEFAULT_CARDS_PROMPT,
   reviewLevelGuide: DEFAULT_REVIEW_LEVEL_GUIDE,
   calloutPromptTemplate: DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   imagePromptTemplate: DEFAULT_IMAGE_PROMPT_TEMPLATE
@@ -282,6 +359,10 @@ export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null
     basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : DEFAULT_EDITOR_SETTINGS.basePrompt,
     reviewPrompt:
       typeof candidate?.reviewPrompt === "string" && candidate.reviewPrompt.trim() ? candidate.reviewPrompt.trim() : DEFAULT_EDITOR_SETTINGS.reviewPrompt,
+    expertisePrompt:
+      typeof candidate?.expertisePrompt === "string" && candidate.expertisePrompt.trim() ? candidate.expertisePrompt.trim() : DEFAULT_EDITOR_SETTINGS.expertisePrompt,
+    cardsPrompt:
+      typeof candidate?.cardsPrompt === "string" && candidate.cardsPrompt.trim() ? candidate.cardsPrompt.trim() : DEFAULT_EDITOR_SETTINGS.cardsPrompt,
     reviewLevelGuide:
       typeof candidate?.reviewLevelGuide === "string" && candidate.reviewLevelGuide.trim()
         ? candidate.reviewLevelGuide.trim()

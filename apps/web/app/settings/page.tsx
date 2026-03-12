@@ -12,6 +12,8 @@ import {
   DEFAULT_BASE_PROMPT,
   DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   DEFAULT_EDITOR_SETTINGS,
+  DEFAULT_EXPERTISE_PROMPT,
+  DEFAULT_CARDS_PROMPT,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
   DEFAULT_REVIEW_LEVEL_GUIDE,
   DEFAULT_REVIEW_PROMPT,
@@ -363,30 +365,58 @@ export default function SettingsPage() {
                 </div>
               </label>
 
-              <label className="settings-field" htmlFor="review-prompt">
-                <span className="mono-ui settings-label">Whole-text review prompt</span>
+              <label className="settings-field" htmlFor="expertise-prompt">
+                <span className="mono-ui settings-label">Промпт експертизи</span>
                 <Textarea
-                  id="review-prompt"
+                  id="expertise-prompt"
                   rows={10}
-                  value={settings.reviewPrompt}
+                  value={settings.expertisePrompt}
                   onChange={(event) => {
-                    setSettings((current) => ({ ...current, reviewPrompt: event.target.value }));
+                    setSettings((current) => ({ ...current, expertisePrompt: event.target.value }));
                     setSaveMessage(null);
                   }}
                   className="settings-textarea"
                 />
                 <div className="settings-textarea-toolbar">
-                  <p className="settings-field-note">Тут живе контракт recommendation types, suggested actions, врізок і візуалізацій.</p>
+                  <p className="settings-field-note">Цей промпт використовується на етапі експертизи — загальний огляд та поблочний аналіз без технічних кодів.</p>
                   <Button
                     variant="secondary"
                     size="sm"
                     type="button"
                     onClick={() => {
-                      setSettings((current) => ({ ...current, reviewPrompt: DEFAULT_REVIEW_PROMPT }));
+                      setSettings((current) => ({ ...current, expertisePrompt: DEFAULT_EXPERTISE_PROMPT }));
                       setSaveMessage(null);
                     }}
                   >
-                    Типовий prompt
+                    Типовий промпт
+                  </Button>
+                </div>
+              </label>
+
+              <label className="settings-field" htmlFor="cards-prompt">
+                <span className="mono-ui settings-label">Промпт генерації карток</span>
+                <Textarea
+                  id="cards-prompt"
+                  rows={10}
+                  value={settings.cardsPrompt}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, cardsPrompt: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Цей промпт використовується на етапі генерації карток — тут живуть enum-типи, suggestedAction і insertionHint.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, cardsPrompt: DEFAULT_CARDS_PROMPT }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий промпт
                   </Button>
                 </div>
               </label>
@@ -528,6 +558,8 @@ function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
     left.apiKey === right.apiKey &&
     left.basePrompt === right.basePrompt &&
     left.reviewPrompt === right.reviewPrompt &&
+    left.expertisePrompt === right.expertisePrompt &&
+    left.cardsPrompt === right.cardsPrompt &&
     left.reviewLevelGuide === right.reviewLevelGuide &&
     left.calloutPromptTemplate === right.calloutPromptTemplate &&
     left.imagePromptTemplate === right.imagePromptTemplate

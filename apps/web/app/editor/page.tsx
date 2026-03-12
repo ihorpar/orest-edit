@@ -341,12 +341,15 @@ export default function EditorPage() {
         apiKey: settings.apiKey || undefined,
         basePrompt: settings.basePrompt,
         reviewPrompt: settings.reviewPrompt,
+        expertisePrompt: settings.expertisePrompt,
+        cardsPrompt: settings.cardsPrompt,
         reviewLevelGuide: settings.reviewLevelGuide,
         calloutPromptTemplate: settings.calloutPromptTemplate,
         changeLevel: reviewComposer.changeLevel,
         additionalInstructions: reviewComposer.additionalInstructions,
         currentStatus: targetStatus,
-        history: targetHistory
+        history: targetHistory,
+        expertise: targetStatus === "cards" ? reviewExpertise ?? undefined : undefined
       };
 
       const response = await fetch("/api/edit/review", {
@@ -599,6 +602,8 @@ export default function EditorPage() {
           apiKey: settings.apiKey || undefined,
           basePrompt: settings.basePrompt,
           reviewPrompt: settings.reviewPrompt,
+          expertisePrompt: settings.expertisePrompt,
+          cardsPrompt: settings.cardsPrompt,
           reviewLevelGuide: settings.reviewLevelGuide,
           calloutPromptTemplate: settings.calloutPromptTemplate,
           imagePromptTemplate: settings.imagePromptTemplate,
@@ -1304,8 +1309,9 @@ export default function EditorPage() {
             history={history}
             isReviewDrawerOpen={isReviewDrawerOpen}
             onOpenReviewDrawer={() => {
-              setReviewStatus("expertise");
-              setReviewExpertise(null);
+              if (!reviewExpertise) {
+                setReviewStatus("expertise");
+              }
               setIsReviewDrawerOpen(true);
             }}
             onCloseReviewDrawer={() => setIsReviewDrawerOpen(false)}

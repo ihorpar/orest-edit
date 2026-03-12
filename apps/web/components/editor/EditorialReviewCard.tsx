@@ -49,13 +49,15 @@ export function EditorialReviewCard({
           </svg>
         </button>
       </div>
-      <div className="err-compact-range">{rangeLabel}</div>
-      <div className="err-compact-meta">
-        {isLoading ? (
-          <span className="loading-inline-dots"><span></span><span></span><span></span></span>
-        ) : (
-          <>{getEditorialRecommendationTypeLabel(item.recommendationType)} • {statusLabel}</>
-        )}
+      <div className="err-compact-footer">
+        <div className="err-compact-range">{rangeLabel}</div>
+        <div className="err-compact-meta">
+          {isLoading ? (
+            <span className="loading-inline-dots"><span></span><span></span><span></span></span>
+          ) : (
+            <>{getEditorialRecommendationTypeLabel(item.recommendationType)} • {statusLabel}</>
+          )}
+        </div>
       </div>
     </article>
   );
