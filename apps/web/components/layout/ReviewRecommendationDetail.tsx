@@ -17,6 +17,7 @@ import {
   resolveReviewImageAssetUrl
 } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
+import { VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelectionControls";
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
@@ -342,131 +343,6 @@ export function ReviewRecommendationDetail({
 
     </article>
   );
-}
-
-function VisualIntentToggle({
-  value,
-  options,
-  onChange
-}: {
-  value: EditorialVisualIntent;
-  options: Array<{ value: EditorialVisualIntent; label: string }>;
-  onChange: (value: EditorialVisualIntent) => void;
-}) {
-  return (
-    <div className="editorial-review-visual-intent-toggle" role="tablist" aria-label="Тип візуалу">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="tab"
-          aria-selected={value === option.value}
-          className="editorial-review-visual-intent-button"
-          data-active={value === option.value ? "true" : "false"}
-          onClick={() => onChange(option.value)}
-        >
-          <span className="editorial-review-visual-intent-icon" aria-hidden="true">
-            <VisualIntentIcon intent={option.value} />
-          </span>
-          <span>{option.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function VisualStyleToggle({
-  value,
-  options,
-  onChange
-}: {
-  value: VisualStylePreset;
-  options: Array<{ value: VisualStylePreset; label: string }>;
-  onChange: (value: VisualStylePreset) => void;
-}) {
-  return (
-    <div className="editorial-review-visual-style-grid" role="radiogroup" aria-label="Стиль візуалу">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          className="editorial-review-visual-style-button"
-          data-active={value === option.value ? "true" : "false"}
-          onClick={() => onChange(option.value)}
-        >
-          <span className="editorial-review-visual-style-icon" aria-hidden="true">
-            <VisualStyleIcon preset={option.value} />
-          </span>
-          <span className="editorial-review-visual-style-label">{option.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function VisualIntentIcon({ intent }: { intent: EditorialVisualIntent }) {
-  if (intent === "illustration") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M7 16L11 12L14 15L17 11L19 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="9" cy="9" r="1.2" fill="currentColor" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="4" width="18" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M7 9H17M7 12H14M7 15H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M16.5 15.5L18 14L19.5 15.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function VisualStyleIcon({ preset }: { preset: VisualStylePreset }) {
-  switch (preset) {
-    case "minimal":
-      return (
-        <svg viewBox="0 0 84 56" fill="none">
-          <rect x="4" y="6" width="76" height="44" rx="8" fill="#F8FAFC" stroke="#CBD5E1" />
-          <path d="M14 19H70" stroke="#64748B" strokeWidth="2" strokeLinecap="round" />
-          <path d="M14 29H58" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
-          <rect x="14" y="35" width="22" height="8" rx="4" fill="#E2E8F0" />
-        </svg>
-      );
-    case "neo_brutal":
-      return (
-        <svg viewBox="0 0 84 56" fill="none">
-          <rect x="5" y="7" width="74" height="42" rx="8" fill="#F8FAFC" stroke="#0F172A" strokeWidth="2.5" />
-          <rect x="14" y="14" width="20" height="28" fill="#FDE047" stroke="#0F172A" strokeWidth="2.5" />
-          <rect x="38" y="14" width="32" height="12" fill="#60A5FA" stroke="#0F172A" strokeWidth="2.5" />
-          <rect x="38" y="30" width="18" height="12" fill="#FB7185" stroke="#0F172A" strokeWidth="2.5" />
-        </svg>
-      );
-    case "modern_glass":
-      return (
-        <svg viewBox="0 0 84 56" fill="none">
-          <rect x="4" y="6" width="76" height="44" rx="10" fill="#E2E8F0" />
-          <rect x="13" y="12" width="34" height="28" rx="8" fill="#FFFFFF" fillOpacity="0.55" stroke="#CBD5E1" />
-          <rect x="32" y="18" width="38" height="24" rx="9" fill="#F8FAFC" fillOpacity="0.6" stroke="#C4D3E7" />
-          <path d="M21 20H40" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M39 27H61" stroke="#A5B4FC" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      );
-    case "calm_gradient":
-    default:
-      return (
-        <svg viewBox="0 0 84 56" fill="none">
-          <rect x="4" y="6" width="76" height="44" rx="10" fill="#E0E7FF" />
-          <circle cx="30" cy="22" r="18" fill="#BAE6FD" fillOpacity="0.8" />
-          <circle cx="52" cy="32" r="18" fill="#C4B5FD" fillOpacity="0.8" />
-          <rect x="18" y="20" width="48" height="18" rx="7" fill="#FFFFFF" fillOpacity="0.7" stroke="#BFDBFE" />
-        </svg>
-      );
-  }
 }
 
 function getInsertionContextCopy(item: EditorialReviewItem, revision: ManuscriptRevisionState): string | null {

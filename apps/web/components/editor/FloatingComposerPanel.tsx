@@ -10,6 +10,7 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
+import { VisualIntentToggle, VisualStyleToggle } from "./VisualSelectionControls";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
   { level: 1, label: "1", description: "Мінімальні зауваги" },
@@ -271,36 +272,24 @@ export function FloatingComposerPanel({
 
             {localActionMode === "visual" ? (
               <div className="floating-local-section">
-                <label className="mono-ui floating-local-label">
-                  Тип візуалу
-                  <select
-                    className="floating-local-select"
+                <div className="floating-local-label">
+                  <span className="mono-ui">Тип візуалу</span>
+                  <VisualIntentToggle
                     value={manualVisualIntent}
-                    onChange={(event) => onManualVisualIntentChange(event.target.value as EditorialVisualIntent)}
+                    options={visualOptions}
+                    onChange={onManualVisualIntentChange}
                     disabled={manualInFlight}
-                  >
-                    {visualOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="mono-ui floating-local-label">
-                  Стиль візуалу
-                  <select
-                    className="floating-local-select"
+                  />
+                </div>
+                <div className="floating-local-label">
+                  <span className="mono-ui">Стиль візуалу</span>
+                  <VisualStyleToggle
                     value={manualVisualStylePreset}
-                    onChange={(event) => onManualVisualStylePresetChange(event.target.value as VisualStylePreset)}
+                    options={visualStyleOptions}
+                    onChange={onManualVisualStylePresetChange}
                     disabled={manualInFlight}
-                  >
-                    {visualStyleOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  />
+                </div>
                 <div className="floating-textarea-shell">
                   <textarea
                     className="floating-textarea"

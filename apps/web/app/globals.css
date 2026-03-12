@@ -5807,6 +5807,12 @@ textarea:focus {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
 }
 
+.editorial-review-visual-intent-button:disabled,
+.editorial-review-visual-style-button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
 .editorial-review-visual-style-icon {
   width: 100%;
   display: inline-flex;
@@ -5822,6 +5828,14 @@ textarea:focus {
 .editorial-review-visual-style-label {
   font: 500 11px/1.2 var(--font-ui, sans-serif);
   text-align: center;
+}
+
+.floating-local-section .editorial-review-visual-style-grid {
+  gap: 6px;
+}
+
+.floating-local-section .editorial-review-visual-style-label {
+  font-size: 10px;
 }
 
 .editorial-review-callout-kind-copy {
