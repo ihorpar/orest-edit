@@ -85,15 +85,17 @@ export function RightOperationsRail({
 }) {
   return (
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
-      <div className="sidebar-toggle-row" style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '6px' }}>
+      <div className="sidebar-toggle-row">
         <button
-          style={{ flex: 1, padding: '6px', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', borderRadius: '4px', background: isReviewDrawerOpen ? '#fff' : 'transparent', boxShadow: isReviewDrawerOpen ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', border: 'none', cursor: 'pointer', color: isReviewDrawerOpen ? 'var(--ink)' : 'var(--muted)' }}
+          className="sidebar-toggle-button"
+          data-active={isReviewDrawerOpen ? "true" : "false"}
           onClick={onOpenReviewDrawer}
         >
           AI
         </button>
         <button
-          style={{ flex: 1, padding: '6px', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', borderRadius: '4px', background: !isReviewDrawerOpen ? '#fff' : 'transparent', boxShadow: !isReviewDrawerOpen ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', border: 'none', cursor: 'pointer', color: !isReviewDrawerOpen ? 'var(--ink)' : 'var(--muted)' }}
+          className="sidebar-toggle-button"
+          data-active={!isReviewDrawerOpen ? "true" : "false"}
           onClick={onCloseReviewDrawer}
         >
           Картки
@@ -102,14 +104,14 @@ export function RightOperationsRail({
 
       <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Локальна правка</p>
-        <Button variant="secondary" size="sm" onClick={onOpenLocalComposer} disabled={!canOpenLocalComposer}>
+        <Button variant="secondary" size="sm" onClick={onOpenLocalComposer} disabled={!canOpenLocalComposer} style={{ width: '100%' }}>
           Відкрити
         </Button>
       </section>
 
       <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Огляд документа</p>
-        <Button variant="primary" size="sm" onClick={onOpenReviewDrawer} loading={reviewLoading} disabled={!canRequestReview}>
+        <Button variant="primary" size="sm" onClick={onOpenReviewDrawer} loading={reviewLoading} disabled={!canRequestReview} style={{ width: '100%' }}>
           Аналіз ШІ
         </Button>
         {reviewItemCount > 0 ? <p className="rail-status-copy">Рекомендацій: {reviewItemCount}</p> : null}
