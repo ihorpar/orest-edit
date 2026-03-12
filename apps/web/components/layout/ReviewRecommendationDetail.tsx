@@ -265,13 +265,7 @@ export function ReviewRecommendationDetail({
             <VisualIntentToggle
               value={selectedVisualIntent}
               options={visualIntentOptions}
-              onChange={(nextIntent) => {
-                onUpdateActiveVisualIntent(item, nextIntent);
-                onPrepare(
-                  { ...item, visualIntent: nextIntent },
-                  { visualStylePreset: selectedVisualStylePreset }
-                );
-              }}
+              onChange={(nextIntent) => onUpdateActiveVisualIntent(item, nextIntent)}
             />
           </div>
           <div className="editorial-review-callout-kind-row">
@@ -279,10 +273,7 @@ export function ReviewRecommendationDetail({
             <VisualStyleToggle
               value={selectedVisualStylePreset}
               options={visualStyleOptions}
-              onChange={(nextPreset) => {
-                onUpdateActiveVisualStylePreset(nextPreset);
-                onPrepare(item, { visualStylePreset: nextPreset });
-              }}
+              onChange={(nextPreset) => onUpdateActiveVisualStylePreset(nextPreset)}
             />
           </div>
           <div className="editorial-review-field-group">

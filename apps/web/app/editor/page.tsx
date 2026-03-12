@@ -1351,6 +1351,11 @@ export default function EditorPage() {
         onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
         onAnalyze={() => void requestEditorialReview("expertise")}
         onGenerateCards={handleGenerateCards}
+        onResetExpertise={() => {
+          setReviewExpertise(null);
+          setReviewStatus("expertise");
+          setReviewChatHistory([]);
+        }}
         onClose={() => setIsReviewDrawerOpen(false)}
       />
     </>

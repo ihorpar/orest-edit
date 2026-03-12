@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Card Concepts Brainstorm</title>
+    <style>
+        :root {
+            --surgical-blue: #2563eb;
+            --porcelain: #ffffff;
+            --ink: #0f172a;
+            --muted: #64748b;
+            --bg-body: #f1f5f9;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-body);
+            color: var(--ink);
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            gap: 24px;
+            overflow-x: auto;
+            align-items: flex-start;
+        }
+        .column {
+            width: 320px;
+            flex-shrink: 0;
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .column-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f1f5f9;
+            position: sticky;
+            top: 0;
+            background: #fff;
+            z-index: 10;
+        }
+        .column-desc {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 16px;
+            margin-top: -12px;
+            line-height: 1.4;
+        }
+
+        /* Shared Data */
+        .text-truncate {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .text-clamp {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* Option 1: One-Liner */
+        .opt1-card {
+            border: 1px solid #e2e8f0;
+            border-left: 3px solid var(--surgical-blue);
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .opt1-card:hover { border-color: #cbd5e1; }
+        .opt1-title {
+            font-size: 13px;
+            font-weight: 500;
+            margin: 0 0 8px 0;
+        }
+        .opt1-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-family: monospace;
+        }
+        .opt1-range {
+            background: #eff6ff;
+            color: var(--surgical-blue);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        /* Option 2: Icon-Driven Status */
+        .opt2-card {
+            border: 1px solid #e2e8f0;
+            padding: 10px 12px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            cursor: pointer;
+        }
+        .opt2-card:hover { border-color: #cbd5e1; background: #f8fafc; }
+        .opt2-head {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .opt2-icon {
+            width: 14px;
+            height: 14px;
+            color: #64748b;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .opt2-title {
+            font-size: 13px;
+            margin: 0;
+            line-height: 1.4;
+            color: #1e293b;
+        }
+        .opt2-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-left: 22px;
+        }
+        .opt2-range {
+            font-size: 10px;
+            font-family: monospace;
+            color: var(--muted);
+        }
+        .opt2-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #eab308; /* pending */
+        }
+        .opt2-dot.ready { background: #22c55e; }
+
+        /* Option 3: Dense List Rows */
+        .opt3-col { gap: 0; }
+        .opt3-card {
+            padding: 10px 4px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            cursor: pointer;
+        }
+        .opt3-card:hover { background: #f8fafc; }
+        .opt3-range {
+            font-size: 10px;
+            font-family: monospace;
+            color: var(--muted);
+            flex-shrink: 0;
+            width: 45px;
+        }
+        .opt3-title {
+            font-size: 12px;
+            margin: 0;
+            flex: 1;
+            color: #334155;
+        }
+        .opt3-indicator {
+            width: 4px;
+            height: 4px;
+            background: var(--surgical-blue);
+            border-radius: 50%;
+        }
+
+        /* Option 4: Accordion Grouping */
+        .opt4-group {
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .opt4-header {
+            background: #f8fafc;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .opt4-badge {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+            color: #475569;
+        }
+        .opt4-body {
+            display: flex;
+            flex-direction: column;
+        }
+        .opt4-card {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #334155;
+            background: #fff;
+            cursor: pointer;
+            display: flex;
+            gap: 8px;
+        }
+        .opt4-card:last-child { border-bottom: none; }
+        .opt4-card:hover { background: #f8fafc; color: var(--surgical-blue); }
+
+        /* Option 5: Gutter Markers */
+        .opt5-col { width: 420px; background: #f8fafc; }
+        .opt5-editor {
+            background: #fff;
+            padding: 20px 20px 20px 48px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-family: "Georgia", serif;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #334155;
+            position: relative;
+        }
+        .opt5-p {
+            margin-bottom: 24px;
+            position: relative;
+        }
+        .opt5-marker {
+            position: absolute;
+            left: -36px;
+            top: 2px;
+            width: 22px;
+            height: 22px;
+            background: #eff6ff;
+            color: var(--surgical-blue);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            font-family: sans-serif;
+            cursor: pointer;
+            border: 1px solid #bfdbfe;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .opt5-marker:hover {
+            background: var(--surgical-blue);
+            color: #fff;
+        }
+        .opt5-marker.multiple {
+            background: #fff7ed;
+            color: #ea580c;
+            border-color: #fed7aa;
+        }
+        .opt5-tooltip-sim {
+            position: absolute;
+            left: -10px;
+            top: 28px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            width: 260px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            z-index: 20;
+        }
+        .opt5-tooltip-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+        }
+        .opt5-tooltip-meta {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Option 1: One-Liner -->
+    <div class="column">
+        <div class="column-title">1. One-Liner</div>
+        <div class="column-desc">Текст обрізається до 1 рядка. Висота карток фіксована. Фокус на скан-рідінг.</div>
+        
+        <script>
+            const dummyTexts = [
+                "Створити детальну інфографіку, що зображує силует людини з виносними лініями...",
+                "Додати схему, що ілюструє процес глікації: молекула цукру приєднується до волокна...",
+                "Створити єдину інфографіку, що демонструє двосторонній зв'язок: як стан мікробіому...",
+                "Зобразити панель керування з важелями, де кожен важіль підписаний...",
+                "Переписати вступний абзац, щоб зробити його більш емоційним та захоплюючим...",
+                "Оформити списком ключові поради щодо правильного харчування...",
+                "Додати врізку з цікавим фактом про історію відкриття вітаміну D..."
+            ];
+            
+            for(let i=1; i<=7; i++) {
+                document.write(`
+                <div class="opt1-card">
+                    <p class="opt1-title text-truncate">${dummyTexts[i-1]}</p>
+                    <div class="opt1-meta">
+                        <span class="opt1-range">АБЗ. ${10*i}-${10*i+5}</span>
+                        <span>ВІЗУАЛ • PENDING</span>
+                    </div>
+                </div>
+                `);
+            }
+        </script>
+    </div>
+
+    <!-- Option 2: Icon-Driven -->
+    <div class="column">
+        <div class="column-title">2. Icon-Driven Status</div>
+        <div class="column-desc">Іконки замість текстових метаданих. Крапки статусів. Текст на 2 рядки.</div>
+        
+        <script>
+            for(let i=1; i<=7; i++) {
+                const isReady = i % 3 === 0;
+                document.write(`
+                <div class="opt2-card">
+                    <div class="opt2-head">
+                        <svg class="opt2-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                        <p class="opt2-title text-clamp">${dummyTexts[i-1]}</p>
+                    </div>
+                    <div class="opt2-footer">
+                        <span class="opt2-range">Абз. ${10*i}-${10*i+5}</span>
+                        <div class="opt2-dot ${isReady ? 'ready' : ''}"></div>
+                    </div>
+                </div>
+                `);
+            }
+        </script>
+    </div>
+
+    <!-- Option 3: Dense List -->
+    <div class="column opt3-col">
+        <div class="column-title" style="padding: 20px 20px 12px 20px;">3. Dense List Rows</div>
+        <div class="column-desc" style="padding: 0 20px;">Суцільний список без граней карток. Утилітарно як в email клієнті.</div>
+        
+        <div style="padding: 0 20px;">
+        <script>
+            for(let i=1; i<=7; i++) {
+                document.write(`
+                <div class="opt3-card">
+                    <span class="opt3-range">${10*i}-${10*i+5}</span>
+                    <p class="opt3-title text-truncate">${dummyTexts[i-1]}</p>
+                    <div class="opt3-indicator"></div>
+                </div>
+                `);
+            }
+        </script>
+        </div>
+    </div>
+
+    <!-- Option 4: Accordion Grouping -->
+    <div class="column">
+        <div class="column-title">4. Accordion Grouping</div>
+        <div class="column-desc">Групування за абзацами. Менше шуму, розгортання по кліку.</div>
+        
+        <div class="opt4-group">
+            <div class="opt4-header">
+                <span>Абзаци 16-40</span>
+                <span class="opt4-badge">3</span>
+            </div>
+            <div class="opt4-body">
+                <div class="opt4-card">1. Створити детальну інфографіку...</div>
+                <div class="opt4-card">2. Додати схему глікації...</div>
+                <div class="opt4-card">3. Переписати блок про симптоми...</div>
+            </div>
+        </div>
+
+        <div class="opt4-group">
+            <div class="opt4-header">
+                <span>Абзаци 60-70</span>
+                <span class="opt4-badge">1</span>
+            </div>
+        </div>
+
+        <div class="opt4-group">
+            <div class="opt4-header">
+                <span>Абзаци 74-93</span>
+                <span class="opt4-badge">2</span>
+            </div>
+        </div>
+
+        <div class="opt4-group">
+            <div class="opt4-header">
+                <span>Абзац 110</span>
+                <span class="opt4-badge">1</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Option 5: Gutter Markers -->
+    <div class="column opt5-col">
+        <div class="column-title">5. Inline Gutter Markers</div>
+        <div class="column-desc">Картки в сайдбарі приховані. Вони живуть на полях сторінки у вигляді інтерактивних іконок.</div>
+        
+        <div class="opt5-editor">
+            <div class="opt5-p">
+                <div class="opt5-marker">1</div>
+                Цей процес називається глікацією. Цукор зв'язується з білками шкіри, роблячи їх ламкими.
+                
+                <div class="opt5-tooltip-sim">
+                    <p class="opt5-tooltip-title">Додати схему глікації: молекула приєднується до волокна...</p>
+                    <span class="opt5-tooltip-meta">ВІЗУАЛ • РЕКОМЕНДАЦІЯ</span>
+                </div>
+            </div>
+            
+            <div class="opt5-p">
+                Якщо ми подивимося на мікробіом кишечника, то побачимо прямий зв'язок зі станом шкіри обличчя. Харчування - це ключ.
+            </div>
+
+            <div class="opt5-p">
+                <div class="opt5-marker multiple">3</div>
+                Панель керування нашими генами включає сон, рівень стресу та, звісно, якість їжі. Гени можна "вмикати".
+            </div>
+
+            <div class="opt5-p">
+                Правильний догляд дуже важливий для підтримання гідроліпідного бар'єру взимку.
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

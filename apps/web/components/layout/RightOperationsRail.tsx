@@ -103,13 +103,6 @@ export function RightOperationsRail({
       </div>
 
       <section className="rail-section rail-section-primary">
-        <p className="mono-ui operations-title">Локальна правка</p>
-        <Button variant="secondary" size="sm" onClick={onOpenLocalComposer} disabled={!canOpenLocalComposer} style={{ width: '100%' }}>
-          Відкрити
-        </Button>
-      </section>
-
-      <section className="rail-section rail-section-primary">
         <p className="mono-ui operations-title">Огляд документа</p>
         <Button variant="primary" size="sm" onClick={onOpenReviewDrawer} loading={reviewLoading} disabled={!canRequestReview} style={{ width: '100%' }}>
           Аналіз ШІ

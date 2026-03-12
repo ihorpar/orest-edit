@@ -23,6 +23,7 @@ export function EditorialReviewDrawer({
     onReviewAdditionalInstructionsChange,
     onAnalyze,
     onGenerateCards,
+    onResetExpertise,
     onClose
 }: {
     isOpen: boolean;
@@ -36,6 +37,7 @@ export function EditorialReviewDrawer({
     onReviewAdditionalInstructionsChange: (value: string) => void;
     onAnalyze: () => void;
     onGenerateCards: (feedback: string) => void;
+    onResetExpertise: () => void;
     onClose: () => void;
 }) {
     const [inputText, setInputText] = useState("");
@@ -165,7 +167,10 @@ export function EditorialReviewDrawer({
                                         onChange={(e) => setInputText(e.target.value)}
                                         disabled={reviewLoading}
                                     />
-                                    <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                                    <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                        <Button variant="secondary" onClick={onResetExpertise} disabled={reviewLoading}>
+                                            Нова експертиза
+                                        </Button>
                                         <Button variant="primary" onClick={() => onGenerateCards(inputText)} loading={reviewLoading} disabled={!canGenerateCards}>
                                             Згенерувати картки
                                         </Button>

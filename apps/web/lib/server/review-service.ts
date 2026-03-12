@@ -478,6 +478,8 @@ function buildExpertiseSystemPrompt(request: EditorialReviewRequest): string {
 
 function buildCardsSystemPrompt(request: EditorialReviewRequest): string {
   const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
+  const blockCount = request.document.blocks.length;
+  const targetCards = Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard));
 
   return [
     request.basePrompt?.trim(),
@@ -485,7 +487,7 @@ function buildCardsSystemPrompt(request: EditorialReviewRequest): string {
     request.reviewLevelGuide?.trim(),
     "Ти робиш редакторський review всього документа.",
     `Рівень змін: ${request.changeLevel}/5. ${levelGuidance.cardsGuidance}`,
-    `Максимум рекомендацій: ${levelGuidance.maxCards}.`,
+    `Орієнтовна кількість рекомендацій: приблизно ${targetCards} — більше або менше за потребою. Документ містить ${blockCount} абзаців. Не створюй порожніх карток заради кількості, але й не пропускай реальних проблем.`,
     "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
     "У полях title, reason і recommendation не згадуй raw block id.",
     "Усі текстові поля у JSON мають бути plain text без markdown-розмітки.",
