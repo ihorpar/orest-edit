@@ -4,6 +4,11 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-11
 
+### Production deploy fallback is CI-driven
+Decision: keep Vercel Git integration connected, but treat GitHub Actions + Vercel CLI (`vercel build --prod` + `vercel deploy --prebuilt --prod`) as the reliable fallback production path on `master` pushes.
+
+Reason: project-level Git auto-deploy ingestion can fail independently of repository state; CI-driven deploys remove dependence on webhook-trigger reliability while keeping Vercel runtime unchanged.
+
 ### Multi-block recommendations stay valid
 Decision: whole-text review recommendations may anchor one or more contiguous blocks, but the execution UI must remain singular per recommendation.
 

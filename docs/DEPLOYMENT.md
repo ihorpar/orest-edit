@@ -54,6 +54,25 @@ Project setup:
 5. (Optional hardening) add one Vercel WAF rate-limit rule for paths that start with `/api/edit/`.
 6. Deploy.
 
+### Git-trigger fallback: GitHub Actions + Vercel CLI
+
+If Vercel Git auto-deploy events are unreliable for this project, use repo-native CI deployment from `.github/workflows/vercel-production-deploy.yml`.
+
+Behavior:
+- triggers on every push to `master` (and manual `workflow_dispatch`)
+- builds via `vercel build --prod`
+- promotes with `vercel deploy --prebuilt --prod`
+- does not depend on Vercel GitHub webhook ingestion for push events
+
+Required GitHub repository secrets:
+- `VERCEL_TOKEN` (Personal Access Token with deploy permission)
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID` (for this project: `prj_VYVONvIZgC6Pl3uTgotG2btP4hPv`)
+
+Operational note:
+- Vercel Deploy Hooks still require correct branch names (`master` in this repo, not `main`) and rely on Vercel-side git provider linkage.
+- The CLI workflow above is the preferred fallback when Deploy Hook calls return git-linkage errors.
+
 Runtime behavior prepared in this repo:
 - all AI API routes are pinned to `runtime = "nodejs"`
 - all AI API routes export `maxDuration = 60`

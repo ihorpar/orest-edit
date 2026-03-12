@@ -59,6 +59,7 @@ Status: Active handoff
 - Browser-local image assets use the existing asset store
 - Settings live at `/settings` and still provide provider/model/API-key configuration with live validation
 - In-app password auth still gates `/editor`, `/settings`, and API routes through `/login`
+- A repo-native production deploy fallback now exists at `.github/workflows/vercel-production-deploy.yml` (push to `master` -> `vercel build --prod` -> `vercel deploy --prebuilt --prod`)
 - Ukrainian UI copy remains the product baseline
 - The visual direction is still aligned with `docs/sample4.html`
 
