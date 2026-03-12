@@ -8,3 +8,6 @@ npm-debug.log*
 coverage
 .edge-profile
 .tmp
+
+.vercel
+.env*.local
