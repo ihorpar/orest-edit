@@ -249,6 +249,14 @@ export default function EditorPage() {
     });
   }
 
+  function handleScrollToBlockIndex(index: number) {
+    const blockId = document?.blocks[index]?.id;
+    if (!blockId) return;
+    const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+    anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Keep focus unchanged
+  }
+
   function pushHistoryEntry(entry: RequestHistoryItem) {
     setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 8));
   }
@@ -1357,6 +1365,7 @@ export default function EditorPage() {
           setReviewChatHistory([]);
         }}
         onClose={() => setIsReviewDrawerOpen(false)}
+        onScrollToBlockIndex={handleScrollToBlockIndex}
       />
     </>
   );

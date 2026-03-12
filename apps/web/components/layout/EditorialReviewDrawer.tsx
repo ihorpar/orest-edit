@@ -24,7 +24,8 @@ export function EditorialReviewDrawer({
     onAnalyze,
     onGenerateCards,
     onResetExpertise,
-    onClose
+    onClose,
+    onScrollToBlockIndex
 }: {
     isOpen: boolean;
     status: ReviewSessionStatus;
@@ -39,13 +40,26 @@ export function EditorialReviewDrawer({
     onGenerateCards: (feedback: string) => void;
     onResetExpertise: () => void;
     onClose: () => void;
+    onScrollToBlockIndex?: (index: number) => void;
 }) {
     const [inputText, setInputText] = useState("");
     const hasExpertise = Boolean(expertise?.trim());
     const isSetup = status === "expertise" && !hasExpertise;
     const canGenerateCards = hasExpertise && !reviewLoading;
     const expertiseForDisplay = useMemo(
-        () => (expertise ? localizeExpertiseMarkdown(expertise) : null),
+        () => {
+            if (!expertise) return null;
+            let md = localizeExpertiseMarkdown(expertise);
+            
+            // Convert paragraph references like "абз. 015" or "абз. 015-047" to markdown links
+            md = md.replace(/абз\.\s*0*(\d+)(?:\s*-\s*0*(\d+))?/gi, (match, p1) => {
+                const idx = parseInt(p1, 10);
+                if (isNaN(idx)) return match;
+                return `[${match}](#block-${idx - 1})`;
+            });
+            
+            return md;
+        },
         [expertise]
     );
 
@@ -126,8 +140,40 @@ export function EditorialReviewDrawer({
                             <div className="review-analysis-display">
                                 <div className="analysis-text-wrapper">
                                     {expertiseForDisplay && (
-                                        <div style={{ fontSize: '14px', lineHeight: 1.7, color: 'var(--ink)' }}>
-                                            <ReactMarkdown>{expertiseForDisplay}</ReactMarkdown>
+                                        <div style={{ fontSize: '14.5px', lineHeight: 1.6, color: '#1a1a1b' }}>
+                                            <ReactMarkdown
+                                                components={{
+                                                    a: ({ href, children }) => {
+                                                        if (href?.startsWith("#block-")) {
+                                                            const idx = parseInt(href.replace("#block-", ""), 10);
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    style={{
+                                                                        color: "var(--surgical-blue)",
+                                                                        textDecoration: "underline",
+                                                                        textDecorationColor: "#cbd5e1",
+                                                                        background: "none",
+                                                                        border: "none",
+                                                                        padding: 0,
+                                                                        font: "inherit",
+                                                                        cursor: "pointer"
+                                                                    }}
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        if (onScrollToBlockIndex) onScrollToBlockIndex(idx);
+                                                                    }}
+                                                                >
+                                                                    {children}
+                                                                </button>
+                                                            );
+                                                        }
+                                                        return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+                                                    }
+                                                }}
+                                            >
+                                                {expertiseForDisplay}
+                                            </ReactMarkdown>
                                         </div>
                                     )}
                                     {reviewLoading && !expertiseForDisplay && (
