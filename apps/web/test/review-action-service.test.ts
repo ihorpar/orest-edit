@@ -651,6 +651,83 @@ test("generateReviewAction constrains rewrite output to the original block count
   assert.match((response.proposal.textDiff?.newBlocks[1] as any)?.content?.[0]?.text ?? "", /Зайвий блок 3/i);
 });
 
+test("generateReviewAction keeps replace-proposal provider prompt scoped to selected blocks", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p0", type: "paragraph", content: [{ text: "Нерелевантний вступ, який не має потрапити в локальний replace prompt." }] },
+      { id: "p1", type: "paragraph", content: [{ text: "Цільовий абзац 1." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Цільовий абзац 2." }] },
+      { id: "p3", type: "paragraph", content: [{ text: "Нерелевантний хвіст, який теж не має потрапити в prompt." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-scoped-1",
+        reviewSessionId: "review-session-9",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати фрагмент",
+        reason: "Потрібен локальний rewrite.",
+        recommendation: "Спростити два абзаци без зміни змісту.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1", "p2"],
+          generationBlockRange: { start: 1, end: 2 },
+          excerpt: "Цільовий абзац 1.\n\nЦільовий абзац 2.",
+          fingerprint: computeAnchorFingerprint(document, ["p1", "p2"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              operations: [
+                {
+                  newBlocks: [
+                    { type: "paragraph", content: [{ text: "Оновлений цільовий абзац 1." }] },
+                    { type: "paragraph", content: [{ text: "Оновлений цільовий абзац 2." }] }
+                  ],
+                  reason: "Оновив подачу.",
+                  type: "clarity"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.input ?? ""), /Цільовий абзац 1/i);
+  assert.match(String(requestBody?.input ?? ""), /Цільовий абзац 2/i);
+  assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний вступ/i);
+  assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний хвіст/i);
+});
+
 test("generateReviewAction keeps list replacements within selection block ceiling", async () => {
   const document: EditorDocument = {
     version: 2,

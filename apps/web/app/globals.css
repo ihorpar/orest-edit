@@ -5318,6 +5318,39 @@ textarea:focus {
   padding: 12px;
 }
 
+.step-review-subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.step-review-cards-counter {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #94a3b8;
+}
+
+.step-review-cards-counter-total {
+  color: #334155;
+}
+
+.step-review-cards-counter-applied {
+  color: #16a34a;
+}
+
+.step-review-cards-counter-dismissed {
+  color: #dc2626;
+}
+
+.step-review-cards-counter-separator {
+  color: #cbd5e1;
+}
+
 .step-review-status-copy {
   margin: 0;
   font-size: 12px;
@@ -6730,31 +6763,46 @@ textarea:focus {
 
 .editorial-review-card-compact {
   padding: 12px 14px;
-  border: 1px solid #eef2f7;
-  border-left: 3px solid #cbd5e1;
+  --review-card-accent: #cbd5e1;
   background: #ffffff;
-  border-radius: 6px;
+  border: none;
+  border-radius: 4px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
   transition: all 0.15s ease-out;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  box-shadow: inset 3px 0 0 var(--review-card-accent), 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.editorial-review-card-compact[data-status="applied"] {
+  --review-card-accent: #16a34a;
+  background: #f0fdf4;
+}
+
+.editorial-review-card-compact[data-status="dismissed"] {
+  --review-card-accent: #dc2626;
+  background: #fef2f2;
+}
+
+.editorial-review-card-compact[data-status="ready"] {
+  --review-card-accent: #2563eb;
+  background: #eff6ff;
+}
+
+.editorial-review-card-compact[data-status="stale"] {
+  --review-card-accent: #ea580c;
+  background: #fff7ed;
 }
 
 .editorial-review-card-compact:hover {
-  border-color: #dbe4ef;
-  border-left-color: var(--surgical-blue);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  box-shadow: inset 3px 0 0 var(--review-card-accent), 0 4px 12px rgba(15, 23, 42, 0.06);
   transform: translateY(-1px);
 }
 
 .editorial-review-card-compact[data-active="true"] {
   background: #fafcff;
-  border-color: #bae6fd;
-  border-left-color: var(--surgical-blue);
-  border-left-width: 3px;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+  box-shadow: inset 3px 0 0 var(--review-card-accent), 0 4px 14px rgba(37, 99, 235, 0.08);
 }
 
 .err-compact-head {
@@ -6806,6 +6854,60 @@ textarea:focus {
   color: #94a3b8;
   display: flex;
   align-items: center;
+}
+
+.err-compact-type {
+  color: #64748b;
+}
+
+.err-compact-separator {
+  color: #cbd5e1;
+}
+
+.err-compact-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.err-compact-status[data-tone="accepted"] {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.err-compact-status[data-tone="rejected"] {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+.err-compact-status[data-tone="pending"] {
+  color: #9a3412;
+  background: #ffedd5;
+  border-color: #fdba74;
+}
+
+.err-compact-status[data-tone="ready"] {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.err-compact-status[data-tone="stale"] {
+  color: #c2410c;
+  background: #ffedd5;
+  border-color: #fdba74;
+}
+
+.err-compact-status[data-tone="preparing"] {
+  color: #6d28d9;
+  background: #ede9fe;
+  border-color: #c4b5fd;
 }
 
 .editorial-review-card-close {

@@ -4,6 +4,7 @@ import {
   applyPatchOperation,
   hasSelection,
   normalizePatchSelection,
+  normalizePatchOperationsResult,
   preserveInlineFormatting,
   type PatchOperation
 } from "../lib/editor/patch-contract.ts";
@@ -58,4 +59,44 @@ test("preserveInlineFormatting keeps unchanged bold segment", () => {
 
   assert.equal(result[0]?.text, "термін");
   assert.equal(result[0]?.bold, true);
+});
+
+test("normalizePatchOperationsResult ignores provider blockIds and applies result to requested target ids", () => {
+  const document = createDocument();
+
+  const normalized = normalizePatchOperationsResult(document, ["p1"], [
+    {
+      blockIds: ["wrong-id"],
+      newBlocks: [{ type: "paragraph", content: [{ text: "Справді оновлений абзац." }] }],
+      reason: "Оновив фрагмент.",
+      type: "clarity"
+    }
+  ]);
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.operations.length, 1);
+  assert.deepEqual(normalized.operations[0]?.blockIds, ["p1"]);
+  assert.equal(normalized.operations[0]?.oldBlocks[0]?.id, "p1");
+});
+
+test("normalizePatchOperationsResult accepts loose text blocks without explicit type", () => {
+  const document = createDocument();
+
+  const normalized = normalizePatchOperationsResult(document, ["p1"], [
+    {
+      newBlocks: [{ text: "Спростив пояснення без зайвих деталей." }],
+      reason: "Спростив фрагмент.",
+      type: "clarity"
+    }
+  ]);
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.operations.length, 1);
+  assert.equal(normalized.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.equal(
+    normalized.operations[0]?.newBlocks[0]?.type === "paragraph"
+      ? normalized.operations[0].newBlocks[0].content[0]?.text
+      : "",
+    "Спростив пояснення без зайвих деталей."
+  );
 });

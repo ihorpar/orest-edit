@@ -171,15 +171,13 @@ export function normalizePatchOperationsResult(
     }
 
     const record = candidate as Record<string, unknown>;
-    const blockIds = Array.isArray(record.blockIds) ? record.blockIds.filter((item): item is string => typeof item === "string") : targetIds;
-    const normalizedBlockIds = getContiguousTargetIds(document, blockIds.length > 0 ? blockIds : targetIds);
-    const operationOldBlocks = normalizedBlockIds.map((blockId) => getBlock(document, blockId)).filter((block): block is Block => Boolean(block));
+    const operationOldBlocks = targetIds.map((blockId) => getBlock(document, blockId)).filter((block): block is Block => Boolean(block));
     const reason = normalizeReason(record.reason) ?? "Покращено читабельність і ясність фрагмента.";
     const newBlocks = Array.isArray(record.newBlocks)
       ? normalizeUnknownBlocks(record.newBlocks)
       : normalizeLooseReplacementBlocks(record, operationOldBlocks);
 
-    if (normalizedBlockIds.join("|") !== targetIds.join("|") || newBlocks.length === 0) {
+    if (operationOldBlocks.length === 0 || newBlocks.length === 0) {
       droppedCount += 1;
       continue;
     }
@@ -258,6 +256,7 @@ function normalizeUnknownBlock(block: unknown): Block | null {
   const record = block as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id : createPatchId("block");
   const type = record.type;
+  const looseText = extractLooseReplacementText(record);
 
   if (type === "paragraph") {
     return { id, type, content: normalizeInlineArrayOrText(record.content ?? record.nodes ?? record.inline, record) };
@@ -304,6 +303,10 @@ function normalizeUnknownBlock(block: unknown): Block | null {
       ? record.rows.map((row) => (Array.isArray(row) ? row.map((cell) => normalizeInlineArray(cell)) : [])).filter((row) => row.length > 0)
       : [];
     return rows.length > 0 ? { id, type, rows } : null;
+  }
+
+  if (looseText) {
+    return buildParagraphBlockFromText(looseText);
   }
 
   return null;

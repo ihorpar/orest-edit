@@ -348,6 +348,11 @@ export default function EditorPage() {
     setStepRunModeByStep((current) => ({ ...current, [stepId]: mode }));
   }
 
+  function selectWorkflowStep(stepId: WorkflowStepId) {
+    setActiveWorkflowStep(stepId);
+    setFeedback(null);
+  }
+
   function resolveTargetBlockIds() {
     if (normalizedSelection.blockIds.length > 0) {
       return normalizedSelection.blockIds;
@@ -772,32 +777,32 @@ export default function EditorPage() {
 
     const relatedBlockIds = Array.from(
       new Set(
-        [
-          ...item.anchor.blockIds,
-          item.insertionPoint.anchorBlockId
-        ].filter((value): value is string => Boolean(value))
+        (
+          isReplaceProposal
+            ? [...item.anchor.blockIds]
+            : [
+                ...item.anchor.blockIds,
+                item.insertionPoint.anchorBlockId
+              ]
+        ).filter((value): value is string => Boolean(value))
       )
     );
     const relatedBlocks = relatedBlockIds
       .map((blockId) => document.blocks.find((block) => block.id === blockId))
       .filter((block): block is Block => Boolean(block));
 
-    const compactDocument = isReplaceProposal
-      ? document
-      : {
-        version: 2 as const,
-        blocks: relatedBlocks
-      };
+    const compactDocument = {
+      version: 2 as const,
+      blocks: relatedBlocks
+    };
 
-    const compactRevision = isReplaceProposal
-      ? revision
-      : ({
-        documentRevisionId: revision.documentRevisionId,
-        blockOrder: relatedBlockIds,
-        blockFingerprints: Object.fromEntries(
-          relatedBlockIds.map((blockId) => [blockId, revision.blockFingerprints[blockId] ?? ""])
-        )
-      } as typeof revision);
+    const compactRevision = {
+      documentRevisionId: revision.documentRevisionId,
+      blockOrder: relatedBlockIds,
+      blockFingerprints: Object.fromEntries(
+        relatedBlockIds.map((blockId) => [blockId, revision.blockFingerprints[blockId] ?? ""])
+      )
+    } as typeof revision;
 
     const baseRequest: ReviewActionRequest = {
       document: compactDocument,
@@ -878,7 +883,7 @@ export default function EditorPage() {
             entry.id === item.id ? { ...entry, status: "ready", activeProposalId: proposal.id } : entry
           )
         );
-        setFeedback({ tone: "info", message: "Чернетку правки додано на розгляд." });
+        setFeedback(null);
         return;
       }
 
@@ -1461,6 +1466,10 @@ export default function EditorPage() {
     WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
   );
   const activeStepItems = stepItems[activeWorkflowStep];
+  const activeStepCardStats = useMemo(
+    () => getStepCardStats(reviewItems, activeWorkflowStep),
+    [activeWorkflowStep, reviewItems]
+  );
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
@@ -1655,7 +1664,7 @@ export default function EditorPage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => setActiveWorkflowStep("fact_check")}
+                        onClick={() => selectWorkflowStep("fact_check")}
                       >
                         До факт-чеку
                       </Button>
@@ -1867,7 +1876,16 @@ export default function EditorPage() {
                   ) : null}
 
                   <section className="step-review-subsection">
-                    <p className="mono-ui operations-title">Рекомендації</p>
+                    <div className="step-review-subsection-head">
+                      <p className="mono-ui operations-title">Рекомендації</p>
+                      <p className="mono-ui step-review-cards-counter" aria-label="Лічильник карток">
+                        <span className="step-review-cards-counter-total">{activeStepCardStats.total}</span>
+                        <span className="step-review-cards-counter-separator">/</span>
+                        <span className="step-review-cards-counter-applied">{activeStepCardStats.applied}</span>
+                        <span className="step-review-cards-counter-separator">/</span>
+                        <span className="step-review-cards-counter-dismissed">{activeStepCardStats.dismissed}</span>
+                      </p>
+                    </div>
                     <div className="operations-stack operations-stack-compact">
                       {activeStepItems.filter((item) => item.status !== "dismissed").map((item) => (
                         <EditorialReviewCard
@@ -1896,7 +1914,7 @@ export default function EditorPage() {
         }
         steps={workflowSteps}
         activeStepId={activeWorkflowStep}
-        onStepSelect={(stepId) => setActiveWorkflowStep(stepId as WorkflowStepId)}
+        onStepSelect={(stepId) => selectWorkflowStep(stepId as WorkflowStepId)}
         initialDrawerWidth={560}
       />
     </>
@@ -2052,6 +2070,70 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<WorkflowStep
   }
 
   return groups;
+}
+
+function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): boolean {
+  if (item.stepId) {
+    return item.stepId === stepId;
+  }
+
+  if (stepId === "structure") {
+    return item.recommendationType === "subsection" || item.recommendationType === "list";
+  }
+
+  if (stepId === "clarity") {
+    return (
+      item.recommendationType === "rewrite" ||
+      item.recommendationType === "simplify" ||
+      item.recommendationType === "expand"
+    );
+  }
+
+  if (stepId === "interest") {
+    return item.recommendationType === "callout" || item.recommendationType === "expand";
+  }
+
+  if (stepId === "visuals") {
+    return item.recommendationType === "visual";
+  }
+
+  if (stepId === "formatting") {
+    return (
+      item.recommendationType === "list" ||
+      item.recommendationType === "callout" ||
+      item.recommendationType === "subsection"
+    );
+  }
+
+  if (stepId === "final_editing") {
+    return item.recommendationType === "rewrite" || item.recommendationType === "simplify";
+  }
+
+  return false;
+}
+
+function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId): { total: number; applied: number; dismissed: number } {
+  let total = 0;
+  let applied = 0;
+  let dismissed = 0;
+
+  for (const item of items) {
+    if (!itemBelongsToStep(item, stepId)) {
+      continue;
+    }
+
+    total += 1;
+
+    if (item.status === "applied") {
+      applied += 1;
+    }
+
+    if (item.status === "dismissed") {
+      dismissed += 1;
+    }
+  }
+
+  return { total, applied, dismissed };
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {

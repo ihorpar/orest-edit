@@ -253,10 +253,14 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
   const isReplaceProposal = isReplaceReviewType(request.item.recommendationType);
   const relatedBlockIds = Array.from(
     new Set(
-      [
-        ...request.item.anchor.blockIds,
-        request.item.insertionPoint.anchorBlockId
-      ].filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      (
+        isReplaceProposal
+          ? [...request.item.anchor.blockIds]
+          : [
+              ...request.item.anchor.blockIds,
+              request.item.insertionPoint.anchorBlockId
+            ]
+      ).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     )
   );
   const compactBlocks = relatedBlockIds.length > 0
@@ -264,24 +268,20 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
       .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
       .filter((block): block is Block => Boolean(block))
     : request.document.blocks;
-  const compactDocument = isReplaceProposal
-    ? request.document
-    : ({
-      version: request.document.version,
-      blocks: compactBlocks
-    } as ReviewActionRequest["document"]);
-  const compactRevision = isReplaceProposal
-    ? request.currentRevision
-    : ({
-      documentRevisionId: request.currentRevision.documentRevisionId,
-      blockOrder: relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder,
-      blockFingerprints: Object.fromEntries(
-        (relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder).map((blockId) => [
-          blockId,
-          request.currentRevision.blockFingerprints[blockId] ?? ""
-        ])
-      )
-    } as ManuscriptRevisionState);
+  const compactDocument = {
+    version: request.document.version,
+    blocks: compactBlocks
+  } as ReviewActionRequest["document"];
+  const compactRevision = {
+    documentRevisionId: request.currentRevision.documentRevisionId,
+    blockOrder: relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder,
+    blockFingerprints: Object.fromEntries(
+      (relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder).map((blockId) => [
+        blockId,
+        request.currentRevision.blockFingerprints[blockId] ?? ""
+      ])
+    )
+  } as ManuscriptRevisionState;
   const compactItem: ReviewActionRequest["item"] = {
     id: request.item.id,
     reviewSessionId: request.item.reviewSessionId,
