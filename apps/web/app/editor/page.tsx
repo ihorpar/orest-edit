@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
+import { EditorialReviewCard } from "../../components/editor/EditorialReviewCard";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
+import { OperationCard } from "../../components/editor/OperationCard";
 import { TopBar } from "../../components/layout/TopBar";
-import { RightOperationsRail, type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
-import { EditorialReviewDrawer } from "../../components/layout/EditorialReviewDrawer";
-import { ThreePaneShell } from "../../components/layout/ThreePaneShell";
+import { type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
+import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
 import { Button } from "../../components/ui/Button";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
 import {
@@ -40,7 +42,16 @@ import {
   type RequestMode
 } from "../../lib/editor/patch-contract";
 import {
+  createDefaultStepFeedbackMap,
+  createDefaultStepRunModeMap,
+  createEmptyStepRunHistory,
+  type EditorialFactCheckRow,
   type EditorialCalloutKind,
+  type EditorialReviewStepId,
+  type EditorialStepFeedbackMap,
+  type EditorialStepRunHistory,
+  type EditorialStepRunMode,
+  type EditorialStepRunModeMap,
   type VisualStylePreset,
   type EditorialVisualIntent,
   getEditorialCalloutKindTitle,
@@ -51,9 +62,9 @@ import {
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
+  type ReviewActionRequest,
   type ReviewActionProposal,
   type ReviewActionResponse,
-  type ReviewSessionStatus,
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import {
@@ -65,6 +76,7 @@ import {
   type EditorSettings
 } from "../../lib/editor/settings";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
+import { Image as ImageIcon, LayoutGrid, Search, Sparkles, SpellCheck, Stethoscope, Table2, Target } from "lucide-react";
 
 interface RequestFeedback {
   message: string;
@@ -88,6 +100,18 @@ const defaultLocalActionMode = "patch" as const;
 type ComposerMode = "local" | "review" | null;
 type ManualGenerationKind = "callout" | "visual";
 type LocalActionMode = "patch" | "callout" | "visual";
+type WorkflowStepId = EditorialReviewStepId;
+
+const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof Stethoscope }> = [
+  { id: "diagnostics", label: "Діагностика", icon: Stethoscope },
+  { id: "fact_check", label: "Перевірка фактів", icon: Search },
+  { id: "structure", label: "Структура", icon: LayoutGrid },
+  { id: "clarity", label: "Ясність", icon: Sparkles },
+  { id: "interest", label: "Інтерес і застосовність", icon: Target },
+  { id: "visuals", label: "Візуали", icon: ImageIcon },
+  { id: "formatting", label: "Форматування", icon: Table2 },
+  { id: "final_editing", label: "Фінальна редактура", icon: SpellCheck }
+];
 
 export default function EditorPage() {
   const [document, setDocument] = useState<EditorDocument>(DEFAULT_EDITOR_DOCUMENT);
@@ -113,9 +137,7 @@ export default function EditorPage() {
   const [preparingReviewItemId, setPreparingReviewItemId] = useState<string | null>(null);
   const [isReviewImageRequestInFlight, setIsReviewImageRequestInFlight] = useState(false);
   const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
-  const [reviewChatHistory, setReviewChatHistory] = useState<ChatMessage[]>([]);
-  const [reviewStatus, setReviewStatus] = useState<ReviewSessionStatus>("expertise");
-  const [isReviewDrawerOpen, setIsReviewDrawerOpen] = useState(false);
+  const [activeWorkflowStep, setActiveWorkflowStep] = useState<WorkflowStepId>("diagnostics");
   const [manualCalloutKind, setManualCalloutKind] = useState<EditorialCalloutKind>(defaultManualCalloutKind);
   const [manualVisualIntent, setManualVisualIntent] = useState<EditorialVisualIntent>(defaultManualVisualIntent);
   const [manualGenerationInFlight, setManualGenerationInFlight] = useState<{ kind: ManualGenerationKind; key: string } | null>(null);
@@ -123,12 +145,38 @@ export default function EditorPage() {
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
+  const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
+  const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
+  const [stepRunHistory, setStepRunHistory] = useState<EditorialStepRunHistory>(() => createEmptyStepRunHistory());
+  const [factCheckRows, setFactCheckRows] = useState<EditorialFactCheckRow[]>([]);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+  const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
+  const expertiseForDisplay = useMemo(() => {
+    if (!reviewExpertise) {
+      return null;
+    }
+
+    return linkifyParagraphRefs(localizeExpertiseMarkdown(reviewExpertise));
+  }, [reviewExpertise]);
+  const canRunDownstreamStep = Boolean(reviewExpertise?.trim()) && !isReviewRequestInFlight;
+  const workflowSteps = useMemo(
+    () =>
+      WORKFLOW_STEPS.map((step) => ({
+        ...step,
+        completed:
+          step.id === "diagnostics"
+            ? Boolean(reviewExpertise?.trim())
+            : step.id === "fact_check"
+              ? factCheckRows.length > 0
+              : stepItems[step.id].length > 0
+      })),
+    [factCheckRows.length, reviewExpertise, stepItems]
+  );
 
   useEffect(() => {
     setSettings(readEditorSettings());
@@ -144,6 +192,12 @@ export default function EditorPage() {
       setReviewItems(draft.reviewItems);
       setPatchDiagnostics(draft.patchDiagnostics);
       setReviewDiagnostics(draft.reviewDiagnostics);
+      setReviewExpertise(draft.reviewExpertise ?? null);
+      setFactCheckRows(draft.factCheckRows ?? []);
+      setActiveWorkflowStep(draft.activeWorkflowStep ?? "diagnostics");
+      setStepRunHistory(draft.stepRunHistory ?? createEmptyStepRunHistory());
+      setStepFeedback(draft.stepFeedback ?? createDefaultStepFeedbackMap());
+      setStepRunModeByStep(draft.stepRunModeByStep ?? createDefaultStepRunModeMap("replace"));
       setFeedback(draft.feedback);
       setHistory(draft.history);
       setActiveReviewItemId(draft.activeReviewItemId);
@@ -175,6 +229,12 @@ export default function EditorPage() {
       reviewItems,
       patchDiagnostics,
       reviewDiagnostics,
+      reviewExpertise,
+      factCheckRows,
+      activeWorkflowStep,
+      stepRunHistory,
+      stepFeedback,
+      stepRunModeByStep,
       history,
       appliedDiffs: [],
       feedback,
@@ -187,16 +247,22 @@ export default function EditorPage() {
     activeProposal,
     activeReviewItemId,
     document,
+    factCheckRows,
     feedback,
     hasHydratedDraft,
     history,
     normalizedSelection,
     operations,
     patchDiagnostics,
+    reviewExpertise,
     reviewDiagnostics,
     reviewComposer,
     reviewItems,
-    revision
+    revision,
+    activeWorkflowStep,
+    stepRunHistory,
+    stepFeedback,
+    stepRunModeByStep
   ]);
 
   useEffect(() => {
@@ -259,6 +325,14 @@ export default function EditorPage() {
 
   function pushHistoryEntry(entry: RequestHistoryItem) {
     setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 8));
+  }
+
+  function updateStepFeedbackValue(stepId: WorkflowStepId, value: string) {
+    setStepFeedback((current) => ({ ...current, [stepId]: value }));
+  }
+
+  function updateStepRunMode(stepId: WorkflowStepId, mode: EditorialStepRunMode) {
+    setStepRunModeByStep((current) => ({ ...current, [stepId]: mode }));
   }
 
   function resolveTargetBlockIds() {
@@ -333,31 +407,71 @@ export default function EditorPage() {
     }
   }
 
-  async function requestEditorialReview(overrideStatus?: ReviewSessionStatus, overrideHistory?: ChatMessage[]) {
+  async function requestWorkflowStep(stepId: WorkflowStepId) {
+    if (stepId !== "diagnostics" && !reviewExpertise?.trim()) {
+      setFeedback({ tone: "error", message: "Спочатку запустіть діагностику, щоб дати контекст для наступних кроків." });
+      return;
+    }
+
     setIsReviewRequestInFlight(true);
     setFeedback(null);
+    const runMode = stepRunModeByStep[stepId] ?? "replace";
+    const currentStepFeedback = stepFeedback[stepId]?.trim();
+    const diagnosticsFeedback = stepFeedback.diagnostics?.trim();
+    const historyMessages: ChatMessage[] = [];
 
-    const targetStatus = overrideStatus ?? reviewStatus;
-    const targetHistory = overrideHistory ?? reviewChatHistory;
+    if (diagnosticsFeedback) {
+      historyMessages.push({
+        id: createPatchId("chat"),
+        role: "user",
+        content: `[Діагностика] ${diagnosticsFeedback}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (currentStepFeedback && (stepId !== "diagnostics" || currentStepFeedback !== diagnosticsFeedback)) {
+      historyMessages.push({
+        id: createPatchId("chat"),
+        role: "user",
+        content: `[${stepId}] ${currentStepFeedback}`,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     try {
+      const compactReviewRevision: ManuscriptRevisionState = {
+        documentRevisionId: revision.documentRevisionId,
+        blockOrder: revision.blockOrder,
+        // For step review we only need stable order and revision id; fingerprints are recomputed server-side when absent.
+        blockFingerprints: {}
+      };
+      const diagnosticsPrompt = settings.expertisePrompt.trim() || settings.reviewPrompt.trim() || undefined;
+      const downstreamPrompt = settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined;
       const requestBody: EditorialReviewRequest = {
         document,
-        revision,
+        revision: compactReviewRevision,
         provider: settings.provider,
         modelId: settings.modelId,
         apiKey: settings.apiKey || undefined,
         basePrompt: settings.basePrompt,
-        reviewPrompt: settings.reviewPrompt,
-        expertisePrompt: settings.expertisePrompt,
-        cardsPrompt: settings.cardsPrompt,
+        expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
+        cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
         reviewLevelGuide: settings.reviewLevelGuide,
-        calloutPromptTemplate: settings.calloutPromptTemplate,
         changeLevel: reviewComposer.changeLevel,
         additionalInstructions: reviewComposer.additionalInstructions,
-        currentStatus: targetStatus,
-        history: targetHistory,
-        expertise: targetStatus === "cards" ? reviewExpertise ?? undefined : undefined
+        stepId,
+        runMode,
+        history: historyMessages.length > 0 ? historyMessages : undefined,
+        stepFeedback: currentStepFeedback || undefined,
+        stepContext:
+          stepId === "diagnostics"
+            ? undefined
+            : {
+              diagnosticsExpertise: reviewExpertise ?? undefined,
+              diagnosticsFeedback: diagnosticsFeedback || undefined,
+              currentStepFeedback: currentStepFeedback || undefined
+            },
+        expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined
       };
 
       const response = await fetch("/api/edit/review", {
@@ -369,21 +483,80 @@ export default function EditorPage() {
       const payload = (await response.json()) as EditorialReviewResponse;
       const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
 
-      if (payload.expertise) {
-        setReviewExpertise(payload.expertise);
-        setReviewStatus("expertise");
+      if (payload.stepId === "diagnostics") {
+        setReviewExpertise(payload.expertise?.trim() ? payload.expertise : null);
       }
 
-      if (payload.items.length > 0 || targetStatus === "cards") {
-        setReviewItems(payload.items);
-        setReviewStatus("cards");
+      if (payload.stepId === "fact_check") {
+        setFactCheckRows(payload.factCheckRows ?? []);
+      }
+
+      if (payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
+        const normalizedItems = payload.items.map((item) => ({
+          ...item,
+          stepId: payload.stepId,
+          stepRunId: payload.stepRunId
+        }));
+
+        setReviewItems((current) => {
+          const base =
+            runMode === "replace"
+              ? current.filter((item) => item.stepId && item.stepId !== payload.stepId)
+              : current;
+          return [...normalizedItems, ...base];
+        });
+      }
+
+      const runSnapshot = {
+        id: payload.stepRunId,
+        stepId: payload.stepId,
+        runMode: payload.runMode,
+        createdAt: payload.diagnostics.generatedAt,
+        documentRevisionId: revision.documentRevisionId,
+        feedback: currentStepFeedback || undefined,
+        expertise: payload.stepId === "diagnostics" ? payload.expertise ?? null : undefined,
+        factCheckRows: payload.stepId === "fact_check" ? payload.factCheckRows ?? [] : undefined,
+        itemIds: payload.stepId !== "diagnostics" && payload.stepId !== "fact_check" ? payload.items.map((item) => item.id) : undefined
+      };
+
+      setStepRunHistory((current) => {
+        const currentStepRuns = current[payload.stepId] ?? [];
+        return {
+          ...current,
+          [payload.stepId]:
+            payload.runMode === "replace"
+              ? [runSnapshot]
+              : [runSnapshot, ...currentStepRuns.filter((entry) => entry.id !== runSnapshot.id)].slice(0, 10)
+        };
+      });
+
+      if (runMode === "replace" && payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
+        setActiveReviewItemId((current) => {
+          if (!current) {
+            return current;
+          }
+
+          const nextItems = payload.items;
+          return nextItems.some((item) => item.id === current) ? current : null;
+        });
       }
 
       setReviewDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
-      pushHistoryEntry(createHistoryEntry("review", payload.providerUsed, settings.provider, settings.modelId, payload.items.length, payload.diagnostics.droppedItemCount, payload.usedFallback, nextFeedback));
+      pushHistoryEntry(
+        createHistoryEntry(
+          "review",
+          payload.providerUsed,
+          settings.provider,
+          settings.modelId,
+          payload.stepId === "fact_check" ? (payload.factCheckRows?.length ?? 0) : payload.items.length,
+          payload.diagnostics.droppedItemCount,
+          payload.usedFallback,
+          nextFeedback
+        )
+      );
 
-      if (targetStatus === "expertise" && !payload.error) {
+      if (payload.stepId === "diagnostics" && !payload.error) {
         setComposerMode(null); // Keep sidebar open if it's already open by other means
       }
     } catch (error) {
@@ -394,18 +567,6 @@ export default function EditorPage() {
     } finally {
       setIsReviewRequestInFlight(false);
     }
-  }
-
-  function handleReviewChat(message: string) {
-    const newUserMsg: ChatMessage = {
-      id: createPatchId("chat"),
-      role: "user",
-      content: message,
-      timestamp: new Date().toISOString()
-    };
-    const nextHistory = [...reviewChatHistory, newUserMsg];
-    setReviewChatHistory(nextHistory);
-    void requestEditorialReview("expertise", nextHistory);
   }
 
   function focusReviewItem(item: EditorialReviewItem) {
@@ -452,21 +613,6 @@ export default function EditorPage() {
     } else if (item.status === "ready" && activeProposal?.reviewItemId !== item.id && item.suggestedAction === "prepare_visual") {
       void prepareReviewItem(item);
     }
-  }
-
-  function handleGenerateCards(feedbackText: string) {
-    let nextHistory = reviewChatHistory;
-    if (feedbackText && feedbackText.trim()) {
-      const newUserMsg: ChatMessage = {
-        id: createPatchId("chat"),
-        role: "user",
-        content: feedbackText.trim(),
-        timestamp: new Date().toISOString()
-      };
-      nextHistory = [...reviewChatHistory, newUserMsg];
-      setReviewChatHistory(nextHistory);
-    }
-    void requestEditorialReview("cards", nextHistory);
   }
 
   function resetActiveExecutionLane() {
@@ -583,6 +729,99 @@ export default function EditorPage() {
     setOperations([]);
   }
 
+  function buildReviewActionRequestBody(item: EditorialReviewItem, requestVisualStylePreset: VisualStylePreset): ReviewActionRequest {
+    const isReplaceProposal = item.suggestedAction === "rewrite_text";
+    const compactItem: ReviewActionRequest["item"] = {
+      id: item.id,
+      reviewSessionId: item.reviewSessionId,
+      documentRevisionId: item.documentRevisionId,
+      changeLevel: item.changeLevel,
+      title: item.title,
+      reason: item.reason,
+      recommendation: item.recommendation,
+      recommendationType: item.recommendationType,
+      suggestedAction: item.suggestedAction,
+      priority: item.priority,
+      anchor: item.anchor,
+      insertionPoint: item.insertionPoint,
+      status: item.status,
+      origin: item.origin,
+      stepId: item.stepId,
+      stepRunId: item.stepRunId
+    };
+
+    if (item.calloutKind) {
+      compactItem.calloutKind = item.calloutKind;
+    }
+
+    if (item.visualIntent) {
+      compactItem.visualIntent = item.visualIntent;
+    }
+
+    const relatedBlockIds = Array.from(
+      new Set(
+        [
+          ...item.anchor.blockIds,
+          item.insertionPoint.anchorBlockId
+        ].filter((value): value is string => Boolean(value))
+      )
+    );
+    const relatedBlocks = relatedBlockIds
+      .map((blockId) => document.blocks.find((block) => block.id === blockId))
+      .filter((block): block is Block => Boolean(block));
+
+    const compactDocument = isReplaceProposal
+      ? document
+      : {
+        version: 2 as const,
+        blocks: relatedBlocks
+      };
+
+    const compactRevision = isReplaceProposal
+      ? revision
+      : ({
+        documentRevisionId: revision.documentRevisionId,
+        blockOrder: relatedBlockIds,
+        blockFingerprints: Object.fromEntries(
+          relatedBlockIds.map((blockId) => [blockId, revision.blockFingerprints[blockId] ?? ""])
+        )
+      } as typeof revision);
+
+    const baseRequest: ReviewActionRequest = {
+      document: compactDocument,
+      currentRevision: compactRevision,
+      item: compactItem,
+      provider: settings.provider,
+      modelId: settings.modelId,
+      apiKey: settings.apiKey || undefined
+    };
+
+    if (isReplaceProposal) {
+      return {
+        ...baseRequest,
+        basePrompt: settings.basePrompt,
+        reviewLevelGuide: settings.reviewLevelGuide
+      };
+    }
+
+    if (item.suggestedAction === "prepare_callout") {
+      return {
+        ...baseRequest,
+        calloutPromptTemplate: settings.calloutPromptTemplate
+      };
+    }
+
+    if (item.suggestedAction === "prepare_visual") {
+      return {
+        ...baseRequest,
+        imagePromptTemplate: settings.imagePromptTemplate,
+        visualStylePreset: requestVisualStylePreset
+      };
+    }
+
+    return baseRequest;
+  }
+
   async function prepareReviewItem(item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) {
     setReviewItems((current) => (current.some((entry) => entry.id === item.id) ? current : [item, ...current]));
     setActiveReviewItemId(item.id);
@@ -597,26 +836,12 @@ export default function EditorPage() {
     }
 
     try {
+      const requestBody = buildReviewActionRequestBody(item, requestVisualStylePreset);
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          document,
-          currentRevision: revision,
-          item,
-          provider: settings.provider,
-          modelId: settings.modelId,
-          apiKey: settings.apiKey || undefined,
-          basePrompt: settings.basePrompt,
-          reviewPrompt: settings.reviewPrompt,
-          expertisePrompt: settings.expertisePrompt,
-          cardsPrompt: settings.cardsPrompt,
-          reviewLevelGuide: settings.reviewLevelGuide,
-          calloutPromptTemplate: settings.calloutPromptTemplate,
-          imagePromptTemplate: settings.imagePromptTemplate,
-          visualStylePreset: requestVisualStylePreset
-        })
+        body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as ReviewActionResponse;
 
@@ -1194,6 +1419,8 @@ export default function EditorPage() {
     setReviewItems([]);
     setPatchDiagnostics(null);
     setReviewDiagnostics(null);
+    setReviewExpertise(null);
+    setFactCheckRows([]);
     setFeedback(null);
     setHistory([]);
     setActiveReviewItemId(null);
@@ -1207,16 +1434,27 @@ export default function EditorPage() {
     setLocalActionMode(defaultLocalActionMode);
     setManualCalloutPrompt("");
     setManualVisualPrompt("");
+    setStepFeedback(createDefaultStepFeedbackMap());
+    setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
+    setStepRunHistory(createEmptyStepRunHistory());
+    setActiveWorkflowStep("diagnostics");
     setRecentlyChangedBlockIds([]);
   }
 
   const canRequestReview = document.blocks.length > 0;
+  const activeStepMeta = WORKFLOW_STEPS.find((step) => step.id === activeWorkflowStep) ?? WORKFLOW_STEPS[0];
+  const ActiveStepIcon = activeStepMeta.icon;
+  const activeStepIndex = Math.max(
+    1,
+    WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
+  );
+  const activeStepItems = stepItems[activeWorkflowStep];
 
   return (
     <>
       <TopBar activePath="/editor" />
-      <ThreePaneShell
-        center={
+      <StepReviewWorkspaceShell
+        manuscript={
           <main className="editor-page-shell">
             <div className="editor-page-actions">
               <Button variant="secondary" size="sm" onClick={handleExportDocx} loading={isDocxExportInFlight}>
@@ -1280,7 +1518,7 @@ export default function EditorPage() {
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
                 onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
-                onRequestReview={() => void requestEditorialReview()}
+                onRequestReview={() => void requestWorkflowStep(activeWorkflowStep)}
                 patchLoading={isPatchRequestInFlight}
                 reviewLoading={isReviewRequestInFlight}
                 localActionMode={localActionMode}
@@ -1303,69 +1541,338 @@ export default function EditorPage() {
             ) : null}
           </main>
         }
-        right={
-          <RightOperationsRail
-            aiTasks={[]}
-            canRequestReview={canRequestReview}
-            canOpenLocalComposer={normalizedSelection.blockIds.length > 0}
-            isIdle={!feedback && operations.length === 0 && reviewItems.length === 0}
-            patchDiagnostics={patchDiagnostics}
-            reviewDiagnostics={reviewDiagnostics}
-            reviewItems={reviewItems}
-            reviewRevision={revision}
-            activeReviewItemId={activeReviewItemId}
-            history={history}
-            isReviewDrawerOpen={isReviewDrawerOpen}
-            onOpenReviewDrawer={() => {
-              if (!reviewExpertise) {
-                setReviewStatus("expertise");
-              }
-              setIsReviewDrawerOpen(true);
-            }}
-            onCloseReviewDrawer={() => setIsReviewDrawerOpen(false)}
-            onOpenLocalComposer={() => {
-              setLocalActionMode(defaultLocalActionMode);
-              setComposerMode("local");
-            }}
-            onFocusReviewItem={focusReviewItem}
-            onPrepareReviewItem={(item) => void prepareReviewItem(item)}
-            onApplyReviewCallout={applyReviewCallout}
-            preparingReviewItemId={preparingReviewItemId}
-            onDismissReviewItem={(item: EditorialReviewItem) => dismissReviewItem(item)}
-            reviewLoading={isReviewRequestInFlight}
-            onAccept={acceptOperation}
-            onAcceptAll={acceptAllOperations}
-            onReject={rejectOperation}
-            onRejectAll={rejectAllOperations}
-            operations={operations}
-            reviewItemCount={reviewItems.filter((item) => item.status !== "dismissed").length}
-            statusMessage={feedback?.message}
-            statusTone={feedback?.tone}
-            onOpenAiTask={() => { }}
-            onDismissAiTask={() => { }}
-          />
-        }
-      />
+        drawer={
+          <section className="step-review-workspace">
+            <header className="step-review-workspace-head">
+              <h3 className="step-review-workspace-title">
+                <ActiveStepIcon className="step-review-workspace-title-icon" aria-hidden="true" />
+                <span>{activeStepMeta.label}</span>
+              </h3>
+              <span className="step-review-workspace-counter mono-ui">
+                Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
+              </span>
+            </header>
 
-      <EditorialReviewDrawer
-        isOpen={isReviewDrawerOpen}
-        status={reviewStatus}
-        expertise={reviewExpertise}
-        reviewItemsCount={reviewItems.length}
-        reviewLoading={isReviewRequestInFlight}
-        reviewChangeLevel={reviewComposer.changeLevel}
-        reviewAdditionalInstructions={reviewComposer.additionalInstructions}
-        onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
-        onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
-        onAnalyze={() => void requestEditorialReview("expertise")}
-        onGenerateCards={handleGenerateCards}
-        onResetExpertise={() => {
-          setReviewExpertise(null);
-          setReviewStatus("expertise");
-          setReviewChatHistory([]);
-        }}
-        onClose={() => setIsReviewDrawerOpen(false)}
-        onScrollToBlockIndex={handleScrollToBlockIndex}
+            <div className="step-review-workspace-scroll">
+              {activeWorkflowStep === "diagnostics" ? (
+                <div className="step-review-section-stack">
+                  <details className="step-review-config-details">
+                    <summary className="step-review-config-summary">
+                      <div className="step-review-config-summary-left">
+                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        <span>Налаштування запуску</span>
+                      </div>
+                      <span className="step-review-config-badge">{stepRunHistory.diagnostics.length}</span>
+                    </summary>
+                    <div className="step-review-config-body">
+                      <select
+                        id="diagnostics-run-mode"
+                        className="step-review-inline-select"
+                        value={stepRunModeByStep.diagnostics}
+                        onChange={(event) => updateStepRunMode("diagnostics", event.target.value as EditorialStepRunMode)}
+                      >
+                        <option value="replace">Замінити попередній</option>
+                        <option value="preserve">Зберегти окремим запуском</option>
+                      </select>
+                      <div className="step-review-inline-levels">
+                        {[1, 2, 3, 4, 5].map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            className="step-review-inline-level-button"
+                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={2}
+                        placeholder="Додаткові інструкції (опціонально)"
+                        value={reviewComposer.additionalInstructions}
+                        onChange={(event) =>
+                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </details>
+                  <div className="button-row">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void requestWorkflowStep("diagnostics")}
+                      loading={isReviewRequestInFlight}
+                      disabled={!canRequestReview}
+                    >
+                      {reviewExpertise ? "Оновити діагностику" : "Запустити діагностику"}
+                    </Button>
+                    {reviewExpertise ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setActiveWorkflowStep("fact_check")}
+                      >
+                        До факт-чеку
+                      </Button>
+                    ) : null}
+                    {reviewExpertise ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setReviewExpertise(null);
+                          setFactCheckRows([]);
+                          setStepRunHistory((current) => ({
+                            ...current,
+                            diagnostics: [],
+                            fact_check: []
+                          }));
+                        }}
+                      >
+                        Скинути
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="step-review-analysis-card">
+                    {expertiseForDisplay ? (
+                      <ReactMarkdown
+                        components={{
+                          a: ({ href, children }) => {
+                            if (href?.startsWith("#block-")) {
+                              const index = Number.parseInt(href.replace("#block-", ""), 10);
+                              return (
+                                <button
+                                  type="button"
+                                  className="step-review-analysis-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    if (!Number.isNaN(index)) {
+                                      handleScrollToBlockIndex(index);
+                                    }
+                                  }}
+                                >
+                                  {children}
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <a href={href} target="_blank" rel="noopener noreferrer">
+                                {children}
+                              </a>
+                            );
+                          }
+                        }}
+                      >
+                        {expertiseForDisplay}
+                      </ReactMarkdown>
+                    ) : (
+                      <p className="step-review-empty-copy">
+                        Запустіть діагностику, щоб отримати детальний огляд.
+                      </p>
+                    )}
+                  </div>
+
+                  {reviewExpertise ? (
+                    <>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={3}
+                        placeholder="Ваш фідбек до діагностики (збережеться для наступних кроків)"
+                        value={stepFeedback.diagnostics}
+                        onChange={(event) => updateStepFeedbackValue("diagnostics", event.target.value)}
+                      />
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {activeWorkflowStep === "fact_check" ? (
+                <div className="step-review-section-stack">
+                  <details className="step-review-config-details">
+                    <summary className="step-review-config-summary">
+                      <div className="step-review-config-summary-left">
+                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        <span>Налаштування запуску</span>
+                      </div>
+                      <span className="step-review-config-badge">{stepRunHistory.fact_check.length}</span>
+                    </summary>
+                    <div className="step-review-config-body">
+                      <select
+                        id="factcheck-run-mode"
+                        className="step-review-inline-select"
+                        value={stepRunModeByStep.fact_check}
+                        onChange={(event) => updateStepRunMode("fact_check", event.target.value as EditorialStepRunMode)}
+                      >
+                        <option value="replace">Замінити попередній</option>
+                        <option value="preserve">Зберегти окремим запуском</option>
+                      </select>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={2}
+                        placeholder="Фокус факт-чеку (опціонально)"
+                        value={stepFeedback.fact_check}
+                        onChange={(event) => updateStepFeedbackValue("fact_check", event.target.value)}
+                      />
+                    </div>
+                  </details>
+                  <div className="step-review-fact-table-wrapper">
+                    <table className="step-review-fact-table">
+                      <thead>
+                        <tr>
+                          <th>Твердження</th>
+                          <th>Статус</th>
+                          <th>Пояснення та джерела</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {factCheckRows.map((row, index) => (
+                          <tr key={`${row.claim}-${index}`}>
+                            <td>{row.claim}</td>
+                            <td>
+                              <span className={`step-review-fact-status step-review-fact-status-${toFactStatusClassName(row.status)}`}>
+                                {row.status}
+                              </span>
+                            </td>
+                            <td>{row.explanation}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {factCheckRows.length === 0 ? (
+                    <p className="step-review-empty-copy">
+                      Після діагностики тут з’явиться таблиця перевірки фактів.
+                    </p>
+                  ) : null}
+                  <div className="button-row">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void requestWorkflowStep("fact_check")}
+                      loading={isReviewRequestInFlight}
+                      disabled={!canRunDownstreamStep}
+                    >
+                      {factCheckRows.length > 0 ? "Оновити факт-чек" : "Запустити факт-чек"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" ? (
+                <div className="step-review-section-stack">
+                  <div className="button-row">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setLocalActionMode(defaultLocalActionMode);
+                        setComposerMode("local");
+                      }}
+                      disabled={normalizedSelection.blockIds.length === 0}
+                    >
+                      Локальна правка
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void requestWorkflowStep(activeWorkflowStep)}
+                      loading={isReviewRequestInFlight}
+                      disabled={!canRunDownstreamStep}
+                    >
+                      {activeStepItems.length > 0 ? "Оновити картки кроку" : "Запустити аналіз кроку"}
+                    </Button>
+                  </div>
+                  <details className="step-review-config-details">
+                    <summary className="step-review-config-summary">
+                      <div className="step-review-config-summary-left">
+                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        <span>Налаштування запуску</span>
+                      </div>
+                      <span className="step-review-config-badge">{stepRunHistory[activeWorkflowStep].length}</span>
+                    </summary>
+                    <div className="step-review-config-body">
+                      <select
+                        id="generic-step-run-mode"
+                        className="step-review-inline-select"
+                        value={stepRunModeByStep[activeWorkflowStep]}
+                        onChange={(event) => updateStepRunMode(activeWorkflowStep, event.target.value as EditorialStepRunMode)}
+                      >
+                        <option value="replace">Замінити попередній</option>
+                        <option value="preserve">Зберегти окремим запуском</option>
+                      </select>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={2}
+                        placeholder="Ваш фідбек для цього кроку (опціонально)"
+                        value={stepFeedback[activeWorkflowStep]}
+                        onChange={(event) => updateStepFeedbackValue(activeWorkflowStep, event.target.value)}
+                      />
+                    </div>
+                  </details>
+
+                  {feedback?.message ? (
+                    <p className="step-review-status-copy" data-tone={feedback.tone}>
+                      {feedback.message}
+                    </p>
+                  ) : null}
+
+                  {operations.length > 0 ? (
+                    <section className="step-review-subsection">
+                      <p className="mono-ui operations-title">Правки</p>
+                      <div className="operations-stack">
+                        {operations.map((operation) => (
+                          <OperationCard key={operation.id} operation={operation} onAccept={acceptOperation} onReject={rejectOperation} />
+                        ))}
+                      </div>
+                      {operations.length > 1 ? (
+                        <div className="button-row">
+                          <Button size="sm" variant="ghost" onClick={rejectAllOperations}>
+                            Скасувати всі
+                          </Button>
+                          <Button size="sm" variant="primary" onClick={acceptAllOperations}>
+                            Прийняти всі
+                          </Button>
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : null}
+
+                  <section className="step-review-subsection">
+                    <p className="mono-ui operations-title">Рекомендації</p>
+                    <div className="operations-stack operations-stack-compact">
+                      {activeStepItems.filter((item) => item.status !== "dismissed").map((item) => (
+                        <EditorialReviewCard
+                          key={item.id}
+                          item={item}
+                          revision={revision}
+                          isActive={item.id === activeReviewItemId}
+                          onFocus={focusReviewItem}
+                          onPrepare={(entry) => void prepareReviewItem(entry)}
+                          onApplyCallout={applyReviewCallout}
+                          onDismiss={dismissReviewItem}
+                          isLoading={item.id === preparingReviewItemId}
+                        />
+                      ))}
+                    </div>
+                    {activeStepItems.filter((item) => item.status !== "dismissed").length === 0 ? (
+                      <p className="step-review-empty-copy">
+                        Для цього етапу ще немає карток.
+                      </p>
+                    ) : null}
+                  </section>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        }
+        steps={workflowSteps}
+        activeStepId={activeWorkflowStep}
+        onStepSelect={(stepId) => setActiveWorkflowStep(stepId as WorkflowStepId)}
+        initialDrawerWidth={560}
       />
     </>
   );
@@ -1439,6 +1946,21 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     };
   }
 
+  if (payload.stepId === "diagnostics") {
+    return {
+      tone: "info",
+      message: payload.expertise?.trim() ? "Діагностику оновлено." : "Діагностику виконано."
+    };
+  }
+
+  if (payload.stepId === "fact_check") {
+    const count = payload.factCheckRows?.length ?? 0;
+    return {
+      tone: "info",
+      message: count > 0 ? `Підготовлено ${count} рядків факт-чеку.` : "Факт-чек не виявив окремих спірних тверджень."
+    };
+  }
+
   if (payload.items.length === 0) {
     return {
       tone: "info",
@@ -1446,17 +1968,127 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     };
   }
 
-  if (payload.expertise && payload.items.length === 0) {
-    return {
-      tone: "info",
-      message: "Експертний аналіз готовий."
-    };
-  }
-
   return {
     tone: "info",
     message: `Підготовлено ${payload.items.length} карток з рекомендаціями.`
   };
+}
+
+function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<WorkflowStepId, EditorialReviewItem[]> {
+  const groups: Record<WorkflowStepId, EditorialReviewItem[]> = {
+    diagnostics: [],
+    fact_check: [],
+    structure: [],
+    clarity: [],
+    interest: [],
+    visuals: [],
+    formatting: [],
+    final_editing: []
+  };
+
+  for (const item of items) {
+    if (item.status === "dismissed") {
+      continue;
+    }
+
+    if (item.stepId && item.stepId in groups) {
+      groups[item.stepId].push(item);
+      continue;
+    }
+
+    if (item.recommendationType === "subsection" || item.recommendationType === "list") {
+      groups.structure.push(item);
+    }
+
+    if (item.recommendationType === "rewrite" || item.recommendationType === "simplify" || item.recommendationType === "expand") {
+      groups.clarity.push(item);
+    }
+
+    if (item.recommendationType === "callout" || item.recommendationType === "expand") {
+      groups.interest.push(item);
+    }
+
+    if (item.recommendationType === "visual") {
+      groups.visuals.push(item);
+    }
+
+    if (item.recommendationType === "list" || item.recommendationType === "callout" || item.recommendationType === "subsection") {
+      groups.formatting.push(item);
+    }
+
+    if (item.recommendationType === "rewrite" || item.recommendationType === "simplify") {
+      groups.final_editing.push(item);
+    }
+  }
+
+  return groups;
+}
+
+function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {
+  if (status === "ok") {
+    return "ok";
+  }
+
+  if (status === "сумнівно") {
+    return "warning";
+  }
+
+  return "unknown";
+}
+
+const expertiseTokenMap: Record<string, string> = {
+  rewrite_text: "переписати фрагмент",
+  insert_text: "додати вставку",
+  prepare_callout: "підготувати врізку",
+  prepare_visual: "підготувати візуал",
+  rewrite: "переписати",
+  simplify: "спростити",
+  expand: "розширити",
+  list: "оформити списком",
+  subsection: "додати підзаголовок",
+  callout: "врізка",
+  visual: "візуал",
+  mechanism: "механізм",
+  analogy: "аналогія",
+  everyday_application: "практичне застосування",
+  myths_vs_truth: "міфи та правда",
+  top_list: "топ-список",
+  infographic: "інфографіка",
+  illustration: "ілюстрація"
+};
+
+function localizeExpertiseMarkdown(value: string): string {
+  let next = value.replace(/\r\n?/g, "\n");
+
+  next = next
+    .replace(/Suggested Action\s*:/gi, "Рекомендована дія:")
+    .replace(/Callout Kind\s*:/gi, "Тип врізки:")
+    .replace(/Visual Intent\s*:/gi, "Тип візуалу:")
+    .replace(/Recommendation\s*:/gi, "Рекомендація:")
+    .replace(/What doesn't work\s*:/gi, "Що не працює:");
+
+  for (const [token, label] of Object.entries(expertiseTokenMap)) {
+    const pattern = new RegExp(`\\b${escapeRegExp(token)}\\b`, "gi");
+    next = next.replace(pattern, label);
+  }
+
+  return next;
+}
+
+function linkifyParagraphRefs(value: string): string {
+  return value.replace(/абз\.\s*0*(\d+)(?:\s*-\s*0*(\d+))?/gi, (match, firstRaw) => {
+    const index = Number.parseInt(firstRaw, 10);
+
+    if (Number.isNaN(index) || index < 1) {
+      return match;
+    }
+
+    return `[${match}](#block-${index - 1})`;
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function splitCalloutDraftIntoParagraphs(text: string, kind: EditorialCalloutKind) {

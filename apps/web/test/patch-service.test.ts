@@ -95,3 +95,55 @@ test("generatePatchResponse normalizes loose provider text replacement", async (
   assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
   assert.match(response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0].text : "", /Спростив блок/);
 });
+
+test("generatePatchResponse sends Gemini API key via header instead of URL query", async () => {
+  let requestedUrl = "";
+  let requestHeaders = new Headers();
+
+  const response = await generatePatchResponse(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-test-key"
+    }),
+    {
+      fetchImpl: async (input, init) => {
+        requestedUrl = String(input);
+        requestHeaders = new Headers(init?.headers);
+
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        operations: [
+                          {
+                            blockIds: ["p1"],
+                            newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
+                            reason: "Спростив блок.",
+                            type: "clarity"
+                          }
+                        ]
+                      })
+                    }
+                  ]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
+  assert.doesNotMatch(requestedUrl, /\?key=/);
+  assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+});

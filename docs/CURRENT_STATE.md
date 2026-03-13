@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-11
+Date: 2026-03-12
 Status: Active handoff
 
 ## What exists now
@@ -17,10 +17,18 @@ Status: Active handoff
 - Whole-text review exists through `/api/edit/review`
 - Whole-text recommendation preparation exists through `/api/edit/review/proposal`
 - Whole-text review anchors resolve by block IDs and block fingerprints
+- Whole-text review prompt assembly now preserves explicit image markers in document lines (`[image] alt: ...; caption: ...`) instead of flattening image blocks into plain text
+- `/editor` now renders a unified step workspace shell with manuscript + draggable resizer + flyout review drawer + icon-first mini-hub (Lucide) for 8-step navigation
+- `/api/edit/review` is now step-aware: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, and optional `factCheckRows`
+- Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, and `final_editing`
+- Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
+- Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
+- Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
+- Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
@@ -54,7 +62,7 @@ Status: Active handoff
 - Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
-- Browser draft persistence uses `orest-editor-draft-v2`
+- Browser draft persistence uses `orest-editor-draft-v3`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
 - Settings live at `/settings` and still provide provider/model/API-key configuration with live validation
@@ -73,6 +81,7 @@ Status: Active handoff
 - No full clipboard/Word paste pipeline for complex rich-text imports
 - No export patch flow or document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
+- No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
 
 ## Current product direction
 - User: book editor
@@ -101,3 +110,6 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-11 (47 tests), including new coverage for top_list normalization, numeric-line preservation in callout cleanup, range clipping, and callout template hardening
 - Runtime smoke check with password gate succeeded on 2026-03-11 (`/editor` redirected to `/login` before auth)
 - `npm run qa:inline-review -w @orest/web` passed on 2026-03-11 using `APP_PASSWORD=@orest0krat` + local dev server on `http://127.0.0.1:3100`; validated login gate, multi-block anchor highlighting, and single inline card execution for manual `callout` and `visual`
+- `npm run typecheck -w @orest/web` passed on 2026-03-12 after step-aware review contract migration (separate step prompts, fact-check rows contract, per-step run persistence)
+- `npm run test -w @orest/web` passed on 2026-03-12 after step-aware review contract migration (13/13 suites, including review-service structured fact-check coverage)
+- `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

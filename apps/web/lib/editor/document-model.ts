@@ -48,7 +48,10 @@ export function createInlineText(text: string, marks: Omit<InlineNode, "text"> =
   return { text, ...marks };
 }
 
-export function createBlockId(prefix = "block"): string {
+export function createBlockId(prefix = "block", suffix?: string): string {
+  if (suffix) {
+    return `${prefix}-${suffix}`;
+  }
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 

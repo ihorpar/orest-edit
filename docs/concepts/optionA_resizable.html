@@ -1,0 +1,418 @@
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Final Pro Concept: Mini-Hub with Resizable Workspace</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --surgical-blue: #2563eb;
+            --bg-sidebar: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #fff;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* 1. MAIN MANUSCRIPT (Left) */
+        .manuscript-viewport {
+            flex: 1;
+            min-width: 300px;
+            padding: 60px 40px;
+            overflow-y: auto;
+            background: #fff;
+            transition: opacity 0.2s;
+        }
+
+        .manuscript-container {
+            max-width: 650px;
+            margin: 0 auto;
+            font-family: "Georgia", serif;
+            font-size: 17px;
+            line-height: 1.8;
+            color: #334155;
+        }
+
+        /* 2. RESIZE HANDLE (The Splitter) */
+        .resize-handle {
+            width: 4px;
+            background: transparent;
+            cursor: col-resize;
+            transition: background 0.2s, box-shadow 0.2s;
+            z-index: 200;
+            position: relative;
+        }
+
+        .resize-handle:hover,
+        .resize-handle.active {
+            background: var(--surgical-blue);
+            box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+        }
+
+        /* 3. REVIEW DRAWER (Center/Right) */
+        .review-workspace {
+            width: 450px;
+            /* Initial width */
+            min-width: 320px;
+            max-width: 800px;
+            background: #fff;
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 150;
+        }
+
+        .drawer-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fff;
+        }
+
+        .drawer-header h3 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .drawer-body {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            background: #fcfdfe;
+        }
+
+        /* Fact Check Table Example (Solving the "Lots of Text/Table" problem) */
+        .fact-table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            margin-top: 16px;
+            border: 1px solid #eef2f7;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .fact-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 500px;
+            /* Forces scroll if drawer is too narrow */
+        }
+
+        .fact-table th {
+            background: #f8fafc;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 11px;
+            color: var(--text-muted);
+            border-bottom: 1px solid #eef2f7;
+        }
+
+        .fact-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: top;
+            line-height: 1.5;
+        }
+
+        .status-pill {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status-ok {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        /* 4. THE INTEGRATED MINI-HUB (Rightmost) */
+        .editorial-mini-hub {
+            width: 56px;
+            background: var(--bg-sidebar);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 0;
+            gap: 8px;
+            /* Tighter gap, single unit */
+            z-index: 300;
+        }
+
+        .hub-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .hub-button:hover {
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        .hub-button.active {
+            background: #fff;
+            color: var(--surgical-blue);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+            border: 1px solid #cbd5e1;
+        }
+
+        .hub-button.completed::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 6px;
+            height: 6px;
+            background: #22c55e;
+            border-radius: 50%;
+            border: 2px solid var(--bg-sidebar);
+        }
+
+        .step-label-popup {
+            position: absolute;
+            right: 64px;
+            background: #1e293b;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            opacity: 0;
+            transform: translateX(10px);
+            pointer-events: none;
+            transition: all 0.2s;
+        }
+
+        .hub-button:hover+.step-label-popup,
+        .step-item:hover .step-label-popup {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    </style>
+</head>
+
+<body style="cursor: default;">
+
+    <!-- Manuscript Section -->
+    <div class="manuscript-viewport">
+        <div class="manuscript-container">
+            <h1 style="font-family: sans-serif; color: var(--text-main)">Розділ 4: Епігенетичний протокол</h1>
+            <p>Ваші гени — це не вирок, а лише креслення. Те, як ці креслення втілюються в життя, залежить від вашого
+                способу життя. Сон, рівень кортизолу та якість нутрієнтів визначають, які саме гени будуть активними.
+            </p>
+            <p>Цей процес відомий як метилювання ДНК. Це як вимикачі світла в кімнаті: ви можете вимкнути гени запалення
+                і ввімкнути гени регенерації просто змінивши дієту на 12 тижнів.</p>
+            <p style="opacity: 0.5">...далі йде великий текст про вплив способу життя на ДНК...</p>
+        </div>
+    </div>
+
+    <!-- The Resizable Splitter -->
+    <div class="resize-handle" id="splitter"></div>
+
+    <!-- Review Workspace -->
+    <div class="review-workspace" id="drawer" style="width: 754px;">
+        <div class="drawer-header">
+            <h3><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    data-lucide="search" aria-hidden="true" style="width:16px" class="lucide lucide-search">
+                    <path d="m21 21-4.34-4.34"></path>
+                    <circle cx="11" cy="11" r="8"></circle>
+                </svg> ПЕРЕВІРКА ФАКТІВ</h3>
+            <span style="font-size: 11px; font-weight: 700; color: var(--muted)">ЕТАП 2 / 8</span>
+        </div>
+        <div class="drawer-body">
+            <p style="font-size: 13px; color: #475569; line-height: 1.6;">
+                У цьому етапі ШІ аналізує кожне наукове твердження. Ви можете розширити цю панель праворуч, якщо таблиця
+                занадто велика.
+            </p>
+
+            <div class="fact-table-wrapper">
+                <table class="fact-table">
+                    <thead>
+                        <tr>
+                            <th>Твердження</th>
+                            <th>Статус</th>
+                            <th>Джерело / Коментар</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Метилювання ДНК залежить від дієти за 12 тижнів</td>
+                            <td><span class="status-pill status-ok">OK</span></td>
+                            <td>Дослідження 2021 року в Nature Communications підтверджує...</td>
+                        </tr>
+                        <tr>
+                            <td>Кортизол вимикає гени регенерації</td>
+                            <td><span class="status-pill status-ok">OK</span></td>
+                            <td>Механізми хронічного стресу через вісь HPA...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 20px; font-style: italic;">
+                Порада: Спробуйте потягнути синю смужку ліворуч, щоб збільшити місце для таблиці.
+            </p>
+        </div>
+    </div>
+
+    <!-- Integrated Mini-Hub (Single Unit) -->
+    <nav class="editorial-mini-hub">
+        <div class="step-item" style="position:relative">
+            <button class="hub-button completed"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="stethoscope" aria-hidden="true"
+                    class="lucide lucide-stethoscope">
+                    <path d="M11 2v2"></path>
+                    <path d="M5 2v2"></path>
+                    <path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"></path>
+                    <path d="M8 15a6 6 0 0 0 12 0v-3"></path>
+                    <circle cx="20" cy="10" r="2"></circle>
+                </svg></button>
+            <span class="step-label-popup">1. Діагностика</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button active"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="search" aria-hidden="true" class="lucide lucide-search">
+                    <path d="m21 21-4.34-4.34"></path>
+                    <circle cx="11" cy="11" r="8"></circle>
+                </svg></button>
+            <span class="step-label-popup">2. Факт-чек</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="layout-grid" aria-hidden="true"
+                    class="lucide lucide-layout-grid">
+                    <rect width="7" height="7" x="3" y="3" rx="1"></rect>
+                    <rect width="7" height="7" x="14" y="3" rx="1"></rect>
+                    <rect width="7" height="7" x="14" y="14" rx="1"></rect>
+                    <rect width="7" height="7" x="3" y="14" rx="1"></rect>
+                </svg></button>
+            <span class="step-label-popup">3. Структура</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="sparkles" aria-hidden="true" class="lucide lucide-sparkles">
+                    <path
+                        d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z">
+                    </path>
+                    <path d="M20 2v4"></path>
+                    <path d="M22 4h-4"></path>
+                    <circle cx="4" cy="20" r="2"></circle>
+                </svg></button>
+            <span class="step-label-popup">4. Ясність</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="target" aria-hidden="true" class="lucide lucide-target">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <circle cx="12" cy="12" r="6"></circle>
+                    <circle cx="12" cy="12" r="2"></circle>
+                </svg></button>
+            <span class="step-label-popup">5. Інтерес</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="image" aria-hidden="true" class="lucide lucide-image">
+                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+                    <circle cx="9" cy="9" r="2"></circle>
+                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                </svg></button>
+            <span class="step-label-popup">6. Візуали</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="type" aria-hidden="true" class="lucide lucide-type">
+                    <path d="M12 4v16"></path>
+                    <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path>
+                    <path d="M9 20h6"></path>
+                </svg></button>
+            <span class="step-label-popup">7. Форматування</span>
+        </div>
+        <div class="step-item" style="position:relative">
+            <button class="hub-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" data-lucide="pen-tool" aria-hidden="true" class="lucide lucide-pen-tool">
+                    <path
+                        d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z">
+                    </path>
+                    <path
+                        d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18">
+                    </path>
+                    <path d="m2.3 2.3 7.286 7.286"></path>
+                    <circle cx="11" cy="11" r="2"></circle>
+                </svg></button>
+            <span class="step-label-popup">8. Коректура</span>
+        </div>
+    </nav>
+
+    <script>
+        lucide.createIcons();
+
+        // Resizable Drawer Logic
+        const splitter = document.getElementById('splitter');
+        const drawer = document.getElementById('drawer');
+        let isResizing = false;
+
+        splitter.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            splitter.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const width = window.innerWidth - e.clientX - 56; // 56 is mini-hub width
+            if (width > 300 && width < 850) {
+                drawer.style.width = width + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isResizing = false;
+            splitter.classList.remove('active');
+            document.body.style.cursor = 'default';
+        });
+    </script>
+
+
+</body>
+
+</html>

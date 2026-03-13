@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { EditorialReviewRequest, EditorialReviewResponse } from "../../../../lib/editor/review-contract";
+import type { EditorialReviewRequest, EditorialReviewResponse, EditorialReviewStepId } from "../../../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-structure";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
@@ -23,18 +23,26 @@ export async function POST(request: Request) {
     return NextResponse.json<EditorialReviewResponse>(
       {
         reviewSessionId: "review-session-invalid-json",
+        stepId: "diagnostics",
+        stepRunId: "step-run-invalid-json",
+        runMode: "replace",
         items: [],
+        factCheckRows: [],
         providerUsed: "invalid-request",
         usedFallback: false,
         error: "Некоректне тіло запиту.",
         diagnostics: {
           requestId: "review-invalid-json",
           reviewSessionId: "review-session-invalid-json",
+          stepId: "diagnostics",
+          stepRunId: "step-run-invalid-json",
+          runMode: "replace",
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           blockCount: 0,
           changeLevel: 3,
           returnedItemCount: 0,
+          returnedFactCheckCount: 0,
           droppedItemCount: 0,
           generatedAt: new Date().toISOString()
         }
@@ -49,18 +57,26 @@ export async function POST(request: Request) {
     return NextResponse.json<EditorialReviewResponse>(
       {
         reviewSessionId: "review-session-invalid-body",
+        stepId: "diagnostics",
+        stepRunId: "step-run-invalid-body",
+        runMode: "replace",
         items: [],
+        factCheckRows: [],
         providerUsed: "invalid-request",
         usedFallback: false,
         error: parsed.error,
         diagnostics: {
           requestId: "review-invalid-body",
           reviewSessionId: "review-session-invalid-body",
+          stepId: "diagnostics",
+          stepRunId: "step-run-invalid-body",
+          runMode: "replace",
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           blockCount: 0,
           changeLevel: 3,
           returnedItemCount: 0,
+          returnedFactCheckCount: 0,
           droppedItemCount: 0,
           generatedAt: new Date().toISOString()
         }
@@ -116,7 +132,47 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
         typeof record.additionalInstructions === "string" && record.additionalInstructions.trim() ? record.additionalInstructions.trim() : undefined,
       history: Array.isArray(record.history) ? (record.history as any[]) : undefined,
       currentStatus: (record.currentStatus === "expertise" || record.currentStatus === "cards") ? record.currentStatus : undefined,
+      stepId: parseStepId(record.stepId),
+      runMode: record.runMode === "preserve" || record.runMode === "replace" ? record.runMode : undefined,
+      stepFeedback: typeof record.stepFeedback === "string" && record.stepFeedback.trim() ? record.stepFeedback.trim() : undefined,
+      stepContext:
+        record.stepContext && typeof record.stepContext === "object"
+          ? {
+            diagnosticsExpertise:
+              typeof (record.stepContext as Record<string, unknown>).diagnosticsExpertise === "string" &&
+                (record.stepContext as Record<string, unknown>).diagnosticsExpertise?.toString().trim()
+                ? String((record.stepContext as Record<string, unknown>).diagnosticsExpertise).trim()
+                : undefined,
+            diagnosticsFeedback:
+              typeof (record.stepContext as Record<string, unknown>).diagnosticsFeedback === "string" &&
+                (record.stepContext as Record<string, unknown>).diagnosticsFeedback?.toString().trim()
+                ? String((record.stepContext as Record<string, unknown>).diagnosticsFeedback).trim()
+                : undefined,
+            currentStepFeedback:
+              typeof (record.stepContext as Record<string, unknown>).currentStepFeedback === "string" &&
+                (record.stepContext as Record<string, unknown>).currentStepFeedback?.toString().trim()
+                ? String((record.stepContext as Record<string, unknown>).currentStepFeedback).trim()
+                : undefined
+          }
+          : undefined,
       expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined
     }
   };
+}
+
+function parseStepId(value: unknown): EditorialReviewStepId | undefined {
+  if (
+    value === "diagnostics" ||
+    value === "fact_check" ||
+    value === "structure" ||
+    value === "clarity" ||
+    value === "interest" ||
+    value === "visuals" ||
+    value === "formatting" ||
+    value === "final_editing"
+  ) {
+    return value;
+  }
+
+  return undefined;
 }

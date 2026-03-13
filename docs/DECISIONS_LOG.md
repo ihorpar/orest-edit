@@ -2,6 +2,23 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-03-12
+
+### Editor review workspace is split and resizable
+Decision: `/editor` uses a unified split workspace for manuscript and review with a draggable vertical resizer, a flyout review drawer, and a pinned step mini-hub.
+
+Reason: dense review content (especially fact-check tables) requires user-controlled space balancing without losing manuscript context.
+
+### Step navigation is icon-first with explicit state cues
+Decision: the review step rail is icon-first (Lucide), with explicit visual states for active and completed steps plus compact hover labels.
+
+Reason: this keeps navigation compact while preserving progress clarity in a professional editorial UI.
+
+### Fact-check is a dedicated table mode
+Decision: fact-check output is presented as a dedicated table with `Твердження`, `Статус`, and `Пояснення та джерела`, not as generic edit cards.
+
+Reason: factual verification is evaluative and source-oriented; card-style patch actions are not the right primary representation.
+
 ## 2026-03-11
 
 ### Production deploy fallback is CI-driven
@@ -128,6 +145,21 @@ Reason: this prevents accidental inclusion of adjacent structural headings while
 Decision: recommendation execution cards do not render repeated recommendation/reason/excerpt context blocks; cards prioritize editable fields, placement note, status, and CTA actions.
 
 Reason: the manuscript already highlights the source range, so repeated context in cards adds visual noise and weakens action clarity.
+
+### Diagnostics is review-only and does not auto-generate cards
+Decision: `Діагностика` runs only narrative analysis; card generation is removed from this step and moved to explicit downstream step execution.
+
+Reason: separating review-only diagnosis from action generation reduces cognitive overload and keeps the workflow sequential and predictable.
+
+### Fact-check uses provider-native structured rows
+Decision: fact-check output contract is explicit `rows[]` with `Твердження`, `Статус`, `Пояснення та джерела`, produced directly by model schema contracts (not UI text heuristics).
+
+Reason: structured output is more reliable, easier to validate, and keeps fact-check UX consistent across providers.
+
+### Per-step preserve/replace run mode is persisted locally
+Decision: each workflow step has persisted run mode (`preserve` or `replace`) and local step-run history in draft state.
+
+Reason: editors need explicit control between overwriting previous analysis and keeping comparative runs within the same manuscript session.
 
 ## 2026-03-10
 

@@ -29,15 +29,28 @@ function createRequest(overrides: Partial<EditorialReviewRequest> = {}): Editori
 }
 
 test("generateEditorialReview builds fallback recommendations without API key", async () => {
-  const response = await generateEditorialReview(createRequest(), {
+  const response = await generateEditorialReview(createRequest({ stepId: "clarity" }), {
     readEnvValue: () => null,
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
   assert.equal(response.usedFallback, true);
+  assert.equal(response.stepId, "clarity");
   assert.ok(response.items.length >= 1);
   assert.deepEqual(response.items[0]?.anchor.blockIds, ["p1"]);
   assert.equal(response.diagnostics.blockCount, 2);
+});
+
+test("generateEditorialReview fallback enforces step-specific recommendation types", async () => {
+  const response = await generateEditorialReview(createRequest({ stepId: "visuals" }), {
+    readEnvValue: () => null,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.stepId, "visuals");
+  assert.equal(response.items.length, 0);
+  assert.ok(response.diagnostics.droppedItemCount >= 1);
 });
 
 test("generateEditorialReview normalizes provider items to block anchors", async () => {
@@ -75,7 +88,158 @@ test("generateEditorialReview normalizes provider items to block anchors", async
   });
 
   assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "clarity");
   assert.equal(response.items.length, 1);
   assert.deepEqual(response.items[0]?.anchor.blockIds, ["p1"]);
   assert.equal(response.items[0]?.anchor.generationBlockRange.start, 1);
+});
+
+test("generateEditorialReview returns provider-native structured fact-check rows", async () => {
+  const response = await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "fact_check" }), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            rows: [
+              {
+                claim: "Кортизол пригнічує регенерацію при хронічному стресі.",
+                status: "сумнівно",
+                explanation: "Потрібно уточнити силу ефекту та межі застосовності на основі оглядових робіт."
+              }
+            ]
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "fact_check");
+  assert.equal(response.items.length, 0);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
+});
+
+test("generateEditorialReview treats valid empty provider recommendations as empty result, not fallback", async () => {
+  const response = await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "clarity" }), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            items: []
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "clarity");
+  assert.equal(response.items.length, 0);
+  assert.equal(response.error, undefined);
+});
+
+test("generateEditorialReview sends Gemini API key via header instead of URL query", async () => {
+  let requestedUrl = "";
+  let requestHeaders = new Headers();
+
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async (input, init) => {
+        requestedUrl = String(input);
+        requestHeaders = new Headers(init?.headers);
+
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        rows: [
+                          {
+                            claim: "Тестове твердження.",
+                            status: "ok",
+                            explanation: "Тестове обґрунтування."
+                          }
+                        ]
+                      })
+                    }
+                  ]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "fact_check");
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
+  assert.doesNotMatch(requestedUrl, /\?key=/);
+  assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+});
+
+test("generateEditorialReview Gemini schema does not force nullable card fields", async () => {
+  let schemaRequired: string[] = [];
+
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-test-key",
+      stepId: "clarity"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          generationConfig?: { responseSchema?: { properties?: { items?: { items?: { required?: string[] } } } } };
+        };
+        schemaRequired = body.generationConfig?.responseSchema?.properties?.items?.items?.required ?? [];
+
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        items: []
+                      })
+                    }
+                  ]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.deepEqual(schemaRequired.includes("anchorBlockId"), false);
+  assert.deepEqual(schemaRequired.includes("calloutKind"), false);
+  assert.deepEqual(schemaRequired.includes("calloutTitle"), false);
+  assert.deepEqual(schemaRequired.includes("calloutPreviewText"), false);
+  assert.deepEqual(schemaRequired.includes("calloutSummary"), false);
+  assert.deepEqual(schemaRequired.includes("calloutPrompt"), false);
+  assert.deepEqual(schemaRequired.includes("visualIntent"), false);
 });

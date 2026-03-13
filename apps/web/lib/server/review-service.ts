@@ -2,12 +2,17 @@ import { createPatchId } from "../editor/patch-contract.ts";
 import {
   getEditorialCalloutKindLabel,
   normalizeEditorialReviewItems,
+  type EditorialFactCheckRow,
   type EditorialReviewItem,
+  type EditorialReviewRecommendationType,
   type EditorialCalloutKind,
   type EditorialReviewRequest,
-  type EditorialReviewResponse
+  type EditorialReviewResponse,
+  type EditorialReviewStepId,
+  type EditorialStepRunMode,
+  type FactCheckStatus
 } from "../editor/review-contract.ts";
-import { getBlockText } from "../editor/document-model.ts";
+import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
 import { CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
@@ -121,14 +126,7 @@ const geminiSchema = {
           "blockStart",
           "blockEnd",
           "excerpt",
-          "insertionHint",
-          "anchorBlockId",
-          "calloutKind",
-          "calloutTitle",
-          "calloutPreviewText",
-          "calloutSummary",
-          "calloutPrompt",
-          "visualIntent"
+          "insertionHint"
         ]
       }
     }
@@ -136,9 +134,140 @@ const geminiSchema = {
   required: ["items"]
 } as const;
 
+const openAiFactCheckSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    rows: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          claim: { type: "string" },
+          status: { type: "string", enum: ["ok", "сумнівно", "не підтверджено"] },
+          explanation: { type: "string" }
+        },
+        required: ["claim", "status", "explanation"]
+      }
+    }
+  },
+  required: ["rows"]
+} as const;
+
+const geminiFactCheckSchema = {
+  type: "OBJECT",
+  properties: {
+    rows: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          claim: { type: "STRING" },
+          status: { type: "STRING" },
+          explanation: { type: "STRING" }
+        },
+        required: ["claim", "status", "explanation"]
+      }
+    }
+  },
+  required: ["rows"]
+} as const;
+
+type StepOutputKind = "analysis_markdown" | "fact_check_rows" | "recommendation_cards";
+
+interface ReviewStepSpec {
+  id: EditorialReviewStepId;
+  title: string;
+  outputKind: StepOutputKind;
+  cardGuidance?: string;
+  allowedRecommendationTypes?: EditorialReviewRecommendationType[];
+  systemInstruction: string;
+}
+
+const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
+  diagnostics: {
+    id: "diagnostics",
+    title: "Діагностика",
+    outputKind: "analysis_markdown",
+    systemInstruction:
+      "Зроби розгорнуту редакторську діагностику рукопису: загальна картина, логіка аргументації, ризикові місця, і поблочний розбір. Це review-only крок, без карток дій."
+  },
+  fact_check: {
+    id: "fact_check",
+    title: "Перевірка фактів",
+    outputKind: "fact_check_rows",
+    systemInstruction:
+      "Ти працюєш як науковий фактчекер. Повертай лише структуровані рядки таблиці, без редакторських карток."
+  },
+  structure: {
+    id: "structure",
+    title: "Структура",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["subsection", "list", "rewrite", "callout"],
+    cardGuidance:
+      "Фокус: архітектура розділу, послідовність думки, місця для підзаголовків і дроблення масивних блоків.",
+    systemInstruction:
+      "Оціни та покращ структуру розділу: де додати підзаголовки, де розділити блоки, де корисні локальні врізки."
+  },
+  clarity: {
+    id: "clarity",
+    title: "Ясність",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["simplify", "rewrite", "expand", "list"],
+    cardGuidance:
+      "Фокус: пояснити складне просто, прибрати перевантажені формулювання, зберегти точність без академічної перевантаженості.",
+    systemInstruction:
+      "Працюй як редактор ясності: перетворюй складні уривки на зрозумілі для широкого читача без втрати змісту."
+  },
+  interest: {
+    id: "interest",
+    title: "Інтерес і застосовність",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["callout", "expand", "rewrite", "visual"],
+    cardGuidance:
+      "Фокус: читабельний інтерес, зв'язок із реальним життям, практичне застосування і мотивація дочитати розділ.",
+    systemInstruction:
+      "Підсилюй інтерес і застосовність: шукай місця, де читачеві потрібні побутові приклади, практичні кроки або виразні візуальні опори."
+  },
+  visuals: {
+    id: "visuals",
+    title: "Візуали",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["visual"],
+    cardGuidance:
+      "Фокус: де і який візуал дає найбільшу користь. Схема вважається підтипом інфографіки.",
+    systemInstruction:
+      "Генеруй лише рекомендації для візуалів: ілюстрація або інфографіка (включно зі схемою як підтипом інфографіки)."
+  },
+  formatting: {
+    id: "formatting",
+    title: "Форматування",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["list", "callout", "subsection", "rewrite"],
+    cardGuidance:
+      "Фокус: де потрібні списки, таблиці, врізки і компактні формати подачі для швидкого сканування.",
+    systemInstruction:
+      "Переформатовуй подачу: шукай місця для списків, врізок, табличного або блочного оформлення без повного переписування розділу."
+  },
+  final_editing: {
+    id: "final_editing",
+    title: "Фінальна редактура",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["rewrite", "simplify", "list"],
+    cardGuidance:
+      "Фокус: правопис, пунктуація, термінологічна послідовність, дрібні стилістичні шорсткості перед фінальним проходом.",
+    systemInstruction:
+      "Проведи фінальну редактуру: виправ орфографію, пунктуацію, стилістичні неузгодженості та дрібні мовні збої."
+  }
+};
+
 type FetchLike = typeof fetch;
 type EditorialReviewProviderResult = {
+  stepId: EditorialReviewStepId;
+  stepRunId: string;
   items: EditorialReviewItem[];
+  factCheckRows?: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
   providerUsed: string;
@@ -155,8 +284,12 @@ export async function generateEditorialReview(
   request: EditorialReviewRequest,
   options: GenerateEditorialReviewOptions = {}
 ): Promise<EditorialReviewResponse> {
+  const stepId = resolveStepId(request);
+  const stepSpec = REVIEW_STEP_SPECS[stepId];
+  const runMode: EditorialStepRunMode = request.runMode === "preserve" ? "preserve" : "replace";
   const requestId = createPatchId("review");
   const reviewSessionId = createPatchId("review-session");
+  const stepRunId = createPatchId(`step-run-${stepId}`);
   const fetchImpl = options.fetchImpl ?? fetch;
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const now = options.now ?? (() => new Date().toISOString());
@@ -166,12 +299,16 @@ export async function generateEditorialReview(
     return buildEditorialReviewResponse({
       requestId,
       reviewSessionId,
+      stepId,
+      stepRunId,
+      runMode,
       requestedProvider: request.provider,
       requestedModelId: request.modelId,
       providerUsed: "invalid-text",
       blockCount,
       changeLevel: request.changeLevel,
       items: [],
+      factCheckRows: [],
       droppedItemCount: 0,
       usedFallback: false,
       error: "Документ порожній. Немає що аналізувати.",
@@ -186,6 +323,9 @@ export async function generateEditorialReview(
       request,
       requestId,
       reviewSessionId,
+      stepId,
+      stepRunId,
+      runMode,
       error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env, тому показано локальний редакторський огляд.`,
       generatedAt: now()
     });
@@ -194,20 +334,24 @@ export async function generateEditorialReview(
   try {
     const result =
       request.provider === "gemini"
-        ? await createGeminiEditorialReview(request, reviewSessionId, apiKey, fetchImpl)
+        ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
         : request.provider === "anthropic"
-          ? await createAnthropicEditorialReview(request, reviewSessionId, apiKey, fetchImpl)
-          : await createOpenAiEditorialReview(request, reviewSessionId, apiKey, fetchImpl);
+          ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+          : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
 
     return buildEditorialReviewResponse({
       requestId,
       reviewSessionId,
+      stepId,
+      stepRunId,
+      runMode,
       requestedProvider: request.provider,
       requestedModelId: request.modelId,
       providerUsed: result.providerUsed,
       blockCount,
       changeLevel: request.changeLevel,
       items: result.items,
+      factCheckRows: result.factCheckRows ?? [],
       expertise: result.expertise,
       droppedItemCount: result.droppedItemCount,
       usedFallback: false,
@@ -219,6 +363,9 @@ export async function generateEditorialReview(
       request,
       requestId,
       reviewSessionId,
+      stepId,
+      stepRunId,
+      runMode,
       error: error instanceof Error ? error.message : `${providerDisplayName(request.provider)} недоступний, тому показано локальний редакторський огляд.`,
       generatedAt: now()
     });
@@ -228,12 +375,16 @@ export async function generateEditorialReview(
 function buildEditorialReviewResponse(input: {
   requestId: string;
   reviewSessionId: string;
+  stepId: EditorialReviewStepId;
+  stepRunId: string;
+  runMode: EditorialStepRunMode;
   requestedProvider: string;
   requestedModelId: string;
   providerUsed: string;
   blockCount: number;
   changeLevel: EditorialReviewRequest["changeLevel"];
   items: EditorialReviewItem[];
+  factCheckRows: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
   usedFallback: boolean;
@@ -243,7 +394,11 @@ function buildEditorialReviewResponse(input: {
 }): EditorialReviewResponse {
   return {
     reviewSessionId: input.reviewSessionId,
+    stepId: input.stepId,
+    stepRunId: input.stepRunId,
+    runMode: input.runMode,
     items: input.items,
+    factCheckRows: input.factCheckRows,
     expertise: input.expertise,
     providerUsed: input.providerUsed,
     usedFallback: input.usedFallback,
@@ -251,11 +406,15 @@ function buildEditorialReviewResponse(input: {
     diagnostics: {
       requestId: input.requestId,
       reviewSessionId: input.reviewSessionId,
+      stepId: input.stepId,
+      stepRunId: input.stepRunId,
+      runMode: input.runMode,
       requestedProvider: input.requestedProvider,
       requestedModelId: input.requestedModelId,
       blockCount: input.blockCount,
       changeLevel: input.changeLevel,
       returnedItemCount: input.items.length,
+      returnedFactCheckCount: input.factCheckRows.length,
       droppedItemCount: input.droppedItemCount,
       generatedAt: input.generatedAt,
       rawOutput: input.rawOutput
@@ -267,19 +426,37 @@ function buildFallbackEditorialReviewResponse(input: {
   request: EditorialReviewRequest;
   requestId: string;
   reviewSessionId: string;
+  stepId: EditorialReviewStepId;
+  stepRunId: string;
+  runMode: EditorialStepRunMode;
   error: string;
   generatedAt: string;
 }): EditorialReviewResponse {
+  const stepSpec = REVIEW_STEP_SPECS[input.stepId];
+  const rawFallbackItems =
+    stepSpec.outputKind === "recommendation_cards"
+      ? createFallbackEditorialReviewItems(input.request, input.reviewSessionId, input.stepId, input.stepRunId)
+      : [];
+  const fallbackItems = filterStepItems(rawFallbackItems, stepSpec.allowedRecommendationTypes);
+  const fallbackDroppedCount = rawFallbackItems.length - fallbackItems.length;
+  const fallbackFactRows = stepSpec.outputKind === "fact_check_rows" ? createFallbackFactCheckRows(input.request) : [];
+  const fallbackExpertise = stepSpec.outputKind === "analysis_markdown" ? createFallbackDiagnosticsExpertise(input.request) : undefined;
+
   return buildEditorialReviewResponse({
     requestId: input.requestId,
     reviewSessionId: input.reviewSessionId,
+    stepId: input.stepId,
+    stepRunId: input.stepRunId,
+    runMode: input.runMode,
     requestedProvider: input.request.provider,
     requestedModelId: input.request.modelId,
     providerUsed: `fallback:${input.request.provider}`,
     blockCount: input.request.document.blocks.length,
     changeLevel: input.request.changeLevel,
-    items: createFallbackEditorialReviewItems(input.request, input.reviewSessionId),
-    droppedItemCount: 0,
+    items: fallbackItems,
+    factCheckRows: fallbackFactRows,
+    expertise: fallbackExpertise,
+    droppedItemCount: fallbackDroppedCount,
     usedFallback: true,
     error: input.error,
     generatedAt: input.generatedAt
@@ -289,6 +466,8 @@ function buildFallbackEditorialReviewResponse(input: {
 async function createOpenAiEditorialReview(
   request: EditorialReviewRequest,
   reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
   apiKey: string,
   fetchImpl: FetchLike
 ): Promise<EditorialReviewProviderResult> {
@@ -296,21 +475,21 @@ async function createOpenAiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
-    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+    const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       model: request.modelId,
       temperature: 0.2,
-      instructions: buildEditorialReviewSystemPrompt(request),
-      input: buildEditorialReviewUserPrompt(request)
+      instructions: buildStepSystemPrompt(request, stepSpec),
+      input: buildStepUserPrompt(request, stepSpec)
     };
 
-    if (!isExpertise) {
+    if (expectsJson) {
       body.text = {
         format: {
           type: "json_schema",
-          name: "editorial_review",
+          name: stepSpec.outputKind === "fact_check_rows" ? "fact_check_rows" : "editorial_review",
           strict: true,
-          schema: openAiSchema
+          schema: stepSpec.outputKind === "fact_check_rows" ? openAiFactCheckSchema : openAiSchema
         }
       };
     }
@@ -327,11 +506,32 @@ async function createOpenAiEditorialReview(
 
     const rawOutput = await readProviderText(response);
 
-    if (isExpertise) {
-      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "openai", rawOutput };
+    if (stepSpec.outputKind === "analysis_markdown") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        expertise: rawOutput,
+        items: [],
+        factCheckRows: [],
+        droppedItemCount: 0,
+        providerUsed: "openai",
+        rawOutput
+      };
     }
 
-    return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "openai", rawOutput);
+    if (stepSpec.outputKind === "fact_check_rows") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        items: [],
+        factCheckRows: parseFactCheckRows(rawOutput),
+        droppedItemCount: 0,
+        providerUsed: "openai",
+        rawOutput
+      };
+    }
+
+    return buildNormalizedReviewResult(request, reviewSessionId, stepRunId, stepSpec, parseEditorialReviewItems(rawOutput), "openai", rawOutput);
   } finally {
     clearTimeout(timeout);
   }
@@ -340,6 +540,8 @@ async function createOpenAiEditorialReview(
 async function createGeminiEditorialReview(
   request: EditorialReviewRequest,
   reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
   apiKey: string,
   fetchImpl: FetchLike
 ): Promise<EditorialReviewProviderResult> {
@@ -347,26 +549,27 @@ async function createGeminiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
-    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
+    const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       systemInstruction: {
-        parts: [{ text: buildEditorialReviewSystemPrompt(request) }]
+        parts: [{ text: buildStepSystemPrompt(request, stepSpec) }]
       },
-      contents: [{ role: "user", parts: [{ text: buildEditorialReviewUserPrompt(request) }] }],
+      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, stepSpec) }] }],
       generationConfig: {
         temperature: 0.2
       }
     };
 
-    if (!isExpertise) {
+    if (expectsJson) {
       body.generationConfig.responseMimeType = "application/json";
-      body.generationConfig.responseSchema = geminiSchema;
+      body.generationConfig.responseSchema = stepSpec.outputKind === "fact_check_rows" ? geminiFactCheckSchema : geminiSchema;
     }
 
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
       },
       body: JSON.stringify(body),
       signal: controller.signal
@@ -374,11 +577,32 @@ async function createGeminiEditorialReview(
 
     const rawOutput = await readGeminiText(response);
 
-    if (isExpertise) {
-      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "gemini", rawOutput };
+    if (stepSpec.outputKind === "analysis_markdown") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        expertise: rawOutput,
+        items: [],
+        factCheckRows: [],
+        droppedItemCount: 0,
+        providerUsed: "gemini",
+        rawOutput
+      };
     }
 
-    return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
+    if (stepSpec.outputKind === "fact_check_rows") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        items: [],
+        factCheckRows: parseFactCheckRows(rawOutput),
+        droppedItemCount: 0,
+        providerUsed: "gemini",
+        rawOutput
+      };
+    }
+
+    return buildNormalizedReviewResult(request, reviewSessionId, stepRunId, stepSpec, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
   } finally {
     clearTimeout(timeout);
   }
@@ -387,6 +611,8 @@ async function createGeminiEditorialReview(
 async function createAnthropicEditorialReview(
   request: EditorialReviewRequest,
   reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
   apiKey: string,
   fetchImpl: FetchLike
 ): Promise<EditorialReviewProviderResult> {
@@ -394,10 +620,10 @@ async function createAnthropicEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
-    const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
-    const systemPrompt = isExpertise
-      ? `${buildEditorialReviewSystemPrompt(request)} Роби розлогий критичний аналіз тексту.`
-      : `${buildEditorialReviewSystemPrompt(request)} Поверни лише JSON-об'єкт {"items":[...]} без markdown.`;
+    const systemPrompt =
+      stepSpec.outputKind === "analysis_markdown"
+        ? `${buildStepSystemPrompt(request, stepSpec)} Дай розлогий критичний аналіз тексту.`
+        : `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown і без пояснень поза JSON.`;
 
     const response = await fetchImpl(anthropicEndpoint, {
       method: "POST",
@@ -411,18 +637,39 @@ async function createAnthropicEditorialReview(
         max_tokens: 3600,
         temperature: 0.2,
         system: systemPrompt,
-        messages: [{ role: "user", content: buildEditorialReviewUserPrompt(request) }]
+        messages: [{ role: "user", content: buildStepUserPrompt(request, stepSpec) }]
       }),
       signal: controller.signal
     });
 
     const rawOutput = await readAnthropicText(response);
 
-    if (isExpertise) {
-      return { expertise: rawOutput, items: [], droppedItemCount: 0, providerUsed: "anthropic", rawOutput };
+    if (stepSpec.outputKind === "analysis_markdown") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        expertise: rawOutput,
+        items: [],
+        factCheckRows: [],
+        droppedItemCount: 0,
+        providerUsed: "anthropic",
+        rawOutput
+      };
     }
 
-    return buildNormalizedReviewResult(request, reviewSessionId, parseEditorialReviewItems(rawOutput), "anthropic", rawOutput);
+    if (stepSpec.outputKind === "fact_check_rows") {
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        items: [],
+        factCheckRows: parseFactCheckRows(rawOutput),
+        droppedItemCount: 0,
+        providerUsed: "anthropic",
+        rawOutput
+      };
+    }
+
+    return buildNormalizedReviewResult(request, reviewSessionId, stepRunId, stepSpec, parseEditorialReviewItems(rawOutput), "anthropic", rawOutput);
   } finally {
     clearTimeout(timeout);
   }
@@ -431,6 +678,8 @@ async function createAnthropicEditorialReview(
 function buildNormalizedReviewResult(
   request: EditorialReviewRequest,
   reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
   items: unknown,
   providerUsed: string,
   rawOutput?: string
@@ -440,104 +689,117 @@ function buildNormalizedReviewResult(
     revision: request.revision,
     reviewSessionId,
     changeLevel: request.changeLevel,
+    stepId: stepSpec.id,
+    stepRunId,
     items: items && typeof items === "object" && "items" in (items as Record<string, unknown>) ? (items as { items: unknown }).items : items
   });
 
-  if (normalized.items.length === 0) {
-    throw new Error(`${providerDisplayName(providerUsed)} повернув порожні або невалідні рекомендації.`);
-  }
+  const filteredItems = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+  const droppedCount = normalized.droppedCount + (normalized.items.length - filteredItems.length);
 
   return {
-    items: hydratedReviewItems(normalized.items, request),
-    droppedItemCount: normalized.droppedCount,
+    stepId: stepSpec.id,
+    stepRunId,
+    items: hydratedReviewItems(filteredItems, request),
+    factCheckRows: [],
+    droppedItemCount: droppedCount,
     providerUsed,
     rawOutput
   };
 }
 
-function buildEditorialReviewSystemPrompt(request: EditorialReviewRequest): string {
-  const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
-  return isExpertise ? buildExpertiseSystemPrompt(request) : buildCardsSystemPrompt(request);
+function filterStepItems(
+  items: EditorialReviewItem[],
+  allowedRecommendationTypes?: EditorialReviewRecommendationType[]
+): EditorialReviewItem[] {
+  if (!allowedRecommendationTypes || allowedRecommendationTypes.length === 0) {
+    return items;
+  }
+
+  return items.filter((item) => allowedRecommendationTypes.includes(item.recommendationType));
 }
 
-function buildExpertiseSystemPrompt(request: EditorialReviewRequest): string {
-  const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
+function resolveStepId(request: EditorialReviewRequest): EditorialReviewStepId {
+  if (request.stepId && request.stepId in REVIEW_STEP_SPECS) {
+    return request.stepId;
+  }
 
-  return [
-    request.basePrompt?.trim(),
-    request.expertisePrompt?.trim(),
-    "Ти робиш редакторський review всього документа.",
-    `Рівень змін: ${request.changeLevel}/5. ${levelGuidance.expertiseTone}`,
-    "Відповідай у форматі Markdown. Будь професійним, але лаконічним редактором.",
-    "Пиши лише українською мовою.",
-    "Якщо посилаєшся на фрагмент, використовуй формат \u00abабз. NNN\u00bb.",
-    "Не показуй технічні поля, enum-коди або JSON-ключі.",
-    "IDs у квадратних дужках призначені для внутрішньої прив'язки. Не показуй їх."
-  ].filter(Boolean).join("\n\n");
+  if (request.currentStatus === "cards") {
+    return "clarity";
+  }
+
+  return "diagnostics";
 }
 
-function buildCardsSystemPrompt(request: EditorialReviewRequest): string {
+function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
   const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
   const blockCount = request.document.blocks.length;
-  const targetCards = Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard));
+  const targetCards =
+    step.outputKind === "recommendation_cards" ? Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard)) : null;
 
   return [
     request.basePrompt?.trim(),
-    request.cardsPrompt?.trim() || request.reviewPrompt?.trim(),
+    step.outputKind === "analysis_markdown" ? request.expertisePrompt?.trim() : request.cardsPrompt?.trim() || request.reviewPrompt?.trim(),
     request.reviewLevelGuide?.trim(),
-    "Ти робиш редакторський review всього документа.",
-    `Рівень змін: ${request.changeLevel}/5. ${levelGuidance.cardsGuidance}`,
-    `Орієнтовна кількість рекомендацій: приблизно ${targetCards} — більше або менше за потребою. Документ містить ${blockCount} абзаців. Не створюй порожніх карток заради кількості, але й не пропускай реальних проблем.`,
-    "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа, подану на початку кожного рядка.",
-    "У полях title, reason і recommendation не згадуй raw block id.",
-    "Усі текстові поля у JSON мають бути plain text без markdown-розмітки.",
-    "Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю.",
-    "IDs у квадратних дужках призначені лише для внутрішньої прив'язки. Не показуй їх у user-facing тексті."
+    `Крок workflow: ${step.title}.`,
+    step.systemInstruction,
+    `Рівень змін: ${request.changeLevel}/5. ${step.outputKind === "analysis_markdown" ? levelGuidance.expertiseTone : levelGuidance.cardsGuidance}`,
+    step.cardGuidance ? `Окремий фокус кроку: ${step.cardGuidance}` : null,
+    targetCards ? `Орієнтир за кількістю карток: приблизно ${targetCards}, але тільки реальні проблеми.` : null,
+    step.outputKind === "analysis_markdown"
+      ? "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN»."
+      : null,
+    step.outputKind === "fact_check_rows"
+      ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
+      : null,
+    step.outputKind === "recommendation_cards"
+      ? "Формат відповіді: JSON {\"items\":[...]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON."
+      : null,
+    step.outputKind === "recommendation_cards"
+      ? "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation."
+      : null,
+    "IDs у квадратних дужках призначені лише для прив'язки і не мають з'являтися в user-facing тексті."
   ].filter(Boolean).join("\n\n");
 }
 
-function buildEditorialReviewUserPrompt(request: EditorialReviewRequest): string {
-  const isExpertise = request.currentStatus === "expertise" || !request.currentStatus;
-  return isExpertise ? buildExpertiseUserPrompt(request) : buildCardsUserPrompt(request);
-}
-
-function buildExpertiseUserPrompt(request: EditorialReviewRequest): string {
+function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
   const lines = request.document.blocks.map(
-    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getBlockText(block)}`
+    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getReviewPromptBlockText(block)}`
   );
-  const historyLines = (request.history ?? []).map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`);
+  const historyLines = (request.history ?? []).map((msg) => `${msg.role === "user" ? "КОРИСТУВАЧ" : "АСИСТЕНТ"}: ${msg.content}`);
+  const diagnosticsExpertise = request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim();
+  const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
+  const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
 
   return [
-    historyLines.length > 0 ? `Контекст діалогу:\n${historyLines.join("\n")}` : null,
+    diagnosticsExpertise && step.id !== "diagnostics" ? `Контекст діагностики:\n${diagnosticsExpertise}` : null,
+    diagnosticsFeedback && step.id !== "diagnostics" ? `Фідбек користувача до діагностики:\n${diagnosticsFeedback}` : null,
+    stepFeedback ? `Фідбек користувача для кроку «${step.title}»:\n${stepFeedback}` : null,
+    historyLines.length > 0 ? `Релевантний контекст діалогу:\n${historyLines.join("\n")}` : null,
     `Рівень змін: ${request.changeLevel}/5.`,
-    request.additionalInstructions?.trim() ? `Додаткові інструкції користувача: ${request.additionalInstructions.trim()}` : null,
-    "Зроби повний аналіз документа: загальний огляд і детальний поблочний розбір проблемних місць.",
-    "Документ:",
-    lines.join("\n")
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function buildCardsUserPrompt(request: EditorialReviewRequest): string {
-  const lines = request.document.blocks.map(
-    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getBlockText(block)}`
-  );
-  const historyLines = (request.history ?? []).map((msg) => `${msg.role === "user" ? "КОРИСТУВАЧ" : "СИСТЕМА"}: ${msg.content}`);
-
-  return [
-    request.expertise?.trim()
-      ? `Результат попередньої експертизи:\n${request.expertise.trim()}`
+    request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
+    step.id === "diagnostics"
+      ? "Зроби детальну діагностику: загальний огляд, сильні/слабкі місця, поблочний розбір із посиланням на «абз. NNN»."
       : null,
-    historyLines.length > 0 ? `Зворотний зв'язок від користувача:\n${historyLines.join("\n")}` : null,
-    `Рівень змін: ${request.changeLevel}/5.`,
-    request.additionalInstructions?.trim() ? `Додаткові інструкції: ${request.additionalInstructions.trim()}` : null,
-    "На основі експертизи та зворотного зв'язку згенеруй конкретні локальні правки. Кожна правка — окрема картка.",
+    step.id === "fact_check"
+      ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, і давай переконливе обґрунтування з посиланням на джерело у полі explanation."
+      : null,
+    step.outputKind === "recommendation_cards"
+      ? "На основі діагностики і фідбеку підготуй локальні картки змін саме для цього кроку. Не переписуй документ цілком."
+      : null,
     "Документ:",
     lines.join("\n")
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function getReviewPromptBlockText(block: Block): string {
+  if (block.type === "image") {
+    return blockToPromptText(block);
+  }
+
+  return getBlockText(block);
 }
 
 function parseEditorialReviewItems(content: string): unknown {
@@ -549,7 +811,153 @@ function parseEditorialReviewItems(content: string): unknown {
   }
 }
 
-export function createFallbackEditorialReviewItems(request: EditorialReviewRequest, reviewSessionId: string): EditorialReviewItem[] {
+function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
+  const parsed = parseEditorialReviewItems(content);
+  const rows = parsed && typeof parsed === "object" && "rows" in (parsed as Record<string, unknown>)
+    ? (parsed as { rows: unknown }).rows
+    : [];
+
+  if (!Array.isArray(rows)) {
+    throw new Error("Не вдалося розпізнати структурований факт-чек.");
+  }
+
+  const normalized: EditorialFactCheckRow[] = [];
+
+  for (const entry of rows) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const claim = normalizeRowText(record.claim, 360);
+    const explanation = normalizeRowText(record.explanation, 1200);
+    const status = normalizeFactCheckStatus(record.status);
+
+    if (!claim || !explanation || !status) {
+      continue;
+    }
+
+    normalized.push({
+      claim,
+      status,
+      explanation
+    });
+  }
+
+  if (normalized.length === 0) {
+    throw new Error("Модель не повернула валідних рядків факт-чеку.");
+  }
+
+  return normalized;
+}
+
+function normalizeFactCheckStatus(value: unknown): FactCheckStatus | null {
+  if (value === "ok" || value === "сумнівно" || value === "не підтверджено") {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "ok" || normalized === "підтверджено" || normalized === "підтверджено джерелами") {
+    return "ok";
+  }
+
+  if (normalized === "сумнівно" || normalized === "questionable") {
+    return "сумнівно";
+  }
+
+  if (normalized === "не підтверджено" || normalized === "непідтверджено" || normalized === "unverified") {
+    return "не підтверджено";
+  }
+
+  return null;
+}
+
+function normalizeRowText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function createFallbackDiagnosticsExpertise(request: EditorialReviewRequest): string {
+  const paragraphs = request.document.blocks
+    .map((block, index) => ({ block, index, text: getReviewPromptBlockText(block).trim() }))
+    .filter((entry) => entry.text);
+  const dense = paragraphs.filter((entry) => entry.text.length > 360).slice(0, 6);
+  const longSentences = paragraphs.filter((entry) => (entry.text.match(/[.!?]/g)?.length ?? 0) <= 2 && entry.text.length > 220).slice(0, 4);
+
+  const denseLines = dense.length > 0
+    ? dense.map((entry) => `- абз. ${formatParagraphLabel(entry.index)}: перевантажений блок, варто дробити.`).join("\n")
+    : "- Критичних перевантажень не виявлено автоматичним fallback-аналізом.";
+  const clarityLines = longSentences.length > 0
+    ? longSentences.map((entry) => `- абз. ${formatParagraphLabel(entry.index)}: складна синтаксична конструкція, спростити формулювання.`).join("\n")
+    : "- Явних синтаксичних перевантажень fallback не виявив.";
+
+  return [
+    "### 1. Загальний огляд",
+    "Fallback-діагностика сформована локально, бо провайдер недоступний. Це чернетковий огляд для старту наступних кроків.",
+    "",
+    "### 2. Детальний аналіз",
+    "**Щільність викладу**",
+    denseLines,
+    "",
+    "**Ясність формулювань**",
+    clarityLines,
+    "",
+    "### 3. Резюме рекомендованих змін",
+    "1. Розбити щільні абзаци на коротші смислові блоки.",
+    "2. Перевести складні речення у прості конструкції з чіткою логікою.",
+    "3. Після підтвердження діагностики перейти до окремого кроку факт-чеку."
+  ].join("\n");
+}
+
+function createFallbackFactCheckRows(request: EditorialReviewRequest): EditorialFactCheckRow[] {
+  const rows: EditorialFactCheckRow[] = [];
+
+  request.document.blocks.forEach((block) => {
+    const text = getReviewPromptBlockText(block).replace(/\s+/g, " ").trim();
+    if (!text || text.length < 40 || rows.length >= 12) {
+      return;
+    }
+
+    if (!/\d|%|рок|дослідж|мета-аналіз|клініч|ефект|ризик|знижує|підвищує/i.test(text)) {
+      return;
+    }
+
+    rows.push({
+      claim: text.slice(0, 280),
+      status: "не підтверджено",
+      explanation:
+        "Потрібна окрема перевірка джерел: наведіть першоджерело (автори, рік, журнал або офіційний гайдлайн) перед редакторським затвердженням."
+    });
+  });
+
+  if (rows.length > 0) {
+    return rows;
+  }
+
+  return [
+    {
+      claim: "Явних перевірюваних тверджень із числовими або науковими маркерами не знайдено автоматичним fallback.",
+      status: "ok",
+      explanation: "Для повного факт-чеку запустіть крок із доступним AI-провайдером."
+    }
+  ];
+}
+
+export function createFallbackEditorialReviewItems(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepId: EditorialReviewStepId,
+  stepRunId: string
+): EditorialReviewItem[] {
   const items: Array<Record<string, unknown>> = [];
 
   request.document.blocks.forEach((block, index) => {
@@ -636,6 +1044,8 @@ export function createFallbackEditorialReviewItems(request: EditorialReviewReque
     revision: request.revision,
     reviewSessionId,
     changeLevel: request.changeLevel,
+    stepId,
+    stepRunId,
     items
   }).items;
 }

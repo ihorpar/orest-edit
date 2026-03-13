@@ -284,10 +284,11 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
       },
       body: JSON.stringify({
         systemInstruction: {

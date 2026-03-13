@@ -28,6 +28,45 @@ export type EditorialReviewItemOrigin = "review" | "manual";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
 export type ReviewActionProposalKind = "text_diff" | "subsection_prompt" | "callout_prompt" | "image_prompt" | "stale_anchor";
 export type ReviewSessionStatus = "expertise" | "cards";
+export type EditorialReviewStepId =
+  | "diagnostics"
+  | "fact_check"
+  | "structure"
+  | "clarity"
+  | "interest"
+  | "visuals"
+  | "formatting"
+  | "final_editing";
+export type EditorialStepRunMode = "preserve" | "replace";
+export type FactCheckStatus = "ok" | "сумнівно" | "не підтверджено";
+
+export interface EditorialFactCheckRow {
+  claim: string;
+  status: FactCheckStatus;
+  explanation: string;
+}
+
+export interface EditorialStepContext {
+  diagnosticsExpertise?: string;
+  diagnosticsFeedback?: string;
+  currentStepFeedback?: string;
+}
+
+export interface EditorialStepRunSnapshot {
+  id: string;
+  stepId: EditorialReviewStepId;
+  runMode: EditorialStepRunMode;
+  createdAt: string;
+  documentRevisionId: string;
+  feedback?: string;
+  expertise?: string | null;
+  factCheckRows?: EditorialFactCheckRow[];
+  itemIds?: string[];
+}
+
+export type EditorialStepRunHistory = Record<EditorialReviewStepId, EditorialStepRunSnapshot[]>;
+export type EditorialStepFeedbackMap = Record<EditorialReviewStepId, string>;
+export type EditorialStepRunModeMap = Record<EditorialReviewStepId, EditorialStepRunMode>;
 
 export interface ChatMessage {
   id: string;
@@ -61,6 +100,10 @@ export interface EditorialReviewRequest {
   additionalInstructions?: string;
   history?: ChatMessage[];
   currentStatus?: ReviewSessionStatus;
+  stepId?: EditorialReviewStepId;
+  runMode?: EditorialStepRunMode;
+  stepContext?: EditorialStepContext;
+  stepFeedback?: string;
   /** Expertise text from stage 1 — fed into card generation in stage 2 */
   expertise?: string;
 }
@@ -109,6 +152,8 @@ export interface EditorialReviewItem {
     source: "floating_local_bar";
     createdAt: string;
   };
+  stepId?: EditorialReviewStepId;
+  stepRunId?: string;
   activeProposalId?: string;
   status: EditorialReviewItemStatus;
 }
@@ -116,11 +161,15 @@ export interface EditorialReviewItem {
 export interface EditorialReviewDiagnostics {
   requestId: string;
   reviewSessionId: string;
+  stepId: EditorialReviewStepId;
+  stepRunId: string;
+  runMode: EditorialStepRunMode;
   requestedProvider: string;
   requestedModelId: string;
   blockCount: number;
   changeLevel: WholeTextChangeLevel;
   returnedItemCount: number;
+  returnedFactCheckCount: number;
   droppedItemCount: number;
   generatedAt: string;
   rawOutput?: string;
@@ -128,7 +177,11 @@ export interface EditorialReviewDiagnostics {
 
 export interface EditorialReviewResponse {
   reviewSessionId: string;
+  stepId: EditorialReviewStepId;
+  stepRunId: string;
+  runMode: EditorialStepRunMode;
   items: EditorialReviewItem[];
+  factCheckRows?: EditorialFactCheckRow[];
   expertise?: string;
   providerUsed: string;
   usedFallback: boolean;
@@ -293,6 +346,16 @@ const REVIEW_RECOMMENDATION_TYPE_LABELS: Record<EditorialReviewRecommendationTyp
   callout: "врізка",
   visual: "візуал"
 };
+export const EDITORIAL_REVIEW_STEP_IDS: EditorialReviewStepId[] = [
+  "diagnostics",
+  "fact_check",
+  "structure",
+  "clarity",
+  "interest",
+  "visuals",
+  "formatting",
+  "final_editing"
+];
 const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
   mechanism: "механізм",
   analogy: "аналогія",
@@ -350,6 +413,45 @@ const LEGACY_VISUAL_INTENT_MAP: Record<string, EditorialVisualIntent> = {
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
   return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: CALLOUT_KIND_LABELS[value] }));
+}
+
+export function createEmptyStepRunHistory(): EditorialStepRunHistory {
+  return {
+    diagnostics: [],
+    fact_check: [],
+    structure: [],
+    clarity: [],
+    interest: [],
+    visuals: [],
+    formatting: [],
+    final_editing: []
+  };
+}
+
+export function createDefaultStepFeedbackMap(): EditorialStepFeedbackMap {
+  return {
+    diagnostics: "",
+    fact_check: "",
+    structure: "",
+    clarity: "",
+    interest: "",
+    visuals: "",
+    formatting: "",
+    final_editing: ""
+  };
+}
+
+export function createDefaultStepRunModeMap(defaultMode: EditorialStepRunMode = "replace"): EditorialStepRunModeMap {
+  return {
+    diagnostics: defaultMode,
+    fact_check: defaultMode,
+    structure: defaultMode,
+    clarity: defaultMode,
+    interest: defaultMode,
+    visuals: defaultMode,
+    formatting: defaultMode,
+    final_editing: defaultMode
+  };
 }
 
 export function getEditorialVisualIntentOptions(): Array<{ value: EditorialVisualIntent; label: string }> {
@@ -441,6 +543,8 @@ export function normalizeEditorialReviewItems(input: {
   revision: ManuscriptRevisionState;
   reviewSessionId: string;
   changeLevel: WholeTextChangeLevel;
+  stepId?: EditorialReviewStepId;
+  stepRunId?: string;
   items: unknown;
 }): { items: EditorialReviewItem[]; droppedCount: number } {
   if (!Array.isArray(input.items)) {
@@ -518,6 +622,8 @@ export function normalizeEditorialReviewItems(input: {
       calloutDraft: normalizeCalloutDraft(record),
       visualIntent: normalizeVisualIntent(record.visualIntent),
       origin: "review",
+      stepId: input.stepId,
+      stepRunId: input.stepRunId,
       status: "pending"
     });
   }

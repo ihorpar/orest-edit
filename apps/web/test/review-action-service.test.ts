@@ -1013,3 +1013,101 @@ test("generateReviewAction marks rewrite/simplify no-op proposals with warning",
   assert.equal(response.proposal.textDiff?.warning?.code, "no_op");
   assert.match(response.proposal.textDiff?.warning?.message ?? "", /майже не змінює текст/i);
 });
+
+test("generateReviewAction falls back on empty provider output instead of echoing prompt text", async () => {
+  const request = createRequest();
+  request.apiKey = "test-key";
+
+  const response = await generateReviewAction(request, {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: "   "
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+  });
+
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.match(response.error ?? "", /порожню відповідь/i);
+  assert.doesNotMatch(response.proposal.subsectionDraft?.lead ?? "", /Ти готуєш вставку підзаголовка|Поверни лише JSON/i);
+});
+
+test("generateReviewAction uses Gemini header auth and parses subsection output", async () => {
+  const request = createRequest();
+  request.provider = "gemini";
+  request.modelId = "gemini-2.5-flash";
+  request.apiKey = "gemini-test-key";
+  let requestedUrl = "";
+  let requestPrompt = "";
+  let requestHeaders = new Headers();
+
+  const response = await generateReviewAction(request, {
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestHeaders = new Headers(init?.headers);
+      const body = JSON.parse(String(init?.body)) as { contents?: Array<{ parts?: Array<{ text?: string }> }> };
+      requestPrompt = body.contents?.[0]?.parts?.[0]?.text ?? "";
+
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: "{\"title\":\"Як читати сигнали\",\"lead\":\"Коротка рамка перед переліком.\",\"summary\":\"Дає безпечний контекст.\"}" }]
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+  });
+
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали");
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
+  assert.doesNotMatch(requestedUrl, /\?key=/);
+  assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+  assert.match(requestPrompt, /Рекомендація:/i);
+  assert.match(requestPrompt, /Щільний абзац/i);
+});
+
+test("generateReviewAction uses Anthropic headers and parses subsection output", async () => {
+  const request = createRequest();
+  request.provider = "anthropic";
+  request.modelId = "claude-3-7-sonnet-latest";
+  request.apiKey = "anthropic-test-key";
+  let requestedUrl = "";
+  let requestPrompt = "";
+  let requestSystem = "";
+  let requestHeaders = new Headers();
+
+  const response = await generateReviewAction(request, {
+    fetchImpl: async (input, init) => {
+      requestedUrl = String(input);
+      requestHeaders = new Headers(init?.headers);
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }>; system?: string };
+      requestPrompt = body.messages?.[0]?.content ?? "";
+      requestSystem = body.system ?? "";
+
+      return new Response(
+        JSON.stringify({
+          content: [{ text: "{\"title\":\"Контекст перед сигналами\",\"lead\":\"Ознаки неспецифічні, потрібна обережна інтерпретація.\",\"summary\":\"Зменшує ризик самодіагностики.\"}" }]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+  });
+
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft?.title, "Контекст перед сигналами");
+  assert.match(requestedUrl, /api\.anthropic\.com\/v1\/messages$/);
+  assert.equal(requestHeaders.get("x-api-key"), "anthropic-test-key");
+  assert.equal(requestHeaders.get("anthropic-version"), "2023-06-01");
+  assert.match(requestSystem, /Дотримуйся формату відповіді/i);
+  assert.doesNotMatch(requestSystem, /лише чистий текст/i);
+  assert.match(requestPrompt, /Рекомендація:/i);
+  assert.match(requestPrompt, /Щільний абзац/i);
+});

@@ -1085,7 +1085,13 @@ async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: stri
       throw new Error(payload.error?.message || "OpenAI недоступний.");
     }
 
-    return payload.output_text?.trim() || prompt;
+    const output = payload.output_text?.trim();
+
+    if (!output) {
+      throw new Error("OpenAI повернув порожню відповідь для proposal.");
+    }
+
+    return output;
   } finally {
     clearTimeout(timeout);
   }
@@ -1096,10 +1102,11 @@ async function runGeminiTextPrompt(modelId: string, apiKey: string, prompt: stri
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
-    const response = await fetchImpl(`${geminiBaseUrl}/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    const response = await fetchImpl(`${geminiBaseUrl}/${modelId}:generateContent`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
       },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }]
@@ -1112,7 +1119,13 @@ async function runGeminiTextPrompt(modelId: string, apiKey: string, prompt: stri
       throw new Error(payload.error?.message || "Gemini недоступний.");
     }
 
-    return payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim() || prompt;
+    const output = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
+
+    if (!output) {
+      throw new Error("Gemini повернув порожню відповідь для proposal.");
+    }
+
+    return output;
   } finally {
     clearTimeout(timeout);
   }
@@ -1133,7 +1146,7 @@ async function runAnthropicTextPrompt(modelId: string, apiKey: string, prompt: s
       body: JSON.stringify({
         model: modelId,
         max_tokens: 1200,
-        system: "Поверни лише чистий текст без markdown.",
+        system: "Дотримуйся формату відповіді, заданого в повідомленні користувача. Не додавай markdown чи пояснення поза цим форматом.",
         messages: [{ role: "user", content: prompt }]
       }),
       signal: controller.signal
@@ -1144,7 +1157,13 @@ async function runAnthropicTextPrompt(modelId: string, apiKey: string, prompt: s
       throw new Error(payload.error?.message || "Anthropic недоступний.");
     }
 
-    return payload.content?.map((part) => part.text ?? "").join("\n").trim() || prompt;
+    const output = payload.content?.map((part) => part.text ?? "").join("\n").trim();
+
+    if (!output) {
+      throw new Error("Anthropic повернув порожню відповідь для proposal.");
+    }
+
+    return output;
   } finally {
     clearTimeout(timeout);
   }

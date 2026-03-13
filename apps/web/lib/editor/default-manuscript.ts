@@ -368,6 +368,7 @@ export const DEFAULT_EDITOR_DOCUMENT: EditorDocument = createDocumentFromSeed(DE
 function createDocumentFromSeed(seed: string): EditorDocument {
   const lines = seed.replace(/\r\n/g, "\n").split("\n");
   const blocks: EditorDocument["blocks"] = [];
+  let blockCounter = 0;
   let paragraphBuffer: string[] = [];
 
   function flushParagraph() {
@@ -378,8 +379,9 @@ function createDocumentFromSeed(seed: string): EditorDocument {
       return;
     }
 
+    blockCounter++;
     blocks.push({
-      id: createBlockId("p"),
+      id: createBlockId("p", String(blockCounter)),
       type: "paragraph",
       content: [{ text }]
     });
@@ -396,7 +398,8 @@ function createDocumentFromSeed(seed: string): EditorDocument {
 
     if (trimmed === "---") {
       flushParagraph();
-      blocks.push({ id: createBlockId("divider"), type: "divider" });
+      blockCounter++;
+      blocks.push({ id: createBlockId("divider", String(blockCounter)), type: "divider" });
       continue;
     }
 
@@ -404,8 +407,9 @@ function createDocumentFromSeed(seed: string): EditorDocument {
 
     if (headingMatch) {
       flushParagraph();
+      blockCounter++;
       blocks.push({
-        id: createBlockId("h"),
+        id: createBlockId("h", String(blockCounter)),
         type: "heading",
         level: Math.min(3, headingMatch[1].length) as 1 | 2 | 3,
         content: parseInlineMarkdown(headingMatch[2])
@@ -429,8 +433,9 @@ function createDocumentFromSeed(seed: string): EditorDocument {
         index += 1;
       }
 
+      blockCounter++;
       blocks.push({
-        id: createBlockId("list"),
+        id: createBlockId("list", String(blockCounter)),
         type: "bullet_list",
         items
       });
@@ -453,8 +458,9 @@ function createDocumentFromSeed(seed: string): EditorDocument {
         index += 1;
       }
 
+      blockCounter++;
       blocks.push({
-        id: createBlockId("olist"),
+        id: createBlockId("olist", String(blockCounter)),
         type: "ordered_list",
         items
       });

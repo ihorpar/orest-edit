@@ -2,14 +2,21 @@ import type { EditorDocument } from "./document-model";
 import type { PatchOperation, PatchResponseDiagnostics, PatchSelection } from "./patch-contract";
 import type { ManuscriptRevisionState } from "./manuscript-structure";
 import type {
+  EditorialFactCheckRow,
   EditorialReviewDiagnostics,
   EditorialReviewItem,
+  EditorialReviewStepId,
+  EditorialStepFeedbackMap,
+  EditorialStepRunHistory,
+  EditorialStepRunModeMap,
   GeneratedReviewImageAsset,
   ReviewActionProposal,
   WholeTextChangeLevel
 } from "./review-contract";
+import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "./review-contract";
 
-export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v2";
+export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v3";
+export const PREVIOUS_EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v2";
 export const LEGACY_EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v1";
 
 export interface PersistedAppliedDiffMarker {
@@ -45,6 +52,12 @@ export interface PersistedEditorDraftState {
   reviewItems: EditorialReviewItem[];
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
+  reviewExpertise: string | null;
+  factCheckRows: EditorialFactCheckRow[];
+  activeWorkflowStep: EditorialReviewStepId;
+  stepRunHistory: EditorialStepRunHistory;
+  stepFeedback: EditorialStepFeedbackMap;
+  stepRunModeByStep: EditorialStepRunModeMap;
   history: PersistedHistoryItem[];
   appliedDiffs: PersistedAppliedDiffMarker[];
   feedback: PersistedEditorFeedback | null;
@@ -63,6 +76,16 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
   }
 
   try {
+    const previousRaw = window.localStorage.getItem(PREVIOUS_EDITOR_DRAFT_STORAGE_KEY);
+
+    if (previousRaw && !window.localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY)) {
+      window.localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, previousRaw);
+    }
+
+    if (previousRaw) {
+      window.localStorage.removeItem(PREVIOUS_EDITOR_DRAFT_STORAGE_KEY);
+    }
+
     const legacyRaw = window.localStorage.getItem(LEGACY_EDITOR_DRAFT_STORAGE_KEY);
 
     if (legacyRaw) {
@@ -85,7 +108,20 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
       return null;
     }
 
-    return parsed;
+    const defaultFeedback = createDefaultStepFeedbackMap();
+    const defaultRunModes = createDefaultStepRunModeMap("replace");
+    const defaultRunHistory = createEmptyStepRunHistory();
+    const activeWorkflowStep = isStepId(parsed.activeWorkflowStep) ? parsed.activeWorkflowStep : "diagnostics";
+
+    return {
+      ...parsed,
+      reviewExpertise: typeof parsed.reviewExpertise === "string" ? parsed.reviewExpertise : null,
+      factCheckRows: Array.isArray(parsed.factCheckRows) ? parsed.factCheckRows : [],
+      activeWorkflowStep,
+      stepRunHistory: coerceStepRunHistory(parsed.stepRunHistory, defaultRunHistory),
+      stepFeedback: coerceStepFeedback(parsed.stepFeedback, defaultFeedback),
+      stepRunModeByStep: coerceStepRunModes(parsed.stepRunModeByStep, defaultRunModes)
+    };
   } catch {
     return null;
   }
@@ -121,6 +157,76 @@ function sanitizePersistedEditorDraftState(state: PersistedEditorDraftState): Pe
     ...state,
     activeProposal,
     reviewImageAssets
+  };
+}
+
+function isStepId(value: unknown): value is EditorialReviewStepId {
+  return (
+    value === "diagnostics" ||
+    value === "fact_check" ||
+    value === "structure" ||
+    value === "clarity" ||
+    value === "interest" ||
+    value === "visuals" ||
+    value === "formatting" ||
+    value === "final_editing"
+  );
+}
+
+function coerceStepRunHistory(value: unknown, fallback: EditorialStepRunHistory): EditorialStepRunHistory {
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const record = value as Partial<EditorialStepRunHistory>;
+  return {
+    diagnostics: Array.isArray(record.diagnostics) ? record.diagnostics : fallback.diagnostics,
+    fact_check: Array.isArray(record.fact_check) ? record.fact_check : fallback.fact_check,
+    structure: Array.isArray(record.structure) ? record.structure : fallback.structure,
+    clarity: Array.isArray(record.clarity) ? record.clarity : fallback.clarity,
+    interest: Array.isArray(record.interest) ? record.interest : fallback.interest,
+    visuals: Array.isArray(record.visuals) ? record.visuals : fallback.visuals,
+    formatting: Array.isArray(record.formatting) ? record.formatting : fallback.formatting,
+    final_editing: Array.isArray(record.final_editing) ? record.final_editing : fallback.final_editing
+  };
+}
+
+function coerceStepFeedback(value: unknown, fallback: EditorialStepFeedbackMap): EditorialStepFeedbackMap {
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const record = value as Partial<EditorialStepFeedbackMap>;
+  return {
+    diagnostics: typeof record.diagnostics === "string" ? record.diagnostics : fallback.diagnostics,
+    fact_check: typeof record.fact_check === "string" ? record.fact_check : fallback.fact_check,
+    structure: typeof record.structure === "string" ? record.structure : fallback.structure,
+    clarity: typeof record.clarity === "string" ? record.clarity : fallback.clarity,
+    interest: typeof record.interest === "string" ? record.interest : fallback.interest,
+    visuals: typeof record.visuals === "string" ? record.visuals : fallback.visuals,
+    formatting: typeof record.formatting === "string" ? record.formatting : fallback.formatting,
+    final_editing: typeof record.final_editing === "string" ? record.final_editing : fallback.final_editing
+  };
+}
+
+function coerceStepRunModes(value: unknown, fallback: EditorialStepRunModeMap): EditorialStepRunModeMap {
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const record = value as Partial<EditorialStepRunModeMap>;
+  const normalize = (entry: unknown, defaultValue: "preserve" | "replace") =>
+    entry === "preserve" || entry === "replace" ? entry : defaultValue;
+
+  return {
+    diagnostics: normalize(record.diagnostics, fallback.diagnostics),
+    fact_check: normalize(record.fact_check, fallback.fact_check),
+    structure: normalize(record.structure, fallback.structure),
+    clarity: normalize(record.clarity, fallback.clarity),
+    interest: normalize(record.interest, fallback.interest),
+    visuals: normalize(record.visuals, fallback.visuals),
+    formatting: normalize(record.formatting, fallback.formatting),
+    final_editing: normalize(record.final_editing, fallback.final_editing)
   };
 }
 
