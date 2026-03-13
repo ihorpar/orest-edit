@@ -39,23 +39,29 @@ export async function generateReviewAction(
   request: ReviewActionRequest,
   options: GenerateReviewActionOptions = {}
 ): Promise<ReviewActionResponse> {
+  const normalizedRequest = normalizeReviewActionRequest(request);
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date().toISOString());
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const requestId = createPatchId("review-action");
   const diagnosticsBase = {
     requestId,
-    requestedProvider: request.provider,
-    requestedModelId: request.modelId,
-    reviewItemId: request.item.id,
+    requestedProvider: normalizedRequest.provider,
+    requestedModelId: normalizedRequest.modelId,
+    reviewItemId: normalizedRequest.item.id,
     generatedAt: now()
   } satisfies Omit<ReviewActionDiagnostics, "proposalKind">;
 
-  const staleReason = getStaleReason(request.document, request.currentRevision, request.item.anchor.blockIds, request.item.anchor.fingerprint);
+  const staleReason = getStaleReason(
+    normalizedRequest.document,
+    normalizedRequest.currentRevision,
+    normalizedRequest.item.anchor.blockIds,
+    normalizedRequest.item.anchor.fingerprint
+  );
 
   if (staleReason) {
     return {
-      proposal: createStaleProposal(request, staleReason),
+      proposal: createStaleProposal(normalizedRequest, staleReason),
       providerUsed: "stale-anchor",
       usedFallback: false,
       error: staleReason,
@@ -66,16 +72,16 @@ export async function generateReviewAction(
     };
   }
 
-  if (isReplaceReviewType(request.item.recommendationType)) {
+  if (isReplaceReviewType(normalizedRequest.item.recommendationType)) {
     const patchRequest: PatchRequest = {
-      document: request.document,
-      targetBlockIds: request.item.anchor.blockIds,
+      document: normalizedRequest.document,
+      targetBlockIds: normalizedRequest.item.anchor.blockIds,
       mode: "custom",
-      prompt: buildTextProposalPrompt(request),
-      provider: request.provider,
-      modelId: request.modelId,
-      apiKey: request.apiKey,
-      basePrompt: [request.basePrompt, request.reviewLevelGuide].filter(Boolean).join("\n\n")
+      prompt: buildTextProposalPrompt(normalizedRequest),
+      provider: normalizedRequest.provider,
+      modelId: normalizedRequest.modelId,
+      apiKey: normalizedRequest.apiKey,
+      basePrompt: [normalizedRequest.basePrompt, normalizedRequest.reviewLevelGuide].filter(Boolean).join("\n\n")
     };
 
     const patchResponse = await generatePatchResponse(patchRequest, {
@@ -89,7 +95,7 @@ export async function generateReviewAction(
       const message = patchResponse.error ?? "Не вдалося підготувати diff для цієї рекомендації.";
 
       return {
-        proposal: createStaleProposal(request, message),
+        proposal: createStaleProposal(normalizedRequest, message),
         providerUsed: patchResponse.providerUsed,
         usedFallback: patchResponse.usedFallback,
         error: message,
@@ -106,7 +112,7 @@ export async function generateReviewAction(
       const message = "Не вдалося нормалізувати правку до безпечного block-first формату.";
 
       return {
-        proposal: createStaleProposal(request, message),
+        proposal: createStaleProposal(normalizedRequest, message),
         providerUsed: patchResponse.providerUsed,
         usedFallback: true,
         error: message,
@@ -119,7 +125,7 @@ export async function generateReviewAction(
 
     const normalizedOperation = normalizeReviewTextDiffOperation(constrainedOperation, request.item.recommendationType);
     const qualityWarning = detectReplaceNoOpWarning(
-      request.item.recommendationType,
+      normalizedRequest.item.recommendationType,
       normalizedOperation.oldBlocks,
       normalizedOperation.newBlocks
     );
@@ -127,9 +133,9 @@ export async function generateReviewAction(
     return {
       proposal: {
         id: createPatchId("proposal"),
-        reviewItemId: request.item.id,
-        sourceRevisionId: request.item.documentRevisionId,
-        targetRevisionId: request.currentRevision.documentRevisionId,
+        reviewItemId: normalizedRequest.item.id,
+        sourceRevisionId: normalizedRequest.item.documentRevisionId,
+        targetRevisionId: normalizedRequest.currentRevision.documentRevisionId,
         kind: "text_diff",
         summary: constrainedOperation.reason,
         canApplyDirectly: true,
@@ -152,21 +158,51 @@ export async function generateReviewAction(
     };
   }
 
-  const apiKey = request.apiKey ?? resolveProviderApiKey(request.provider, readEnvValue);
+  if (normalizedRequest.item.recommendationType === "subsection") {
+    const explicitDraft = parseSubsectionDraftFromRecommendation(normalizedRequest.item.recommendation);
+
+    if (explicitDraft) {
+      return {
+        proposal: {
+          id: createPatchId("proposal-subsection"),
+          reviewItemId: normalizedRequest.item.id,
+          sourceRevisionId: normalizedRequest.item.documentRevisionId,
+          targetRevisionId: normalizedRequest.currentRevision.documentRevisionId,
+          kind: "subsection_prompt",
+          summary: explicitDraft.summary,
+          canApplyDirectly: true,
+          subsectionDraft: {
+            title: explicitDraft.title,
+            lead: explicitDraft.lead,
+            prompt: buildProviderPrompt(normalizedRequest, "subsection"),
+            summary: explicitDraft.summary
+          }
+        },
+        providerUsed: "deterministic:subsection",
+        usedFallback: false,
+        diagnostics: {
+          ...diagnosticsBase,
+          proposalKind: "subsection_prompt"
+        }
+      };
+    }
+  }
+
+  const apiKey = normalizedRequest.apiKey ?? resolveProviderApiKey(normalizedRequest.provider, readEnvValue);
 
   if (!apiKey) {
     const fallbackProposal =
-      request.item.recommendationType === "subsection"
-        ? createFallbackSubsectionProposal(request)
-        : request.item.suggestedAction === "prepare_callout"
-        ? createFallbackCalloutProposal(request)
-        : createFallbackImagePromptProposal(request);
+      normalizedRequest.item.recommendationType === "subsection"
+        ? createFallbackSubsectionProposal(normalizedRequest)
+        : normalizedRequest.item.suggestedAction === "prepare_callout"
+        ? createFallbackCalloutProposal(normalizedRequest)
+        : createFallbackImagePromptProposal(normalizedRequest);
 
     return {
       proposal: fallbackProposal,
-      providerUsed: request.provider,
+      providerUsed: normalizedRequest.provider,
       usedFallback: true,
-      error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env, тому показано локальну чернетку.`,
+      error: `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env, тому показано локальну чернетку.`,
       diagnostics: {
         ...diagnosticsBase,
         proposalKind: fallbackProposal.kind
@@ -176,11 +212,11 @@ export async function generateReviewAction(
 
   try {
     const providerResult =
-      request.item.recommendationType === "subsection"
-        ? await createSubsectionProposal(request, apiKey, fetchImpl)
-        : request.item.suggestedAction === "prepare_callout"
-        ? await createCalloutProposal(request, apiKey, fetchImpl)
-        : await createImagePromptProposal(request, apiKey, fetchImpl);
+      normalizedRequest.item.recommendationType === "subsection"
+        ? await createSubsectionProposal(normalizedRequest, apiKey, fetchImpl)
+        : normalizedRequest.item.suggestedAction === "prepare_callout"
+        ? await createCalloutProposal(normalizedRequest, apiKey, fetchImpl)
+        : await createImagePromptProposal(normalizedRequest, apiKey, fetchImpl);
 
     return {
       proposal: providerResult.proposal,
@@ -194,15 +230,15 @@ export async function generateReviewAction(
     };
   } catch (error) {
     const fallbackProposal =
-      request.item.recommendationType === "subsection"
-        ? createFallbackSubsectionProposal(request)
-        : request.item.suggestedAction === "prepare_callout"
-        ? createFallbackCalloutProposal(request)
-        : createFallbackImagePromptProposal(request);
+      normalizedRequest.item.recommendationType === "subsection"
+        ? createFallbackSubsectionProposal(normalizedRequest)
+        : normalizedRequest.item.suggestedAction === "prepare_callout"
+        ? createFallbackCalloutProposal(normalizedRequest)
+        : createFallbackImagePromptProposal(normalizedRequest);
 
     return {
       proposal: fallbackProposal,
-      providerUsed: request.provider,
+      providerUsed: normalizedRequest.provider,
       usedFallback: true,
       error: error instanceof Error ? error.message : "Не вдалося підготувати чернетку.",
       diagnostics: {
@@ -211,6 +247,86 @@ export async function generateReviewAction(
       }
     };
   }
+}
+
+function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActionRequest {
+  const isReplaceProposal = isReplaceReviewType(request.item.recommendationType);
+  const relatedBlockIds = Array.from(
+    new Set(
+      [
+        ...request.item.anchor.blockIds,
+        request.item.insertionPoint.anchorBlockId
+      ].filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    )
+  );
+  const compactBlocks = relatedBlockIds.length > 0
+    ? relatedBlockIds
+      .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
+      .filter((block): block is Block => Boolean(block))
+    : request.document.blocks;
+  const compactDocument = isReplaceProposal
+    ? request.document
+    : ({
+      version: request.document.version,
+      blocks: compactBlocks
+    } as ReviewActionRequest["document"]);
+  const compactRevision = isReplaceProposal
+    ? request.currentRevision
+    : ({
+      documentRevisionId: request.currentRevision.documentRevisionId,
+      blockOrder: relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder,
+      blockFingerprints: Object.fromEntries(
+        (relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder).map((blockId) => [
+          blockId,
+          request.currentRevision.blockFingerprints[blockId] ?? ""
+        ])
+      )
+    } as ManuscriptRevisionState);
+  const compactItem: ReviewActionRequest["item"] = {
+    id: request.item.id,
+    reviewSessionId: request.item.reviewSessionId,
+    documentRevisionId: request.item.documentRevisionId,
+    changeLevel: request.item.changeLevel,
+    title: sanitizePromptInput(request.item.title, 220),
+    reason: sanitizePromptInput(request.item.reason, 1600),
+    recommendation: sanitizePromptInput(request.item.recommendation, 6000),
+    recommendationType: request.item.recommendationType,
+    suggestedAction: request.item.suggestedAction,
+    priority: request.item.priority,
+    anchor: {
+      ...request.item.anchor,
+      blockIds: request.item.anchor.blockIds.filter((blockId): blockId is string => typeof blockId === "string" && blockId.trim().length > 0),
+      excerpt: sanitizePromptInput(request.item.anchor.excerpt, 2600),
+      fingerprint: sanitizePromptInput(request.item.anchor.fingerprint, 8000)
+    },
+    insertionPoint: request.item.insertionPoint,
+    status: request.item.status,
+    origin: request.item.origin,
+    stepId: request.item.stepId,
+    stepRunId: request.item.stepRunId
+  };
+
+  if (request.item.calloutKind) {
+    compactItem.calloutKind = request.item.calloutKind;
+  }
+
+  if (request.item.visualIntent) {
+    compactItem.visualIntent = request.item.visualIntent;
+  }
+
+  return {
+    ...request,
+    document: compactDocument,
+    currentRevision: compactRevision,
+    item: compactItem,
+    provider: request.provider.trim(),
+    modelId: request.modelId.trim(),
+    apiKey: request.apiKey?.trim() || undefined,
+    basePrompt: sanitizeOptionalPrompt(request.basePrompt, 4000),
+    reviewLevelGuide: sanitizeOptionalPrompt(request.reviewLevelGuide, 4000),
+    calloutPromptTemplate: sanitizeOptionalPrompt(request.calloutPromptTemplate, 9000),
+    imagePromptTemplate: sanitizeOptionalPrompt(request.imagePromptTemplate, 12000)
+  };
 }
 
 function getStaleReason(
@@ -515,10 +631,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     templateContainsPlaceholder(request.imagePromptTemplate, "visualStyleGuide")
       ? null
       : `Обраний стиль (${getVisualStylePresetLabel(visualStylePreset)}): ${visualStyleGuide}`,
-    `Пояснення visualIntent: ${getVisualIntentPromptGuidance(visualIntent, excerpt, request.item.recommendation)}`,
-    "Бажаний формат відповіді: JSON {\"prompt\":\"...\",\"caption\":\"...\",\"alt\":\"...\"}. Поля caption і alt опційні.",
-    "Якщо повертаєш не JSON, увесь текст відповіді буде використано як image prompt.",
-    "Поле prompt або plain-text відповідь має бути без markdown, нумерації, секцій чи службових пояснень.",
+    `Додаткова вказівка щодо типу візуалу: ${getVisualIntentPromptGuidance(visualIntent, excerpt, request.item.recommendation)}`,
+    "Формат відповіді: поверни рівно один готовий image prompt у plain text (один цілісний блок).",
+    "Не повертай JSON, markdown, нумерацію, секції або службові пояснення.",
     "Поверни текст тільки українською мовою."
   ]
     .filter(Boolean)
@@ -1345,6 +1460,51 @@ function parseSubsectionDraftOutput(
     lead: sanitizeCalloutText(lead || fallbackLeadValue),
     summary: fallbackSummaryValue
   };
+}
+
+function parseSubsectionDraftFromRecommendation(value: string): { title: string; lead: string; summary: string } | null {
+  const normalized = sanitizePromptInput(value, 6000);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const titleMatch = /(?:^|\n|\s)(?:підзаголовок|заголовок)\s*:\s*(.+?)(?=(?:\n|\s)+(?:текст|рамка)\s*:|$)/i.exec(normalized);
+  const leadMatch = /(?:^|\n|\s)(?:текст|рамка)\s*:\s*([\s\S]+)$/i.exec(normalized);
+
+  if (!titleMatch?.[1] || !leadMatch?.[1]) {
+    return null;
+  }
+
+  const title = sanitizeCalloutTitle(titleMatch[1]);
+  const lead = sanitizeCalloutText(leadMatch[1]).slice(0, 1800);
+
+  if (!title || !lead) {
+    return null;
+  }
+
+  return {
+    title,
+    lead,
+    summary: "Сформовано з явної інструкції редактора без додаткової генерації."
+  };
+}
+
+function sanitizeOptionalPrompt(value: string | undefined, maxLength: number): string | undefined {
+  if (!value || typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = sanitizePromptInput(value, maxLength);
+  return normalized || undefined;
+}
+
+function sanitizePromptInput(value: string, maxLength: number): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.replace(/\r\n?/g, "\n").trim().slice(0, maxLength);
 }
 
 function sanitizeCalloutTitle(value: string): string {

@@ -5147,6 +5147,19 @@ textarea:focus {
   color: #64748b;
 }
 
+.step-review-workspace-head-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.step-review-workspace-head-action {
+  display: inline-flex;
+}
+
 .step-review-workspace-scroll {
   flex: 1;
   overflow-y: auto;
@@ -5887,6 +5900,11 @@ textarea:focus {
   .step-review-workspace {
     height: auto;
     min-height: 340px;
+  }
+
+  .step-review-workspace-head-meta {
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .step-review-mini-hub {
@@ -6857,6 +6875,35 @@ textarea:focus {
   color: #475569;
 }
 
+.operation-note-head {
+  align-items: flex-start;
+}
+
+.operation-note-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.operation-note-top-right {
+  margin-left: auto;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.operation-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.operation-note-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .editor-note-badge {
   flex-shrink: 0;
   padding: 2px 6px;
@@ -6867,6 +6914,21 @@ textarea:focus {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-radius: 4px;
+}
+
+@media (max-width: 960px) {
+  .operation-note-head {
+    flex-direction: column;
+  }
+
+  .operation-note-top-right {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .operation-note-actions {
+    justify-content: flex-start;
+  }
 }
 
 .block-diff-card {

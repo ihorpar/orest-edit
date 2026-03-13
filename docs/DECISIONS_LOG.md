@@ -4,6 +4,16 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-12
 
+### Explicit subsection instructions bypass model generation
+Decision: when a subsection recommendation already includes explicit `Підзаголовок:` and `Текст:` content, proposal generation should build the draft deterministically without calling an LLM.
+
+Reason: this cuts unnecessary latency/cost and avoids low-quality regenerate results for already fully-specified editorial instructions.
+
+### Review-action payloads are normalized server-side
+Decision: review-action processing normalizes incoming payloads before proposal generation, including trimming prompt-heavy text fields and compacting non-replace document context to anchor-related blocks.
+
+Reason: client payload size can drift due stale builds or legacy callers; server-side normalization keeps proposal generation predictable and efficient.
+
 ### Editor review workspace is split and resizable
 Decision: `/editor` uses a unified split workspace for manuscript and review with a draggable vertical resizer, a flyout review drawer, and a pinned step mini-hub.
 

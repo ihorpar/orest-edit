@@ -29,6 +29,7 @@ Status: Active handoff
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
+- Step run CTA (`Запустити/Оновити`) now lives in the drawer header row (next to `Етап N / 8`) for diagnostics, fact-check, and recommendation steps
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
@@ -49,12 +50,15 @@ Status: Active handoff
 - Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
 - Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
+- Subsection preparation now has a deterministic fast-path: when recommendation text already includes explicit `Підзаголовок:` + `Текст:`, the draft is built directly from that instruction without an extra model call
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
 - The floating `Локальна правка` panel now uses explicit local mode switches (`Правка`, `Врізка`, `Візуал`) so each mode has one unambiguous primary action and mode-specific prompt usage
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
-- Runtime prompt factories now explicitly enforce plain-text, block-editor-compatible output for replace/callout/subsection/image proposal preparation
+- Runtime proposal prompt contracts are now aligned by action type: replace uses structured block diff JSON, callout/subsection use strict JSON drafts, and image uses one downstream plain-text prompt (while parser remains backward-compatible with legacy JSON image drafts)
+- Review-action request handling now normalizes and trims prompt-heavy inputs server-side (including non-replace document compaction to anchor-related blocks) to avoid oversized proposal-generation contexts
+- Step run feedback for recommendation steps now reports card count for the specific step section (post-merge in preserve/replace mode), not a potentially ambiguous global count
 - Image prompt assembly now supports `{{visualStyleGuide}}` and always injects style guidance, including fallback injection when placeholder is removed from template
 - `top_list` callout prompt contracts now require source-bound multi-line `Назва: пояснення` entries and include two-shot examples directly in the template
 - Callout parsing/sanitization is now kind-aware for `top_list`, preserving multi-line readability and normalizing entries into actionable `Назва: пояснення` lines
@@ -112,4 +116,6 @@ Status: Active handoff
 - `npm run qa:inline-review -w @orest/web` passed on 2026-03-11 using `APP_PASSWORD=@orest0krat` + local dev server on `http://127.0.0.1:3100`; validated login gate, multi-block anchor highlighting, and single inline card execution for manual `callout` and `visual`
 - `npm run typecheck -w @orest/web` passed on 2026-03-12 after step-aware review contract migration (separate step prompts, fact-check rows contract, per-step run persistence)
 - `npm run test -w @orest/web` passed on 2026-03-12 after step-aware review contract migration (13/13 suites, including review-service structured fact-check coverage)
+- `npm run typecheck -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update
+- `npm run test -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update (13/13 suites)
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

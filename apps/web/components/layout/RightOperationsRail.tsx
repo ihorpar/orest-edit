@@ -1,6 +1,6 @@
 import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { EditorialReviewDiagnostics, EditorialReviewItem } from "../../lib/editor/review-contract";
+import { getReviewParagraphRangeLabel, type EditorialReviewDiagnostics, type EditorialReviewItem } from "../../lib/editor/review-contract";
 import { getAiActivityTaskMessage, getAiActivityTaskTone, type AiActivityTask } from "../../lib/editor/ai-activity";
 import { EditorialReviewCard } from "../editor/EditorialReviewCard";
 import { OperationCard } from "../editor/OperationCard";
@@ -83,6 +83,12 @@ export function RightOperationsRail({
   onOpenAiTask: (task: AiActivityTask) => void;
   onDismissAiTask: (taskId: string) => void;
 }) {
+  const reviewItemByProposalId = new Map(
+    reviewItems
+      .filter((item) => item.activeProposalId)
+      .map((item) => [item.activeProposalId as string, item])
+  );
+
   return (
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
       <div className="sidebar-toggle-row">
@@ -153,9 +159,26 @@ export function RightOperationsRail({
             ) : null}
           </div>
           <div className="operations-stack">
-            {operations.map((operation) => (
-              <OperationCard key={operation.id} operation={operation} onAccept={onAccept} onReject={onReject} />
-            ))}
+            {operations.map((operation) => {
+              const sourceItem = reviewItemByProposalId.get(operation.id);
+              return (
+                <OperationCard
+                  key={operation.id}
+                  operation={operation}
+                  context={
+                    sourceItem
+                      ? {
+                        recommendation: sourceItem.recommendation,
+                        reason: sourceItem.reason,
+                        paragraphLabel: getReviewParagraphRangeLabel(sourceItem, reviewRevision)
+                      }
+                      : undefined
+                  }
+                  onAccept={onAccept}
+                  onReject={onReject}
+                />
+              );
+            })}
           </div>
         </section>
       ) : null}

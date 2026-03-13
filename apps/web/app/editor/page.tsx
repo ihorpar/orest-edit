@@ -55,6 +55,7 @@ import {
   type VisualStylePreset,
   type EditorialVisualIntent,
   getEditorialCalloutKindTitle,
+  getReviewParagraphRangeLabel,
   reconcileReviewItemsWithRevision,
   type GeneratedReviewImageAsset,
   type ChatMessage,
@@ -62,6 +63,7 @@ import {
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
+  isReplaceReviewType,
   type ReviewActionRequest,
   type ReviewActionProposal,
   type ReviewActionResponse,
@@ -156,6 +158,17 @@ export default function EditorPage() {
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
+  const reviewItemByProposalId = useMemo(() => {
+    const map = new Map<string, EditorialReviewItem>();
+
+    for (const item of reviewItems) {
+      if (item.activeProposalId) {
+        map.set(item.activeProposalId, item);
+      }
+    }
+
+    return map;
+  }, [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
       return null;
@@ -481,7 +494,7 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as EditorialReviewResponse;
-      const nextFeedback = buildReviewFeedbackMessage(payload, response.ok);
+      let sectionItemCount: number | undefined;
 
       if (payload.stepId === "diagnostics") {
         setReviewExpertise(payload.expertise?.trim() ? payload.expertise : null);
@@ -497,15 +510,17 @@ export default function EditorPage() {
           stepId: payload.stepId,
           stepRunId: payload.stepRunId
         }));
+        const baseItems =
+          runMode === "replace"
+            ? reviewItems.filter((item) => item.stepId && item.stepId !== payload.stepId)
+            : reviewItems;
+        const nextItems = [...normalizedItems, ...baseItems];
+        sectionItemCount = mapReviewItemsByStep(nextItems)[payload.stepId].length;
 
-        setReviewItems((current) => {
-          const base =
-            runMode === "replace"
-              ? current.filter((item) => item.stepId && item.stepId !== payload.stepId)
-              : current;
-          return [...normalizedItems, ...base];
-        });
+        setReviewItems(nextItems);
       }
+
+      const nextFeedback = buildReviewFeedbackMessage(payload, response.ok, sectionItemCount);
 
       const runSnapshot = {
         id: payload.stepRunId,
@@ -730,7 +745,7 @@ export default function EditorPage() {
   }
 
   function buildReviewActionRequestBody(item: EditorialReviewItem, requestVisualStylePreset: VisualStylePreset): ReviewActionRequest {
-    const isReplaceProposal = item.suggestedAction === "rewrite_text";
+    const isReplaceProposal = isReplaceReviewType(item.recommendationType);
     const compactItem: ReviewActionRequest["item"] = {
       id: item.id,
       reviewSessionId: item.reviewSessionId,
@@ -744,10 +759,7 @@ export default function EditorPage() {
       priority: item.priority,
       anchor: item.anchor,
       insertionPoint: item.insertionPoint,
-      status: item.status,
-      origin: item.origin,
-      stepId: item.stepId,
-      stepRunId: item.stepRunId
+      status: item.status
     };
 
     if (item.calloutKind) {
@@ -1449,6 +1461,41 @@ export default function EditorPage() {
     WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
   );
   const activeStepItems = stepItems[activeWorkflowStep];
+  const runStepButton = activeWorkflowStep === "diagnostics"
+    ? (
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={() => void requestWorkflowStep("diagnostics")}
+        loading={isReviewRequestInFlight}
+        disabled={!canRequestReview}
+      >
+        {reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
+      </Button>
+    )
+    : activeWorkflowStep === "fact_check"
+      ? (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void requestWorkflowStep("fact_check")}
+          loading={isReviewRequestInFlight}
+          disabled={!canRunDownstreamStep}
+        >
+          {factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
+        </Button>
+      )
+      : (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void requestWorkflowStep(activeWorkflowStep)}
+          loading={isReviewRequestInFlight}
+          disabled={!canRunDownstreamStep}
+        >
+          {activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
+        </Button>
+      );
 
   return (
     <>
@@ -1548,9 +1595,14 @@ export default function EditorPage() {
                 <ActiveStepIcon className="step-review-workspace-title-icon" aria-hidden="true" />
                 <span>{activeStepMeta.label}</span>
               </h3>
-              <span className="step-review-workspace-counter mono-ui">
-                Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
-              </span>
+              <div className="step-review-workspace-head-meta">
+                <div className="step-review-workspace-head-action">
+                  {runStepButton}
+                </div>
+                <span className="step-review-workspace-counter mono-ui">
+                  Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
+                </span>
+              </div>
             </header>
 
             <div className="step-review-workspace-scroll">
@@ -1598,17 +1650,8 @@ export default function EditorPage() {
                       />
                     </div>
                   </details>
-                  <div className="button-row">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => void requestWorkflowStep("diagnostics")}
-                      loading={isReviewRequestInFlight}
-                      disabled={!canRequestReview}
-                    >
-                      {reviewExpertise ? "Оновити діагностику" : "Запустити діагностику"}
-                    </Button>
-                    {reviewExpertise ? (
+                  {reviewExpertise ? (
+                    <div className="button-row">
                       <Button
                         variant="secondary"
                         size="sm"
@@ -1616,8 +1659,6 @@ export default function EditorPage() {
                       >
                         До факт-чеку
                       </Button>
-                    ) : null}
-                    {reviewExpertise ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1633,8 +1674,8 @@ export default function EditorPage() {
                       >
                         Скинути
                       </Button>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
 
                   <div className="step-review-analysis-card">
                     {expertiseForDisplay ? (
@@ -1748,44 +1789,11 @@ export default function EditorPage() {
                       Після діагностики тут з’явиться таблиця перевірки фактів.
                     </p>
                   ) : null}
-                  <div className="button-row">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => void requestWorkflowStep("fact_check")}
-                      loading={isReviewRequestInFlight}
-                      disabled={!canRunDownstreamStep}
-                    >
-                      {factCheckRows.length > 0 ? "Оновити факт-чек" : "Запустити факт-чек"}
-                    </Button>
-                  </div>
                 </div>
               ) : null}
 
               {activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" ? (
                 <div className="step-review-section-stack">
-                  <div className="button-row">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setLocalActionMode(defaultLocalActionMode);
-                        setComposerMode("local");
-                      }}
-                      disabled={normalizedSelection.blockIds.length === 0}
-                    >
-                      Локальна правка
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => void requestWorkflowStep(activeWorkflowStep)}
-                      loading={isReviewRequestInFlight}
-                      disabled={!canRunDownstreamStep}
-                    >
-                      {activeStepItems.length > 0 ? "Оновити картки кроку" : "Запустити аналіз кроку"}
-                    </Button>
-                  </div>
                   <details className="step-review-config-details">
                     <summary className="step-review-config-summary">
                       <div className="step-review-config-summary-left">
@@ -1824,9 +1832,26 @@ export default function EditorPage() {
                     <section className="step-review-subsection">
                       <p className="mono-ui operations-title">Правки</p>
                       <div className="operations-stack">
-                        {operations.map((operation) => (
-                          <OperationCard key={operation.id} operation={operation} onAccept={acceptOperation} onReject={rejectOperation} />
-                        ))}
+                        {operations.map((operation) => {
+                          const sourceItem = reviewItemByProposalId.get(operation.id);
+                          return (
+                            <OperationCard
+                              key={operation.id}
+                              operation={operation}
+                              context={
+                                sourceItem
+                                  ? {
+                                    recommendation: sourceItem.recommendation,
+                                    reason: sourceItem.reason,
+                                    paragraphLabel: getReviewParagraphRangeLabel(sourceItem, revision)
+                                  }
+                                  : undefined
+                              }
+                              onAccept={acceptOperation}
+                              onReject={rejectOperation}
+                            />
+                          );
+                        })}
                       </div>
                       {operations.length > 1 ? (
                         <div className="button-row">
@@ -1938,7 +1963,7 @@ function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean):
   };
 }
 
-function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk: boolean): RequestFeedback {
+function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk: boolean, sectionItemCount?: number): RequestFeedback {
   if (!responseOk || payload.error) {
     return {
       tone: responseOk ? "info" : "error",
@@ -1968,9 +1993,14 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     };
   }
 
+  const count = sectionItemCount ?? payload.items.length;
+  const stepLabel = WORKFLOW_STEPS.find((step) => step.id === payload.stepId)?.label?.toLowerCase();
+
   return {
     tone: "info",
-    message: `Підготовлено ${payload.items.length} карток з рекомендаціями.`
+    message: stepLabel
+      ? `У кроці «${stepLabel}» підготовлено ${count} карток з рекомендаціями.`
+      : `Підготовлено ${count} карток з рекомендаціями для цього кроку.`
   };
 }
 

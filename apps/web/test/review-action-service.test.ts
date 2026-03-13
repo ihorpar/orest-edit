@@ -60,6 +60,22 @@ test("generateReviewAction prepares subsection proposal instead of failing safe"
   assert.ok(response.proposal.subsectionDraft?.title);
 });
 
+test("generateReviewAction builds subsection draft deterministically from explicit heading/text instruction", async () => {
+  const request = createRequest();
+  request.item.recommendation =
+    "Вставити перед переліком короткий підзаголовок і 3-4 речення рамки. Підзаголовок: Як читати сигнали шкіри без самодіагностики Текст: Шкірні ознаки часто неспецифічні: один і той самий симптом може мати багато причин. Важливі тривалість, раптовість змін і супутні симптоми.";
+
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "deterministic:subsection");
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри без самодіагностики");
+  assert.match(response.proposal.subsectionDraft?.lead ?? "", /Шкірні ознаки часто неспецифічні/i);
+});
+
 test("generateReviewAction injects explicit callout-kind guidance into provider prompt", async () => {
   const document: EditorDocument = {
     version: 2,
@@ -191,8 +207,9 @@ test("generateReviewAction renders image template placeholders and adds visual-i
   assert.match(String(requestBody?.input ?? ""), /Покажи поруч два стани шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /симетричне порівняння/i);
   assert.match(String(requestBody?.input ?? ""), /Нео-бруталізм/i);
-  assert.match(String(requestBody?.input ?? ""), /Бажаний формат відповіді:\s*JSON/i);
-  assert.match(String(requestBody?.input ?? ""), /увесь текст відповіді буде використано як image prompt/i);
+  assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни рівно один готовий image prompt/i);
+  assert.match(String(requestBody?.input ?? ""), /Не повертай JSON/i);
+  assert.match(String(requestBody?.input ?? ""), /Додаткова вказівка щодо типу візуалу:/i);
   assert.match(String(requestBody?.input ?? ""), /тільки українською мовою/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{visualIntent\}\}|\{\{visualStyleGuide\}\}/i);
 });
