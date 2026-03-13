@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3 Reimaginations: Editorial Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg-page: #FDFDFD;
+            --text-main: #1A1C1E;
+            --text-muted: #5F6368;
+            --border: #E8EAED;
+            --accent: #202124;
+            --blue: #1A73E8;
+            --green: #1E8E3E;
+            --red: #D93025;
+            --amber: #F29900;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-page);
+            color: var(--text-main);
+            line-height: 1.4;
+            padding: 20px;
+        }
+
+        /* TAB CONTROLS */
+        .tab-switcher {
+            display: flex;
+            background: #F1F3F4;
+            padding: 4px;
+            border-radius: 8px;
+            width: fit-content;
+            margin: 0 auto 40px;
+            gap: 4px;
+        }
+        .tab-btn {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            background: #fff;
+            color: var(--text-main);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* CONCEPT CONTAINERS */
+        .concept { display: none; max-width: 440px; margin: 0 auto; }
+        .concept.active { display: block; }
+
+        /* --- SHARED ELEMENTS --- */
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .title-unit { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 14px; letter-spacing: 0.05em; }
+        .repeat-btn {
+            background: var(--blue);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .step-label { font-size: 11px; font-weight: 500; color: #9AA0A6; }
+
+        .settings-bar {
+            background: #F8F9FA;
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            margin-bottom: 32px;
+            color: var(--text-muted);
+        }
+
+        .sec-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #70757A;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        /* --- CONCEPT 1: NANO-MINIMALIST --- 
+           Focus: No boxes, high density, line-anchored.
+        */
+        .nano-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 40px; }
+        .nano-item {
+            position: relative;
+            padding-left: 12px;
+            border-left: 2px solid #E8EAED;
+            transition: border-color 0.2s;
+        }
+        .nano-item:hover { border-left-color: var(--blue); }
+        .nano-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+        .nano-text { font-size: 13px; font-weight: 500; color: #202124; line-height: 1.5; margin-right: 40px; }
+        .nano-meta { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: #9AA0A6; display: flex; gap: 8px; margin-top: 4px; }
+        .nano-actions { position: absolute; right: 0; top: 0; display: flex; gap: 4px; opacity: 0.3; }
+        .nano-item:hover .nano-actions { opacity: 1; }
+        .icon-btn { cursor: pointer; color: var(--text-muted); padding: 4px; }
+        .icon-btn:hover { color: var(--text-main); }
+        .nano-reason { font-size: 12px; color: #5F6368; margin-top: 6px; }
+        .bulk-minimal { 
+            display: flex; gap: 8px; margin-top: 24px; border-top: 1px dashed var(--border); padding-top: 16px;
+        }
+        .btn-link { background: none; border: none; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--blue); }
+        .btn-link.secondary { color: var(--text-muted); }
+
+        /* --- CONCEPT 2: THE COMPACT FEED (Slightly Rounded Cards) --- */
+        .feed-list { display: flex; flex-direction: column; gap: 8px; }
+        .feed-card {
+            background: #fff;
+            border: 1px solid #E8EAED;
+            border-radius: 4px;
+            padding: 10px 12px;
+            transition: border-color 0.2s;
+        }
+        .feed-card:hover { border-color: #DADCE0; box-shadow: 0 1px 2px rgba(60,64,67,0.1); }
+        .feed-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+        .feed-main { font-size: 13px; color: #3C4043; line-height: 1.4; }
+        .feed-badge { 
+            background: #F1F3F4; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; color: #5F6368; 
+            white-space: nowrap;
+        }
+        .feed-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+        .feed-btns { display: flex; gap: 12px; }
+        .feed-btn { font-size: 11px; font-weight: 700; cursor: pointer; background: none; border: none; display: flex; align-items: center; gap: 4px; }
+        .feed-btn.ok { color: var(--green); }
+        .feed-btn.no { color: var(--text-muted); }
+        
+        .rec-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #F1F3F4; }
+        .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); margin-top: 6px; flex-shrink: 0; }
+        .rec-body { flex: 1; }
+        .rec-text { font-size: 12px; color: #3C4043; }
+        .rec-tags { display: flex; gap: 8px; margin-top: 4px; font-size: 10px; color: #9AA0A6; font-weight: 600; }
+
+        /* --- CONCEPT 3: DATA RIGOR (Mono/Technical) --- */
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-row { border-bottom: 1px solid #F1F3F4; transition: background 0.1s; }
+        .data-row:hover { background: #F8F9FA; }
+        .data-cell { padding: 12px 8px; vertical-align: top; }
+        .cell-main { font-size: 13px; font-family: 'Inter', sans-serif; }
+        .cell-side { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); width: 80px; }
+        .cell-acts { text-align: right; width: 60px; }
+        .data-tag { display: inline-block; padding: 2px 4px; background: #E8F0FE; color: var(--blue); border-radius: 2px; font-size: 9px; font-weight: 700; margin-bottom: 4px; }
+        
+        .accept-all-float {
+            position: sticky;
+            bottom: 20px;
+            background: #202124;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 100px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="tab-switcher">
+        <button class="tab-btn active" onclick="switchTab(0)">1. Nano-Minimal</button>
+        <button class="tab-btn" onclick="switchTab(1)">2. Compact Feed</button>
+        <button class="tab-btn" onclick="switchTab(2)">3. Data Rigor</button>
+    </div>
+
+    <!-- HEADER (Visible in all) -->
+    <div style="max-width: 440px; margin: 0 auto;">
+        <div class="header-top">
+            <div class="title-unit"><i data-lucide="sparkles" size="16"></i> ВІЗУАЛИ</div>
+            <button class="repeat-btn">ПОВТОРИТИ АНАЛІЗ</button>
+        </div>
+        <div class="settings-bar">
+            <span><i data-lucide="settings-2" size="14"></i> Налаштування запуску</span>
+            <span class="step-label">ЕТАП 6 / 8</span>
+        </div>
+    </div>
+
+    <!-- CONCEPT 1: NANO-MINIMAL -->
+    <div id="c0" class="concept active">
+        <span class="sec-label">Правки</span>
+        <div class="nano-list">
+            <div class="nano-item">
+                <div class="nano-header">
+                    <div class="nano-text">Замініть 'признак' на 'ознака' у всіх контекстах.</div>
+                    <div class="nano-actions">
+                        <i data-lucide="x" class="icon-btn" size="14"></i>
+                        <i data-lucide="check" class="icon-btn" size="14"></i>
+                    </div>
+                </div>
+                <div class="nano-reason">Русизм. Автоматично обрізано заголовок.</div>
+                <div class="nano-meta"><span>АБЗ. 027-029</span> <span>CLARITY</span></div>
+            </div>
+            <div class="nano-item">
+                <div class="nano-header">
+                    <div class="nano-text">Біохакінг — це не 'чистки', а підтримка органів.</div>
+                    <div class="nano-actions">
+                        <i data-lucide="x" class="icon-btn" size="14"></i>
+                        <i data-lucide="check" class="icon-btn" size="14"></i>
+                    </div>
+                </div>
+                <div class="nano-reason">Термін 'детокс' є маркетинговим.</div>
+                <div class="nano-meta"><span>АБЗ. 100</span> <span>CLARITY</span></div>
+            </div>
+        </div>
+
+        <span class="sec-label">Рекомендації</span>
+        <div class="nano-list">
+            <div class="nano-item" style="border-left-color: var(--amber);">
+                <div class="nano-text">Схема "Шкіра як дзеркало": зв'язок печінки та висипів.</div>
+                <div class="nano-meta"><span>АБЗ. 014</span> <span>ВІЗУАЛ</span> <span>PENDING</span></div>
+            </div>
+            <div class="nano-item" style="border-left-color: var(--amber);">
+                <div class="nano-text">Інфографіка природної детоксикації (печінка/нирки).</div>
+                <div class="nano-meta"><span>АБЗ. 100</span> <span>ВІЗУАЛ</span> <span>PENDING</span></div>
+            </div>
+        </div>
+
+        <div class="bulk-minimal">
+            <button class="btn-link">ПРИЙНЯТИ ВСІ (2)</button>
+            <button class="btn-link secondary">СКАСУВАТИ</button>
+        </div>
+    </div>
+
+    <!-- CONCEPT 2: COMPACT FEED -->
+    <div id="c1" class="concept">
+        <span class="sec-label">Правки <span>(2)</span></span>
+        <div class="feed-list">
+            <div class="feed-card">
+                <div class="feed-top">
+                    <div class="feed-main">Замініть <b>'признак'</b> на <b>'ознака'</b> всюди.</div>
+                    <span class="feed-badge">CLARITY</span>
+                </div>
+                <div class="feed-footer">
+                    <span class="step-label">Абз. 027</span>
+                    <div class="feed-btns">
+                        <button class="feed-btn no">Відхилити</button>
+                        <button class="feed-btn ok">Прийняти</button>
+                    </div>
+                </div>
+            </div>
+            <div class="feed-card">
+                <div class="feed-top">
+                    <div class="feed-main">Біохакінг — це підтримка, а не 'очистка'.</div>
+                    <span class="feed-badge">STYLE</span>
+                </div>
+                <div class="feed-footer">
+                    <span class="step-label">Абз. 100</span>
+                    <div class="feed-btns">
+                        <button class="feed-btn no">Відхилити</button>
+                        <button class="feed-btn ok">Прийняти</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <span class="sec-label" style="margin-top: 32px;">Рекомендації</span>
+        <div style="display: flex; flex-direction: column;">
+            <div class="rec-item">
+                <div class="rec-dot"></div>
+                <div class="rec-body">
+                    <div class="rec-text">Схема зв'язку органів та стану шкіри.</div>
+                    <div class="rec-tags"><span>#014</span> <span>ВІЗУАЛ</span></div>
+                </div>
+                <i data-lucide="x" size="14" color="#dadce0"></i>
+            </div>
+            <div class="rec-item">
+                <div class="rec-dot"></div>
+                <div class="rec-body">
+                    <div class="rec-text">Інфографіка роботи нутрощів.</div>
+                    <div class="rec-tags"><span>#100</span> <span>ВІЗУАЛ</span></div>
+                </div>
+                <i data-lucide="x" size="14" color="#dadce0"></i>
+            </div>
+        </div>
+
+        <button class="repeat-btn" style="width: 100%; margin-top: 24px; padding: 10px; font-size: 13px;">ПРИЙНЯТИ ВСІ ПРАВКИ</button>
+    </div>
+
+    <!-- CONCEPT 3: DATA RIGOR -->
+    <div id="c2" class="concept">
+        <table class="data-table">
+            <tr style="border-bottom: 2px solid var(--border);">
+                <td class="data-cell sec-label">Тип / Абзац</td>
+                <td class="data-cell sec-label">Опис / Пропозиція</td>
+                <td class="data-cell"></td>
+            </tr>
+            <tr class="data-row">
+                <td class="data-cell cell-side">
+                    <span class="data-tag">EDIT</span><br>
+                    027-029
+                </td>
+                <td class="data-cell cell-main">
+                    <b>'признак'</b> → <b>'ознака'</b><br>
+                    <span style="font-size: 11px; color: #5f6368">Усунення русизму.</span>
+                </td>
+                <td class="data-cell cell-acts">
+                    <i data-lucide="check-circle" color="#1e8e3e" size="16"></i>
+                </td>
+            </tr>
+            <tr class="data-row">
+                <td class="data-cell cell-side">
+                    <span class="data-tag">EDIT</span><br>
+                    100
+                </td>
+                <td class="data-cell cell-main">
+                    Зміна детокс-риторики на наукову.
+                </td>
+                <td class="data-cell cell-acts">
+                    <i data-lucide="check-circle" color="#dadce0" size="16"></i>
+                </td>
+            </tr>
+            <tr class="data-row">
+                <td class="data-cell cell-side">
+                    <span class="data-tag" style="background:#FFF7E0; color:#B45309">REC</span><br>
+                    014
+                </td>
+                <td class="data-cell cell-main">
+                    Схема "Шкіра як дзеркало": зв'язок органів.
+                </td>
+                <td class="data-cell cell-acts">
+                    <i data-lucide="plus-square" color="#dadce0" size="16"></i>
+                </td>
+            </tr>
+        </table>
+
+        <div class="accept-all-float">
+            <span>2 правки обрано</span>
+            <span style="display:flex; align-items:center; gap:8px; cursor:pointer">ПРИЙНЯТИ <i data-lucide="chevron-right" size="16"></i></span>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        function switchTab(index) {
+            document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+                btn.classList.toggle('active', i === index);
+            });
+            document.querySelectorAll('.concept').forEach((div, i) => {
+                div.classList.toggle('active', i === index);
+            });
+        }
+    </script>
+</body>
+</html>

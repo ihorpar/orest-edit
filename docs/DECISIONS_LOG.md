@@ -6,10 +6,10 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-13
 
-### Gemini local replace proposals use a lightweight string contract
-Decision: for Gemini `rewrite`, `simplify`, and `expand` proposals, the server asks for `{"replacements":[...],"reason":"..."}` and reconstructs the final block diff locally instead of requiring Gemini to emit nested `newBlocks` JSON.
+### Replace proposals use lightweight content contracts
+Decision: `review/proposal` replace-type actions do not ask providers to emit nested editor-native block JSON. Instead, providers return lightweight content contracts (`{"replacements":[...],"reason":"..."}` for `rewrite/simplify/expand`, `{"items":[...],"reason":"..."}` for `list`), and the server reconstructs the final block diff locally.
 
-Reason: the old nested Gemini diff contract timed out on simple local replace requests, while the lighter contract preserved block-first apply semantics and returned promptly on the same payload and model.
+Reason: the old nested diff contract forced the LLM to serialize editor internals, increasing latency and fragility. The lighter contracts preserve block-first apply semantics, reduce timeout risk, and keep frontend response shape unchanged.
 
 ### Explicit subsection instructions bypass model generation
 Decision: when a subsection recommendation already includes explicit `Підзаголовок:` and `Текст:` content, proposal generation should build the draft deterministically without calling an LLM.

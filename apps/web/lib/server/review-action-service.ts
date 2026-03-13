@@ -1,4 +1,4 @@
-import { createPatchId, type PatchRequest } from "../editor/patch-contract.ts";
+import { createPatchId } from "../editor/patch-contract.ts";
 import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../editor/manuscript-structure.ts";
 import { createInlineText, getBlockText, getInlineText, type Block } from "../editor/document-model.ts";
 import type {
@@ -18,7 +18,7 @@ import {
 } from "../editor/review-contract.ts";
 import { getVisualStylePresetGuide, getVisualStylePresetLabel, normalizeVisualStylePreset } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
-import { createFallbackOperations, generatePatchResponse, resolveProviderApiKey } from "./patch-service.ts";
+import { createFallbackOperations, resolveProviderApiKey } from "./patch-service.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
@@ -28,11 +28,24 @@ const requestTimeoutMs = 45000;
 
 type FetchLike = typeof fetch;
 type InfographicLayout = "comparison" | "process" | "timeline" | "cause_effect" | "layers" | "diagram";
-type GeminiReplaceTextResult = {
-  replacements: string[];
+type ReplaceProposalContentResult = {
+  newBlocks: Block[];
   reason: string;
   rawOutput: string;
 };
+
+const openAiReplaceTextSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    replacements: {
+      type: "array",
+      items: { type: "string" }
+    },
+    reason: { type: "string" }
+  },
+  required: ["replacements", "reason"]
+} as const;
 
 const geminiReplaceTextSchema = {
   type: "OBJECT",
@@ -44,6 +57,31 @@ const geminiReplaceTextSchema = {
     reason: { type: "STRING" }
   },
   required: ["replacements", "reason"]
+} as const;
+
+const openAiListReplaceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    items: {
+      type: "array",
+      items: { type: "string" }
+    },
+    reason: { type: "string" }
+  },
+  required: ["items", "reason"]
+} as const;
+
+const geminiListReplaceSchema = {
+  type: "OBJECT",
+  properties: {
+    items: {
+      type: "ARRAY",
+      items: { type: "STRING" }
+    },
+    reason: { type: "STRING" }
+  },
+  required: ["items", "reason"]
 } as const;
 
 export interface GenerateReviewActionOptions {
@@ -90,144 +128,52 @@ export async function generateReviewAction(
   }
 
   if (isReplaceReviewType(normalizedRequest.item.recommendationType)) {
-    if (shouldUseGeminiFastReplacePath(normalizedRequest)) {
-      const apiKey = normalizedRequest.apiKey ?? resolveProviderApiKey(normalizedRequest.provider, readEnvValue);
+    const apiKey = normalizedRequest.apiKey ?? resolveProviderApiKey(normalizedRequest.provider, readEnvValue);
 
-      if (!apiKey) {
-        const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
-
-        return {
-          proposal: fallbackProposal,
-          providerUsed: normalizedRequest.provider,
-          usedFallback: true,
-          error: `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env, тому показано локальну чернетку.`,
-          diagnostics: {
-            ...diagnosticsBase,
-            proposalKind: "text_diff"
-          }
-        };
-      }
-
-      try {
-        const fastReplaceResult = await createGeminiFastReplaceProposal(normalizedRequest, apiKey, fetchImpl);
-        const proposal = buildReplaceProposal(normalizedRequest, fastReplaceResult.replacements, fastReplaceResult.reason);
-
-        return {
-          proposal,
-          providerUsed: "gemini:text_replace",
-          usedFallback: false,
-          diagnostics: {
-            ...diagnosticsBase,
-            proposalKind: "text_diff",
-            rawOutput: fastReplaceResult.rawOutput
-          }
-        };
-      } catch (error) {
-        const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
-
-        return {
-          proposal: fallbackProposal,
-          providerUsed: `fallback:${normalizedRequest.provider}`,
-          usedFallback: true,
-          error: formatReplaceProviderErrorMessage(normalizedRequest.provider, error),
-          diagnostics: {
-            ...diagnosticsBase,
-            proposalKind: "text_diff",
-            rawError: formatRawError(error)
-          }
-        };
-      }
-    }
-
-    const patchRequest: PatchRequest = {
-      document: normalizedRequest.document,
-      targetBlockIds: normalizedRequest.item.anchor.blockIds,
-      mode: "custom",
-      prompt: buildTextProposalPrompt(normalizedRequest),
-      provider: normalizedRequest.provider,
-      modelId: normalizedRequest.modelId,
-      apiKey: normalizedRequest.apiKey,
-      basePrompt: [normalizedRequest.basePrompt, normalizedRequest.reviewLevelGuide].filter(Boolean).join("\n\n")
-    };
-
-    const patchResponse = await generatePatchResponse(patchRequest, {
-      fetchImpl,
-      now,
-      readEnvValue
-    });
-    const operation = patchResponse.operations[0];
-
-    if (!operation) {
-      const message = patchResponse.error ?? "Не вдалося підготувати diff для цієї рекомендації.";
+    if (!apiKey) {
+      const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
 
       return {
-        proposal: createStaleProposal(normalizedRequest, message),
-        providerUsed: patchResponse.providerUsed,
-        usedFallback: patchResponse.usedFallback,
-        error: message,
-        diagnostics: {
-          ...diagnosticsBase,
-          proposalKind: "stale_anchor",
-          rawOutput: patchResponse.diagnostics.rawOutput,
-          rawError: patchResponse.diagnostics.rawError
-        }
-      };
-    }
-
-    const constrainedOperation = constrainReplaceProposalOperation(operation, request.item.recommendationType);
-
-    if (!constrainedOperation) {
-      const message = "Не вдалося нормалізувати правку до безпечного block-first формату.";
-
-      return {
-        proposal: createStaleProposal(normalizedRequest, message),
-        providerUsed: patchResponse.providerUsed,
+        proposal: fallbackProposal,
+        providerUsed: normalizedRequest.provider,
         usedFallback: true,
-        error: message,
+        error: `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env, тому показано локальну чернетку.`,
         diagnostics: {
           ...diagnosticsBase,
-          proposalKind: "stale_anchor",
-          rawOutput: patchResponse.diagnostics.rawOutput,
-          rawError: patchResponse.diagnostics.rawError
+          proposalKind: "text_diff"
         }
       };
     }
 
-    const normalizedOperation = normalizeReviewTextDiffOperation(constrainedOperation, request.item.recommendationType);
-    const qualityWarning = detectReplaceNoOpWarning(
-      normalizedRequest.item.recommendationType,
-      normalizedOperation.oldBlocks,
-      normalizedOperation.newBlocks
-    );
+    try {
+      const replaceResult = await createReplaceProposalContent(normalizedRequest, apiKey, fetchImpl);
+      const proposal = buildReplaceProposalFromBlocks(normalizedRequest, replaceResult.newBlocks, replaceResult.reason);
 
-    return {
-      proposal: {
-        id: createPatchId("proposal"),
-        reviewItemId: normalizedRequest.item.id,
-        sourceRevisionId: normalizedRequest.item.documentRevisionId,
-        targetRevisionId: normalizedRequest.currentRevision.documentRevisionId,
-        kind: "text_diff",
-        summary: constrainedOperation.reason,
-        canApplyDirectly: true,
-        textDiff: {
-          op: "replace_blocks",
-          blockIds: normalizedOperation.blockIds,
-          oldBlocks: normalizedOperation.oldBlocks,
-          newBlocks: normalizedOperation.newBlocks,
-          reason: normalizedOperation.reason,
-          warning: qualityWarning ?? undefined
+      return {
+        proposal,
+        providerUsed: getReplaceProviderUsed(normalizedRequest.item.recommendationType, normalizedRequest.provider),
+        usedFallback: false,
+        diagnostics: {
+          ...diagnosticsBase,
+          proposalKind: "text_diff",
+          rawOutput: replaceResult.rawOutput
         }
-      },
-      providerUsed: patchResponse.providerUsed,
-      usedFallback: patchResponse.usedFallback,
-      error: patchResponse.error,
-      diagnostics: {
-        ...diagnosticsBase,
-        proposalKind: "text_diff",
-        rawOutput: patchResponse.diagnostics.rawOutput,
-        rawError: patchResponse.diagnostics.rawError
-      }
-    };
+      };
+    } catch (error) {
+      const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
+
+      return {
+        proposal: fallbackProposal,
+        providerUsed: `fallback:${normalizedRequest.provider}`,
+        usedFallback: true,
+        error: formatReplaceProviderErrorMessage(normalizedRequest.provider, error),
+        diagnostics: {
+          ...diagnosticsBase,
+          proposalKind: "text_diff",
+          rawError: formatRawError(error)
+        }
+      };
+    }
   }
 
   if (normalizedRequest.item.recommendationType === "subsection") {
@@ -442,23 +388,30 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
     .join("\n\n");
 }
 
-function shouldUseGeminiFastReplacePath(request: ReviewActionRequest): boolean {
-  return (
-    request.provider === "gemini" &&
-    (request.item.recommendationType === "rewrite" ||
-      request.item.recommendationType === "simplify" ||
-      request.item.recommendationType === "expand")
-  );
-}
-
-function buildGeminiFastReplacePrompt(request: ReviewActionRequest): string {
+function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
   const selectedBlocks = request.item.anchor.blockIds
     .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
     .filter((block): block is Block => Boolean(block));
   const blockCount = selectedBlocks.length;
 
+  if (request.item.recommendationType === "list") {
+    return [
+      `Перетвори ${blockCount} вибраних блоків на короткий, читабельний список без нових фактів.`,
+      "Поверни лише JSON без markdown.",
+      'Схема: {"items":["..."],"reason":"..."}.',
+      "items: 2-7 коротких пунктів plain text без маркерів; сервер сам збере bullet list.",
+      "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
+      `Редакторська рекомендація: ${request.item.recommendation}`,
+      `Причина: ${request.item.reason}`,
+      "Вибрані блоки:",
+      selectedBlocks.map((block, index) => `[${index + 1}] (${block.type}) ${getBlockText(block)}`).join("\n")
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
   return [
-    getGeminiFastReplaceInstruction(request.item.recommendationType, blockCount),
+    getReplaceTextInstruction(request.item.recommendationType, blockCount),
     "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
     "Пріоритет: перепиши саме вибрані блоки. Якщо рекомендація ширша за локальний фрагмент, адаптуй лише локальне формулювання.",
     "Якщо вибраний блок є коротким вступом або lead-in фразою, редагуй саме цю lead-in фразу, не вигадуй відсутній сусідній текст.",
@@ -473,7 +426,7 @@ function buildGeminiFastReplacePrompt(request: ReviewActionRequest): string {
     .join("\n\n");
 }
 
-function getGeminiFastReplaceInstruction(type: EditorialReviewRecommendationType, blockCount: number): string {
+function getReplaceTextInstruction(type: EditorialReviewRecommendationType, blockCount: number): string {
   if (type === "simplify") {
     return `Спрости ${blockCount} вибраних блоків для широкого читача без втрати змісту і без нових фактів.`;
   }
@@ -485,88 +438,67 @@ function getGeminiFastReplaceInstruction(type: EditorialReviewRecommendationType
   return `Локально перепиши ${blockCount} вибраних блоків ясніше, природніше і спокійніше без зміни фактичного змісту.`;
 }
 
-async function createGeminiFastReplaceProposal(
+function buildReplaceSystemPrompt(request: ReviewActionRequest): string {
+  return [
+    request.basePrompt?.trim(),
+    request.reviewLevelGuide?.trim(),
+    "Ти готуєш локальну block-first заміну вибраних блоків українського рукопису.",
+    "Відповідь має бути короткою, редакторською і строго в межах JSON-схеми."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function createReplaceProposalContent(
   request: ReviewActionRequest,
   apiKey: string,
   fetchImpl: FetchLike
-): Promise<GeminiReplaceTextResult> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+): Promise<ReplaceProposalContentResult> {
+  const systemPrompt = buildReplaceSystemPrompt(request);
+  const prompt = buildReplaceProviderPrompt(request);
+  const rawOutput =
+    request.provider === "gemini"
+      ? await runGeminiStructuredReplacePrompt(request, apiKey, systemPrompt, prompt, fetchImpl)
+      : request.provider === "anthropic"
+        ? await runAnthropicStructuredReplacePrompt(request, apiKey, systemPrompt, prompt, fetchImpl)
+        : await runOpenAiStructuredReplacePrompt(request, apiKey, systemPrompt, prompt, fetchImpl);
 
-  try {
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [
-            {
-              text: [
-                request.basePrompt?.trim(),
-                request.reviewLevelGuide?.trim(),
-                "Ти готуєш локальну block-first заміну вибраних блоків українського рукопису.",
-                "Відповідь має бути короткою, редакторською і строго в межах JSON-схеми."
-              ]
-                .filter(Boolean)
-                .join("\n\n")
-            }
-          ]
-        },
-        contents: [{ role: "user", parts: [{ text: buildGeminiFastReplacePrompt(request) }] }],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-          responseSchema: geminiReplaceTextSchema
-        }
-      }),
-      signal: controller.signal
-    });
-    const payload = (await response.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
-
-    if (!response.ok) {
-      throw new Error(payload.error?.message || "Gemini недоступний.");
-    }
-
-    const rawOutput = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
-
-    if (!rawOutput) {
-      throw new Error("Gemini повернув порожню відповідь для локальної правки.");
-    }
-
-    const parsed = parseLooseJsonObject(rawOutput);
-    const replacements = Array.isArray(parsed?.replacements)
-      ? parsed.replacements.map((value) => (typeof value === "string" ? sanitizeReplacementText(value) : "")).filter(Boolean)
-      : [];
-    const reason = typeof parsed?.reason === "string" && parsed.reason.trim() ? parsed.reason.trim() : "Оновив локальне формулювання.";
-
-    if (replacements.length === 0) {
-      throw new Error("Gemini не повернув придатні локальні replacement-тексти.");
-    }
-
-    return {
-      replacements,
-      reason,
-      rawOutput
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return parseReplaceProposalContent(rawOutput, request);
 }
 
-function buildReplaceProposal(
+function buildReplaceProposalFromBlocks(
   request: ReviewActionRequest,
-  replacements: string[],
+  newBlocks: Block[],
   reason: string
 ): ReviewActionProposal {
-  const oldBlocks = request.item.anchor.blockIds
-    .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
-    .filter((block): block is Block => Boolean(block));
-  const paddedReplacements = normalizeReplacementTextsToExactCount(replacements, oldBlocks);
-  const newBlocks = oldBlocks.map((block, index) => cloneBlockWithText(block, paddedReplacements[index] ?? getBlockText(block)));
-  const normalizedOperation = normalizeReviewTextDiffOperation(
+  const operation = buildReplaceOperation(request, newBlocks, reason);
+
+  return {
+    id: createPatchId("proposal"),
+    reviewItemId: request.item.id,
+    sourceRevisionId: request.item.documentRevisionId,
+    targetRevisionId: request.currentRevision.documentRevisionId,
+    kind: "text_diff",
+    summary: operation.reason,
+    canApplyDirectly: true,
+    textDiff: {
+      op: "replace_blocks",
+      blockIds: operation.blockIds,
+      oldBlocks: operation.oldBlocks,
+      newBlocks: operation.newBlocks,
+      reason: operation.reason,
+      warning: operation.warning ?? undefined
+    }
+  };
+}
+
+function buildReplaceOperation(
+  request: ReviewActionRequest,
+  newBlocks: Block[],
+  reason: string
+): NonNullable<ReviewActionProposal["textDiff"]> & { warning?: { code: "no_op"; message: string; similarity: number } } {
+  const oldBlocks = getReplaceOldBlocks(request);
+  const constrainedOperation = constrainReplaceProposalOperation(
     {
       op: "replace_blocks",
       blockIds: request.item.anchor.blockIds,
@@ -576,25 +508,24 @@ function buildReplaceProposal(
     },
     request.item.recommendationType
   );
+
+  if (!constrainedOperation) {
+    throw new Error("Не вдалося нормалізувати правку до безпечного block-first формату.");
+  }
+
+  const normalizedOperation = normalizeReviewTextDiffOperation(constrainedOperation, request.item.recommendationType);
   const qualityWarning = detectReplaceNoOpWarning(request.item.recommendationType, normalizedOperation.oldBlocks, normalizedOperation.newBlocks);
 
   return {
-    id: createPatchId("proposal"),
-    reviewItemId: request.item.id,
-    sourceRevisionId: request.item.documentRevisionId,
-    targetRevisionId: request.currentRevision.documentRevisionId,
-    kind: "text_diff",
-    summary: reason,
-    canApplyDirectly: true,
-    textDiff: {
-      op: "replace_blocks",
-      blockIds: normalizedOperation.blockIds,
-      oldBlocks: normalizedOperation.oldBlocks,
-      newBlocks: normalizedOperation.newBlocks,
-      reason: normalizedOperation.reason,
-      warning: qualityWarning ?? undefined
-    }
+    ...normalizedOperation,
+    warning: qualityWarning ?? undefined
   };
+}
+
+function getReplaceOldBlocks(request: ReviewActionRequest): Block[] {
+  return request.item.anchor.blockIds
+    .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
+    .filter((block): block is Block => Boolean(block));
 }
 
 function buildFallbackReplaceProposal(request: ReviewActionRequest): ReviewActionProposal {
@@ -609,29 +540,7 @@ function buildFallbackReplaceProposal(request: ReviewActionRequest): ReviewActio
     basePrompt: [request.basePrompt, request.reviewLevelGuide].filter(Boolean).join("\n\n")
   })[0];
 
-  return buildReplaceProposal(
-    request,
-    fallbackOperation.newBlocks.map((block) => getBlockText(block)),
-    fallbackOperation.reason
-  );
-}
-
-function normalizeReplacementTextsToExactCount(replacements: string[], oldBlocks: Block[]): string[] {
-  if (replacements.length === oldBlocks.length) {
-    return replacements;
-  }
-
-  if (replacements.length > oldBlocks.length) {
-    return replacements.slice(0, oldBlocks.length);
-  }
-
-  const padded = replacements.slice();
-
-  for (let index = padded.length; index < oldBlocks.length; index += 1) {
-    padded.push(getBlockText(oldBlocks[index] ?? oldBlocks[oldBlocks.length - 1] ?? { id: createPatchId("block"), type: "paragraph", content: [createInlineText("")] }));
-  }
-
-  return padded;
+  return buildReplaceProposalFromBlocks(request, fallbackOperation.newBlocks, fallbackOperation.reason);
 }
 
 function formatReplaceProviderErrorMessage(provider: string, error: unknown): string {
@@ -644,6 +553,10 @@ function formatReplaceProviderErrorMessage(provider: string, error: unknown): st
   }
 
   return `${providerDisplayName(provider)} недоступний, тому показано локальну fallback-правку.`;
+}
+
+function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provider: string): string {
+  return `${provider}:${type === "list" ? "list_replace" : "text_replace"}`;
 }
 
 function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
@@ -1452,6 +1365,335 @@ function parseImageDraftOutput(
     caption: fallbackCaptionValue,
     alt: fallbackAltValue
   };
+}
+
+function parseReplaceProposalContent(rawOutput: string, request: ReviewActionRequest): ReplaceProposalContentResult {
+  const oldBlocks = getReplaceOldBlocks(request);
+  const parsedObject = parseLooseJsonObject(rawOutput);
+  const reason = typeof parsedObject?.reason === "string" && parsedObject.reason.trim() ? parsedObject.reason.trim() : "Оновив локальне формулювання.";
+
+  if (request.item.recommendationType === "list") {
+    const newBlocks =
+      parseListReplaceBlocks(parsedObject, oldBlocks) ??
+      parseLegacyReplaceBlocks(parsedObject, oldBlocks) ??
+      buildListBlocksFromPlainText(rawOutput, oldBlocks);
+
+    if (newBlocks.length === 0) {
+      throw new Error("Провайдер не повернув придатний list draft.");
+    }
+
+    return { newBlocks, reason, rawOutput };
+  }
+
+  const newBlocks =
+    parseTextReplaceBlocks(parsedObject, oldBlocks) ??
+    parseLegacyReplaceBlocks(parsedObject, oldBlocks) ??
+    buildTextBlocksFromPlainText(rawOutput, oldBlocks);
+
+  if (newBlocks.length === 0) {
+    throw new Error("Провайдер не повернув придатний replace draft.");
+  }
+
+  return { newBlocks, reason, rawOutput };
+}
+
+function parseTextReplaceBlocks(record: Record<string, unknown> | null, oldBlocks: Block[]): Block[] | null {
+  if (!Array.isArray(record?.replacements)) {
+    return null;
+  }
+
+  const replacements = record.replacements
+    .map((value) => (typeof value === "string" ? sanitizeReplacementText(value) : ""))
+    .filter(Boolean);
+
+  if (replacements.length === 0) {
+    return null;
+  }
+
+  return normalizeTextReplacementBlocks(replacements, oldBlocks);
+}
+
+function parseListReplaceBlocks(record: Record<string, unknown> | null, oldBlocks: Block[]): Block[] | null {
+  if (!Array.isArray(record?.items)) {
+    return null;
+  }
+
+  const items = record.items
+    .map((value) => (typeof value === "string" ? sanitizeListItemText(value) : ""))
+    .filter(Boolean);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return [buildBulletListBlock(items, oldBlocks[0]?.id)];
+}
+
+function parseLegacyReplaceBlocks(record: Record<string, unknown> | null, oldBlocks: Block[]): Block[] | null {
+  if (!Array.isArray(record?.operations)) {
+    return null;
+  }
+
+  const firstOperation = record.operations[0];
+
+  if (!firstOperation || typeof firstOperation !== "object") {
+    return null;
+  }
+
+  const candidateBlocks = (firstOperation as Record<string, unknown>).newBlocks;
+
+  if (!Array.isArray(candidateBlocks)) {
+    return null;
+  }
+
+  const normalized = coerceProviderBlocks(candidateBlocks, oldBlocks);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function buildTextBlocksFromPlainText(rawOutput: string, oldBlocks: Block[]): Block[] {
+  if (oldBlocks.length === 0) {
+    return [];
+  }
+
+  const cleaned = sanitizeReplacementText(rawOutput);
+
+  if (!cleaned) {
+    return [];
+  }
+
+  return normalizeTextReplacementBlocks([cleaned], oldBlocks);
+}
+
+function buildListBlocksFromPlainText(rawOutput: string, oldBlocks: Block[]): Block[] {
+  const items = splitListItemsForBlock(rawOutput);
+  return items.length > 0 ? [buildBulletListBlock(items, oldBlocks[0]?.id)] : [];
+}
+
+function normalizeTextReplacementBlocks(replacements: string[], oldBlocks: Block[]): Block[] {
+  const padded = replacements.slice(0, oldBlocks.length);
+
+  for (let index = padded.length; index < oldBlocks.length; index += 1) {
+    padded.push(getBlockText(oldBlocks[index] ?? oldBlocks[oldBlocks.length - 1]));
+  }
+
+  return oldBlocks.map((block, index) => cloneBlockWithText(block, padded[index] ?? getBlockText(block)));
+}
+
+function buildBulletListBlock(items: string[], id?: string): Block {
+  return {
+    id: id ?? createPatchId("block"),
+    type: "bullet_list",
+    items: items.map((item) => [createInlineText(item)])
+  };
+}
+
+function coerceProviderBlocks(candidates: unknown[], oldBlocks: Block[]): Block[] {
+  const normalized: Block[] = [];
+
+  for (const [index, candidate] of candidates.entries()) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    const type = typeof record.type === "string" ? record.type : "paragraph";
+    const fallbackId = oldBlocks[index]?.id ?? createPatchId("block");
+
+    if (type === "bullet_list" || type === "ordered_list") {
+      const items = Array.isArray(record.items)
+        ? record.items
+            .map((item) =>
+              Array.isArray(item)
+                ? item.map((node) => (node && typeof node === "object" && typeof (node as Record<string, unknown>).text === "string"
+                    ? sanitizeListItemText(String((node as Record<string, unknown>).text))
+                    : ""))
+                    .join("")
+                : ""
+            )
+            .map((item) => sanitizeListItemText(item))
+            .filter(Boolean)
+        : [];
+
+      if (items.length > 0) {
+        normalized.push({
+          id: fallbackId,
+          type,
+          items: items.map((item) => [createInlineText(item)])
+        } as Block);
+      }
+
+      continue;
+    }
+
+    const contentText = Array.isArray(record.content)
+      ? record.content
+          .map((node) =>
+            node && typeof node === "object" && typeof (node as Record<string, unknown>).text === "string"
+              ? String((node as Record<string, unknown>).text)
+              : ""
+          )
+          .join("")
+      : typeof record.text === "string"
+        ? record.text
+        : "";
+
+    if (!contentText.trim()) {
+      continue;
+    }
+
+    normalized.push({
+      id: fallbackId,
+      type: type === "heading" ? "heading" : "paragraph",
+      ...(type === "heading" ? { level: 2 as const } : {}),
+      content: [createInlineText(sanitizeReplacementText(contentText))]
+    } as Block);
+  }
+
+  return normalized;
+}
+
+async function runOpenAiStructuredReplacePrompt(
+  request: ReviewActionRequest,
+  apiKey: string,
+  systemPrompt: string,
+  prompt: string,
+  fetchImpl: FetchLike
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const schema = request.item.recommendationType === "list" ? openAiListReplaceSchema : openAiReplaceTextSchema;
+    const response = await fetchImpl(openAiEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: request.modelId,
+        instructions: systemPrompt,
+        input: prompt,
+        text: {
+          format: {
+            type: "json_schema",
+            name: request.item.recommendationType === "list" ? "replace_list" : "replace_text",
+            strict: true,
+            schema
+          }
+        }
+      }),
+      signal: controller.signal
+    });
+    const payload = (await response.json()) as { output_text?: string; error?: { message?: string } };
+
+    if (!response.ok) {
+      throw new Error(payload.error?.message || "OpenAI недоступний.");
+    }
+
+    const output = payload.output_text?.trim();
+
+    if (!output) {
+      throw new Error("OpenAI повернув порожню відповідь для локальної правки.");
+    }
+
+    return output;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runGeminiStructuredReplacePrompt(
+  request: ReviewActionRequest,
+  apiKey: string,
+  systemPrompt: string,
+  prompt: string,
+  fetchImpl: FetchLike
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const schema = request.item.recommendationType === "list" ? geminiListReplaceSchema : geminiReplaceTextSchema;
+    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: "application/json",
+          responseSchema: schema
+        }
+      }),
+      signal: controller.signal
+    });
+    const payload = (await response.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
+
+    if (!response.ok) {
+      throw new Error(payload.error?.message || "Gemini недоступний.");
+    }
+
+    const output = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
+
+    if (!output) {
+      throw new Error("Gemini повернув порожню відповідь для локальної правки.");
+    }
+
+    return output;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runAnthropicStructuredReplacePrompt(
+  request: ReviewActionRequest,
+  apiKey: string,
+  systemPrompt: string,
+  prompt: string,
+  fetchImpl: FetchLike
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const response = await fetchImpl(anthropicEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": anthropicVersion
+      },
+      body: JSON.stringify({
+        model: request.modelId,
+        max_tokens: 1200,
+        system: `${systemPrompt}\n\nПоверни лише JSON без markdown і без пояснень поза JSON.`,
+        messages: [{ role: "user", content: prompt }]
+      }),
+      signal: controller.signal
+    });
+    const payload = (await response.json()) as { content?: Array<{ text?: string }>; error?: { message?: string } };
+
+    if (!response.ok) {
+      throw new Error(payload.error?.message || "Anthropic недоступний.");
+    }
+
+    const output = payload.content?.map((part) => part.text ?? "").join("\n").trim();
+
+    if (!output) {
+      throw new Error("Anthropic повернув порожню відповідь для локальної правки.");
+    }
+
+    return output;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: string, fetchImpl: FetchLike): Promise<string> {

@@ -47,6 +47,7 @@ Status: Active handoff
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
+- Replace-type proposal generation (`rewrite`, `simplify`, `expand`, `list`) now runs through a dedicated lightweight proposal-content contract in `review-action-service` instead of reusing the generic nested patch-diff generator; LLMs return plain replacement content (`replacements[]` or `items[]`) and the server reconstructs final block-first `text_diff`
 - Gemini `rewrite`/`simplify`/`expand` proposal generation now uses a lightweight `replacements[] + reason` schema with local block reconstruction instead of the older nested Gemini `newBlocks` contract, which avoids timeout-prone local replace requests on Flash Lite
 - Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
 - Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
@@ -121,6 +122,6 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update
 - `npm run test -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update (13/13 suites)
 - `npm run typecheck -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand`
-- `npm run test -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand` (69/69 tests)
-- Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.4s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
+- `npm run test -w @orest/web` passed on 2026-03-13 after replace-proposal architecture simplification (70/70 tests), including lightweight OpenAI/Gemini replace-schema checks and existing frontend-adjacent apply/execution-lane coverage
+- Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

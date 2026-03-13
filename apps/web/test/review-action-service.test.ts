@@ -726,6 +726,9 @@ test("generateReviewAction keeps replace-proposal provider prompt scoped to sele
   assert.match(String(requestBody?.input ?? ""), /Цільовий абзац 2/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний вступ/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний хвіст/i);
+  assert.deepEqual((requestBody as any)?.text?.format?.schema?.required, ["replacements", "reason"]);
+  assert.equal((requestBody as any)?.text?.format?.schema?.properties?.replacements?.items?.type, "string");
+  assert.equal((requestBody as any)?.text?.format?.schema?.properties?.operations, undefined);
 });
 
 test("generateReviewAction keeps list replacements within selection block ceiling", async () => {
@@ -858,6 +861,67 @@ test("generateReviewAction coerces list recommendation into list block when prov
   assert.equal(response.proposal.kind, "text_diff");
   assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
   assert.equal((response.proposal.textDiff?.newBlocks[0] as { items?: unknown[] } | undefined)?.items?.length, 3);
+});
+
+test("generateReviewAction sends lightweight OpenAI list schema instead of nested block diff schema", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Крок А. Крок Б. Крок В." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, any> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-openai-1",
+        reviewSessionId: "review-session-11",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Крок А. Крок Б. Крок В.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, any>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: "{\"items\":[\"Крок А\",\"Крок Б\",\"Крок В\"],\"reason\":\"Сформував короткий список.\"}"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "openai:list_replace");
+  assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
+  assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items", "reason"]);
+  assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
+  assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
 });
 
 test("generateReviewAction accepts structured visual JSON with prompt/caption/alt", async () => {
@@ -1156,7 +1220,7 @@ test("generateReviewAction forwards raw provider abort diagnostics for rewrite p
   assert.equal(response.proposal.kind, "text_diff");
   assert.equal(response.usedFallback, true);
   assert.equal(response.providerUsed, "fallback:openai");
-  assert.match(response.error ?? "", /перевищив таймаут 60с/i);
+  assert.match(response.error ?? "", /перевищив таймаут 45с/i);
   assert.match(response.diagnostics.rawError ?? "", /AbortError: This operation was aborted/);
 });
 

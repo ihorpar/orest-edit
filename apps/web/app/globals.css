@@ -5758,6 +5758,8 @@ textarea:focus {
 .block-callout-body,
 .block-table-cell,
 .block-image-caption {
+  font-family: var(--font-manuscript, "Georgia", serif);
+  color: #334155;
   font-size: 17px;
   line-height: 1.8;
 }
@@ -5765,6 +5767,7 @@ textarea:focus {
 .block-list {
   margin: 0;
   padding-left: 22px;
+  font-family: var(--font-manuscript, "Georgia", serif);
 }
 
 .block-list-item,
