@@ -4,9 +4,12 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
+  DEFAULT_EDITOR_SETTINGS,
   getVisualStylePresetGuide,
   getVisualStylePresetOptions,
-  normalizeVisualStylePreset
+  normalizeVisualStylePreset,
+  writeEditorSettings,
+  readEditorSettings
 } from "../lib/editor/settings.ts";
 
 test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind explicitly", () => {
@@ -36,4 +39,38 @@ test("visual style preset helpers expose all supported presets and fallback safe
   assert.match(getVisualStylePresetGuide("modern_glass"), /liquid-glass/i);
   assert.equal(normalizeVisualStylePreset("neo_brutal"), "neo_brutal");
   assert.equal(normalizeVisualStylePreset("unknown-style"), "calm_gradient");
+});
+
+test("writeEditorSettings persists selected Gemini connection to localStorage", () => {
+  const storage = new Map<string, string>();
+  const originalWindow = globalThis.window;
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        }
+      }
+    }
+  });
+
+  try {
+    writeEditorSettings({
+      ...DEFAULT_EDITOR_SETTINGS,
+      provider: "gemini",
+      modelId: "gemini-2.5-flash"
+    });
+
+    const restored = readEditorSettings();
+    assert.equal(restored.provider, "gemini");
+    assert.equal(restored.modelId, "gemini-2.5-flash");
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
 });

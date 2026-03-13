@@ -5,7 +5,7 @@ import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   const authFailure = await requireApiSession(request);

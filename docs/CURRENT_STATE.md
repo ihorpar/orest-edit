@@ -47,6 +47,7 @@ Status: Active handoff
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
+- Gemini `rewrite`/`simplify`/`expand` proposal generation now uses a lightweight `replacements[] + reason` schema with local block reconstruction instead of the older nested Gemini `newBlocks` contract, which avoids timeout-prone local replace requests on Flash Lite
 - Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
 - Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
@@ -70,6 +71,7 @@ Status: Active handoff
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
 - Settings live at `/settings` and still provide provider/model/API-key configuration with live validation
+- Successful connection checks on `/settings` now also persist the selected provider/model/API-key locally, so `/editor` reuses the validated connection on the next load
 - In-app password auth still gates `/editor`, `/settings`, and API routes through `/login`
 - A repo-native production deploy fallback now exists at `.github/workflows/vercel-production-deploy.yml` (push to `master` -> `vercel build --prod` -> `vercel deploy --prebuilt --prod`)
 - Ukrainian UI copy remains the product baseline
@@ -118,4 +120,7 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-12 after step-aware review contract migration (13/13 suites, including review-service structured fact-check coverage)
 - `npm run typecheck -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update
 - `npm run test -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update (13/13 suites)
+- `npm run typecheck -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand`
+- `npm run test -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand` (69/69 tests)
+- Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.4s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

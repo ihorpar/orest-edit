@@ -87,6 +87,10 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Regression coverage for block-count guardrails is added in review-action service tests.
   - [x] Full `npm test -w @orest/web` now runs green in this workspace after resolving `esbuild` platform mismatch.
   - [x] Browser QA pass for sample4-style inline behavior is validated via reusable command `npm run qa:inline-review -w @orest/web` (password-gated login, multi-block anchor range, single inline card, manual `callout` and `visual` flows).
+- [x] (2026-03-13 07:55Z) Reworked Gemini `rewrite/simplify/expand` proposal generation to use a lightweight replacement-text schema with local block reconstruction instead of the slow nested `newBlocks` schema.
+  - [x] Verified the previous structured Gemini replace path timed out on the provided one-block `rewrite` payload in ~62s.
+  - [x] Verified the new lightweight Gemini replace path returns a real `text_diff` for the same payload in ~1.4s using `gemini-3.1-flash-lite-preview`.
+  - [x] Added regression coverage for the new Gemini fast replace schema and updated stale timeout assertions to the current 60s behavior.
 
 ## Surprises & Discoveries
 
@@ -119,6 +123,9 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 
 - Observation: style control needs to be local to visual generation flows, not global in `/settings`, to avoid unwanted style lock-in across unrelated recommendations.
   Evidence: manual and manuscript-inline visual actions share one execution lane but are user-triggered per-fragment, so local style state with last-used persistence maps better to actual editing behavior.
+
+- Observation: Gemini Flash Lite is fast for local rewrites when asked for a small string-array contract, but it stalls on the existing nested block-diff schema.
+  Evidence: the provided `rewrite` payload timed out through `generatePatchResponse`, while the new `{"replacements":[...],"reason":"..."}` contract returned a valid response from the same model in ~1.4s.
 
 ## Decision Log
 
@@ -170,6 +177,10 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   Rationale: this keeps execution manuscript-first and reuses the single inline execution lane without introducing a second control surface.
   Date/Author: 2026-03-11 / User-confirmed product direction
 
+- Decision: Gemini `rewrite`, `simplify`, and `expand` proposal generation uses a lightweight replacement-text schema and reconstructs block diffs locally on the server.
+  Rationale: the nested `newBlocks` Gemini schema timed out on simple local replace requests, while the lighter contract preserved block-first apply semantics and returned promptly on the same payload/model.
+  Date/Author: 2026-03-13 / Codex implementation pass
+
 ## Outcomes & Retrospective
 
 This implementation phase is functionally complete for the core manuscript execution model: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place with continuous left-rail rendering, replace diffs render inline below the affected range with old-context highlighting and editable replacement, and insert-type execution runs through one manuscript-inline card while the right rail remains an inbox/focus panel.
@@ -181,6 +192,8 @@ Manual insert generation now also matches this manuscript-first model: editors c
 `subsection` insertion flow, replace output-shape guardrails, and per-type runtime prompt factories are now in place. Validation also advanced: full automated tests now run green, including new coverage for single-lane inline execution and subsection insert-before edge cases.
 
 Validation is now complete for this milestone in the current workspace: `typecheck`, `build`, `test`, and browser QA all pass. Browser QA is now runnable via `npm run qa:inline-review -w @orest/web` once the host has Playwright browser dependencies installed.
+
+The follow-up Gemini rewrite fix sharpened that result for real editor usage: `rewrite/simplify/expand` still end as block-first `text_diff` proposals, but Gemini no longer has to synthesize nested rich-text block JSON for those cases. The server now asks Gemini for one replacement string per selected block and rebuilds the final diff locally, which preserves the editorial workflow while avoiding the timeout-prone contract.
 
 ## Context and Orientation
 
@@ -244,6 +257,8 @@ The intended default rule is:
 - `rewrite`, `simplify`, `expand` preserve selected block count exactly
 - `list` may reduce to one structured list block or preserve the selected count, but must never exceed the selected count
 - soft line breaks stay inside the block; they must not silently become extra blocks
+
+Update note (2026-03-13): Added the Gemini fast replace-path implementation and validation notes after reproducing a live timeout on the old nested block schema with the provided `rewrite` payload.
 
 ### Milestone 4: Subsection Insertion Flow
 

@@ -43,6 +43,15 @@ interface ConnectionStatusSnapshot {
   validatedAt: string | null;
 }
 
+function mergePersistedConnectionSettings(persisted: EditorSettings, current: EditorSettings, currentModelId: string): EditorSettings {
+  return {
+    ...persisted,
+    provider: current.provider,
+    modelId: currentModelId,
+    apiKey: current.apiKey
+  };
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [persistedSettings, setPersistedSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
@@ -156,6 +165,24 @@ export default function SettingsPage() {
           message: payload.message,
           validatedAt: payload.validatedAt
         });
+
+        if (payload.state === "valid") {
+          const nextPersistedSettings = writeEditorSettings(mergePersistedConnectionSettings(persistedSettings, settings, currentModelId));
+          const connectionChanged =
+            !areConnectionSettingsEqual(persistedSettings, nextPersistedSettings) ||
+            !areConnectionSettingsEqual(settings, nextPersistedSettings);
+
+          if (connectionChanged) {
+            setPersistedSettings(nextPersistedSettings);
+            setSettings((current) => ({
+              ...current,
+              provider: nextPersistedSettings.provider,
+              modelId: nextPersistedSettings.modelId,
+              apiKey: nextPersistedSettings.apiKey
+            }));
+            setSaveMessage("Підключення збережено локально в браузері.");
+          }
+        }
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -564,6 +591,10 @@ function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
     left.calloutPromptTemplate === right.calloutPromptTemplate &&
     left.imagePromptTemplate === right.imagePromptTemplate
   );
+}
+
+function areConnectionSettingsEqual(left: EditorSettings, right: EditorSettings) {
+  return left.provider === right.provider && left.modelId === right.modelId && left.apiKey === right.apiKey;
 }
 
 function getConnectionLabel(state: SettingsConnectionState) {

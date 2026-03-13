@@ -13,7 +13,7 @@ import { readServerEnvValue } from "./env.ts";
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
-const requestTimeoutMs = 30000;
+const requestTimeoutMs = 60000;
 const anthropicVersion = "2023-06-01";
 
 const fallbackGlossary: Array<{
@@ -37,7 +37,7 @@ const openAiSchema = {
       type: "array",
       items: {
         type: "object",
-        additionalProperties: true,
+        additionalProperties: false,
         properties: {
           blockIds: {
             type: "array",
@@ -45,7 +45,118 @@ const openAiSchema = {
           },
           newBlocks: {
             type: "array",
-            items: { type: "object" }
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                id: { type: "string" },
+                type: {
+                  type: "string",
+                  enum: ["paragraph", "heading", "bullet_list", "ordered_list", "image", "callout", "divider", "table"]
+                },
+                level: { type: "integer", enum: [1, 2, 3] },
+                content: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      text: { type: "string" },
+                      bold: { type: "boolean" },
+                      italic: { type: "boolean" },
+                      link: { type: "string" }
+                    },
+                    required: ["text"]
+                  }
+                },
+                items: {
+                  type: "array",
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        text: { type: "string" },
+                        bold: { type: "boolean" },
+                        italic: { type: "boolean" },
+                        link: { type: "string" }
+                      },
+                      required: ["text"]
+                    }
+                  }
+                },
+                assetId: { type: "string" },
+                alt: { type: "string" },
+                caption: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      text: { type: "string" },
+                      bold: { type: "boolean" },
+                      italic: { type: "boolean" },
+                      link: { type: "string" }
+                    },
+                    required: ["text"]
+                  }
+                },
+                kind: { type: "string" },
+                title: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      text: { type: "string" },
+                      bold: { type: "boolean" },
+                      italic: { type: "boolean" },
+                      link: { type: "string" }
+                    },
+                    required: ["text"]
+                  }
+                },
+                body: {
+                  type: "array",
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        text: { type: "string" },
+                        bold: { type: "boolean" },
+                        italic: { type: "boolean" },
+                        link: { type: "string" }
+                      },
+                      required: ["text"]
+                    }
+                  }
+                },
+                rows: {
+                  type: "array",
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          text: { type: "string" },
+                          bold: { type: "boolean" },
+                          italic: { type: "boolean" },
+                          link: { type: "string" }
+                        },
+                        required: ["text"]
+                      }
+                    }
+                  }
+                }
+              },
+              required: ["type"]
+            }
           },
           reason: { type: "string" },
           type: { type: "string", enum: ["clarity", "structure", "terminology", "source", "tone"] }
@@ -82,7 +193,23 @@ type ProviderGenerationResult = {
   operations: PatchOperation[];
   droppedOperationCount: number;
   providerUsed: string;
+  rawOutput?: string;
 };
+
+type ProviderTextResult = {
+  text: string;
+  rawResponse: string;
+};
+
+class ProviderRequestError extends Error {
+  rawResponse?: string;
+
+  constructor(message: string, rawResponse?: string) {
+    super(message);
+    this.name = "ProviderRequestError";
+    this.rawResponse = rawResponse;
+  }
+}
 
 export interface GeneratePatchResponseOptions {
   fetchImpl?: FetchLike;
@@ -139,7 +266,8 @@ export async function generatePatchResponse(
         requestId,
         targetBlockCount: targetBlocks.length,
         error: "Провайдер не повернув придатний diff, тому застосовано безпечну локальну правку.",
-        generatedAt: now()
+        generatedAt: now(),
+        rawOutput: result.rawOutput
       });
     }
 
@@ -154,15 +282,17 @@ export async function generatePatchResponse(
       droppedOperationCount: result.droppedOperationCount,
       usedFallback: false,
       error: result.droppedOperationCount > 0 ? `Частину відповіді провайдера відкинуто як невалідну.` : undefined,
-      generatedAt: now()
+      generatedAt: now(),
+      rawOutput: result.rawOutput
     });
   } catch (error) {
     return buildFallbackPatchResponse({
       patchRequest,
       requestId,
       targetBlockCount: targetBlocks.length,
-      error: error instanceof Error ? error.message : `${providerDisplayName(patchRequest.provider)} недоступний, тому показано локальну fallback-правку.`,
-      generatedAt: now()
+      error: formatProviderErrorMessage(patchRequest.provider, error),
+      generatedAt: now(),
+      rawError: formatRawError(error)
     });
   }
 }
@@ -184,6 +314,8 @@ export function buildPatchResponse(input: {
   usedFallback: boolean;
   generatedAt: string;
   error?: string;
+  rawOutput?: string;
+  rawError?: string;
 }): PatchResponse {
   return {
     operations: input.operations,
@@ -198,7 +330,9 @@ export function buildPatchResponse(input: {
       targetBlockCount: input.targetBlockCount,
       returnedOperationCount: input.operations.length,
       droppedOperationCount: input.droppedOperationCount,
-      generatedAt: input.generatedAt
+      generatedAt: input.generatedAt,
+      rawOutput: input.rawOutput,
+      rawError: input.rawError
     }
   };
 }
@@ -264,15 +398,16 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
       signal: controller.signal
     });
 
-    const rawOutput = await readProviderText(response);
-    const parsed = parsePatchOperations(rawOutput);
+    const providerResult = await readProviderText(response);
+    const parsed = parsePatchOperations(providerResult.text);
 
     const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
     return {
       operations: normalized.operations,
       droppedOperationCount: normalized.droppedCount,
-      providerUsed: "openai"
+      providerUsed: "openai",
+      rawOutput: providerResult.text
     };
   } finally {
     clearTimeout(timeout);
@@ -309,14 +444,15 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
       signal: controller.signal
     });
 
-    const rawOutput = await readGeminiText(response);
-    const parsed = parsePatchOperations(rawOutput);
+    const providerResult = await readGeminiText(response);
+    const parsed = parsePatchOperations(providerResult.text);
     const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
     return {
       operations: normalized.operations,
       droppedOperationCount: normalized.droppedCount,
-      providerUsed: "gemini"
+      providerUsed: "gemini",
+      rawOutput: providerResult.text
     };
   } finally {
     clearTimeout(timeout);
@@ -345,14 +481,15 @@ async function createAnthropicOperations(request: PatchRequest, apiKey: string, 
       signal: controller.signal
     });
 
-    const rawOutput = await readAnthropicText(response);
-    const parsed = parsePatchOperations(rawOutput);
+    const providerResult = await readAnthropicText(response);
+    const parsed = parsePatchOperations(providerResult.text);
     const normalized = normalizePatchOperationsResult(request.document, request.targetBlockIds, parsed.operations);
 
     return {
       operations: normalized.operations,
       droppedOperationCount: normalized.droppedCount,
-      providerUsed: "anthropic"
+      providerUsed: "anthropic",
+      rawOutput: providerResult.text
     };
   } finally {
     clearTimeout(timeout);
@@ -365,6 +502,8 @@ function buildFallbackPatchResponse(input: {
   targetBlockCount: number;
   error: string;
   generatedAt: string;
+  rawOutput?: string;
+  rawError?: string;
 }): PatchResponse {
   return buildPatchResponse({
     requestId: input.requestId,
@@ -377,7 +516,9 @@ function buildFallbackPatchResponse(input: {
     droppedOperationCount: 0,
     usedFallback: true,
     error: input.error,
-    generatedAt: input.generatedAt
+    generatedAt: input.generatedAt,
+    rawOutput: input.rawOutput,
+    rawError: input.rawError
   });
 }
 
@@ -526,66 +667,114 @@ function buildNeighborContext(document: EditorDocument, targetBlockIds: string[]
   return contextBlocks.map((block) => `${block.id}: ${getBlockText(block)}`).join("\n");
 }
 
-async function readProviderText(response: Response): Promise<string> {
-  const payload = (await response.json()) as {
+async function readProviderText(response: Response): Promise<ProviderTextResult> {
+  const rawResponse = await response.text();
+  const payload = parseJsonObject(rawResponse) as {
     output_text?: string;
     output?: Array<{ content?: Array<{ text?: string }> }>;
     error?: { message?: string };
-  };
+  } | null;
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "OpenAI недоступний.");
+    throw new ProviderRequestError(payload?.error?.message || "OpenAI недоступний.", rawResponse);
   }
 
-  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text;
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return { text: payload.output_text, rawResponse };
   }
 
-  const content = payload.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n").trim();
+  const content = payload?.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n").trim();
 
   if (!content) {
-    throw new Error("OpenAI не повернув коректний JSON.");
+    throw new ProviderRequestError("OpenAI не повернув коректний JSON.", rawResponse);
   }
 
-  return content;
+  return { text: content, rawResponse };
 }
 
-async function readGeminiText(response: Response): Promise<string> {
-  const payload = (await response.json()) as {
+async function readGeminiText(response: Response): Promise<ProviderTextResult> {
+  const rawResponse = await response.text();
+  const payload = parseJsonObject(rawResponse) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     error?: { message?: string };
-  };
+  } | null;
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "Gemini недоступний.");
+    throw new ProviderRequestError(payload?.error?.message || "Gemini недоступний.", rawResponse);
   }
 
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
+  const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error("Gemini не повернув коректний JSON.");
+    throw new ProviderRequestError("Gemini не повернув коректний JSON.", rawResponse);
   }
 
-  return text;
+  return { text, rawResponse };
 }
 
-async function readAnthropicText(response: Response): Promise<string> {
-  const payload = (await response.json()) as {
+async function readAnthropicText(response: Response): Promise<ProviderTextResult> {
+  const rawResponse = await response.text();
+  const payload = parseJsonObject(rawResponse) as {
     content?: Array<{ text?: string }>;
     error?: { message?: string };
-  };
+  } | null;
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "Anthropic недоступний.");
+    throw new ProviderRequestError(payload?.error?.message || "Anthropic недоступний.", rawResponse);
   }
 
-  const text = payload.content?.map((part) => part.text ?? "").join("\n").trim();
+  const text = payload?.content?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error("Anthropic не повернув коректний JSON.");
+    throw new ProviderRequestError("Anthropic не повернув коректний JSON.", rawResponse);
   }
 
-  return text;
+  return { text, rawResponse };
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatRawError(error: unknown): string | undefined {
+  if (error instanceof ProviderRequestError) {
+    return error.rawResponse || `${error.name}: ${error.message}`;
+  }
+
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error == null) {
+    return undefined;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function formatProviderErrorMessage(provider: string, error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") {
+    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с, тому показано локальну fallback-правку.`;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return `${providerDisplayName(provider)} недоступний, тому показано локальну fallback-правку.`;
 }
 
 function parsePatchOperations(content: string): { operations: unknown } {

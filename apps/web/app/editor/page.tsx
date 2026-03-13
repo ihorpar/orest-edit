@@ -865,6 +865,7 @@ export default function EditorPage() {
       if (payload.proposal.kind === "text_diff" && payload.proposal.textDiff) {
         const proposal = maybeEscalateReviewNoOpWarning(payload.proposal, item.id, reviewNoOpStreakRef.current);
         const textDiff = proposal.textDiff!;
+        const paragraphLabel = getReviewParagraphRangeLabel(item, revision);
         setActiveProposal(proposal);
         setOperations((current) => [
           ...current,
@@ -875,7 +876,13 @@ export default function EditorPage() {
             oldBlocks: textDiff.oldBlocks,
             newBlocks: textDiff.newBlocks,
             reason: textDiff.reason,
-            type: "clarity"
+            type: "clarity",
+            reviewContext: {
+              recommendation: item.recommendation,
+              reason: item.reason,
+              paragraphLabel,
+              sourceReviewItemId: item.id
+            }
           }
         ]);
         setReviewItems((current) =>
@@ -1831,7 +1838,7 @@ export default function EditorPage() {
                     </div>
                   </details>
 
-                  {feedback?.message ? (
+                  {feedback?.message && feedback.tone === "error" ? (
                     <p className="step-review-status-copy" data-tone={feedback.tone}>
                       {feedback.message}
                     </p>
@@ -1843,19 +1850,18 @@ export default function EditorPage() {
                       <div className="operations-stack">
                         {operations.map((operation) => {
                           const sourceItem = reviewItemByProposalId.get(operation.id);
+                          const operationContext = sourceItem
+                            ? {
+                              recommendation: sourceItem.recommendation,
+                              reason: sourceItem.reason,
+                              paragraphLabel: getReviewParagraphRangeLabel(sourceItem, revision)
+                            }
+                            : operation.reviewContext;
                           return (
                             <OperationCard
                               key={operation.id}
                               operation={operation}
-                              context={
-                                sourceItem
-                                  ? {
-                                    recommendation: sourceItem.recommendation,
-                                    reason: sourceItem.reason,
-                                    paragraphLabel: getReviewParagraphRangeLabel(sourceItem, revision)
-                                  }
-                                  : undefined
-                              }
+                              context={operationContext}
                               onAccept={acceptOperation}
                               onReject={rejectOperation}
                             />
@@ -1879,11 +1885,29 @@ export default function EditorPage() {
                     <div className="step-review-subsection-head">
                       <p className="mono-ui operations-title">Рекомендації</p>
                       <p className="mono-ui step-review-cards-counter" aria-label="Лічильник карток">
-                        <span className="step-review-cards-counter-total">{activeStepCardStats.total}</span>
+                        <span
+                          className="step-review-cards-counter-value step-review-cards-counter-total"
+                          data-tooltip="Усього"
+                          tabIndex={0}
+                        >
+                          {activeStepCardStats.total}
+                        </span>
                         <span className="step-review-cards-counter-separator">/</span>
-                        <span className="step-review-cards-counter-applied">{activeStepCardStats.applied}</span>
+                        <span
+                          className="step-review-cards-counter-value step-review-cards-counter-applied"
+                          data-tooltip="Погоджено"
+                          tabIndex={0}
+                        >
+                          {activeStepCardStats.applied}
+                        </span>
                         <span className="step-review-cards-counter-separator">/</span>
-                        <span className="step-review-cards-counter-dismissed">{activeStepCardStats.dismissed}</span>
+                        <span
+                          className="step-review-cards-counter-value step-review-cards-counter-dismissed"
+                          data-tooltip="Відхилено"
+                          tabIndex={0}
+                        >
+                          {activeStepCardStats.dismissed}
+                        </span>
                       </p>
                     </div>
                     <div className="operations-stack operations-stack-compact">

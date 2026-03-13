@@ -43,20 +43,22 @@ test("generatePatchResponse rejects empty block selection", async () => {
 });
 
 test("generatePatchResponse normalizes provider block operations", async () => {
+  const providerOutput = JSON.stringify({
+    operations: [
+      {
+        blockIds: ["p1"],
+        newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
+        reason: "Спростив блок.",
+        type: "clarity"
+      }
+    ]
+  });
+
   const response = await generatePatchResponse(createRequest({ apiKey: "test-key" }), {
     fetchImpl: async () =>
       new Response(
         JSON.stringify({
-          output_text: JSON.stringify({
-            operations: [
-              {
-                blockIds: ["p1"],
-                newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
-                reason: "Спростив блок.",
-                type: "clarity"
-              }
-            ]
-          })
+          output_text: providerOutput
         }),
         { status: 200, headers: { "content-type": "application/json" } }
       ),
@@ -66,6 +68,21 @@ test("generatePatchResponse normalizes provider block operations", async () => {
   assert.equal(response.usedFallback, false);
   assert.equal(response.operations.length, 1);
   assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.equal(response.diagnostics.rawOutput, providerOutput);
+});
+
+test("generatePatchResponse includes raw abort diagnostics when provider request is canceled", async () => {
+  const response = await generatePatchResponse(createRequest({ apiKey: "test-key" }), {
+    fetchImpl: async () => {
+      throw new DOMException("This operation was aborted", "AbortError");
+    },
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.providerUsed, "fallback:openai");
+  assert.match(response.error ?? "", /перевищив таймаут 60с/i);
+  assert.match(response.diagnostics.rawError ?? "", /AbortError: This operation was aborted/);
 });
 
 test("generatePatchResponse normalizes loose provider text replacement", async () => {
@@ -146,4 +163,57 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
   assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
   assert.doesNotMatch(requestedUrl, /\?key=/);
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+});
+
+test("generatePatchResponse sends strict OpenAI patch schema with closed objects", async () => {
+  let requestBody = "";
+
+  await generatePatchResponse(createRequest({ apiKey: "openai-test-key" }), {
+    fetchImpl: async (_input, init) => {
+      requestBody = typeof init?.body === "string" ? init.body : "";
+
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            operations: [
+              {
+                blockIds: ["p1"],
+                newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
+                reason: "Спростив блок.",
+                type: "clarity"
+              }
+            ]
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    },
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  const payload = JSON.parse(requestBody) as {
+    text?: {
+      format?: {
+        schema?: {
+          properties?: {
+            operations?: {
+              items?: {
+                additionalProperties?: boolean;
+                properties?: {
+                  newBlocks?: {
+                    items?: {
+                      additionalProperties?: boolean;
+                    };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+  };
+
+  assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.additionalProperties, false);
+  assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.properties?.newBlocks?.items?.additionalProperties, false);
 });

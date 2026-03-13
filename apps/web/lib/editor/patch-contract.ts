@@ -25,6 +25,12 @@ export interface PatchOperation {
   newBlocks: Block[];
   reason: string;
   type: PatchOperationType;
+  reviewContext?: {
+    recommendation: string;
+    reason?: string;
+    paragraphLabel?: string;
+    sourceReviewItemId?: string;
+  };
 }
 
 export interface PatchRequest {
@@ -47,6 +53,8 @@ export interface PatchResponseDiagnostics {
   returnedOperationCount: number;
   droppedOperationCount: number;
   generatedAt: string;
+  rawOutput?: string;
+  rawError?: string;
 }
 
 export interface PatchResponse {

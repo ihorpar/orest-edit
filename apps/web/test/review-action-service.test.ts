@@ -1108,6 +1108,127 @@ test("generateReviewAction marks rewrite/simplify no-op proposals with warning",
   assert.match(response.proposal.textDiff?.warning?.message ?? "", /майже не змінює текст/i);
 });
 
+test("generateReviewAction forwards raw provider abort diagnostics for rewrite proposals", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Текст для локальної правки." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-abort-1",
+        reviewSessionId: "review-session-7",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати абзац",
+        reason: "Потрібен ясніший варіант.",
+        recommendation: "Зробити формулювання чіткішим.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Текст для локальної правки.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () => {
+        throw new DOMException("This operation was aborted", "AbortError");
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.providerUsed, "fallback:openai");
+  assert.match(response.error ?? "", /перевищив таймаут 60с/i);
+  assert.match(response.diagnostics.rawError ?? "", /AbortError: This operation was aborted/);
+});
+
+test("generateReviewAction uses Gemini fast replace schema for rewrite proposals", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Може свідчити про наявність:" }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, any> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "gemini",
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-test-key",
+      item: {
+        id: "review-gemini-rewrite-1",
+        reviewSessionId: "review-session-10",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Пом'якшити тон",
+        reason: "Потрібно знизити тривожність формулювання.",
+        recommendation: "Зробити lead-in фразу спокійнішою і природнішою.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Свербіж шкіри",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, any>;
+
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: "{\"replacements\":[\"Це може вказувати на такі стани:\"],\"reason\":\"Пом'якшив локальну lead-in фразу.\"}" }]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "gemini:text_replace");
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal((response.proposal.textDiff?.newBlocks[0] as { content?: Array<{ text: string }> })?.content?.[0]?.text, "Це може вказувати на такі стани:");
+  assert.ok(requestBody);
+  assert.deepEqual(requestBody?.generationConfig?.responseSchema?.required, ["replacements", "reason"]);
+  assert.equal(requestBody?.generationConfig?.responseSchema?.properties?.replacements?.items?.type, "STRING");
+  assert.equal(requestBody?.generationConfig?.responseSchema?.properties?.operations, undefined);
+});
+
 test("generateReviewAction falls back on empty provider output instead of echoing prompt text", async () => {
   const request = createRequest();
   request.apiKey = "test-key";

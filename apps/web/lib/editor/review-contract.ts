@@ -274,6 +274,7 @@ export interface ReviewActionDiagnostics {
   proposalKind: ReviewActionProposalKind;
   generatedAt: string;
   rawOutput?: string;
+  rawError?: string;
 }
 
 export interface ReviewImageGenerationRequest {
