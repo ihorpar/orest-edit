@@ -74,6 +74,7 @@ Status: Active handoff
 - Image prompt assembly now supports `{{visualStyleGuide}}` and always injects style guidance, including fallback injection when placeholder is removed from template
 - `top_list` callout prompt contracts now require source-bound multi-line `Назва: пояснення` entries and include two-shot examples directly in the template
 - Callout parsing/sanitization is now kind-aware for `top_list`, preserving multi-line readability and normalizing entries into actionable `Назва: пояснення` lines
+- Callout parsing/sanitization is now also kind-aware for `myths_vs_truth`, splitting inline `Міф:` / `Правда:` runs into separate draft lines; subsection draft leads now preserve paragraph breaks through preview and insert
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
 - Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
 - Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
@@ -144,6 +145,7 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after drawer simplification pass (single recommendation queue, hide-completed toggle, labeled stats, lighter inline explanation surfaces)
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
 - `npm run test -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (75/75 tests), including new `.txt` and `.docx` import coverage
+- `npm run test -w @orest/web` passed on 2026-03-14 after callout/subsection formatting pass, including new coverage for `myths_vs_truth` line splitting and subsection lead paragraph preservation
 - `npm run build -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

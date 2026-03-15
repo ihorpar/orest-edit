@@ -21,7 +21,7 @@ import { VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelection
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
-import { ArrowDownToLine, RefreshCcw, Sparkles, X } from "lucide-react";
+import { ArrowDownToLine, Info, RefreshCcw, Sparkles, X } from "lucide-react";
 
 export function ReviewRecommendationDetail({
   item,
@@ -110,7 +110,10 @@ export function ReviewRecommendationDetail({
       </div>
 
       <details className="editorial-review-detail-explanation">
-        <summary>Що зробив ШІ?</summary>
+        <summary>
+          <Info size={14} aria-hidden="true" />
+          <span>Що зробив ШІ?</span>
+        </summary>
         <p className="editorial-review-detail-explanation-copy">{item.reason}</p>
         {item.recommendation.trim() !== item.title.trim() ? (
           <p className="editorial-review-detail-explanation-copy">{item.recommendation}</p>

@@ -2005,9 +2005,14 @@ function parseSubsectionDraftOutput(
   }
 
   const plain = sanitizeCalloutText(rawOutput);
-  const lines = plain.split("\n").map((line) => line.trim()).filter(Boolean);
-  const title = lines[0] ?? fallbackTitleValue;
-  const lead = lines.slice(1).join(" ").trim();
+  const lines = plain.split("\n").map((line) => line.trimEnd());
+  const titleLineIndex = lines.findIndex((line) => line.trim());
+  const title = titleLineIndex >= 0 ? lines[titleLineIndex]!.trim() : fallbackTitleValue;
+  const lead = lines
+    .slice(titleLineIndex >= 0 ? titleLineIndex + 1 : 1)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
   return {
     title: sanitizeCalloutTitle(title || fallbackTitleValue),
@@ -2093,6 +2098,11 @@ function sanitizeCalloutText(value: string): string {
 function normalizeCalloutBodyByKind(value: string, calloutKind: EditorialCalloutKind): string {
   const plain = sanitizeCalloutText(value);
 
+  if (calloutKind === "myths_vs_truth") {
+    const normalizedPairs = normalizeMythsVsTruthPairs(plain);
+    return normalizedPairs.length > 0 ? normalizedPairs.join("\n") : plain;
+  }
+
   if (calloutKind !== "top_list") {
     return plain;
   }
@@ -2109,6 +2119,34 @@ function normalizeCalloutBodyByKind(value: string, calloutKind: EditorialCallout
   }
 
   return normalizedLines.join("\n");
+}
+
+function normalizeMythsVsTruthPairs(value: string): string[] {
+  const normalized = value
+    .replace(/\s*(Міф\s*:)/gi, "\n$1")
+    .replace(/\s*(Правда\s*:)/gi, "\n$1")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const pairs: string[] = [];
+
+  for (const line of normalized) {
+    if (/^Міф\s*:/i.test(line) || /^Правда\s*:/i.test(line)) {
+      pairs.push(line.replace(/\s+/g, " ").trim());
+      continue;
+    }
+
+    const lastIndex = pairs.length - 1;
+
+    if (lastIndex >= 0) {
+      pairs[lastIndex] = `${pairs[lastIndex]} ${line}`.replace(/\s+/g, " ").trim();
+    } else {
+      pairs.push(line.replace(/\s+/g, " ").trim());
+    }
+  }
+
+  return pairs;
 }
 
 function normalizeTopListLine(line: string): string {

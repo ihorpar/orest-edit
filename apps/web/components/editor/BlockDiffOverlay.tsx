@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Info } from "lucide-react";
 
 import type { Block } from "../../lib/editor/document-model";
 import { createInlineText, getBlockText } from "../../lib/editor/document-model";
@@ -68,7 +69,10 @@ export function BlockDiffOverlay({
       </div>
 
       <details className="diff-explanation">
-        <summary>Що зробив ШІ?</summary>
+        <summary>
+          <Info size={14} aria-hidden="true" />
+          <span>Що зробив ШІ?</span>
+        </summary>
         <p className="diff-reason">{reason}</p>
       </details>
 

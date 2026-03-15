@@ -5351,7 +5351,7 @@ textarea:focus {
 .step-review-subsection-meta {
   display: grid;
   justify-items: end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .step-review-cards-counter {
@@ -5359,7 +5359,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font: 600 12px/1.2 var(--font-ui, sans-serif);
   letter-spacing: 0.01em;
   color: #64748b;
   flex-wrap: wrap;
@@ -5390,29 +5390,27 @@ textarea:focus {
 }
 
 .step-review-completed-toggle {
-  border: 1px solid #dbe4ef;
-  background: #fff;
-  color: #475569;
-  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  padding: 2px 0;
   border-radius: 0;
-  font: 600 11px/1 var(--font-ui, sans-serif);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font: 500 11px/1.2 var(--font-ui, sans-serif);
+  letter-spacing: 0.02em;
   cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  transition: color 120ms ease, opacity 120ms ease;
+  opacity: 0.8;
 }
 
 .step-review-completed-toggle:hover,
 .step-review-completed-toggle:focus-visible {
-  border-color: #bfdbfe;
   color: #1d4ed8;
-  background: #eff6ff;
+  opacity: 1;
 }
 
 .step-review-completed-toggle[data-active="true"] {
-  border-color: #cbd5e1;
   color: #0f172a;
-  background: #f8fafc;
+  opacity: 1;
 }
 
 .step-review-status-copy {
@@ -5885,8 +5883,8 @@ textarea:focus {
 
 .block-editor-row[data-review-replace="old"] .block-text,
 .block-editor-row[data-review-replace="old"] .block-list-item {
-  color: #b42318;
-  background: rgba(180, 35, 24, 0.06);
+  color: #b9382f;
+  background: rgba(185, 56, 47, 0.04);
   text-decoration: none;
 }
 
@@ -6306,6 +6304,10 @@ textarea:focus {
   line-height: 1.7;
 }
 
+.block-editor-row[data-review-replace="old"] .block-editor-block {
+  padding: 0;
+}
+
 .diff-proposed-editor:focus {
   outline: 1px solid rgba(22, 101, 52, 0.35);
   box-shadow: none;
@@ -6357,12 +6359,15 @@ textarea:focus {
 .diff-explanation {
   margin-top: 10px;
   border-top: 1px solid #edf2f8;
-  padding-top: 10px;
+  padding: 10px 14px 0;
 }
 
 .diff-explanation summary {
   cursor: pointer;
   list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #64748b;
   font: 600 11px/1 var(--font-ui, sans-serif);
   letter-spacing: 0.05em;
@@ -6447,11 +6452,15 @@ textarea:focus {
 
 .editorial-review-detail-explanation {
   margin-top: 10px;
+  padding-inline: 14px;
 }
 
 .editorial-review-detail-explanation summary {
   cursor: pointer;
   list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #64748b;
   font: 600 11px/1 var(--font-ui, sans-serif);
   letter-spacing: 0.05em;
@@ -7028,8 +7037,8 @@ textarea:focus {
 .editorial-review-card-compact {
   padding: 12px 14px;
   --review-card-accent: #94a3b8;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: #fcfcfd;
+  border: 1px solid #edf2f7;
   border-radius: 0;
   display: flex;
   flex-direction: column;
@@ -7056,14 +7065,19 @@ textarea:focus {
 }
 
 .editorial-review-card-compact:hover {
-  border-color: #cbd5e1;
-  box-shadow: inset 2px 0 0 var(--review-card-accent), 0 2px 10px rgba(15, 23, 42, 0.06);
+  border-color: #dbe4ef;
+  background: #fff;
+  box-shadow: inset 2px 0 0 var(--review-card-accent), 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 .editorial-review-card-compact[data-active="true"] {
   background: #f8fbff;
   border-color: #bfdbfe;
-  box-shadow: inset 2px 0 0 var(--review-card-accent), 0 2px 12px rgba(37, 99, 235, 0.12);
+  box-shadow: inset 3px 0 0 var(--review-card-accent), 0 3px 12px rgba(37, 99, 235, 0.1);
+}
+
+.operations-stack-compact .editorial-review-card-compact:not([data-active="true"]) .err-compact-title {
+  color: #1e293b;
 }
 
 .err-compact-head {
@@ -7117,8 +7131,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #dbe4ef;
-  background: #f8fafc;
+  border: 0;
+  background: transparent;
   color: #475569;
   border-radius: 0;
   cursor: pointer;
@@ -7129,7 +7143,6 @@ textarea:focus {
 .editorial-review-card-expand:hover,
 .editorial-review-card-expand:focus-visible {
   background: #eff6ff;
-  border-color: #bfdbfe;
   color: #1d4ed8;
   opacity: 1;
 }
@@ -7142,20 +7155,18 @@ textarea:focus {
 }
 
 .err-compact-range {
-  font-size: 10px;
-  font-family: var(--font-mono, monospace);
+  font: 600 11px/1.2 var(--font-ui, sans-serif);
   font-weight: 600;
   color: #334155;
   background: transparent;
   padding: 0;
   border-radius: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .err-compact-meta {
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  letter-spacing: 0.03em;
+  font: 500 11px/1.2 var(--font-ui, sans-serif);
+  letter-spacing: 0.01em;
   color: #64748b;
   display: flex;
   align-items: center;

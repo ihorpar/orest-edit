@@ -1074,11 +1074,13 @@ export default function EditorPage() {
     ];
 
     if (lead) {
-      blocks.push({
-        id: createBlockId("paragraph"),
-        type: "paragraph",
-        content: [createInlineText(lead)]
-      });
+      blocks.push(
+        ...splitTextIntoParagraphBlocks(lead).map((part) => ({
+          id: createBlockId("paragraph"),
+          type: "paragraph" as const,
+          content: [createInlineText(part)]
+        }))
+      );
     }
 
     commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks));
@@ -2074,7 +2076,7 @@ export default function EditorPage() {
                     <div className="step-review-subsection-head">
                       <p className="mono-ui operations-title">Рекомендації</p>
                       <div className="step-review-subsection-meta">
-                        <p className="mono-ui step-review-cards-counter" aria-label="Лічильник карток">
+                        <p className="step-review-cards-counter" aria-label="Лічильник карток">
                           <span className="step-review-cards-counter-value step-review-cards-counter-total">
                             {activeStepCardStats.actionable} в роботі
                           </span>
@@ -2530,11 +2532,21 @@ function escapeRegExp(value: string): string {
 function splitCalloutDraftIntoParagraphs(text: string, kind: EditorialCalloutKind) {
   const normalized = text.replace(/\r\n?/g, "\n");
   const parts =
-    kind === "top_list"
+    kind === "top_list" || kind === "myths_vs_truth"
       ? normalized.split("\n").map((part) => part.trim()).filter(Boolean)
       : normalized.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
 
   return (parts.length > 0 ? parts : [""]).map((part) => [createInlineText(part)]);
+}
+
+function splitTextIntoParagraphBlocks(text: string): string[] {
+  const parts = text
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [text.trim()];
 }
 
 function maybeEscalateReviewNoOpWarning(

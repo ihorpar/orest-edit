@@ -523,6 +523,69 @@ test("generateReviewAction normalizes top_list callout body into actionable mult
   assert.doesNotMatch(body, /^\s*[-*•]\s+/m);
 });
 
+test("generateReviewAction normalizes myths_vs_truth callout body into separate lines", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Зміна кольору шкіри не завжди означає діагноз." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-myths-1",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати міфи й правду",
+        reason: "Читачеві потрібне чітке розрізнення хибних уявлень і фактів.",
+        recommendation: "Зробити врізку «міфи й правда».",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Зміна кольору шкіри не завжди означає діагноз.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "myths_vs_truth",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"title":"Міфи та правда про сигнали шкіри","body":"Міф: Зміна кольору шкіри є остаточним діагнозом. Правда: Шкіра лише сигналізує про можливі дефіцити або дисбаланси в організмі. Міф: Можна самостійно призначити собі лікування на основі вигляду шкіри. Правда: Ознаки на шкірі вимагають професійного медичного обстеження, а не самолікування.","summary":"Розводить хибні висновки та факти."}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  assert.equal(
+    response.proposal.calloutDraft?.previewText,
+    [
+      "Міф: Зміна кольору шкіри є остаточним діагнозом.",
+      "Правда: Шкіра лише сигналізує про можливі дефіцити або дисбаланси в організмі.",
+      "Міф: Можна самостійно призначити собі лікування на основі вигляду шкіри.",
+      "Правда: Ознаки на шкірі вимагають професійного медичного обстеження, а не самолікування."
+    ].join("\n")
+  );
+});
+
 test("generateReviewAction preserves leading numeric lines in callout body cleanup", async () => {
   const document: EditorDocument = {
     version: 2,
@@ -578,6 +641,28 @@ test("generateReviewAction preserves leading numeric lines in callout body clean
   const body = response.proposal.calloutDraft?.previewText ?? "";
   assert.match(body, /^2024\./m);
   assert.match(body, /^1\)\s500 мг/m);
+});
+
+test("generateReviewAction keeps subsection lead paragraph breaks from plain-text output", async () => {
+  const request = createRequest();
+
+  const response = await generateReviewAction(request, {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text:
+            "Як читати сигнали шкіри\nПерший абзац пояснює, що симптоми часто неспецифічні.\n\nДругий абзац нагадує дивитися на тривалість і супутні ознаки."
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+  });
+
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри");
+  assert.equal(
+    response.proposal.subsectionDraft?.lead,
+    "Перший абзац пояснює, що симптоми часто неспецифічні.\n\nДругий абзац нагадує дивитися на тривалість і супутні ознаки."
+  );
 });
 
 test("generateReviewAction constrains rewrite output to the original block count", async () => {
