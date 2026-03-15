@@ -5429,6 +5429,13 @@ textarea:focus {
   color: #64748b;
 }
 
+.step-review-empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding-top: 2px;
+}
+
 .step-review-fact-table-wrapper {
   width: 100%;
   overflow-x: auto;

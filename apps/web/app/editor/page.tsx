@@ -1641,6 +1641,12 @@ export default function EditorPage() {
   const visibleActiveStepItems = activeStepItems.filter(
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
   );
+  const activeStepRunCount = stepRunHistory[activeWorkflowStep].length;
+  const isUnstartedRecommendationStep =
+    activeWorkflowStep !== "diagnostics" &&
+    activeWorkflowStep !== "fact_check" &&
+    activeStepRunCount === 0 &&
+    activeStepItems.length === 0;
   const activeStepCardStats = useMemo(
     () => getStepCardStats(reviewItems, activeWorkflowStep),
     [activeWorkflowStep, reviewItems]
@@ -1683,10 +1689,14 @@ export default function EditorPage() {
           loading={isReviewRequestInFlight}
           disabled={!canRunDownstreamStep}
           style={{ paddingInline: "10px" }}
-          aria-label={activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
-          title={activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
+          aria-label={activeStepRunCount > 0 || activeStepItems.length > 0 ? "Повторити аналіз" : "Згенерувати картки"}
+          title={activeStepRunCount > 0 || activeStepItems.length > 0 ? "Повторити аналіз" : "Згенерувати картки"}
         >
-          <RefreshCcw size={14} aria-hidden="true" />
+          {activeStepRunCount > 0 || activeStepItems.length > 0 ? (
+            <RefreshCcw size={14} aria-hidden="true" />
+          ) : (
+            <Sparkles size={14} aria-hidden="true" />
+          )}
         </Button>
       );
 
@@ -2115,11 +2125,29 @@ export default function EditorPage() {
                       ))}
                     </div>
                     {visibleActiveStepItems.length === 0 ? (
-                      <p className="step-review-empty-copy">
-                        {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                          ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                          : "Для цього етапу ще немає карток."}
-                      </p>
+                      isUnstartedRecommendationStep ? (
+                        <div className="step-review-empty-state">
+                          <p className="step-review-empty-copy">Для цього етапу ще немає карток.</p>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void requestWorkflowStep(activeWorkflowStep)}
+                            loading={isReviewRequestInFlight}
+                            disabled={!canRunDownstreamStep}
+                          >
+                            <span className="button-content">
+                              <Sparkles size={14} aria-hidden="true" />
+                              <span>Згенерувати картки</span>
+                            </span>
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="step-review-empty-copy">
+                          {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+                            ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
+                            : "Для цього етапу ще немає карток."}
+                        </p>
+                      )
                     ) : null}
                   </section>
                 </div>

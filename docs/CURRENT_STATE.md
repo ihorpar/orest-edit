@@ -79,6 +79,7 @@ Status: Active handoff
 - Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
 - Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
 - Inline replace previews now hide the regular block-delete `×` affordance on the red "before" block, preventing confusion with review cancel/reject actions
+- Recommendation steps with no prior run now show an explicit empty-state CTA (`Згенерувати картки`) in the drawer, while the header control stays compact and switches from rerun to generate semantics/iconography before first run
 - Inline diff execution now demotes rationale behind `Що зробив ШІ?`, keeping the proposed text and apply/cancel actions as the primary surface
 - Inline recommendation detail cards now expose the same `Що зробив ШІ?` disclosure instead of always-on supporting explanation
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
