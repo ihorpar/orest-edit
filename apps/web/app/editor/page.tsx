@@ -25,6 +25,7 @@ import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState } from "../../lib/editor/draft-state";
 import { exportDocumentToDocx } from "../../lib/editor/docx-export";
 import {
+  computeAnchorFingerprint,
   deriveManuscriptRevisionState,
   resolveReviewItemSelection,
   type ManuscriptRevisionState
@@ -83,6 +84,10 @@ import { Image as ImageIcon, LayoutGrid, Search, Sparkles, SpellCheck, Stethosco
 interface RequestFeedback {
   message: string;
   tone: "info" | "error";
+}
+
+interface DismissUndoState {
+  item: EditorialReviewItem;
 }
 
 const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
@@ -152,7 +157,9 @@ export default function EditorPage() {
   const [stepRunHistory, setStepRunHistory] = useState<EditorialStepRunHistory>(() => createEmptyStepRunHistory());
   const [factCheckRows, setFactCheckRows] = useState<EditorialFactCheckRow[]>([]);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
+  const [dismissUndoState, setDismissUndoState] = useState<DismissUndoState | null>(null);
   const recentChangeTimeoutRef = useRef<number | null>(null);
+  const dismissUndoTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
 
@@ -291,6 +298,9 @@ export default function EditorPage() {
     () => () => {
       if (recentChangeTimeoutRef.current) {
         window.clearTimeout(recentChangeTimeoutRef.current);
+      }
+      if (dismissUndoTimeoutRef.current) {
+        window.clearTimeout(dismissUndoTimeoutRef.current);
       }
     },
     []
@@ -608,6 +618,8 @@ export default function EditorPage() {
     // Automatically prepare the item (e.g., generate diff) when focused in compact mode
     if (item.status === "pending") {
       void prepareReviewItem(item);
+    } else if (item.status === "stale") {
+      void prepareReviewItem(item);
     } else if (item.status === "ready" && item.activeProposalId) {
       const existingOp = operations.find((op) => op.id === item.activeProposalId);
       if (existingOp && existingOp.op === "replace_blocks") {
@@ -840,7 +852,32 @@ export default function EditorPage() {
   }
 
   async function prepareReviewItem(item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) {
-    setReviewItems((current) => (current.some((entry) => entry.id === item.id) ? current : [item, ...current]));
+    const canRefreshStale =
+      item.status === "stale" && item.anchor.blockIds.every((blockId) => revision.blockOrder.includes(blockId));
+    const refreshFingerprint = canRefreshStale ? computeAnchorFingerprint(document, item.anchor.blockIds) : null;
+    const requestItem = canRefreshStale
+      ? {
+        ...item,
+        status: "pending" as const,
+        activeProposalId: undefined,
+        anchor: {
+          ...item.anchor,
+          fingerprint: refreshFingerprint ?? item.anchor.fingerprint
+        }
+      }
+      : item;
+
+    if (item.status === "stale" && !canRefreshStale) {
+      setFeedback({ tone: "error", message: "Ця рекомендація застаріла після змін структури. Запустіть аналіз кроку повторно." });
+      return;
+    }
+
+    setReviewItems((current) => {
+      if (current.some((entry) => entry.id === requestItem.id)) {
+        return current.map((entry) => (entry.id === requestItem.id ? requestItem : entry));
+      }
+      return [requestItem, ...current];
+    });
     setActiveReviewItemId(item.id);
     setPreparingReviewItemId(item.id);
     const requestVisualStylePreset = normalizeVisualStylePreset(
@@ -853,7 +890,7 @@ export default function EditorPage() {
     }
 
     try {
-      const requestBody = buildReviewActionRequestBody(item, requestVisualStylePreset);
+      const requestBody = buildReviewActionRequestBody(requestItem, requestVisualStylePreset);
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
         credentials: "same-origin",
@@ -1386,11 +1423,37 @@ export default function EditorPage() {
   }
 
   function dismissReviewItem(item: EditorialReviewItem) {
+    if (dismissUndoTimeoutRef.current) {
+      window.clearTimeout(dismissUndoTimeoutRef.current);
+      dismissUndoTimeoutRef.current = null;
+    }
+
     setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "dismissed" } : entry)));
     if (activeReviewItemId === item.id) {
       setActiveReviewItemId(null);
       setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     }
+
+    setDismissUndoState({ item });
+    dismissUndoTimeoutRef.current = window.setTimeout(() => {
+      setDismissUndoState(null);
+      dismissUndoTimeoutRef.current = null;
+    }, 5_000);
+  }
+
+  function undoDismissReviewItem() {
+    if (!dismissUndoState) {
+      return;
+    }
+
+    if (dismissUndoTimeoutRef.current) {
+      window.clearTimeout(dismissUndoTimeoutRef.current);
+      dismissUndoTimeoutRef.current = null;
+    }
+
+    const restoreItem = dismissUndoState.item;
+    setReviewItems((current) => current.map((entry) => (entry.id === restoreItem.id ? restoreItem : entry)));
+    setDismissUndoState(null);
   }
 
   async function handleInsertImage(file: File, anchorBlockId: string | null) {
@@ -1433,6 +1496,10 @@ export default function EditorPage() {
       window.clearTimeout(recentChangeTimeoutRef.current);
       recentChangeTimeoutRef.current = null;
     }
+    if (dismissUndoTimeoutRef.current) {
+      window.clearTimeout(dismissUndoTimeoutRef.current);
+      dismissUndoTimeoutRef.current = null;
+    }
 
     clearEditorDraftState();
     setDocument(DEFAULT_EDITOR_DOCUMENT);
@@ -1463,6 +1530,7 @@ export default function EditorPage() {
     setStepRunHistory(createEmptyStepRunHistory());
     setActiveWorkflowStep("diagnostics");
     setRecentlyChangedBlockIds([]);
+    setDismissUndoState(null);
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -1620,6 +1688,15 @@ export default function EditorPage() {
                 </span>
               </div>
             </header>
+
+            {dismissUndoState ? (
+              <div className="step-review-undo-toast" role="status" aria-live="polite">
+                <span>Рекомендацію відхилено.</span>
+                <Button size="sm" variant="ghost" onClick={undoDismissReviewItem}>
+                  Скасувати
+                </Button>
+              </div>
+            ) : null}
 
             <div className="step-review-workspace-scroll">
               {activeWorkflowStep === "diagnostics" ? (

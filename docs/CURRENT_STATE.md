@@ -28,6 +28,10 @@ Status: Active handoff
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
+- Compact recommendation cards now truncate recommendation copy to two lines by default and allow per-card expand/collapse for full text
+- Compact recommendation status chips are now fully localized in Ukrainian (`очікує`, `готово`, `погоджено`, `відхилено`, `застаріло`, `готується`)
+- Compact recommendation cards are now keyboard-focusable and support `Enter`/`Space` activation while keeping click-to-focus + auto-prepare flow
+- Dismissed recommendations now expose a 5-second inline undo affordance (`Скасувати`) in the step drawer
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
 - Step run CTA (`Запустити/Оновити`) now lives in the drawer header row (next to `Етап N / 8`) for diagnostics, fact-check, and recommendation steps
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
@@ -66,6 +70,7 @@ Status: Active handoff
 - Callout parsing/sanitization is now kind-aware for `top_list`, preserving multi-line readability and normalizing entries into actionable `Назва: пояснення` lines
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
 - Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
+- Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - Browser draft persistence uses `orest-editor-draft-v3`
@@ -123,5 +128,6 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-12 after step feedback + fact-check CTA placement update (13/13 suites)
 - `npm run typecheck -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand`
 - `npm run test -w @orest/web` passed on 2026-03-13 after replace-proposal architecture simplification (70/70 tests), including lightweight OpenAI/Gemini replace-schema checks and existing frontend-adjacent apply/execution-lane coverage
+- `npm run typecheck -w @orest/web` passed on 2026-03-14 after compact-card UX pass (2-line clamp + expand, localized statuses, keyboard activation, stale refresh path, dismiss undo)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)
