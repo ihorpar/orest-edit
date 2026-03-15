@@ -5888,6 +5888,10 @@ textarea:focus {
   text-decoration: none;
 }
 
+.block-editor-row[data-review-replace="old"] .block-row-action {
+  display: none;
+}
+
 .block-text {
   outline: none;
   min-height: 28px;
