@@ -5121,9 +5121,14 @@ textarea:focus {
   border-bottom: 1px solid #f1f5f9;
   background: #fff;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.step-review-workspace-title-stack {
+  display: grid;
+  gap: 4px;
 }
 
 .step-review-workspace-title {
@@ -5145,13 +5150,16 @@ textarea:focus {
 
 .step-review-workspace-counter {
   color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .step-review-workspace-head-meta {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: nowrap;
   margin-left: auto;
 }
@@ -5326,16 +5334,23 @@ textarea:focus {
 }
 
 .step-review-subsection {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #fff;
-  padding: 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .step-review-subsection-head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.step-review-subsection-meta {
+  display: grid;
+  justify-items: end;
   gap: 8px;
 }
 
@@ -5343,52 +5358,19 @@ textarea:focus {
   margin: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   letter-spacing: 0.01em;
   color: #64748b;
+  flex-wrap: wrap;
 }
 
 .step-review-cards-counter-value {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
   font-weight: 700;
   line-height: 1;
-  cursor: default;
-  outline: none;
-}
-
-.step-review-cards-counter-value::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%) translateY(4px);
-  border-radius: 6px;
-  padding: 4px 7px;
-  background: #0f172a;
-  color: #f8fafc;
-  font: 600 10px/1 var(--font-ui, sans-serif);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 10;
-}
-
-.step-review-cards-counter-value:hover::after,
-.step-review-cards-counter-value:focus-visible::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.step-review-cards-counter-value:focus-visible {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
-  border-radius: 4px;
 }
 
 .step-review-cards-counter-total {
@@ -5405,6 +5387,32 @@ textarea:focus {
 
 .step-review-cards-counter-separator {
   color: #94a3b8;
+}
+
+.step-review-completed-toggle {
+  border: 1px solid #dbe4ef;
+  background: #fff;
+  color: #475569;
+  padding: 6px 10px;
+  border-radius: 0;
+  font: 600 11px/1 var(--font-ui, sans-serif);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.step-review-completed-toggle:hover,
+.step-review-completed-toggle:focus-visible {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.step-review-completed-toggle[data-active="true"] {
+  border-color: #cbd5e1;
+  color: #0f172a;
+  background: #f8fafc;
 }
 
 .step-review-status-copy {
@@ -6267,7 +6275,7 @@ textarea:focus {
 
 /* Block Diff Overlay */
 .block-diff-inline-container {
-  padding: 10px 0 0;
+  padding: 6px 0 0;
   background: transparent;
   border: 0;
   margin-top: 4px;
@@ -6275,7 +6283,7 @@ textarea:focus {
 
 .diff-proposed-stack {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .diff-proposed-block {
@@ -6288,9 +6296,9 @@ textarea:focus {
   min-height: 56px;
   border: 0;
   border-radius: 0;
-  background: rgba(22, 101, 52, 0.12);
-  color: #166534;
-  padding: 10px 12px;
+  background: rgba(22, 101, 52, 0.08);
+  color: #14532d;
+  padding: 12px 14px;
   resize: none;
   overflow: hidden;
   font-family: var(--font-manuscript, serif);
@@ -6299,9 +6307,9 @@ textarea:focus {
 }
 
 .diff-proposed-editor:focus {
-  outline: 1px solid rgba(22, 101, 52, 0.55);
+  outline: 1px solid rgba(22, 101, 52, 0.35);
   box-shadow: none;
-  background: rgba(22, 101, 52, 0.16);
+  background: rgba(22, 101, 52, 0.12);
 }
 
 .diff-label {
@@ -6331,7 +6339,8 @@ textarea:focus {
 
 .diff-footer {
   justify-content: flex-end;
-  padding-top: 8px;
+  align-items: center;
+  padding-top: 6px;
   border-top: 0;
 }
 
@@ -6345,16 +6354,41 @@ textarea:focus {
   line-height: 1.5;
 }
 
+.diff-explanation {
+  margin-top: 10px;
+  border-top: 1px solid #edf2f8;
+  padding-top: 10px;
+}
+
+.diff-explanation summary {
+  cursor: pointer;
+  list-style: none;
+  color: #64748b;
+  font: 600 11px/1 var(--font-ui, sans-serif);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.diff-explanation summary::-webkit-details-marker {
+  display: none;
+}
+
+.diff-reason {
+  margin: 8px 0 0;
+  color: #475569;
+  font: 400 13px/1.5 var(--font-ui, sans-serif);
+}
+
 .editorial-review-detail {
   padding: 18px;
 }
 
 .editorial-review-detail[data-layout="pendant"] {
   width: min(100%, 648px);
-  border: 1px solid #d9e3ef;
+  border: 1px solid #e6edf5;
   border-top: 2px solid #2563eb;
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.1);
-  padding: 16px;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  padding: 14px 16px;
 }
 
 .editorial-review-detail[data-layout="pendant"][data-type="rewrite"],
@@ -6374,8 +6408,8 @@ textarea:focus {
 }
 
 .editorial-review-detail-title {
-  margin: 10px 0 0;
-  font: 700 20px/1.25 var(--font-ui, sans-serif);
+  margin: 8px 0 0;
+  font: 700 18px/1.25 var(--font-ui, sans-serif);
   color: #0f172a;
 }
 
@@ -6398,17 +6432,40 @@ textarea:focus {
 }
 
 .editorial-review-proposal {
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid #e6edf5;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .editorial-review-proposal-summary {
   margin: 0;
   color: #334155;
   font: 400 14px/1.45 var(--font-ui, sans-serif);
+}
+
+.editorial-review-detail-explanation {
+  margin-top: 10px;
+}
+
+.editorial-review-detail-explanation summary {
+  cursor: pointer;
+  list-style: none;
+  color: #64748b;
+  font: 600 11px/1 var(--font-ui, sans-serif);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.editorial-review-detail-explanation summary::-webkit-details-marker {
+  display: none;
+}
+
+.editorial-review-detail-explanation-copy {
+  margin: 8px 0 0;
+  color: #475569;
+  font: 400 13px/1.5 var(--font-ui, sans-serif);
 }
 
 .editorial-review-field-group {
@@ -6964,19 +7021,19 @@ textarea:focus {
 /* Compact Editorial Cards in Sidebar
    Keep this as the canonical card layer: older duplicate card styles exist earlier in this file. */
 .operations-stack-compact {
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
 }
 
 .editorial-review-card-compact {
-  padding: 10px 12px;
+  padding: 12px 14px;
   --review-card-accent: #94a3b8;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   box-shadow: inset 2px 0 0 var(--review-card-accent);
@@ -7013,20 +7070,26 @@ textarea:focus {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 12px;
+}
+
+.err-compact-copy {
+  min-width: 0;
+  display: grid;
   gap: 8px;
 }
 
 .err-compact-controls {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .err-compact-title {
-  font-size: 13px;
-  font-weight: 400;
+  font-size: 14px;
+  font-weight: 500;
   margin: 0;
-  line-height: 1.35;
+  line-height: 1.4;
   color: #0f172a;
   font-family: var(--font-ui, sans-serif);
   display: -webkit-box;
@@ -7041,32 +7104,33 @@ textarea:focus {
   overflow: visible;
 }
 
+.err-compact-description {
+  margin: 0;
+  color: #475569;
+  font: 400 13px/1.5 var(--font-ui, sans-serif);
+}
+
 .editorial-review-card-expand {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  border-radius: 4px;
+  border: 1px solid #dbe4ef;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.2s;
-  opacity: 0.65;
-}
-
-.editorial-review-card-compact:hover .editorial-review-card-expand,
-.editorial-review-card-compact[data-active="true"] .editorial-review-card-expand,
-.editorial-review-card-compact[data-expanded="true"] .editorial-review-card-expand {
   opacity: 1;
 }
 
 .editorial-review-card-expand:hover,
 .editorial-review-card-expand:focus-visible {
-  background: #f1f5f9;
-  color: #334155;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
   opacity: 1;
 }
 
@@ -7082,26 +7146,20 @@ textarea:focus {
   font-family: var(--font-mono, monospace);
   font-weight: 600;
   color: #334155;
-  background: #f8fafc;
-  padding: 1px 6px;
-  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
   letter-spacing: 0.02em;
-  border: 1px solid #e2e8f0;
-}
-
-.editorial-review-card-compact:hover .err-compact-range,
-.editorial-review-card-compact[data-active="true"] .err-compact-range {
-  border-color: #bfdbfe;
 }
 
 .err-compact-meta {
-  font-size: 10px;
+  font-size: 11px;
   font-family: var(--font-mono, monospace);
   letter-spacing: 0.03em;
   color: #64748b;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .err-compact-type {
@@ -7115,8 +7173,8 @@ textarea:focus {
 .err-compact-status {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 1px 6px;
+  border-radius: 0;
+  padding: 2px 6px;
   border: 1px solid transparent;
   font-weight: 700;
   line-height: 1;
@@ -7160,28 +7218,24 @@ textarea:focus {
 
 .editorial-review-card-close {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: #cbd5e1;
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.2s;
-  margin: -2px -4px 0 0;
-  opacity: 0.45;
-}
-
-.editorial-review-card-compact:hover .editorial-review-card-close,
-.editorial-review-card-compact[data-active="true"] .editorial-review-card-close {
-  opacity: 1;
+  margin: -2px -6px 0 0;
+  opacity: 0.85;
 }
 
 .editorial-review-card-close:hover {
   background: #fee2e2;
+  border-color: #fecaca;
   color: #dc2626;
   opacity: 1;
 }

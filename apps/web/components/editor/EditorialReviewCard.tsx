@@ -29,7 +29,9 @@ export function EditorialReviewCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status);
   const rangeLabel = getReviewParagraphRangeLabel(item, revision);
-  const canExpand = item.recommendation.trim().length > 120;
+  const recommendationText = item.recommendation.trim();
+  const titleText = item.title.trim() || recommendationText;
+  const canExpand = recommendationText.length > 0 && recommendationText !== titleText;
 
   return (
     <article
@@ -39,7 +41,7 @@ export function EditorialReviewCard({
       data-expanded={isExpanded ? "true" : "false"}
       role="button"
       tabIndex={0}
-      aria-expanded={isExpanded}
+      aria-expanded={canExpand ? isExpanded : undefined}
       aria-label={`Рекомендація: ${rangeLabel}`}
       onClick={() => onFocus(item)}
       onKeyDown={(event) => {
@@ -50,7 +52,10 @@ export function EditorialReviewCard({
       }}
     >
       <div className="err-compact-head">
-        <h3 className="err-compact-title">{item.recommendation}</h3>
+        <div className="err-compact-copy">
+          <h3 className="err-compact-title">{titleText}</h3>
+          {canExpand && isExpanded ? <p className="err-compact-description">{recommendationText}</p> : null}
+        </div>
         <div className="err-compact-controls">
           {canExpand ? (
             <button
@@ -60,13 +65,13 @@ export function EditorialReviewCard({
                 event.stopPropagation();
                 setIsExpanded((current) => !current);
               }}
-              aria-label={isExpanded ? "Згорнути" : "Розгорнути"}
-              title={isExpanded ? "Згорнути" : "Розгорнути"}
+              aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
+              title={isExpanded ? "Згорнути деталі" : "Показати деталі"}
             >
               {isExpanded ? (
-                <ChevronUp aria-hidden="true" width={12} height={12} />
+                <ChevronUp aria-hidden="true" width={16} height={16} />
               ) : (
-                <ChevronDown aria-hidden="true" width={12} height={12} />
+                <ChevronDown aria-hidden="true" width={16} height={16} />
               )}
             </button>
           ) : null}
@@ -77,7 +82,7 @@ export function EditorialReviewCard({
               e.stopPropagation();
               onDismiss(item);
             }}
-            aria-label="Закрити"
+            aria-label="Відхилити рекомендацію"
           >
             <svg viewBox="0 0 12 12" aria-hidden="true" width="12" height="12">
               <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" fill="none" strokeWidth="1.5" />

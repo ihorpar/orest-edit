@@ -67,10 +67,12 @@ export function BlockDiffOverlay({
         ))}
       </div>
 
+      <details className="diff-explanation">
+        <summary>Що зробив ШІ?</summary>
+        <p className="diff-reason">{reason}</p>
+      </details>
+
       <div className="diff-footer button-row" style={{ marginTop: "8px" }}>
-        <span className="diff-reason" style={{ marginRight: "auto" }}>
-          {reason}
-        </span>
         <Button size="sm" variant="ghost" onClick={onReject}>
           Скасувати
         </Button>

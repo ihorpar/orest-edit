@@ -109,6 +109,14 @@ export function ReviewRecommendationDetail({
         </button>
       </div>
 
+      <details className="editorial-review-detail-explanation">
+        <summary>Що зробив ШІ?</summary>
+        <p className="editorial-review-detail-explanation-copy">{item.reason}</p>
+        {item.recommendation.trim() !== item.title.trim() ? (
+          <p className="editorial-review-detail-explanation-copy">{item.recommendation}</p>
+        ) : null}
+      </details>
+
       {isPreparing ? (
         <div className="editorial-review-proposal">
           <p className="editorial-review-image-status">ШІ готує цю рекомендацію…</p>
@@ -155,7 +163,6 @@ export function ReviewRecommendationDetail({
 
       {!isPreparing && proposal?.kind === "text_diff" ? (
         <div className="editorial-review-proposal">
-          <p className="editorial-review-proposal-summary">Чернетка відкрита в рукописі.</p>
           {proposal.textDiff?.warning ? (
             <div className="editorial-review-proposal-block editorial-review-proposal-warning">
               <p className="editorial-review-proposal-summary">{proposal.textDiff.warning.message}</p>

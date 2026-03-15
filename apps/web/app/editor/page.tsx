@@ -6,7 +6,6 @@ import ReactMarkdown from "react-markdown";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { EditorialReviewCard } from "../../components/editor/EditorialReviewCard";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
-import { OperationCard } from "../../components/editor/OperationCard";
 import { TopBar } from "../../components/layout/TopBar";
 import { type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
@@ -36,10 +35,7 @@ import {
 import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
 import { insertBlocksBefore } from "../../lib/editor/review-apply";
 import {
-  applyPatchOperation,
-  applyPatchOperations,
   createPatchId,
-  rebasePendingOperations,
   type PatchOperation,
   type PatchResponse,
   type PatchResponseDiagnostics,
@@ -90,6 +86,7 @@ import {
   FolderOpen,
   Image as ImageIcon,
   LayoutGrid,
+  RefreshCcw,
   Search,
   Sparkles,
   SpellCheck,
@@ -178,6 +175,7 @@ export default function EditorPage() {
   const [factCheckRows, setFactCheckRows] = useState<EditorialFactCheckRow[]>([]);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const [dismissUndoState, setDismissUndoState] = useState<DismissUndoState | null>(null);
+  const [showCompletedCards, setShowCompletedCards] = useState(false);
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
   const recentChangeTimeoutRef = useRef<number | null>(null);
@@ -188,17 +186,6 @@ export default function EditorPage() {
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
-  const reviewItemByProposalId = useMemo(() => {
-    const map = new Map<string, EditorialReviewItem>();
-
-    for (const item of reviewItems) {
-      if (item.activeProposalId) {
-        map.set(item.activeProposalId, item);
-      }
-    }
-
-    return map;
-  }, [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
       return null;
@@ -435,6 +422,7 @@ export default function EditorPage() {
 
   function selectWorkflowStep(stepId: WorkflowStepId) {
     setActiveWorkflowStep(stepId);
+    setShowCompletedCards(false);
     setFeedback(null);
   }
 
@@ -794,46 +782,6 @@ export default function EditorPage() {
     );
     setActiveProposal(null);
     setActiveReviewItemId(null);
-  }
-
-  function acceptOperation(operationId: string) {
-    const operation = operations.find((entry) => entry.id === operationId);
-
-    if (!operation) {
-      return;
-    }
-
-    const nextDocument = applyPatchOperation(document, operation);
-    commitDocument(nextDocument);
-    focusAndHighlightChangedBlocks(operation.blockIds);
-    setOperations((current) => rebasePendingOperations(current, operation));
-    setReviewItems((current) =>
-      current.map((entry) => (entry.activeProposalId === operationId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
-    );
-    setFeedback({ tone: "info", message: "Правку застосовано." });
-  }
-
-  function acceptAllOperations() {
-    if (operations.length === 0) {
-      return;
-    }
-
-    const nextDocument = applyPatchOperations(document, operations);
-    commitDocument(nextDocument);
-    focusAndHighlightChangedBlocks(operations.flatMap((operation) => operation.blockIds));
-    setOperations([]);
-    setFeedback({ tone: "info", message: "Усі правки застосовано." });
-  }
-
-  function rejectOperation(operationId: string) {
-    setOperations((current) => current.filter((operation) => operation.id !== operationId));
-    setReviewItems((current) =>
-      current.map((entry) => (entry.activeProposalId === operationId ? { ...entry, status: "pending", activeProposalId: undefined } : entry))
-    );
-  }
-
-  function rejectAllOperations() {
-    setOperations([]);
   }
 
   function buildReviewActionRequestBody(item: EditorialReviewItem, requestVisualStylePreset: VisualStylePreset): ReviewActionRequest {
@@ -1675,6 +1623,7 @@ export default function EditorPage() {
 
   function handleResetDraft() {
     setActiveTopActionMenu(null);
+    setShowCompletedCards(false);
     clearEditorDraftState();
     replaceEditorSession(DEFAULT_EDITOR_DOCUMENT);
   }
@@ -1687,6 +1636,9 @@ export default function EditorPage() {
     WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
   );
   const activeStepItems = stepItems[activeWorkflowStep];
+  const visibleActiveStepItems = activeStepItems.filter(
+    (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
+  );
   const activeStepCardStats = useMemo(
     () => getStepCardStats(reviewItems, activeWorkflowStep),
     [activeWorkflowStep, reviewItems]
@@ -1694,36 +1646,45 @@ export default function EditorPage() {
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
-        variant="primary"
+        variant="ghost"
         size="sm"
         onClick={() => void requestWorkflowStep("diagnostics")}
         loading={isReviewRequestInFlight}
         disabled={!canRequestReview}
+        style={{ paddingInline: "10px" }}
+        aria-label={reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
+        title={reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
       >
-        {reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
+        <RefreshCcw size={14} aria-hidden="true" />
       </Button>
     )
     : activeWorkflowStep === "fact_check"
       ? (
         <Button
-          variant="primary"
+          variant="ghost"
           size="sm"
           onClick={() => void requestWorkflowStep("fact_check")}
           loading={isReviewRequestInFlight}
           disabled={!canRunDownstreamStep}
+          style={{ paddingInline: "10px" }}
+          aria-label={factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
+          title={factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
         >
-          {factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
+          <RefreshCcw size={14} aria-hidden="true" />
         </Button>
       )
       : (
         <Button
-          variant="primary"
+          variant="ghost"
           size="sm"
           onClick={() => void requestWorkflowStep(activeWorkflowStep)}
           loading={isReviewRequestInFlight}
           disabled={!canRunDownstreamStep}
+          style={{ paddingInline: "10px" }}
+          aria-label={activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
+          title={activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
         >
-          {activeStepItems.length > 0 ? "Повторити аналіз" : "Запустити аналіз кроку"}
+          <RefreshCcw size={14} aria-hidden="true" />
         </Button>
       );
 
@@ -1861,17 +1822,19 @@ export default function EditorPage() {
         drawer={
           <section className="step-review-workspace">
             <header className="step-review-workspace-head">
-              <h3 className="step-review-workspace-title">
-                <ActiveStepIcon className="step-review-workspace-title-icon" aria-hidden="true" />
-                <span>{activeStepMeta.label}</span>
-              </h3>
+              <div className="step-review-workspace-title-stack">
+                <h3 className="step-review-workspace-title">
+                  <ActiveStepIcon className="step-review-workspace-title-icon" aria-hidden="true" />
+                  <span>{activeStepMeta.label}</span>
+                </h3>
+                <p className="step-review-workspace-counter mono-ui">
+                  Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
+                </p>
+              </div>
               <div className="step-review-workspace-head-meta">
                 <div className="step-review-workspace-head-action">
                   {runStepButton}
                 </div>
-                <span className="step-review-workspace-counter mono-ui">
-                  Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
-                </span>
               </div>
             </header>
 
@@ -2107,74 +2070,35 @@ export default function EditorPage() {
                     </p>
                   ) : null}
 
-                  {operations.length > 0 ? (
-                    <section className="step-review-subsection">
-                      <p className="mono-ui operations-title">Правки</p>
-                      <div className="operations-stack">
-                        {operations.map((operation) => {
-                          const sourceItem = reviewItemByProposalId.get(operation.id);
-                          const operationContext = sourceItem
-                            ? {
-                              recommendation: sourceItem.recommendation,
-                              reason: sourceItem.reason,
-                              paragraphLabel: getReviewParagraphRangeLabel(sourceItem, revision)
-                            }
-                            : operation.reviewContext;
-                          return (
-                            <OperationCard
-                              key={operation.id}
-                              operation={operation}
-                              context={operationContext}
-                              onAccept={acceptOperation}
-                              onReject={rejectOperation}
-                            />
-                          );
-                        })}
-                      </div>
-                      {operations.length > 1 ? (
-                        <div className="button-row">
-                          <Button size="sm" variant="ghost" onClick={rejectAllOperations}>
-                            Скасувати всі
-                          </Button>
-                          <Button size="sm" variant="primary" onClick={acceptAllOperations}>
-                            Прийняти всі
-                          </Button>
-                        </div>
-                      ) : null}
-                    </section>
-                  ) : null}
-
                   <section className="step-review-subsection">
                     <div className="step-review-subsection-head">
                       <p className="mono-ui operations-title">Рекомендації</p>
-                      <p className="mono-ui step-review-cards-counter" aria-label="Лічильник карток">
-                        <span
-                          className="step-review-cards-counter-value step-review-cards-counter-total"
-                          data-tooltip="Усього"
-                          tabIndex={0}
+                      <div className="step-review-subsection-meta">
+                        <p className="mono-ui step-review-cards-counter" aria-label="Лічильник карток">
+                          <span className="step-review-cards-counter-value step-review-cards-counter-total">
+                            {activeStepCardStats.actionable} в роботі
+                          </span>
+                          <span className="step-review-cards-counter-separator">·</span>
+                          <span className="step-review-cards-counter-value step-review-cards-counter-applied">
+                            {activeStepCardStats.applied} погоджено
+                          </span>
+                          <span className="step-review-cards-counter-separator">·</span>
+                          <span className="step-review-cards-counter-value step-review-cards-counter-dismissed">
+                            {activeStepCardStats.dismissed} відхилено
+                          </span>
+                        </p>
+                        <button
+                          type="button"
+                          className="step-review-completed-toggle"
+                          data-active={showCompletedCards ? "true" : "false"}
+                          onClick={() => setShowCompletedCards((current) => !current)}
                         >
-                          {activeStepCardStats.total}
-                        </span>
-                        <span className="step-review-cards-counter-separator">/</span>
-                        <span
-                          className="step-review-cards-counter-value step-review-cards-counter-applied"
-                          data-tooltip="Погоджено"
-                          tabIndex={0}
-                        >
-                          {activeStepCardStats.applied}
-                        </span>
-                        <span className="step-review-cards-counter-separator">/</span>
-                        <span
-                          className="step-review-cards-counter-value step-review-cards-counter-dismissed"
-                          data-tooltip="Відхилено"
-                          tabIndex={0}
-                        >
-                          {activeStepCardStats.dismissed}
-                        </span>
-                      </p>
+                          {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                        </button>
+                      </div>
                     </div>
                     <div className="operations-stack operations-stack-compact">
-                      {activeStepItems.filter((item) => item.status !== "dismissed").map((item) => (
+                      {visibleActiveStepItems.map((item) => (
                         <EditorialReviewCard
                           key={item.id}
                           item={item}
@@ -2188,9 +2112,11 @@ export default function EditorPage() {
                         />
                       ))}
                     </div>
-                    {activeStepItems.filter((item) => item.status !== "dismissed").length === 0 ? (
+                    {visibleActiveStepItems.length === 0 ? (
                       <p className="step-review-empty-copy">
-                        Для цього етапу ще немає карток.
+                        {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+                          ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
+                          : "Для цього етапу ще немає карток."}
                       </p>
                     ) : null}
                   </section>
@@ -2322,10 +2248,6 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<WorkflowStep
   };
 
   for (const item of items) {
-    if (item.status === "dismissed") {
-      continue;
-    }
-
     if (item.stepId && item.stepId in groups) {
       groups[item.stepId].push(item);
       continue;
@@ -2399,8 +2321,8 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
   return false;
 }
 
-function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId): { total: number; applied: number; dismissed: number } {
-  let total = 0;
+function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId): { actionable: number; applied: number; dismissed: number } {
+  let actionable = 0;
   let applied = 0;
   let dismissed = 0;
 
@@ -2409,18 +2331,20 @@ function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId):
       continue;
     }
 
-    total += 1;
-
     if (item.status === "applied") {
       applied += 1;
+      continue;
     }
 
     if (item.status === "dismissed") {
       dismissed += 1;
+      continue;
     }
+
+    actionable += 1;
   }
 
-  return { total, applied, dismissed };
+  return { actionable, applied, dismissed };
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {

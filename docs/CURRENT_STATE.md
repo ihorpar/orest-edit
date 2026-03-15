@@ -30,11 +30,16 @@ Status: Active handoff
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
 - Compact recommendation cards now truncate recommendation copy to two lines by default and allow per-card expand/collapse for full text
+- Compact recommendation cards now default to the shorter recommendation `title`; a larger disclosure control reveals the full recommendation copy inline when needed
 - Compact recommendation status chips are now fully localized in Ukrainian (`очікує`, `готово`, `погоджено`, `відхилено`, `застаріло`, `готується`)
 - Compact recommendation cards are now keyboard-focusable and support `Enter`/`Space` activation while keeping click-to-focus + auto-prepare flow
 - Dismissed recommendations now expose a 5-second inline undo affordance (`Скасувати`) in the step drawer
+- Recommendation-step drawers now show one recommendation queue only; the duplicate `Правки` section was removed
+- Recommendation-step drawers now hide completed cards by default and expose a `Показати завершені` toggle
+- Recommendation-step stats now use explicit labeled copy (`в роботі`, `погоджено`, `відхилено`) instead of compact numeric slash counters
+- Step drawer headers now place `Етап N / 8` under the title and use an icon-only rerun control with tooltip copy
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
-- Step run CTA (`Запустити/Оновити`) now lives in the drawer header row (next to `Етап N / 8`) for diagnostics, fact-check, and recommendation steps
+- Step run CTA (`Запустити/Оновити`) now lives in the drawer header area for diagnostics, fact-check, and recommendation steps
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
@@ -72,6 +77,8 @@ Status: Active handoff
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation
 - Replace/list recommendation range normalization now clips accidental adjacent heading spillover and surfaces a concise clipping note in recommendation reason
 - Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
+- Inline diff execution now demotes rationale behind `Що зробив ШІ?`, keeping the proposed text and apply/cancel actions as the primary surface
+- Inline recommendation detail cards now expose the same `Що зробив ШІ?` disclosure instead of always-on supporting explanation
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - The manuscript top action bar now separates document-level actions from block formatting: `Відкрити` menu on the left, `Зберегти` menu on the right, plus red clear-document icon and debug `Скинути`
@@ -134,6 +141,7 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-13 after replace-proposal architecture simplification (70/70 tests), including lightweight OpenAI/Gemini replace-schema checks and existing frontend-adjacent apply/execution-lane coverage
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after compact-card UX pass (2-line clamp + expand, localized statuses, keyboard activation, stale refresh path, dismiss undo)
 - `npm run test -w @orest/web` passed on 2026-03-14 after tightening `clarity` anti-disclaimer prompt guardrails and adding regression coverage
+- `npm run typecheck -w @orest/web` passed on 2026-03-14 after drawer simplification pass (single recommendation queue, hide-completed toggle, labeled stats, lighter inline explanation surfaces)
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
 - `npm run test -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (75/75 tests), including new `.txt` and `.docx` import coverage
 - `npm run build -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
