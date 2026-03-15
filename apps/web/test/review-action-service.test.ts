@@ -1293,6 +1293,67 @@ test("generateReviewAction uses Gemini fast replace schema for rewrite proposals
   assert.equal(requestBody?.generationConfig?.responseSchema?.properties?.operations, undefined);
 });
 
+test("generateReviewAction injects anti-disclaimer guardrails into rewrite replace prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Блідість шкіри буває при ендокардиті, міокардиті та аортальній недостатності." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, any> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-guardrail-1",
+        reviewSessionId: "review-session-12",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Знизити категоричність",
+        reason: "Фраза звучить надто остаточно.",
+        recommendation: "Пом'якшити категоричність і зробити формулювання спокійнішим.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Блідість шкіри буває при ендокардиті, міокардиті та аортальній недостатності.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, any>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: "{\"replacements\":[\"Блідість шкіри може траплятися при ендокардиті, міокардиті чи аортальній недостатності.\"],\"reason\":\"Пом'якшив категоричність локально.\"}"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.instructions ?? ""), /не перетворюй локальну редактуру на safety-боілерплейт/i);
+  assert.match(String(requestBody?.input ?? ""), /не додавай загальних пересторог/i);
+  assert.match(String(requestBody?.input ?? ""), /фраз про самодіагностику або консультацію/i);
+});
+
 test("generateReviewAction falls back on empty provider output instead of echoing prompt text", async () => {
   const request = createRequest();
   request.apiKey = "test-key";

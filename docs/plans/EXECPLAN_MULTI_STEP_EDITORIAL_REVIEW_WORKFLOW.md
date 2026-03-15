@@ -25,6 +25,7 @@ The implementation must preserve the product’s core model: patch-first, diff-f
 - [x] (2026-03-12 00:00Z) Replaced the old `ThreePaneShell + RightOperationsRail + modal EditorialReviewDrawer` path on `/editor` with a single integrated step workspace while preserving inline manuscript execution flows.
 - [x] (2026-03-12 00:00Z) Implemented provider-native fact-check contract in `review-service.ts` (`rows[]` schema) and retained explicit `[image] alt/caption` serialization.
 - [x] (2026-03-12 00:00Z) Implemented step-specific Ukrainian prompt set and wired step-specific backend execution (`diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `final_editing`).
+- [x] (2026-03-14 00:00Z) Tightened `clarity` recommendation/execution prompts to forbid disclaimer injection, preserve list rhythm, and keep category-softening local to wording rather than safety boilerplate.
 - [ ] Validate the workflow with full runtime QA and updated handoff docs (completed: typecheck + unit tests; remaining: runtime browser QA and resolving env-specific build diagnostics).
 
 ## Surprises & Discoveries
@@ -55,6 +56,9 @@ The implementation must preserve the product’s core model: patch-first, diff-f
 
 - Observation: production build currently fails with generic webpack termination in this environment while `typecheck` and test suites pass.
   Evidence: `npm run typecheck -w @orest/web` passes; `npm run test -w @orest/web` passes; `npm run build -w @orest/web` exits with `Build failed because of webpack errors` without surfaced stacktrace.
+
+- Observation: `clarity` prompts were permissive enough to let models "solve" categorical medical phrasing by appending generic consultation/self-diagnosis warnings instead of editing the local wording.
+  Evidence: the previous `clarity` step spec in `apps/web/lib/server/review-service.ts` and replace prompt assembly in `apps/web/lib/server/review-action-service.ts` prohibited new facts but did not explicitly ban disclaimer boilerplate or require preservation of short-list rhythm.
 
 ## Decision Log
 
@@ -94,9 +98,15 @@ The implementation must preserve the product’s core model: patch-first, diff-f
   Rationale: editors can keep prior runs for comparison or intentionally overwrite prior results without losing control of context flow.
   Date/Author: 2026-03-12 / Codex
 
+- Decision: `clarity`/`rewrite`/`simplify` prompts must explicitly forbid generic medical disclaimers and keep category-softening local to wording changes.
+  Rationale: otherwise models tend to replace editorial clarity with risk-management boilerplate, which violates patch-first editing and degrades list readability.
+  Date/Author: 2026-03-14 / Codex
+
 ## Outcomes & Retrospective
 
 Implemented full step-aware execution for editorial review on `/editor`: each step runs independently with its own prompt contract, diagnostics context propagation, and persisted `preserve/replace` run mode. Diagnostics is now review-only with explicit CTA to fact-check; fact-check returns structured provider-native rows; downstream steps generate step-tagged recommendation cards tied to existing execution lane behavior.
+
+`Clarity` prompt contracts are now materially tighter: recommendation generation distinguishes wording work from safety boilerplate, and replace prompts explicitly forbid template warnings like “зверніться до лікаря”, “самодіагностика”, or “варто перевірити стан” unless the editor asked for them. Prompt guidance now also preserves short list rhythm instead of rewarding mini-paragraph expansion for each item.
 
 Step memory and persistence are now formalized in contracts (`EditorialReviewStepId`, step contexts, fact-check row type, run snapshots) and local draft state (`reviewExpertise`, `factCheckRows`, per-step feedback, run mode, run history, active step). Image blocks continue to be passed as explicit `[image] alt/caption` markers in prompt assembly.
 

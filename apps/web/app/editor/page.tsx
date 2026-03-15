@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { EditorialReviewCard } from "../../components/editor/EditorialReviewCard";
@@ -13,17 +14,19 @@ import { Button } from "../../components/ui/Button";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
 import {
   createBlockId,
+  createEmptyParagraphBlock,
   createInlineText,
+  documentToPlainText,
   EMPTY_BLOCK_SELECTION,
   getBlockText,
   insertBlocksAfter,
   normalizeBlockSelection,
-  removeBlocksByIds,
   replaceBlocksByIds
 } from "../../lib/editor/document-model";
 import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState } from "../../lib/editor/draft-state";
-import { exportDocumentToDocx } from "../../lib/editor/docx-export";
+import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
+import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
 import {
   computeAnchorFingerprint,
   deriveManuscriptRevisionState,
@@ -79,7 +82,23 @@ import {
   type EditorSettings
 } from "../../lib/editor/settings";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
-import { Image as ImageIcon, LayoutGrid, Search, Sparkles, SpellCheck, Stethoscope, Table2, Target } from "lucide-react";
+import {
+  ChevronDown,
+  Clipboard,
+  Download,
+  FileText,
+  FolderOpen,
+  Image as ImageIcon,
+  LayoutGrid,
+  Search,
+  Sparkles,
+  SpellCheck,
+  Stethoscope,
+  Table2,
+  Target,
+  Trash2,
+  Upload
+} from "lucide-react";
 
 interface RequestFeedback {
   message: string;
@@ -108,6 +127,7 @@ type ComposerMode = "local" | "review" | null;
 type ManualGenerationKind = "callout" | "visual";
 type LocalActionMode = "patch" | "callout" | "visual";
 type WorkflowStepId = EditorialReviewStepId;
+type TopActionMenuId = "open" | "save" | null;
 
 const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof Stethoscope }> = [
   { id: "diagnostics", label: "Діагностика", icon: Stethoscope },
@@ -158,10 +178,13 @@ export default function EditorPage() {
   const [factCheckRows, setFactCheckRows] = useState<EditorialFactCheckRow[]>([]);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const [dismissUndoState, setDismissUndoState] = useState<DismissUndoState | null>(null);
+  const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
+  const [isImportInFlight, setIsImportInFlight] = useState(false);
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const dismissUndoTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
@@ -312,6 +335,58 @@ export default function EditorPage() {
     setRevision(nextRevision);
     setSelection((current) => normalizeBlockSelection(nextDocument, current));
     setReviewItems((current) => reconcileReviewItemsWithRevision(current, nextDocument, nextRevision));
+  }
+
+  function createBlankDocument(): EditorDocument {
+    return {
+      version: 2,
+      blocks: [createEmptyParagraphBlock()]
+    };
+  }
+
+  function replaceEditorSession(nextDocument: EditorDocument, nextFeedback: RequestFeedback | null = null) {
+    if (recentChangeTimeoutRef.current) {
+      window.clearTimeout(recentChangeTimeoutRef.current);
+      recentChangeTimeoutRef.current = null;
+    }
+
+    if (dismissUndoTimeoutRef.current) {
+      window.clearTimeout(dismissUndoTimeoutRef.current);
+      dismissUndoTimeoutRef.current = null;
+    }
+
+    const nextRevision = deriveManuscriptRevisionState(nextDocument);
+    setDocument(nextDocument);
+    setRevision(nextRevision);
+    setSelection(EMPTY_BLOCK_SELECTION);
+    setFocusedBlockId(nextDocument.blocks[0]?.id ?? null);
+    setOperations([]);
+    setReviewItems([]);
+    setPatchDiagnostics(null);
+    setReviewDiagnostics(null);
+    setReviewExpertise(null);
+    setFactCheckRows([]);
+    setFeedback(nextFeedback);
+    setHistory([]);
+    setActiveReviewItemId(null);
+    setActiveProposal(null);
+    setReviewComposer(defaultReviewComposer);
+    setComposerMode(null);
+    setCustomPrompt("");
+    setManualCalloutKind(defaultManualCalloutKind);
+    setManualVisualIntent(defaultManualVisualIntent);
+    setManualGenerationInFlight(null);
+    setLocalActionMode(defaultLocalActionMode);
+    setManualCalloutPrompt("");
+    setManualVisualPrompt("");
+    setStepFeedback(createDefaultStepFeedbackMap());
+    setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
+    setStepRunHistory(createEmptyStepRunHistory());
+    setActiveWorkflowStep("diagnostics");
+    setRecentlyChangedBlockIds([]);
+    setDismissUndoState(null);
+    reviewNoOpStreakRef.current = {};
+    patchNoOpStreakRef.current = {};
   }
 
   function focusAndHighlightChangedBlocks(blockIds: string[]) {
@@ -1470,6 +1545,7 @@ export default function EditorPage() {
   }
 
   async function handleExportDocx() {
+    setActiveTopActionMenu(null);
     setIsDocxExportInFlight(true);
 
     try {
@@ -1491,46 +1567,116 @@ export default function EditorPage() {
     }
   }
 
-  function handleResetDraft() {
-    if (recentChangeTimeoutRef.current) {
-      window.clearTimeout(recentChangeTimeoutRef.current);
-      recentChangeTimeoutRef.current = null;
+  function handleExportTxt() {
+    setActiveTopActionMenu(null);
+
+    try {
+      const plainText = documentToPlainText(document);
+      const blob = new Blob([plainText], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement("a");
+      anchor.href = url;
+      anchor.download = buildDocxFileName(deriveDocxFileNameBase(document)).replace(/\.docx$/i, ".txt");
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setFeedback({ tone: "info", message: "TXT експортовано." });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося експортувати TXT."
+      });
     }
-    if (dismissUndoTimeoutRef.current) {
-      window.clearTimeout(dismissUndoTimeoutRef.current);
-      dismissUndoTimeoutRef.current = null;
+  }
+
+  async function handleImportFromClipboard() {
+    setActiveTopActionMenu(null);
+    setIsImportInFlight(true);
+
+    try {
+      let imported: ImportedDocumentResult | null = null;
+
+      if (typeof navigator.clipboard.read === "function") {
+        try {
+          const items = await navigator.clipboard.read();
+
+          for (const item of items) {
+            if (item.types.includes("text/html")) {
+              const html = await (await item.getType("text/html")).text();
+              const fallbackText = item.types.includes("text/plain") ? await (await item.getType("text/plain")).text() : "";
+              imported = importHtmlToDocument(html, fallbackText);
+              break;
+            }
+
+            if (item.types.includes("text/plain")) {
+              const text = await (await item.getType("text/plain")).text();
+              imported = {
+                ...importPlainTextToDocument(text),
+                format: "clipboard_text"
+              };
+              break;
+            }
+          }
+        } catch {
+          imported = null;
+        }
+      }
+
+      if (!imported) {
+        const text = await navigator.clipboard.readText();
+        imported = {
+          ...importPlainTextToDocument(text),
+          format: "clipboard_text"
+        };
+      }
+
+      replaceEditorSession(imported.document, buildImportFeedback(imported));
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося прочитати буфер обміну."
+      });
+    } finally {
+      setIsImportInFlight(false);
+    }
+  }
+
+  function handleImportFileClick() {
+    setActiveTopActionMenu(null);
+    importFileInputRef.current?.click();
+  }
+
+  async function handleImportFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (!file) {
+      return;
     }
 
+    setIsImportInFlight(true);
+
+    try {
+      const imported = await importFileToDocument(file);
+      replaceEditorSession(imported.document, buildImportFeedback(imported));
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося імпортувати файл."
+      });
+    } finally {
+      setIsImportInFlight(false);
+    }
+  }
+
+  function handleClearDocument() {
+    setActiveTopActionMenu(null);
+    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Документ очищено." });
+  }
+
+  function handleResetDraft() {
+    setActiveTopActionMenu(null);
     clearEditorDraftState();
-    setDocument(DEFAULT_EDITOR_DOCUMENT);
-    setRevision(deriveManuscriptRevisionState(DEFAULT_EDITOR_DOCUMENT));
-    setSelection(EMPTY_BLOCK_SELECTION);
-    setFocusedBlockId(DEFAULT_EDITOR_DOCUMENT.blocks[0]?.id ?? null);
-    setOperations([]);
-    setReviewItems([]);
-    setPatchDiagnostics(null);
-    setReviewDiagnostics(null);
-    setReviewExpertise(null);
-    setFactCheckRows([]);
-    setFeedback(null);
-    setHistory([]);
-    setActiveReviewItemId(null);
-    setActiveProposal(null);
-    setReviewComposer(defaultReviewComposer);
-    setComposerMode(null);
-    setCustomPrompt("");
-    setManualCalloutKind(defaultManualCalloutKind);
-    setManualVisualIntent(defaultManualVisualIntent);
-    setManualGenerationInFlight(null);
-    setLocalActionMode(defaultLocalActionMode);
-    setManualCalloutPrompt("");
-    setManualVisualPrompt("");
-    setStepFeedback(createDefaultStepFeedbackMap());
-    setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
-    setStepRunHistory(createEmptyStepRunHistory());
-    setActiveWorkflowStep("diagnostics");
-    setRecentlyChangedBlockIds([]);
-    setDismissUndoState(null);
+    replaceEditorSession(DEFAULT_EDITOR_DOCUMENT);
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -1588,12 +1734,52 @@ export default function EditorPage() {
         manuscript={
           <main className="editor-page-shell">
             <div className="editor-page-actions">
-              <Button variant="secondary" size="sm" onClick={handleExportDocx} loading={isDocxExportInFlight}>
-                DOCX
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleResetDraft}>
-                Скинути
-              </Button>
+              <div className="editor-page-actions-group">
+                <EditorActionMenu
+                  label="Відкрити"
+                  icon={FolderOpen}
+                  open={activeTopActionMenu === "open"}
+                  busy={isImportInFlight}
+                  onToggle={() => setActiveTopActionMenu((current) => (current === "open" ? null : "open"))}
+                  items={[
+                    { label: "Файл", icon: Upload, onClick: handleImportFileClick },
+                    { label: "З буфера обміну", icon: Clipboard, onClick: () => void handleImportFromClipboard() }
+                  ]}
+                />
+                <input
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".docx,.txt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="editor-hidden-input"
+                  onChange={handleImportFileSelection}
+                />
+              </div>
+
+              <div className="editor-page-actions-group editor-page-actions-group-end">
+                <EditorActionMenu
+                  label="Зберегти"
+                  icon={Download}
+                  open={activeTopActionMenu === "save"}
+                  busy={isDocxExportInFlight}
+                  onToggle={() => setActiveTopActionMenu((current) => (current === "save" ? null : "save"))}
+                  items={[
+                    { label: "DOCX", icon: Download, onClick: () => void handleExportDocx(), disabled: isDocxExportInFlight },
+                    { label: "TXT", icon: FileText, onClick: handleExportTxt }
+                  ]}
+                />
+                <button
+                  type="button"
+                  className="editor-danger-icon-button"
+                  onClick={handleClearDocument}
+                  title="Очистити документ"
+                  aria-label="Очистити документ"
+                >
+                  <Trash2 size={15} />
+                </button>
+                <Button variant="ghost" size="sm" onClick={handleResetDraft}>
+                  Скинути
+                </Button>
+              </div>
             </div>
 
             <BlockEditorSurface
@@ -2247,6 +2433,119 @@ function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | 
   }
 
   return "unknown";
+}
+
+function buildImportFeedback(result: ImportedDocumentResult): RequestFeedback {
+  const label = formatImportedDocumentLabel(result.format);
+
+  if (result.warnings.length === 0) {
+    return {
+      tone: "info",
+      message: `${label} імпортовано.`
+    };
+  }
+
+  return {
+    tone: "info",
+    message: `${label} імпортовано. ${result.warnings.join(" ")}`
+  };
+}
+
+function formatImportedDocumentLabel(format: ImportedDocumentResult["format"]): string {
+  switch (format) {
+    case "docx":
+      return "DOCX";
+    case "clipboard_html":
+      return "Вміст із буфера";
+    case "clipboard_text":
+      return "Текст із буфера";
+    case "txt":
+    default:
+      return "TXT";
+  }
+}
+
+function EditorActionMenu({
+  label,
+  icon: Icon,
+  open,
+  busy,
+  onToggle,
+  items
+}: {
+  label: string;
+  icon: LucideIcon;
+  open: boolean;
+  busy?: boolean;
+  onToggle: () => void;
+  items: Array<{ label: string; icon: LucideIcon; onClick: () => void; disabled?: boolean }>;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        onToggle();
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onToggle();
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onToggle, open]);
+
+  return (
+    <div ref={rootRef} className="editor-action-menu">
+      <button
+        type="button"
+        className="editor-action-menu-trigger mono-ui"
+        onClick={onToggle}
+        aria-haspopup="menu"
+        aria-expanded={open ? "true" : "false"}
+        disabled={busy}
+      >
+        <span className="editor-action-menu-trigger-content">
+          <Icon size={14} />
+          <span>{label}</span>
+          <ChevronDown size={13} className="editor-action-menu-chevron" />
+        </span>
+      </button>
+
+      {open ? (
+        <div className="editor-action-menu-panel mono-ui" role="menu">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="editor-action-menu-item"
+              onClick={item.onClick}
+              disabled={item.disabled}
+              role="menuitem"
+            >
+              <span className="editor-action-menu-item-icon">
+                <item.icon size={14} />
+              </span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 const expertiseTokenMap: Record<string, string> = {

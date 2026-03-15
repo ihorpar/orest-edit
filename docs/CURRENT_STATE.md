@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-12
+Date: 2026-03-14
 Status: Active handoff
 
 ## What exists now
@@ -21,6 +21,7 @@ Status: Active handoff
 - `/editor` now renders a unified step workspace shell with manuscript + draggable resizer + flyout review drawer + icon-first mini-hub (Lucide) for 8-step navigation
 - `/api/edit/review` is now step-aware: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, and optional `factCheckRows`
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, and `final_editing`
+- `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
 - Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
@@ -73,6 +74,9 @@ Status: Active handoff
 - Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
+- The manuscript top action bar now separates document-level actions from block formatting: `Відкрити` menu on the left, `Зберегти` menu on the right, plus red clear-document icon and debug `Скинути`
+- Import v1 now exists through `Відкрити`: `.txt`, `.docx`, and clipboard text/HTML are normalized into the block document model before replacing the current manuscript
+- Save v1 now supports both `.docx` and `.txt` from the same `Зберегти` menu
 - Browser draft persistence uses `orest-editor-draft-v3`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
@@ -90,7 +94,7 @@ Status: Active handoff
 - No character-offset patch flow
 - No CI-integrated full browser E2E suite yet for the block editor (current coverage is a local scripted QA command)
 - No hardened provider normalization yet for arbitrary mixed block output from real models
-- No full clipboard/Word paste pipeline for complex rich-text imports
+- No full fidelity Word/paste import yet for tracked changes, comments, footnotes, embedded images, or shapes
 - No export patch flow or document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
@@ -129,5 +133,9 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-13 after Gemini replace-path simplification for `rewrite/simplify/expand`
 - `npm run test -w @orest/web` passed on 2026-03-13 after replace-proposal architecture simplification (70/70 tests), including lightweight OpenAI/Gemini replace-schema checks and existing frontend-adjacent apply/execution-lane coverage
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after compact-card UX pass (2-line clamp + expand, localized statuses, keyboard activation, stale refresh path, dismiss undo)
+- `npm run test -w @orest/web` passed on 2026-03-14 after tightening `clarity` anti-disclaimer prompt guardrails and adding regression coverage
+- `npm run typecheck -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
+- `npm run test -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (75/75 tests), including new `.txt` and `.docx` import coverage
+- `npm run build -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

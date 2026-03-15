@@ -243,3 +243,35 @@ test("generateEditorialReview Gemini schema does not force nullable card fields"
   assert.deepEqual(schemaRequired.includes("calloutPrompt"), false);
   assert.deepEqual(schemaRequired.includes("visualIntent"), false);
 });
+
+test("generateEditorialReview injects clarity-specific anti-disclaimer guardrails into provider prompt", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      apiKey: "test-key",
+      stepId: "clarity"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.ok(requestBody);
+  assert.match(String(requestBody?.instructions ?? ""), /не пропонуй шаблонних застережень про консультацію з лікарем/i);
+  assert.match(String(requestBody?.instructions ?? ""), /для кроку «ясність» пропонуй лише мовні й локально-структурні правки/i);
+  assert.match(String(requestBody?.input ?? ""), /збережи короткі окремі пункти/i);
+});

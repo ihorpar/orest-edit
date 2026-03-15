@@ -6,6 +6,13 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-13
 
+## 2026-03-14
+
+### Clarity prompts forbid disclaimer injection
+Decision: `clarity` recommendation prompts and downstream `rewrite`/`simplify` execution prompts must explicitly forbid generic medical disclaimers, consultation advice, and self-diagnosis boilerplate unless the editor asks for that framing.
+
+Reason: “no new facts” was not enough. Models could still inflate local clarity edits into repetitive risk-management copy, which breaks patch-first editing and weakens scan-friendly prose.
+
 ### Replace proposals use lightweight content contracts
 Decision: `review/proposal` replace-type actions do not ask providers to emit nested editor-native block JSON. Instead, providers return lightweight content contracts (`{"replacements":[...],"reason":"..."}` for `rewrite/simplify/expand`, `{"items":[...],"reason":"..."}` for `list`), and the server reconstructs the final block diff locally.
 
@@ -177,6 +184,18 @@ Reason: structured output is more reliable, easier to validate, and keeps fact-c
 Decision: each workflow step has persisted run mode (`preserve` or `replace`) and local step-run history in draft state.
 
 Reason: editors need explicit control between overwriting previous analysis and keeping comparative runs within the same manuscript session.
+
+## 2026-03-14
+
+### Document-level actions live above the editor toolbar
+Decision: manuscript-level actions are separated from block formatting controls in a dedicated top action bar: `Відкрити` on the left, `Зберегти` on the right, with explicit clear-document and debug reset actions.
+
+Reason: opening, saving, clearing, and resetting operate on the whole manuscript and should not visually compete with inline block formatting tools.
+
+### Import normalizes external content into the block document model
+Decision: import v1 accepts `.txt`, `.docx`, and clipboard text/HTML, and always normalizes incoming content into `EditorDocument.blocks` before replacing the current manuscript.
+
+Reason: the editor is block-first internally, so external content must converge into the same canonical model to keep patch, review, selection, and export behavior coherent.
 
 ## 2026-03-10
 
