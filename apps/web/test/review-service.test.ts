@@ -104,7 +104,8 @@ test("generateEditorialReview returns provider-native structured fact-check rows
               {
                 claim: "Кортизол пригнічує регенерацію при хронічному стресі.",
                 status: "сумнівно",
-                explanation: "Потрібно уточнити силу ефекту та межі застосовності на основі оглядових робіт."
+                explanation: "Потрібно уточнити силу ефекту та межі застосовності на основі оглядових робіт.",
+                sources: []
               }
             ]
           })
@@ -119,6 +120,7 @@ test("generateEditorialReview returns provider-native structured fact-check rows
   assert.equal(response.items.length, 0);
   assert.equal(response.factCheckRows?.length, 1);
   assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
+  assert.deepEqual(response.factCheckRows?.[0]?.sources, []);
 });
 
 test("generateEditorialReview treats valid empty provider recommendations as empty result, not fallback", async () => {
@@ -141,46 +143,80 @@ test("generateEditorialReview treats valid empty provider recommendations as emp
   assert.equal(response.error, undefined);
 });
 
-test("generateEditorialReview sends Gemini API key via header instead of URL query", async () => {
+test("generateEditorialReview sends grounded Gemini fact-check request via header and resolves sources", async () => {
   let requestedUrl = "";
   let requestHeaders = new Headers();
+  const requestedUrls: string[] = [];
 
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-2.5-flash",
+      modelId: "gemini-3-flash-preview",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
     {
       fetchImpl: async (input, init) => {
-        requestedUrl = String(input);
-        requestHeaders = new Headers(init?.headers);
+        const url = String(input);
+        requestedUrls.push(url);
 
-        return new Response(
-          JSON.stringify({
-            candidates: [
-              {
-                content: {
-                  parts: [
-                    {
-                      text: JSON.stringify({
-                        rows: [
-                          {
-                            claim: "Тестове твердження.",
-                            status: "ok",
-                            explanation: "Тестове обґрунтування."
-                          }
-                        ]
-                      })
-                    }
-                  ]
+        if (url.includes(":generateContent")) {
+          requestedUrl = url;
+          requestHeaders = new Headers(init?.headers);
+
+          return new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          rows: [
+                            {
+                              claim: "Тестове твердження.",
+                              status: "ok",
+                              explanation: "Тестове обґрунтування.",
+                              sources: []
+                            }
+                          ]
+                        })
+                      }
+                    ]
+                  },
+                  groundingMetadata: {
+                    groundingChunks: [
+                      {
+                        web: {
+                          uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-source",
+                          title: "Mayo Clinic"
+                        }
+                      }
+                    ],
+                    groundingSupports: [
+                      {
+                        segment: {
+                          text: "Тестове обґрунтування."
+                        },
+                        groundingChunkIndices: [0]
+                      }
+                    ]
+                  }
                 }
-              }
-            ]
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
+              ]
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        if (url === "https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-source") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://www.mayoclinic.org/symptoms/clubbing/basics/definition/sym-20050759" }
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
       },
       now: () => "2026-03-10T12:00:00.000Z"
     }
@@ -189,9 +225,95 @@ test("generateEditorialReview sends Gemini API key via header instead of URL que
   assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "fact_check");
   assert.equal(response.factCheckRows?.length, 1);
-  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
+  assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.1-flash-lite-preview:generateContent$/);
   assert.doesNotMatch(requestedUrl, /\?key=/);
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+  assert.equal(requestedUrls.some((url) => url.includes("grounding-api-redirect/test-source")), true);
+});
+
+test("generateEditorialReview preserves parsed row sources when grounded mapping misses", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3-flash-preview",
+      apiKey: "gemini-test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async (input) => {
+        const url = String(input);
+
+        if (url.includes(":generateContent")) {
+          return new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          rows: [
+                            {
+                              claim: "Тестове твердження.",
+                              status: "ok",
+                              explanation: "Текст пояснення.",
+                              sources: [
+                                {
+                                  title: "Mayo Clinic",
+                                  url: "https://www.mayoclinic.org/symptoms/clubbing/basics/definition/sym-20050759",
+                                  domain: "mayoclinic.org"
+                                }
+                              ]
+                            }
+                          ]
+                        })
+                      }
+                    ]
+                  },
+                  groundingMetadata: {
+                    groundingChunks: [
+                      {
+                        web: {
+                          uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-source",
+                          title: "Ignored source"
+                        }
+                      }
+                    ],
+                    groundingSupports: [
+                      {
+                        segment: {
+                          text: "Несумісний сегмент"
+                        },
+                        groundingChunkIndices: [0]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        if (url === "https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-source") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://www.clevelandclinic.org/health/symptoms/24474-clubbed-fingers" }
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
 });
 
 test("generateEditorialReview Gemini schema does not force nullable card fields", async () => {

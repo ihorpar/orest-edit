@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-14
+Date: 2026-03-16
 Status: Active handoff
 
 ## What exists now
@@ -24,6 +24,7 @@ Status: Active handoff
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
 - Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
+- Gemini fact-check now runs through grounded Google Search on `gemini-3.1-flash-lite-preview`; row sources are derived from `groundingMetadata` into structured `sources[]`, with low-trust domains filtered out
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
@@ -33,12 +34,17 @@ Status: Active handoff
 - Compact recommendation cards now default to the shorter recommendation `title`; a larger disclosure control reveals the full recommendation copy inline when needed
 - Compact recommendation status chips are now fully localized in Ukrainian (`очікує`, `готово`, `погоджено`, `відхилено`, `застаріло`, `готується`)
 - Compact recommendation cards are now keyboard-focusable and support `Enter`/`Space` activation while keeping click-to-focus + auto-prepare flow
-- Dismissed recommendations now expose a 5-second inline undo affordance (`Скасувати`) in the step drawer
+- Dismissed recommendations now expose a 5-second inline undo affordance (`Повернути`) in the step drawer
+- Replace diff cards now use explicit rejection semantics (`Відхилити`) instead of the ambiguous `Скасувати`, so declining a prepared recommendation moves it to the rejected state
+- Active recommendation cards now include a `Доопрацювати` action with a short editor instruction field; that instruction is sent only to the current card's regenerate flow
+- Post-generation AI self-explanations were removed from execution cards; active cards now keep only the original recommendation context plus the generated result
+- Review-action prompt contracts no longer ask providers to generate extra post-edit `reason/summary` text for replace/callout/subsection drafts
 - Recommendation-step drawers now show one recommendation queue only; the duplicate `Правки` section was removed
 - Recommendation-step drawers now hide completed cards by default and expose a `Показати завершені` toggle
 - Recommendation-step stats now use explicit labeled copy (`в роботі`, `погоджено`, `відхилено`) instead of compact numeric slash counters
 - Step drawer headers now place `Етап N / 8` under the title and use an icon-only rerun control with tooltip copy
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
+- Fact-check explanations now render trusted source chips separately from explanation text; when no acceptable grounded source is available, UI shows `Немає надійного джерела`
 - Step run CTA (`Запустити/Оновити`) now lives in the drawer header area for diagnostics, fact-check, and recommendation steps
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
@@ -80,6 +86,7 @@ Status: Active handoff
 - Stale recommendation focus now attempts an inline anchor refresh + reproposal when block IDs still resolve; unresolved stale anchors now show explicit rerun guidance
 - Inline replace previews now hide the regular block-delete `×` affordance on the red "before" block, preventing confusion with review cancel/reject actions
 - Recommendation steps with no prior run now show an explicit empty-state CTA (`Згенерувати картки`) in the drawer, while the header control stays compact and switches from rerun to generate semantics/iconography before first run
+- Drawer utility controls now use clearer button affordances: step run/rerun actions render as quiet secondary buttons, empty-state generate CTA uses a light blue action treatment, and `Показати завершені` now reads as a compact utility button instead of near-invisible text
 - Inline diff execution now demotes rationale behind `Що зробив ШІ?`, keeping the proposed text and apply/cancel actions as the primary surface
 - Inline recommendation detail cards now expose the same `Що зробив ШІ?` disclosure instead of always-on supporting explanation
 - Regression suites now include inline execution-lane state coverage and subsection insert-before anchor edge cases
@@ -149,5 +156,11 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (75/75 tests), including new `.txt` and `.docx` import coverage
 - `npm run test -w @orest/web` passed on 2026-03-14 after callout/subsection formatting pass, including new coverage for `myths_vs_truth` line splitting and subsection lead paragraph preservation
 - `npm run build -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
+- `npm run typecheck -w @orest/web` passed on 2026-03-16 after reject/doopрацювати review-card pass
+- `node --import tsx --test test/review-action-service.test.ts` passed on 2026-03-16 after wiring per-card editorial refine instructions into proposal prompts
+- `npm run typecheck -w @orest/web` passed on 2026-03-16 after grounded Gemini fact-check source integration
+- `node --import tsx --test test/review-service.test.ts` passed on 2026-03-16 after grounded Gemini fact-check source integration
+- `npm run typecheck -w @orest/web` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
+- `node --import tsx --test test/review-action-service.test.ts test/review-contract.test.ts test/review-execution-lane.test.ts` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

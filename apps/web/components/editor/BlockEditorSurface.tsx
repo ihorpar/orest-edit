@@ -90,6 +90,8 @@ export function BlockEditorSurface({
   onAcceptProposal,
   onRejectProposal,
   onPrepareReviewItem,
+  reviewRefineInstruction,
+  onReviewRefineInstructionChange,
   onApplyReviewCallout,
   onApplyReviewSubsection,
   onDismissReviewItem,
@@ -123,7 +125,12 @@ export function BlockEditorSurface({
   reviewItems?: EditorialReviewItem[];
   onAcceptProposal?: (proposalId: string, nextBlocks: Block[]) => void;
   onRejectProposal?: (proposalId: string) => void;
-  onPrepareReviewItem?: (item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) => void;
+  onPrepareReviewItem?: (
+    item: EditorialReviewItem,
+    options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
+  ) => void;
+  reviewRefineInstruction?: string;
+  onReviewRefineInstructionChange?: (value: string) => void;
   onApplyReviewCallout?: (item: EditorialReviewItem) => void;
   onApplyReviewSubsection?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
@@ -718,12 +725,21 @@ export function BlockEditorSurface({
                 {isDiffAnchorEnd && activeProposal?.kind === "text_diff" && activeProposal.textDiff ? (
                   <div className="manuscript-review-detail-anchor">
                     <BlockDiffOverlay
+                      item={highlightedItem ?? proposalItem ?? activeReviewItem ?? null}
                       oldBlocks={activeProposal.textDiff.oldBlocks}
                       newBlocks={activeProposal.textDiff.newBlocks}
-                      reason={activeProposal.textDiff.reason}
                       warning={activeProposal.textDiff.warning}
                       onAccept={(nextBlocks) => onAcceptProposal?.(activeProposal.id, nextBlocks)}
                       onReject={() => onRejectProposal?.(activeProposal.id)}
+                      refineInstruction={reviewRefineInstruction ?? ""}
+                      onRefineInstructionChange={(value) => onReviewRefineInstructionChange?.(value)}
+                      onRefine={(instruction) => {
+                        const item = highlightedItem ?? proposalItem ?? activeReviewItem;
+
+                        if (item) {
+                          onPrepareReviewItem?.(item, { editorialInstruction: instruction });
+                        }
+                      }}
                     />
                   </div>
                 ) : null}
@@ -738,6 +754,8 @@ export function BlockEditorSurface({
                       isPreparing={preparingItem?.id === highlightedItem.id}
                       reviewImageLoading={reviewImageLoading}
                       onPrepare={(item, options) => onPrepareReviewItem?.(item, options)}
+                      refineInstruction={reviewRefineInstruction ?? ""}
+                      onRefineInstructionChange={(value) => onReviewRefineInstructionChange?.(value)}
                       onApplyCallout={(item) => onApplyReviewCallout?.(item)}
                       onApplySubsection={(item) => onApplyReviewSubsection?.(item)}
                       onDismiss={(item) => onDismissReviewItem?.(item)}

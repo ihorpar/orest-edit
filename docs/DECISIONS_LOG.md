@@ -8,6 +8,13 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-14
 
+## 2026-03-16
+
+### Gemini fact-check sources come from grounding metadata, not free-text citations
+Decision: Gemini fact-check runs use Google Search grounding, and the UI renders sources only from structured `groundingMetadata` mapped into `factCheckRows[].sources[]`. Model-written explanation text is not trusted as a citation carrier.
+
+Reason: asking the model to mention sources inside `explanation` invites hallucinated authors, URLs, and journals. Structured grounded sources are easier to validate, filter, and render safely.
+
 ### Clarity prompts forbid disclaimer injection
 Decision: `clarity` recommendation prompts and downstream `rewrite`/`simplify` execution prompts must explicitly forbid generic medical disclaimers, consultation advice, and self-diagnosis boilerplate unless the editor asks for that framing.
 

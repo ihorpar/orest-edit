@@ -143,6 +143,67 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
 });
 
+test("generateReviewAction forwards editorial refine instruction into replace prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Щільний медичний абзац із важким синтаксисом." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      editorialInstruction: "Зберігай формат короткого списку і прибери канцеляризми.",
+      item: {
+        id: "review-rewrite-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Спростити формулювання",
+        reason: "Абзац читається важко.",
+        recommendation: "Переписати коротше й ясніше.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Щільний медичний абзац із важким синтаксисом.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              replacements: ["Коротший і ясніший абзац."],
+              reason: "Спростив синтаксис."
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.match(String(requestBody?.input ?? ""), /Додаткова вказівка редактора: Зберігай формат короткого списку і прибери канцеляризми\./i);
+});
+
 test("generateReviewAction renders image template placeholders and adds visual-intent guidance", async () => {
   const document: EditorDocument = {
     version: 2,
@@ -460,7 +521,7 @@ test("generateReviewAction parses structured callout draft output and strips mar
   assert.equal(response.proposal.kind, "callout_prompt");
   assert.equal(response.proposal.calloutDraft?.title, "Шкіра — дзеркало мозку");
   assert.equal(response.proposal.calloutDraft?.previewText, "Шкіра і нервова система мають спільне походження.");
-  assert.equal(response.proposal.summary, "Коротко пояснює звязок.");
+  assert.equal(response.proposal.summary, "Аналогія зніме когнітивне навантаження.");
   assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /\*\*|^-\s/m);
 });
 
@@ -811,7 +872,7 @@ test("generateReviewAction keeps replace-proposal provider prompt scoped to sele
   assert.match(String(requestBody?.input ?? ""), /Цільовий абзац 2/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний вступ/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /Нерелевантний хвіст/i);
-  assert.deepEqual((requestBody as any)?.text?.format?.schema?.required, ["replacements", "reason"]);
+  assert.deepEqual((requestBody as any)?.text?.format?.schema?.required, ["replacements"]);
   assert.equal((requestBody as any)?.text?.format?.schema?.properties?.replacements?.items?.type, "string");
   assert.equal((requestBody as any)?.text?.format?.schema?.properties?.operations, undefined);
 });
@@ -1004,7 +1065,7 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.equal(response.usedFallback, false);
   assert.equal(response.providerUsed, "openai:list_replace");
   assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
-  assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items", "reason"]);
+  assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items"]);
   assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
 });
@@ -1373,7 +1434,7 @@ test("generateReviewAction uses Gemini fast replace schema for rewrite proposals
   assert.equal(response.proposal.kind, "text_diff");
   assert.equal((response.proposal.textDiff?.newBlocks[0] as { content?: Array<{ text: string }> })?.content?.[0]?.text, "Це може вказувати на такі стани:");
   assert.ok(requestBody);
-  assert.deepEqual(requestBody?.generationConfig?.responseSchema?.required, ["replacements", "reason"]);
+  assert.deepEqual(requestBody?.generationConfig?.responseSchema?.required, ["replacements"]);
   assert.equal(requestBody?.generationConfig?.responseSchema?.properties?.replacements?.items?.type, "STRING");
   assert.equal(requestBody?.generationConfig?.responseSchema?.properties?.operations, undefined);
 });

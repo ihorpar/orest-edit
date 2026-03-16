@@ -112,6 +112,10 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
       document: record.document as ReviewActionRequest["document"],
       currentRevision: record.currentRevision as ReviewActionRequest["currentRevision"],
       item: record.item as ReviewActionRequest["item"],
+      editorialInstruction:
+        typeof record.editorialInstruction === "string" && record.editorialInstruction.trim()
+          ? record.editorialInstruction.trim()
+          : undefined,
       provider,
       modelId,
       apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,

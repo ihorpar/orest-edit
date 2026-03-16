@@ -41,10 +41,9 @@ const openAiReplaceTextSchema = {
     replacements: {
       type: "array",
       items: { type: "string" }
-    },
-    reason: { type: "string" }
+    }
   },
-  required: ["replacements", "reason"]
+  required: ["replacements"]
 } as const;
 
 const geminiReplaceTextSchema = {
@@ -53,10 +52,9 @@ const geminiReplaceTextSchema = {
     replacements: {
       type: "ARRAY",
       items: { type: "STRING" }
-    },
-    reason: { type: "STRING" }
+    }
   },
-  required: ["replacements", "reason"]
+  required: ["replacements"]
 } as const;
 
 const openAiListReplaceSchema = {
@@ -66,10 +64,9 @@ const openAiListReplaceSchema = {
     items: {
       type: "array",
       items: { type: "string" }
-    },
-    reason: { type: "string" }
+    }
   },
-  required: ["items", "reason"]
+  required: ["items"]
 } as const;
 
 const geminiListReplaceSchema = {
@@ -78,10 +75,9 @@ const geminiListReplaceSchema = {
     items: {
       type: "ARRAY",
       items: { type: "STRING" }
-    },
-    reason: { type: "STRING" }
+    }
   },
-  required: ["items", "reason"]
+  required: ["items"]
 } as const;
 
 export interface GenerateReviewActionOptions {
@@ -187,13 +183,12 @@ export async function generateReviewAction(
           sourceRevisionId: normalizedRequest.item.documentRevisionId,
           targetRevisionId: normalizedRequest.currentRevision.documentRevisionId,
           kind: "subsection_prompt",
-          summary: explicitDraft.summary,
+          summary: normalizedRequest.item.reason,
           canApplyDirectly: true,
           subsectionDraft: {
             title: explicitDraft.title,
             lead: explicitDraft.lead,
-            prompt: buildProviderPrompt(normalizedRequest, "subsection"),
-            summary: explicitDraft.summary
+            prompt: buildProviderPrompt(normalizedRequest, "subsection")
           }
         },
         providerUsed: "deterministic:subsection",
@@ -338,6 +333,7 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
     document: compactDocument,
     currentRevision: compactRevision,
     item: compactItem,
+    editorialInstruction: sanitizeOptionalPrompt(request.editorialInstruction, 2000),
     provider: request.provider.trim(),
     modelId: request.modelId.trim(),
     apiKey: request.apiKey?.trim() || undefined,
@@ -382,7 +378,8 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
   return [
     buildReplacePromptByType(request.item.recommendationType, blockCount),
     `Редакторська рекомендація: ${request.item.recommendation}`,
-    `Причина: ${request.item.reason}`
+    `Причина: ${request.item.reason}`,
+    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -398,11 +395,12 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
     return [
       `Перетвори ${blockCount} вибраних блоків на короткий, читабельний список без нових фактів.`,
       "Поверни лише JSON без markdown.",
-      'Схема: {"items":["..."],"reason":"..."}.',
+      'Схема: {"items":["..."]}.',
       "items: 2-7 коротких пунктів plain text без маркерів; сервер сам збере bullet list.",
       "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
       `Редакторська рекомендація: ${request.item.recommendation}`,
       `Причина: ${request.item.reason}`,
+      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
       "Вибрані блоки:",
       selectedBlocks.map((block, index) => `[${index + 1}] (${block.type}) ${getBlockText(block)}`).join("\n")
     ]
@@ -418,9 +416,10 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
     "Не додавай загальних пересторог, медичних дисклеймерів, порад звернутися до лікаря, фраз про самодіагностику або консультацію, якщо цього немає в оригіналі і це не є прямою метою рекомендації.",
     "Якщо джерело є переліком, серією коротких тверджень або ритмічним списком, збережи цю scan-friendly структуру; не перетворюй кожен пункт на розлогий абзац.",
     "Поверни лише JSON без markdown.",
-    `Схема: {"replacements":["..."],"reason":"..."}. replacements має містити рівно ${blockCount} рядків plain text у тому самому порядку, що й вибрані блоки.`,
+    `Схема: {"replacements":["..."]}. replacements має містити рівно ${blockCount} рядків plain text у тому самому порядку, що й вибрані блоки.`,
     `Редакторська рекомендація: ${request.item.recommendation}`,
     `Причина: ${request.item.reason}`,
+    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
     "Вибрані блоки:",
     selectedBlocks.map((block, index) => `[${index + 1}] (${block.type}) ${getBlockText(block)}`).join("\n")
   ]
@@ -490,7 +489,7 @@ function buildReplaceProposalFromBlocks(
     sourceRevisionId: request.item.documentRevisionId,
     targetRevisionId: request.currentRevision.documentRevisionId,
     kind: "text_diff",
-    summary: operation.reason,
+    summary: request.item.reason,
     canApplyDirectly: true,
     textDiff: {
       op: "replace_blocks",
@@ -595,8 +594,7 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
   const parsed = parseSubsectionDraftOutput(excerpt, {
     title: request.item.title,
-    lead: "",
-    summary: request.item.reason
+    lead: ""
   });
   const prompt = buildProviderPrompt(request, "subsection");
 
@@ -606,13 +604,12 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
     sourceRevisionId: request.item.documentRevisionId,
     targetRevisionId: request.currentRevision.documentRevisionId,
     kind: "subsection_prompt",
-    summary: parsed.summary,
+    summary: request.item.reason,
     canApplyDirectly: true,
     subsectionDraft: {
       title: parsed.title,
       lead: parsed.lead,
-      prompt,
-      summary: parsed.summary
+      prompt
     }
   };
 }
@@ -656,8 +653,7 @@ async function createCalloutProposal(
   const calloutKind = request.item.calloutKind ?? "mechanism";
   const parsed = parseCalloutDraftOutput(result, {
     title: request.item.calloutDraft?.title ?? getEditorialCalloutKindTitle(calloutKind),
-    body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, 220),
-    summary: request.item.reason
+    body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, 220)
   }, calloutKind);
 
   return {
@@ -669,7 +665,7 @@ async function createCalloutProposal(
       sourceRevisionId: request.item.documentRevisionId,
       targetRevisionId: request.currentRevision.documentRevisionId,
       kind: "callout_prompt",
-      summary: parsed.summary,
+      summary: request.item.reason,
       canApplyDirectly: true,
       calloutDraft: {
         calloutKind,
@@ -694,8 +690,7 @@ async function createSubsectionProposal(
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const parsed = parseSubsectionDraftOutput(result, {
     title: request.item.title,
-    lead: "",
-    summary: request.item.reason
+    lead: ""
   });
 
   return {
@@ -707,13 +702,12 @@ async function createSubsectionProposal(
       sourceRevisionId: request.item.documentRevisionId,
       targetRevisionId: request.currentRevision.documentRevisionId,
       kind: "subsection_prompt",
-      summary: parsed.summary,
+      summary: request.item.reason,
       canApplyDirectly: true,
       subsectionDraft: {
         title: parsed.title,
         lead: parsed.lead,
-        prompt,
-        summary: parsed.summary
+        prompt
       }
     }
   };
@@ -787,11 +781,11 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
         : null,
       templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
       templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
+      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
       "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
-      "Схема JSON: {\"title\":\"...\",\"body\":\"...\",\"summary\":\"...\"}.",
+      "Схема JSON: {\"title\":\"...\",\"body\":\"...\"}.",
       "title: короткий заголовок врізки (1 рядок, plain text).",
-      "body: основний текст врізки у вигляді plain text для block editor; без **жирного**, списків markdown, # заголовків або code fences.",
-      "summary: одне коротке речення, навіщо ця врізка саме тут."
+      "body: основний текст врізки у вигляді plain text для block editor; без **жирного**, списків markdown, # заголовків або code fences."
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -800,12 +794,12 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
   if (mode === "subsection") {
     return [
       "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
-      "Поверни лише JSON-об'єкт без markdown: {\"title\":\"...\",\"lead\":\"...\",\"summary\":\"...\"}.",
+      "Поверни лише JSON-об'єкт без markdown: {\"title\":\"...\",\"lead\":\"...\"}.",
       "title: короткий і точний підзаголовок (plain text, один рядок).",
       "lead: необов'язковий короткий вступний абзац (plain text), можна порожній рядок.",
-      "summary: одне речення, чому цей підзаголовок потрібен тут.",
       "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
       `Рекомендація: ${request.item.recommendation}`,
+      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
       `Фрагмент: ${excerpt}`
     ].join("\n\n");
   }
@@ -827,6 +821,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     template,
     templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
     templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
+    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
     inferredInfographicLayout ? `Автовибраний формат інфографіки: ${getInfographicLayoutLabel(inferredInfographicLayout)}.` : null,
     templateContainsPlaceholder(request.imagePromptTemplate, "visualStyleGuide")
@@ -1385,7 +1380,7 @@ function parseImageDraftOutput(
 function parseReplaceProposalContent(rawOutput: string, request: ReviewActionRequest): ReplaceProposalContentResult {
   const oldBlocks = getReplaceOldBlocks(request);
   const parsedObject = parseLooseJsonObject(rawOutput);
-  const reason = typeof parsedObject?.reason === "string" && parsedObject.reason.trim() ? parsedObject.reason.trim() : "Оновив локальне формулювання.";
+  const reason = sanitizePromptInput(request.item.reason, 1600) || "Оновив локальне формулювання.";
 
   if (request.item.recommendationType === "list") {
     const newBlocks =
@@ -1877,23 +1872,20 @@ function formatRawError(error: unknown): string | undefined {
 
 function parseCalloutDraftOutput(
   rawOutput: string,
-  fallback: { title: string; body: string; summary: string },
+  fallback: { title: string; body: string },
   calloutKind: EditorialCalloutKind
-): { title: string; body: string; summary: string } {
+): { title: string; body: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "calloutTitle", "header"]) : null;
   const objectBody = parsedObject ? pickString(parsedObject, ["body", "text", "draft", "content", "calloutText"]) : null;
-  const objectSummary = parsedObject ? pickString(parsedObject, ["summary", "why", "purpose", "rationale"]) : null;
 
   const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
   const fallbackBodyValue = normalizeCalloutBodyByKind(fallback.body, calloutKind);
-  const fallbackSummaryValue = sanitizeCalloutText(fallback.summary) || "Коротко поясни, чому ця врізка потрібна саме тут.";
 
-  if (objectTitle || objectBody || objectSummary) {
+  if (objectTitle || objectBody) {
     return {
       title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
-      body: normalizeCalloutBodyByKind(objectBody ?? fallbackBodyValue, calloutKind) || fallbackBodyValue,
-      summary: sanitizeCalloutText(objectSummary ?? fallbackSummaryValue) || fallbackSummaryValue
+      body: normalizeCalloutBodyByKind(objectBody ?? fallbackBodyValue, calloutKind) || fallbackBodyValue
     };
   }
 
@@ -1902,8 +1894,7 @@ function parseCalloutDraftOutput(
 
   return {
     title: sanitizeCalloutTitle(fromLabels.title ?? fallbackTitleValue),
-    body: normalizeCalloutBodyByKind(fromLabels.body ?? fallbackBodyValue, calloutKind) || fallbackBodyValue,
-    summary: sanitizeCalloutText(fromLabels.summary ?? fallbackSummaryValue) || fallbackSummaryValue
+    body: normalizeCalloutBodyByKind(fromLabels.body ?? fallbackBodyValue, calloutKind) || fallbackBodyValue
   };
 }
 
@@ -1945,11 +1936,10 @@ function pickString(record: Record<string, unknown>, keys: string[]): string | n
   return null;
 }
 
-function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: string; summary?: string } {
+function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: string } {
   const lines = plain.split("\n").map((line) => line.trim()).filter(Boolean);
 
   let title: string | undefined;
-  let summary: string | undefined;
   const bodyLines: string[] = [];
 
   for (const line of lines) {
@@ -1962,15 +1952,6 @@ function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: st
       }
     }
 
-    if (!summary) {
-      const summaryMatch = /^(?:навіщо|summary|purpose|rationale)\s*[:\-]\s*(.+)$/i.exec(line);
-
-      if (summaryMatch?.[1]) {
-        summary = summaryMatch[1].trim();
-        continue;
-      }
-    }
-
     if (!/^(?:текст|body|чернетка)\s*[:\-]\s*$/i.test(line)) {
       bodyLines.push(line);
     }
@@ -1978,29 +1959,25 @@ function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: st
 
   return {
     title,
-    body: bodyLines.length > 0 ? bodyLines.join("\n") : undefined,
-    summary
+    body: bodyLines.length > 0 ? bodyLines.join("\n") : undefined
   };
 }
 
 function parseSubsectionDraftOutput(
   rawOutput: string,
-  fallback: { title: string; lead: string; summary: string }
-): { title: string; lead: string; summary: string } {
+  fallback: { title: string; lead: string }
+): { title: string; lead: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "subheading"]) : null;
   const objectLead = parsedObject ? pickString(parsedObject, ["lead", "intro", "body", "text"]) : null;
-  const objectSummary = parsedObject ? pickString(parsedObject, ["summary", "why", "purpose", "rationale"]) : null;
 
   const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
   const fallbackLeadValue = sanitizeCalloutText(fallback.lead);
-  const fallbackSummaryValue = sanitizeCalloutText(fallback.summary) || "Пояснює, чому цей підзаголовок потрібен у цьому місці.";
 
-  if (objectTitle || objectLead || objectSummary) {
+  if (objectTitle || objectLead) {
     return {
       title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
-      lead: sanitizeCalloutText(objectLead ?? fallbackLeadValue),
-      summary: sanitizeCalloutText(objectSummary ?? fallbackSummaryValue) || fallbackSummaryValue
+      lead: sanitizeCalloutText(objectLead ?? fallbackLeadValue)
     };
   }
 
@@ -2016,12 +1993,11 @@ function parseSubsectionDraftOutput(
 
   return {
     title: sanitizeCalloutTitle(title || fallbackTitleValue),
-    lead: sanitizeCalloutText(lead || fallbackLeadValue),
-    summary: fallbackSummaryValue
+    lead: sanitizeCalloutText(lead || fallbackLeadValue)
   };
 }
 
-function parseSubsectionDraftFromRecommendation(value: string): { title: string; lead: string; summary: string } | null {
+function parseSubsectionDraftFromRecommendation(value: string): { title: string; lead: string } | null {
   const normalized = sanitizePromptInput(value, 6000);
 
   if (!normalized) {
@@ -2044,8 +2020,7 @@ function parseSubsectionDraftFromRecommendation(value: string): { title: string;
 
   return {
     title,
-    lead,
-    summary: "Сформовано з явної інструкції редактора без додаткової генерації."
+    lead
   };
 }
 

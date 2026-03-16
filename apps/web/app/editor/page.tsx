@@ -178,6 +178,7 @@ export default function EditorPage() {
   const [showCompletedCards, setShowCompletedCards] = useState(false);
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
+  const [reviewRefineInstruction, setReviewRefineInstruction] = useState("");
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const dismissUndoTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
@@ -238,6 +239,10 @@ export default function EditorPage() {
 
     setHasHydratedDraft(true);
   }, []);
+
+  useEffect(() => {
+    setReviewRefineInstruction("");
+  }, [activeReviewItemId]);
 
   function persistVisualStylePreset(preset: VisualStylePreset) {
     setVisualStylePreset(preset);
@@ -777,14 +782,22 @@ export default function EditorPage() {
 
   function handleRejectProposal(proposalId: string) {
     setOperations((current) => current.filter((op) => op.id !== proposalId));
-    setReviewItems((current) =>
-      current.map((entry) => (entry.id === activeProposal?.reviewItemId ? { ...entry, status: "pending", activeProposalId: undefined } : entry))
-    );
+    const item = reviewItems.find((entry) => entry.id === activeProposal?.reviewItemId);
+
+    if (item) {
+      dismissReviewItem(item);
+      return;
+    }
+
     setActiveProposal(null);
     setActiveReviewItemId(null);
   }
 
-  function buildReviewActionRequestBody(item: EditorialReviewItem, requestVisualStylePreset: VisualStylePreset): ReviewActionRequest {
+  function buildReviewActionRequestBody(
+    item: EditorialReviewItem,
+    requestVisualStylePreset: VisualStylePreset,
+    editorialInstruction?: string
+  ): ReviewActionRequest {
     const isReplaceProposal = isReplaceReviewType(item.recommendationType);
     const compactItem: ReviewActionRequest["item"] = {
       id: item.id,
@@ -843,6 +856,7 @@ export default function EditorPage() {
       document: compactDocument,
       currentRevision: compactRevision,
       item: compactItem,
+      editorialInstruction: editorialInstruction?.trim() || undefined,
       provider: settings.provider,
       modelId: settings.modelId,
       apiKey: settings.apiKey || undefined
@@ -874,7 +888,10 @@ export default function EditorPage() {
     return baseRequest;
   }
 
-  async function prepareReviewItem(item: EditorialReviewItem, options?: { visualStylePreset?: VisualStylePreset }) {
+  async function prepareReviewItem(
+    item: EditorialReviewItem,
+    options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
+  ) {
     const canRefreshStale =
       item.status === "stale" && item.anchor.blockIds.every((blockId) => revision.blockOrder.includes(blockId));
     const refreshFingerprint = canRefreshStale ? computeAnchorFingerprint(document, item.anchor.blockIds) : null;
@@ -913,7 +930,7 @@ export default function EditorPage() {
     }
 
     try {
-      const requestBody = buildReviewActionRequestBody(requestItem, requestVisualStylePreset);
+      const requestBody = buildReviewActionRequestBody(requestItem, requestVisualStylePreset, options?.editorialInstruction);
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
         credentials: "same-origin",
@@ -950,6 +967,7 @@ export default function EditorPage() {
             entry.id === item.id ? { ...entry, status: "ready", activeProposalId: proposal.id } : entry
           )
         );
+        setReviewRefineInstruction("");
         setFeedback(null);
         return;
       }
@@ -966,14 +984,14 @@ export default function EditorPage() {
                 subsectionDraft: {
                   title: payload.proposal.subsectionDraft!.title,
                   lead: payload.proposal.subsectionDraft!.lead,
-                  prompt: payload.proposal.subsectionDraft!.prompt,
-                  summary: payload.proposal.subsectionDraft!.summary ?? payload.proposal.summary
+                  prompt: payload.proposal.subsectionDraft!.prompt
                 },
                 status: "ready"
               }
               : entry
           )
         );
+        setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Підзаголовок підготовлено." });
         return;
       }
@@ -988,14 +1006,14 @@ export default function EditorPage() {
                   calloutKind: payload.proposal.calloutDraft!.calloutKind,
                   title: payload.proposal.calloutDraft!.title,
                   prompt: payload.proposal.calloutDraft!.prompt,
-                  previewText: payload.proposal.calloutDraft!.previewText ?? "",
-                  summary: payload.proposal.summary
+                  previewText: payload.proposal.calloutDraft!.previewText ?? ""
                 },
                 status: "ready"
               }
               : entry
           )
         );
+        setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Врізку підготовлено." });
         return;
       }
@@ -1009,6 +1027,7 @@ export default function EditorPage() {
             entry.id === item.id ? { ...entry, status: "ready", activeProposalId: payload.proposal.id } : entry
           )
         );
+        setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Промпт для візуалу підготовлено." });
         return;
       }
@@ -1105,8 +1124,7 @@ export default function EditorPage() {
           calloutKind: kind,
           title: fallbackTitle,
           prompt: "",
-          previewText: "",
-          summary: entry.reason
+          previewText: ""
         };
 
         return {
@@ -1159,8 +1177,7 @@ export default function EditorPage() {
             calloutKind: kind,
             title,
             prompt: entry.calloutDraft?.prompt ?? "",
-            previewText: entry.calloutDraft?.previewText ?? "",
-            summary: entry.calloutDraft?.summary ?? entry.reason
+            previewText: entry.calloutDraft?.previewText ?? ""
           }
         };
       })
@@ -1195,8 +1212,7 @@ export default function EditorPage() {
             calloutKind: kind,
             title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
             prompt: entry.calloutDraft?.prompt ?? "",
-            previewText: body,
-            summary: entry.calloutDraft?.summary ?? entry.reason
+            previewText: body
           }
         };
       })
@@ -1229,8 +1245,7 @@ export default function EditorPage() {
           subsectionDraft: {
             title,
             lead: entry.subsectionDraft?.lead ?? "",
-            prompt: entry.subsectionDraft?.prompt ?? "",
-            summary: entry.subsectionDraft?.summary ?? entry.reason
+            prompt: entry.subsectionDraft?.prompt ?? ""
           }
         };
       })
@@ -1263,8 +1278,7 @@ export default function EditorPage() {
           subsectionDraft: {
             title: entry.subsectionDraft?.title ?? entry.title,
             lead,
-            prompt: entry.subsectionDraft?.prompt ?? "",
-            summary: entry.subsectionDraft?.summary ?? entry.reason
+            prompt: entry.subsectionDraft?.prompt ?? ""
           }
         };
       })
@@ -1654,7 +1668,8 @@ export default function EditorPage() {
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
-        variant="ghost"
+        variant="secondary"
+        className="step-review-head-action-button"
         size="sm"
         onClick={() => void requestWorkflowStep("diagnostics")}
         loading={isReviewRequestInFlight}
@@ -1669,7 +1684,8 @@ export default function EditorPage() {
     : activeWorkflowStep === "fact_check"
       ? (
         <Button
-          variant="ghost"
+          variant="secondary"
+          className="step-review-head-action-button"
           size="sm"
           onClick={() => void requestWorkflowStep("fact_check")}
           loading={isReviewRequestInFlight}
@@ -1683,7 +1699,8 @@ export default function EditorPage() {
       )
       : (
         <Button
-          variant="ghost"
+          variant="secondary"
+          className="step-review-head-action-button"
           size="sm"
           onClick={() => void requestWorkflowStep(activeWorkflowStep)}
           loading={isReviewRequestInFlight}
@@ -1772,6 +1789,8 @@ export default function EditorPage() {
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}
               onPrepareReviewItem={(item, options) => void prepareReviewItem(item, options)}
+              reviewRefineInstruction={reviewRefineInstruction}
+              onReviewRefineInstructionChange={setReviewRefineInstruction}
               onApplyReviewCallout={applyReviewCallout}
               onApplyReviewSubsection={applyReviewSubsection}
               onDismissReviewItem={dismissReviewItem}
@@ -1854,7 +1873,7 @@ export default function EditorPage() {
               <div className="step-review-undo-toast" role="status" aria-live="polite">
                 <span>Рекомендацію відхилено.</span>
                 <Button size="sm" variant="ghost" onClick={undoDismissReviewItem}>
-                  Скасувати
+                  Повернути
                 </Button>
               </div>
             ) : null}
@@ -2032,7 +2051,29 @@ export default function EditorPage() {
                                 {row.status}
                               </span>
                             </td>
-                            <td>{row.explanation}</td>
+                            <td>
+                              <div className="step-review-fact-evidence">
+                                <p className="step-review-fact-explanation">{row.explanation}</p>
+                                {row.sources.length > 0 ? (
+                                  <div className="step-review-fact-sources">
+                                    {row.sources.map((source) => (
+                                      <a
+                                        key={`${source.url}-${source.title}`}
+                                        className="step-review-fact-source-link"
+                                        href={source.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        title={source.title}
+                                      >
+                                        {source.domain}
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="step-review-fact-source-empty">Немає надійного джерела</span>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2130,6 +2171,7 @@ export default function EditorPage() {
                           <p className="step-review-empty-copy">Для цього етапу ще немає карток.</p>
                           <Button
                             variant="secondary"
+                            className="step-review-empty-cta"
                             size="sm"
                             onClick={() => void requestWorkflowStep(activeWorkflowStep)}
                             loading={isReviewRequestInFlight}

@@ -40,10 +40,17 @@ export type EditorialReviewStepId =
 export type EditorialStepRunMode = "preserve" | "replace";
 export type FactCheckStatus = "ok" | "сумнівно" | "не підтверджено";
 
+export interface EditorialFactCheckSource {
+  title: string;
+  url: string;
+  domain: string;
+}
+
 export interface EditorialFactCheckRow {
   claim: string;
   status: FactCheckStatus;
   explanation: string;
+  sources: EditorialFactCheckSource[];
 }
 
 export interface EditorialStepContext {
@@ -138,13 +145,11 @@ export interface EditorialReviewItem {
     title: string;
     prompt: string;
     previewText: string;
-    summary?: string;
   };
   subsectionDraft?: {
     title: string;
     lead?: string;
     prompt: string;
-    summary?: string;
   };
   visualIntent?: EditorialVisualIntent;
   origin?: EditorialReviewItemOrigin;
@@ -193,6 +198,7 @@ export interface ReviewActionRequest {
   document: EditorDocument;
   currentRevision: ManuscriptRevisionState;
   item: EditorialReviewItem;
+  editorialInstruction?: string;
   provider: string;
   modelId: string;
   apiKey?: string;
@@ -237,7 +243,6 @@ export interface ReviewActionProposal {
     title: string;
     lead?: string;
     prompt: string;
-    summary?: string;
   };
   imageDraft?: {
     visualIntent: EditorialVisualIntent;
@@ -770,7 +775,6 @@ function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReview
   const title = normalizeCopy(record.calloutTitle, 90);
   const prompt = normalizeCopy(record.calloutPrompt, 600);
   const previewText = normalizeCopy(record.calloutPreviewText, 600);
-  const summary = normalizeCopy(record.calloutSummary, 220);
 
   if (!kind || !title || !prompt || !previewText) {
     return undefined;
@@ -780,8 +784,7 @@ function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReview
     calloutKind: kind,
     title,
     prompt,
-    previewText,
-    summary: summary ?? undefined
+    previewText
   };
 }
 

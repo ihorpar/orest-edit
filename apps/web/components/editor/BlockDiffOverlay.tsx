@@ -1,26 +1,33 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Info } from "lucide-react";
 
 import type { Block } from "../../lib/editor/document-model";
+import type { EditorialReviewItem } from "../../lib/editor/review-contract";
 import { createInlineText, getBlockText } from "../../lib/editor/document-model";
 import { Button } from "../ui/Button";
 
 export function BlockDiffOverlay({
+  item,
   oldBlocks: _oldBlocks,
   newBlocks,
-  reason,
   warning,
   onAccept,
-  onReject
+  onReject,
+  refineInstruction,
+  onRefineInstructionChange,
+  onRefine
 }: {
+  item?: EditorialReviewItem | null;
   oldBlocks: Block[];
   newBlocks: Block[];
-  reason: string;
   warning?: { code: "no_op"; message: string; similarity: number };
   onAccept: (nextBlocks: Block[]) => void;
   onReject: () => void;
+  refineInstruction: string;
+  onRefineInstructionChange: (value: string) => void;
+  onRefine: (instruction: string) => void;
 }) {
   const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => getBlockText(block)));
+  const [isRefineOpen, setIsRefineOpen] = useState(false);
   const textareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
 
   const editableBlocks = useMemo(
@@ -68,26 +75,48 @@ export function BlockDiffOverlay({
         ))}
       </div>
 
-      <details className="diff-explanation">
-        <summary>
-          <Info size={14} aria-hidden="true" />
-          <span>Що зробив ШІ?</span>
-        </summary>
-        <p className="diff-reason">{reason}</p>
-      </details>
+      <div className="editorial-review-refine">
+        {isRefineOpen ? (
+          <div className="editorial-review-field-group">
+            <p className="editorial-review-detail-label">Що змінити в рекомендації</p>
+            <textarea
+              className="editorial-review-callout-body-input editorial-review-refine-input"
+              value={refineInstruction}
+              placeholder="Наприклад: спростити тон, зберегти структуру списку, прибрати канцеляризми"
+              onChange={(event) => onRefineInstructionChange(event.target.value)}
+            />
+          </div>
+        ) : null}
 
-      <div className="diff-footer button-row" style={{ marginTop: "8px" }}>
-        <Button size="sm" variant="ghost" onClick={onReject}>
-          Скасувати
-        </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={() => onAccept(newBlocks.map((block, index) => withEditedBlockText(block, draftTexts[index] ?? "")))}
-        >
-          Застосувати
-        </Button>
+        <div className="diff-footer button-row" style={{ marginTop: "8px" }}>
+          <Button size="sm" variant="ghost" onClick={onReject}>
+            Відхилити
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              if (!isRefineOpen) {
+                setIsRefineOpen(true);
+                return;
+              }
+
+              onRefine(refineInstruction);
+            }}
+            disabled={item == null || (isRefineOpen && !refineInstruction.trim())}
+          >
+            Доопрацювати
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => onAccept(newBlocks.map((block, index) => withEditedBlockText(block, draftTexts[index] ?? "")))}
+          >
+            Застосувати
+          </Button>
+        </div>
       </div>
+
     </div>
   );
 }

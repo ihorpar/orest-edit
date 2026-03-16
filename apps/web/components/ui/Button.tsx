@@ -22,12 +22,22 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loadingLabel?: string;
 }
 
-export function Button({ variant = "secondary", size = "md", loading, loadingLabel, disabled, style, children, ...rest }: ButtonProps) {
+export function Button({
+  variant = "secondary",
+  size = "md",
+  loading,
+  loadingLabel,
+  disabled,
+  style,
+  className,
+  children,
+  ...rest
+}: ButtonProps) {
   return (
     <button
       {...rest}
       disabled={disabled || loading}
-      className="mono-ui"
+      className={className ? `mono-ui ${className}` : "mono-ui"}
       style={{
         border: "1px solid #e2e8f0",
         borderRadius: 0,

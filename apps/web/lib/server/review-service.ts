@@ -3,6 +3,7 @@ import {
   getEditorialCalloutKindLabel,
   normalizeEditorialReviewItems,
   type EditorialFactCheckRow,
+  type EditorialFactCheckSource,
   type EditorialReviewItem,
   type EditorialReviewRecommendationType,
   type EditorialCalloutKind,
@@ -23,6 +24,8 @@ const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const anthropicVersion = "2023-06-01";
 const reviewRequestTimeoutMs = 120000;
+const geminiGroundedFactCheckModel = "gemini-3.1-flash-lite-preview";
+const groundedSourceResolveTimeoutMs = 4000;
 
 const openAiSchema = {
   type: "object",
@@ -146,9 +149,22 @@ const openAiFactCheckSchema = {
         properties: {
           claim: { type: "string" },
           status: { type: "string", enum: ["ok", "сумнівно", "не підтверджено"] },
-          explanation: { type: "string" }
+          explanation: { type: "string" },
+          sources: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                title: { type: "string" },
+                url: { type: "string" },
+                domain: { type: "string" }
+              },
+              required: ["title", "url", "domain"]
+            }
+          }
         },
-        required: ["claim", "status", "explanation"]
+        required: ["claim", "status", "explanation", "sources"]
       }
     }
   },
@@ -165,9 +181,21 @@ const geminiFactCheckSchema = {
         properties: {
           claim: { type: "STRING" },
           status: { type: "STRING" },
-          explanation: { type: "STRING" }
+          explanation: { type: "STRING" },
+          sources: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                title: { type: "STRING" },
+                url: { type: "STRING" },
+                domain: { type: "STRING" }
+              },
+              required: ["title", "url", "domain"]
+            }
+          }
         },
-        required: ["claim", "status", "explanation"]
+        required: ["claim", "status", "explanation", "sources"]
       }
     }
   },
@@ -272,6 +300,21 @@ type EditorialReviewProviderResult = {
   droppedItemCount: number;
   providerUsed: string;
   rawOutput?: string;
+};
+
+type GeminiResponsePayload = {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+    groundingMetadata?: {
+      groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+      groundingSupports?: Array<{
+        segment?: { text?: string; startIndex?: number; endIndex?: number };
+        groundingChunkIndices?: number[];
+      }>;
+      webSearchQueries?: string[];
+    };
+  }>;
+  error?: { message?: string };
 };
 
 export interface GenerateEditorialReviewOptions {
@@ -549,6 +592,20 @@ async function createGeminiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
+    if (stepSpec.outputKind === "fact_check_rows") {
+      const groundedPayload = await createGeminiGroundedFactCheck(request, apiKey, fetchImpl, controller.signal);
+
+      return {
+        stepId: stepSpec.id,
+        stepRunId,
+        items: [],
+        factCheckRows: await parseGeminiGroundedFactCheckRows(groundedPayload, fetchImpl),
+        droppedItemCount: 0,
+        providerUsed: `gemini:${geminiGroundedFactCheckModel}:grounded`,
+        rawOutput: extractGeminiText(groundedPayload)
+      };
+    }
+
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       systemInstruction: {
@@ -562,7 +619,7 @@ async function createGeminiEditorialReview(
 
     if (expectsJson) {
       body.generationConfig.responseMimeType = "application/json";
-      body.generationConfig.responseSchema = stepSpec.outputKind === "fact_check_rows" ? geminiFactCheckSchema : geminiSchema;
+      body.generationConfig.responseSchema = geminiSchema;
     }
 
     const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
@@ -590,22 +647,54 @@ async function createGeminiEditorialReview(
       };
     }
 
-    if (stepSpec.outputKind === "fact_check_rows") {
-      return {
-        stepId: stepSpec.id,
-        stepRunId,
-        items: [],
-        factCheckRows: parseFactCheckRows(rawOutput),
-        droppedItemCount: 0,
-        providerUsed: "gemini",
-        rawOutput
-      };
-    }
-
     return buildNormalizedReviewResult(request, reviewSessionId, stepRunId, stepSpec, parseEditorialReviewItems(rawOutput), "gemini", rawOutput);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function createGeminiGroundedFactCheck(
+  request: EditorialReviewRequest,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  signal: AbortSignal
+): Promise<GeminiResponsePayload> {
+  const response = await fetchImpl(`${geminiBaseUrl}/${geminiGroundedFactCheckModel}:generateContent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [
+          {
+            text: [
+              buildStepSystemPrompt(request, REVIEW_STEP_SPECS.fact_check),
+              "Працюй лише як фактчекер. Не вставляй URL, DOI або назви джерел у поле explanation.",
+              "Поверни лише JSON за схемою rows[]."
+            ].join("\n\n")
+          }
+        ]
+      },
+      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, REVIEW_STEP_SPECS.fact_check) }] }],
+      tools: [{ googleSearch: {} }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+        responseSchema: geminiFactCheckSchema
+      }
+    }),
+    signal
+  });
+
+  const payload = (await response.json()) as GeminiResponsePayload;
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "Gemini grounding недоступний.");
+  }
+
+  return payload;
 }
 
 async function createAnthropicEditorialReview(
@@ -788,7 +877,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? "Зроби детальну діагностику: загальний огляд, сильні/слабкі місця, поблочний розбір із посиланням на «абз. NNN»."
       : null,
     step.id === "fact_check"
-      ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, у полі explanation. Якщо релевантне джерело відоме, коротко згадай його прямо в explanation (автор/організація, рік)."
+      ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, у полі explanation. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
       : null,
     step.outputKind === "recommendation_cards"
       ? "На основі діагностики і фідбеку підготуй локальні картки змін саме для цього кроку. Не переписуй документ цілком."
@@ -820,6 +909,37 @@ function parseEditorialReviewItems(content: string): unknown {
   }
 }
 
+function extractGeminiText(payload: GeminiResponsePayload): string {
+  return payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim() ?? "";
+}
+
+async function parseGeminiGroundedFactCheckRows(
+  payload: GeminiResponsePayload,
+  fetchImpl: FetchLike
+): Promise<EditorialFactCheckRow[]> {
+  const rawOutput = extractGeminiText(payload);
+
+  if (!rawOutput) {
+    throw new Error("Gemini не повернув текст для grounded fact-check.");
+  }
+
+  const rows = parseFactCheckRows(rawOutput);
+  const groundingMetadata = payload.candidates?.[0]?.groundingMetadata;
+  const chunks = groundingMetadata?.groundingChunks ?? [];
+  const supports = groundingMetadata?.groundingSupports ?? [];
+
+  if (chunks.length === 0 || supports.length === 0) {
+    return rows;
+  }
+
+  const sourceByChunkIndex = await buildGroundedSourceMap(chunks, fetchImpl);
+
+  return rows.map((row) => ({
+    ...row,
+    sources: mergeFactCheckSources(row.sources, collectSourcesForFactRow(row, rawOutput, supports, sourceByChunkIndex))
+  }));
+}
+
 function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
   const parsed = parseEditorialReviewItems(content);
   const rows = parsed && typeof parsed === "object" && "rows" in (parsed as Record<string, unknown>)
@@ -849,7 +969,8 @@ function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
     normalized.push({
       claim,
       status,
-      explanation
+      explanation,
+      sources: normalizeFactCheckSources(record.sources)
     });
   }
 
@@ -858,6 +979,33 @@ function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
   }
 
   return normalized;
+}
+
+function normalizeFactCheckSources(value: unknown): EditorialFactCheckSource[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: EditorialFactCheckSource[] = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const title = normalizeRowText(record.title, 160);
+    const url = normalizeUrl(record.url);
+    const domain = normalizeDomain(record.domain);
+
+    if (!title || !url || !domain) {
+      continue;
+    }
+
+    normalized.push({ title, url, domain });
+  }
+
+  return dedupeFactCheckSources(normalized);
 }
 
 function normalizeFactCheckStatus(value: unknown): FactCheckStatus | null {
@@ -893,6 +1041,161 @@ function normalizeRowText(value: unknown, maxLength: number): string | null {
 
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function normalizeUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDomain(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/^www\./, "");
+  return normalized || null;
+}
+
+async function buildGroundedSourceMap(
+  chunks: Array<{ web?: { uri?: string; title?: string } }>,
+  fetchImpl: FetchLike
+): Promise<Map<number, EditorialFactCheckSource>> {
+  const entries = await Promise.all(
+    chunks.map(async (chunk, index) => {
+      const title = normalizeRowText(chunk.web?.title, 160);
+      const sourceUrl = normalizeUrl(chunk.web?.uri);
+
+      if (!title || !sourceUrl) {
+        return null;
+      }
+
+      const resolvedUrl = await resolveGroundedSourceUrl(sourceUrl, fetchImpl);
+      const domain = normalizeDomain(safeHostname(resolvedUrl));
+
+      if (!domain || !isAllowedGroundedDomain(domain)) {
+        return null;
+      }
+
+      return [index, { title, url: resolvedUrl, domain }] as const;
+    })
+  );
+
+  return new Map(entries.filter(Boolean) as Array<readonly [number, EditorialFactCheckSource]>);
+}
+
+async function resolveGroundedSourceUrl(url: string, fetchImpl: FetchLike): Promise<string> {
+  if (!url.includes("vertexaisearch.cloud.google.com/grounding-api-redirect/")) {
+    return url;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), groundedSourceResolveTimeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      method: "GET",
+      redirect: "manual",
+      signal: controller.signal
+    });
+
+    return normalizeUrl(response.headers.get("location")) ?? url;
+  } catch {
+    return url;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function safeHostname(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedGroundedDomain(domain: string): boolean {
+  const blocked = ["youtube.com", "wikipedia.org", "droracle.ai"];
+  return !blocked.some((blockedDomain) => domain === blockedDomain || domain.endsWith(`.${blockedDomain}`));
+}
+
+function collectSourcesForFactRow(
+  row: EditorialFactCheckRow,
+  rawOutput: string,
+  supports: Array<{
+    segment?: { text?: string; startIndex?: number; endIndex?: number };
+    groundingChunkIndices?: number[];
+  }>,
+  sourceByChunkIndex: Map<number, EditorialFactCheckSource>
+): EditorialFactCheckSource[] {
+  const startIndex = rawOutput.indexOf(row.claim);
+  const explanationIndex = rawOutput.indexOf(row.explanation, startIndex >= 0 ? startIndex : 0);
+  const rowStart = startIndex >= 0 ? startIndex : explanationIndex;
+  const rowEnd = explanationIndex >= 0 ? explanationIndex + row.explanation.length : rowStart + row.claim.length;
+
+  if (rowStart < 0 || rowEnd < 0) {
+    return [];
+  }
+
+  const matchedSources: EditorialFactCheckSource[] = [];
+
+  for (const support of supports) {
+    const supportStart =
+      typeof support.segment?.startIndex === "number"
+        ? support.segment.startIndex
+        : support.segment?.text
+          ? rawOutput.indexOf(support.segment.text)
+          : -1;
+    const supportEnd =
+      typeof support.segment?.endIndex === "number"
+        ? support.segment.endIndex
+        : supportStart >= 0 && support.segment?.text
+          ? supportStart + support.segment.text.length
+          : -1;
+
+    if (supportStart < 0 || supportEnd < 0 || supportEnd <= rowStart || supportStart >= rowEnd) {
+      continue;
+    }
+
+    for (const chunkIndex of support.groundingChunkIndices ?? []) {
+      const source = sourceByChunkIndex.get(chunkIndex);
+
+      if (source) {
+        matchedSources.push(source);
+      }
+    }
+  }
+
+  return dedupeFactCheckSources(matchedSources).slice(0, 3);
+}
+
+function dedupeFactCheckSources(sources: EditorialFactCheckSource[]): EditorialFactCheckSource[] {
+  const unique = new Map<string, EditorialFactCheckSource>();
+
+  for (const source of sources) {
+    unique.set(source.url, source);
+  }
+
+  return Array.from(unique.values());
+}
+
+function mergeFactCheckSources(
+  parsedSources: EditorialFactCheckSource[],
+  groundedSources: EditorialFactCheckSource[]
+): EditorialFactCheckSource[] {
+  if (groundedSources.length === 0) {
+    return parsedSources;
+  }
+
+  return dedupeFactCheckSources([...groundedSources, ...parsedSources]);
 }
 
 function createFallbackDiagnosticsExpertise(request: EditorialReviewRequest): string {
@@ -944,7 +1247,8 @@ function createFallbackFactCheckRows(request: EditorialReviewRequest): Editorial
       claim: text.slice(0, 280),
       status: "не підтверджено",
       explanation:
-        "Потрібна окрема перевірка джерел: наведіть першоджерело (автори, рік, журнал або офіційний гайдлайн) перед редакторським затвердженням."
+        "Потрібна окрема перевірка джерел: наведіть першоджерело (автори, рік, журнал або офіційний гайдлайн) перед редакторським затвердженням.",
+      sources: []
     });
   });
 
@@ -956,7 +1260,8 @@ function createFallbackFactCheckRows(request: EditorialReviewRequest): Editorial
     {
       claim: "Явних перевірюваних тверджень із числовими або науковими маркерами не знайдено автоматичним fallback.",
       status: "ok",
-      explanation: "Для повного факт-чеку запустіть крок із доступним AI-провайдером."
+      explanation: "Для повного факт-чеку запустіть крок із доступним AI-провайдером.",
+      sources: []
     }
   ];
 }
