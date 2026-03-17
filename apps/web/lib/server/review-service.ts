@@ -690,6 +690,9 @@ async function createGeminiGroundedFactCheck(
             text: [
               buildStepSystemPrompt(request, REVIEW_STEP_SPECS.fact_check),
               "Працюй лише як фактчекер. Не вставляй URL, DOI або назви джерел у поле explanation.",
+              "Формуй web search queries англійською мовою, навіть якщо вхідний текст українською.",
+              `Використовуй лише надійні медичні джерела: ${trustedFactCheckDomains.join(", ")}.`,
+              "Якщо для твердження не знайдено надійного джерела з цього списку, залишай sources порожнім масивом.",
               "Поверни лише JSON за схемою rows[]."
             ].join("\n\n")
           }
@@ -1014,9 +1017,13 @@ function normalizeFactCheckSources(value: unknown): EditorialFactCheckSource[] {
     const record = entry as Record<string, unknown>;
     const title = normalizeRowText(record.title, 160);
     const url = normalizeUrl(record.url);
-    const domain = normalizeDomain(record.domain);
+    const domain = normalizeDomain(safeHostname(url ?? ""));
 
     if (!title || !url || !domain) {
+      continue;
+    }
+
+    if (!isAllowedGroundedDomain(domain)) {
       continue;
     }
 

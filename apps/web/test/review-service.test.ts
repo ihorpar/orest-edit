@@ -406,6 +406,63 @@ test("generateEditorialReview drops grounded sources outside trusted domain allo
   assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
 });
 
+test("generateEditorialReview filters model-provided row sources by URL domain allowlist", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3.1-flash-lite-preview",
+      apiKey: "gemini-test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        rows: [
+                          {
+                            claim: "Тестове твердження.",
+                            status: "сумнівно",
+                            explanation: "Тестове обґрунтування.",
+                            sources: [
+                              {
+                                title: "Сумнівний блог",
+                                url: "https://health-ua.com/article",
+                                domain: "mayoclinic.org"
+                              },
+                              {
+                                title: "Mayo Clinic",
+                                url: "https://www.mayoclinic.org/symptoms/clubbing/basics/definition/sym-20050759",
+                                domain: "random.invalid"
+                              }
+                            ]
+                          }
+                        ]
+                      })
+                    }
+                  ]
+                },
+                groundingMetadata: {}
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
+});
+
 test("generateEditorialReview Gemini schema does not force nullable card fields", async () => {
   let schemaRequired: string[] = [];
 
