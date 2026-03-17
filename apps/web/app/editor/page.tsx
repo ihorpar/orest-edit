@@ -94,7 +94,6 @@ import {
   Stethoscope,
   Table2,
   Target,
-  Info,
   Trash2,
   Upload
 } from "lucide-react";
@@ -1713,7 +1712,7 @@ export default function EditorPage() {
   );
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const globalContextHelpText =
-    "Глобальний контекст задається в «Діагностика» і додається до prompt на всіх наступних кроках. Редагування відкривається кнопкою «Редагувати».";
+    "Глобальний контекст — це ваші загальні вимоги до всіх наступних етапів (тон, стиль, глибина правок). Він не змінює текст напряму, а впливає на те, які рекомендації пропонує ШІ.";
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
@@ -2106,7 +2105,7 @@ export default function EditorPage() {
                               aria-label="Як це працює?"
                               title={globalContextHelpText}
                             >
-                              <Info size={12} aria-hidden="true" />
+                              <span aria-hidden="true">i</span>
                             </button>
                           </span>
                           <span className="step-review-context-value">
@@ -2274,7 +2273,7 @@ export default function EditorPage() {
                               aria-label="Як це працює?"
                               title={globalContextHelpText}
                             >
-                              <Info size={12} aria-hidden="true" />
+                              <span aria-hidden="true">i</span>
                             </button>
                           </span>
                           <span className="step-review-context-value">
