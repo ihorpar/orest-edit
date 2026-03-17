@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-03-17T03:23:32Z",
+  "featureAssessments": [
+    {
+      "group": "diagnostics",
+      "score": 1,
+      "rationale": "Zero cards were produced (itemsCount=0) and no sample guidance is available, so diagnostics currently adds neither a local fix nor clarity about why a section needs work."
+    },
+    {
+      "group": "fact_check",
+      "score": 2,
+      "rationale": "The review logged 6 factCheckRows but no actionable recommendations or local anchors, so editors see limited practical use beyond reassuring that the claims were reviewed."
+    },
+    {
+      "group": "structure cards",
+      "score": 5,
+      "rationale": "Seven structure cards plus the rewrite/list/subsection/callout actions all produce concrete text diffs (e.g., grouping symptom lists, adding subheadings) that respect local context and preserve meaning, so they drive high-value edits."
+    },
+    {
+      "group": "clarity cards",
+      "score": 4,
+      "rationale": "Eleven clarity cards focus on tonality and simplification; the simplify/rewrite actions for the intro and symptom tone have clean diffs with manageable risk, giving practical editorial value."
+    },
+    {
+      "group": "interest cards",
+      "score": 4,
+      "rationale": "Interest cards surface expansion opportunities (e.g., explaining ectoderm or itch mechanisms) that inspire local additions with clear purpose, and the expand action delivered a targeted paragraph."
+    },
+    {
+      "group": "visuals cards-only",
+      "score": 3,
+      "rationale": "Fifteen suggestions advocate infographics (signal maps, antioxidant plates) but no tangible drafts or diffs are provided, so the value depends on manual follow-up rather than automatic edits."
+    },
+    {
+      "group": "formatting cards",
+      "score": 3,
+      "rationale": "Formatting cards reiterate tonality issues and callout needs (e.g., explaining ectoderm) but largely overlap with clarity/final-editing, limiting unique impact despite low noise."
+    },
+    {
+      "group": "final_editing cards",
+      "score": 4,
+      "rationale": "Nine final-editing cards reinforce rewrites/simplifications (intro tone, skin-color section) and align with existing text diffs, helping editors polish wording without altering meaning."
+    }
+  ],
+  "actionAssessments": [
+    {
+      "type": "rewrite",
+      "score": 4,
+      "rationale": "The rewrite action distilled the intro metaphors into a tighter passage with a full text_diff (4 blocks) while keeping the local framing, so it is practical and low risk."
+    },
+    {
+      "type": "simplify",
+      "score": 4,
+      "rationale": "Simplify trimmed a poetic intro for faster entry, again via text_diff on the same block range, which preserves meaning while lowering reading friction."
+    },
+    {
+      "type": "expand",
+      "score": 4,
+      "rationale": "Expand added a short explanation of how toxins irritate nerve endings behind itching (blocks p-32, list-33, p-34), delivering high editorial value with precise scope."
+    },
+    {
+      "type": "list",
+      "score": 4,
+      "rationale": "Consolidating the epigenetics mini-headings into a single block via list_replace reduces noise and aligns with the goal of local, meaningful restructuring."
+    },
+    {
+      "type": "subsection",
+      "score": 4,
+      "rationale": "The proposed subsection draft adds a clear second-level heading for nails and hair before the anchor h-35, helping editors insert structure without rewriting the accompanying copy."
+    },
+    {
+      "type": "callout",
+      "score": 5,
+      "rationale": "The mechanism callout about senolytics provides a focused explanation and preview text while staying within the existing context, offering high editorial lift with minimal risk."
+    }
+  ],
+  "topImprovements": [
+    {
+      "description": "Surface a diagnostics status message even when no cards appear so editors know which passages were scanned and why no issues were flagged.",
+      "impact": "high"
+    },
+    {
+      "description": "Tie fact-check rows to explicit anchors/recommendations (callouts or inline notes) so the verification work can guide local edits instead of appearing as invisible metadata.",
+      "impact": "high"
+    },
+    {
+      "description": "Generate lightweight placeholders or previews for visual-card suggestions (e.g., template titles + brief captions) to make it easier for editors to act on infographics without designing from scratch.",
+      "impact": "medium"
+    },
+    {
+      "description": "Deduplicate clarity, formatting, and final-editing cards by clustering their shared tonality/medical-tone signals so editors see one consolidated recommendation per fragment.",
+      "impact": "medium"
+    },
+    {
+      "description": "Expose action reliability metadata (confidence, sample reason) per suggestion to help editors triage rewrite/simplify/expand proposals when multiple actions target the same passage.",
+      "impact": "low"
+    }
+  ]
+}

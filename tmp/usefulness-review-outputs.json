@@ -1,0 +1,148 @@
+[
+  {
+    "stepId": "diagnostics",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 0,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 4002,
+    "sampleRecommendations": []
+  },
+  {
+    "stepId": "fact_check",
+    "providerUsed": "gemini:gemini-3.1-flash-lite-preview:grounded",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 0,
+    "factCheckRowsCount": 6,
+    "expertiseLength": 0,
+    "sampleRecommendations": []
+  },
+  {
+    "stepId": "structure",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 7,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Пом’якшення діагностичного тону",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Текст звучить занадто категорично, що може спровокувати тривогу або самолікування. Потрібно додати модальності (може свідчити, іноді вказує)."
+      },
+      {
+        "title": "Корекція опису змін кольору",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Усунення лексичних помилок (признаком) та занадто лякаючих формулювань."
+      }
+    ]
+  },
+  {
+    "stepId": "clarity",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 11,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Пом'якшення тону в розділі симптомів",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Текст звучить занадто категорично і лякаюче, нагадуючи медичний довідник. Потрібно додати конструкції, що вказують на ймовірність, а не на остаточний діагноз."
+      },
+      {
+        "title": "Корекція описів зміни кольору",
+        "recommendationType": "simplify",
+        "reasonExcerpt": "Виправлення лексичних помилок (признаком -> ознакою), термінологічна адаптація (цианоз -> ціаноз) та пом'якшення категоричності."
+      }
+    ]
+  },
+  {
+    "stepId": "interest",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 11,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Пояснення ектодерми",
+        "recommendationType": "expand",
+        "reasonExcerpt": "Зв’язок мозку та шкіри через ектодерму — надзвичайно цікавий факт, який потребує розшифровки."
+      },
+      {
+        "title": "Ущільнення метафор у вступі",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Вступ містить забагато нашарованих метафор (дзеркало, щоденник, екран), що створює відчуття надмірності."
+      }
+    ]
+  },
+  {
+    "stepId": "visuals",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 15,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Інфографіка «Карта сигналів шкіри»",
+        "recommendationType": "visual",
+        "reasonExcerpt": "Перелік симптомів (абз. 015–023) сприймається важко. Наочна схема дозволить швидко зчитати зв'язок між кольором шкіри та можливими станами органів."
+      },
+      {
+        "title": "Інфографіка «Тарілка антиоксидантів»",
+        "recommendationType": "visual",
+        "reasonExcerpt": "Список нутрієнтів (абз. 055) краще сприймається через конкретні продукти-джерела."
+      }
+    ]
+  },
+  {
+    "stepId": "formatting",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 13,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Пом'якшення діагностичного тону",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Текст звучить як сухий медичний довідник і може спровокувати тривогу або самодіагностику. Потрібно додати модальності та пояснити, що це лише сигнали, а не вироки."
+      },
+      {
+        "title": "Пояснення зв'язку Мозок - Шкіра",
+        "recommendationType": "callout",
+        "reasonExcerpt": "Термін ектодерма потребує пояснення, щоб читач зрозумів глибинну причину зв'язку психіки та шкіри."
+      }
+    ]
+  },
+  {
+    "stepId": "final_editing",
+    "providerUsed": "gemini",
+    "usedFallback": false,
+    "error": null,
+    "itemsCount": 9,
+    "factCheckRowsCount": 0,
+    "expertiseLength": 0,
+    "sampleRecommendations": [
+      {
+        "title": "Пом’якшення діагностичного тону",
+        "recommendationType": "simplify",
+        "reasonExcerpt": "Текст у розділі про колір шкіри звучить занадто категорично й медично, що може викликати зайву тривогу в читача."
+      },
+      {
+        "title": "Ущільнення метафор у вступі",
+        "recommendationType": "rewrite",
+        "reasonExcerpt": "Вступ містить надмірне нашарування метафор (дзеркало, щоденник, екран, оболонка), що створює ефект «води» та споповільнює читання."
+      }
+    ]
+  }
+]

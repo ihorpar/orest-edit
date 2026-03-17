@@ -579,13 +579,31 @@ export default function EditorPage() {
       });
       const payload = (await response.json()) as EditorialReviewResponse;
       let sectionItemCount: number | undefined;
+      let factCheckLinkedItems: EditorialReviewItem[] = [];
 
       if (payload.stepId === "diagnostics") {
         setReviewExpertise(payload.expertise?.trim() ? payload.expertise : null);
       }
 
       if (payload.stepId === "fact_check") {
-        setFactCheckRows(payload.factCheckRows ?? []);
+        const nextFactCheckRows = payload.factCheckRows ?? [];
+        setFactCheckRows(nextFactCheckRows);
+        factCheckLinkedItems = createFactCheckLinkedReviewItems({
+          rows: nextFactCheckRows,
+          document,
+          revision,
+          changeLevel: reviewComposer.changeLevel,
+          reviewSessionId: payload.reviewSessionId,
+          stepRunId: payload.stepRunId
+        });
+        sectionItemCount = factCheckLinkedItems.length;
+
+        setReviewItems((current) => {
+          const existingNonFactItems = current.filter((item) => item.stepId !== "fact_check");
+          const existingFactItems = current.filter((item) => item.stepId === "fact_check");
+          const mergedFactItems = runMode === "replace" ? factCheckLinkedItems : [...factCheckLinkedItems, ...existingFactItems];
+          return [...mergedFactItems, ...existingNonFactItems];
+        });
       }
 
       if (payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
@@ -615,7 +633,12 @@ export default function EditorPage() {
         feedback: currentStepFeedback || undefined,
         expertise: payload.stepId === "diagnostics" ? payload.expertise ?? null : undefined,
         factCheckRows: payload.stepId === "fact_check" ? payload.factCheckRows ?? [] : undefined,
-        itemIds: payload.stepId !== "diagnostics" && payload.stepId !== "fact_check" ? payload.items.map((item) => item.id) : undefined
+        itemIds:
+          payload.stepId === "fact_check"
+            ? factCheckLinkedItems.map((item) => item.id)
+            : payload.stepId !== "diagnostics"
+              ? payload.items.map((item) => item.id)
+              : undefined
       };
 
       setStepRunHistory((current) => {
@@ -639,6 +662,15 @@ export default function EditorPage() {
           return nextItems.some((item) => item.id === current) ? current : null;
         });
       }
+      if (runMode === "replace" && payload.stepId === "fact_check") {
+        setActiveReviewItemId((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return factCheckLinkedItems.some((item) => item.id === current) ? current : null;
+        });
+      }
 
       setReviewDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
@@ -648,7 +680,7 @@ export default function EditorPage() {
           payload.providerUsed,
           settings.provider,
           settings.modelId,
-          payload.stepId === "fact_check" ? (payload.factCheckRows?.length ?? 0) : payload.items.length,
+          payload.stepId === "fact_check" ? factCheckLinkedItems.length : payload.items.length,
           payload.diagnostics.droppedItemCount,
           payload.usedFallback,
           nextFeedback
@@ -2115,6 +2147,51 @@ export default function EditorPage() {
                       </tbody>
                     </table>
                   </div>
+                  {activeStepItems.length > 0 ? (
+                    <section className="step-review-subsection">
+                      <div className="step-review-subsection-head">
+                        <p className="mono-ui operations-title">Картки за факт-чеком</p>
+                        <div className="step-review-subsection-meta">
+                          <p className="step-review-cards-counter" aria-label="Лічильник карток">
+                            <span className="step-review-cards-counter-value step-review-cards-counter-total">
+                              {activeStepCardStats.actionable} в роботі
+                            </span>
+                            <span className="step-review-cards-counter-separator">·</span>
+                            <span className="step-review-cards-counter-value step-review-cards-counter-applied">
+                              {activeStepCardStats.applied} погоджено
+                            </span>
+                            <span className="step-review-cards-counter-separator">·</span>
+                            <span className="step-review-cards-counter-value step-review-cards-counter-dismissed">
+                              {activeStepCardStats.dismissed} відхилено
+                            </span>
+                          </p>
+                          <button
+                            type="button"
+                            className="step-review-completed-toggle"
+                            data-active={showCompletedCards ? "true" : "false"}
+                            onClick={() => setShowCompletedCards((current) => !current)}
+                          >
+                            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="operations-stack operations-stack-compact">
+                        {visibleActiveStepItems.map((item) => (
+                          <EditorialReviewCard
+                            key={item.id}
+                            item={item}
+                            revision={revision}
+                            isActive={item.id === activeReviewItemId}
+                            onFocus={focusReviewItem}
+                            onPrepare={(entry) => void prepareReviewItem(entry)}
+                            onApplyCallout={applyReviewCallout}
+                            onDismiss={dismissReviewItem}
+                            isLoading={item.id === preparingReviewItemId}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                   {factCheckRows.length === 0 ? (
                     <p className="step-review-empty-copy">
                       Після діагностики тут з’явиться таблиця перевірки фактів.
@@ -2348,9 +2425,15 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
 
   if (payload.stepId === "fact_check") {
     const count = payload.factCheckRows?.length ?? 0;
+    const linkedCardsCount = sectionItemCount ?? 0;
     return {
       tone: "info",
-      message: count > 0 ? `Підготовлено ${count} рядків факт-чеку.` : "Факт-чек не виявив окремих спірних тверджень."
+      message:
+        count > 0
+          ? linkedCardsCount > 0
+            ? `Підготовлено ${count} рядків факт-чеку та ${linkedCardsCount} карт${linkedCardsCount === 1 ? "ку" : linkedCardsCount < 5 ? "ки" : "ок"} для правок.`
+            : `Підготовлено ${count} рядків факт-чеку.`
+          : "Факт-чек не виявив окремих спірних тверджень."
     };
   }
 
@@ -2416,6 +2499,192 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<WorkflowStep
   }
 
   return groups;
+}
+
+const FACT_CHECK_SKIP_TOKENS = new Set([
+  "або",
+  "але",
+  "без",
+  "був",
+  "буває",
+  "бути",
+  "вже",
+  "вона",
+  "вони",
+  "для",
+  "дуже",
+  "його",
+  "йому",
+  "йти",
+  "коли",
+  "може",
+  "можуть",
+  "навіть",
+  "неї",
+  "після",
+  "про",
+  "при",
+  "також",
+  "тих",
+  "того",
+  "цей",
+  "ця",
+  "ці",
+  "що",
+  "щоб"
+]);
+
+function createFactCheckLinkedReviewItems(input: {
+  rows: EditorialFactCheckRow[];
+  document: EditorDocument;
+  revision: ManuscriptRevisionState;
+  changeLevel: WholeTextChangeLevel;
+  reviewSessionId: string;
+  stepRunId: string;
+}): EditorialReviewItem[] {
+  const items: EditorialReviewItem[] = [];
+
+  for (let index = 0; index < input.rows.length; index += 1) {
+    const row = input.rows[index];
+    const claim = row.claim.trim();
+
+    if (!claim || row.status === "ok") {
+      continue;
+    }
+
+    const anchor = resolveFactCheckAnchor(input.document, input.revision, claim);
+
+    if (!anchor) {
+      continue;
+    }
+
+    const needsCallout = row.status === "не підтверджено" || row.sources.length === 0;
+    const titlePrefix = row.status === "сумнівно" ? "Уточнити твердження" : "Маркувати непідтверджене";
+    const sourceHint =
+      row.sources.length > 0
+        ? `Джерела: ${row.sources.map((source) => source.domain).slice(0, 3).join(", ")}.`
+        : "Надійне зовнішнє джерело не знайдено.";
+
+    const recommendation = needsCallout
+      ? "Додати коротку врізку «Міф / Правда», яка обережно пояснює статус твердження і не подає його як встановлений факт."
+      : "Локально переформулювати це місце: зняти категоричність і явно позначити, що твердження потребує обережного тлумачення.";
+    const reason = `${row.explanation} ${sourceHint}`.trim();
+    const common: Omit<EditorialReviewItem, "recommendationType" | "suggestedAction" | "insertionPoint" | "priority" | "id" | "status"> = {
+      reviewSessionId: input.reviewSessionId,
+      documentRevisionId: input.revision.documentRevisionId,
+      changeLevel: input.changeLevel,
+      title: `${titlePrefix}: ${claim.slice(0, 88)}${claim.length > 88 ? "…" : ""}`,
+      reason,
+      recommendation,
+      anchor: {
+        blockIds: anchor.blockIds,
+        generationBlockRange: {
+          start: anchor.startIndex,
+          end: anchor.endIndex
+        },
+        excerpt: anchor.excerpt,
+        fingerprint: computeAnchorFingerprint(input.document, anchor.blockIds)
+      },
+      origin: "review",
+      stepId: "fact_check",
+      stepRunId: input.stepRunId
+    };
+
+    items.push({
+      ...common,
+      id: createPatchId(`review-item-fact-${index + 1}`),
+      recommendationType: needsCallout ? "callout" : "rewrite",
+      suggestedAction: needsCallout ? "prepare_callout" : "rewrite_text",
+      insertionPoint: {
+        mode: needsCallout ? "after" : "replace",
+        anchorBlockId: anchor.anchorBlockId
+      },
+      calloutKind: needsCallout ? "myths_vs_truth" : undefined,
+      priority: row.status === "не підтверджено" ? "high" : "medium",
+      status: "pending"
+    });
+  }
+
+  return items.slice(0, 12);
+}
+
+function resolveFactCheckAnchor(
+  document: EditorDocument,
+  revision: ManuscriptRevisionState,
+  claim: string
+): { blockIds: string[]; startIndex: number; endIndex: number; anchorBlockId: string; excerpt: string } | null {
+  const claimTokens = tokenizeForFactMatching(claim);
+
+  if (claimTokens.length === 0) {
+    return null;
+  }
+
+  let bestBlockId: string | null = null;
+  let bestIndex = -1;
+  let bestScore = 0;
+
+  for (let index = 0; index < revision.blockOrder.length; index += 1) {
+    const blockId = revision.blockOrder[index];
+    const block = document.blocks.find((entry) => entry.id === blockId);
+
+    if (!block) {
+      continue;
+    }
+
+    const blockTokens = tokenizeForFactMatching(getBlockText(block));
+
+    if (blockTokens.length === 0) {
+      continue;
+    }
+
+    const tokenSet = new Set(blockTokens);
+    let overlap = 0;
+
+    for (const token of claimTokens) {
+      if (tokenSet.has(token)) {
+        overlap += 1;
+      }
+    }
+
+    if (overlap === 0) {
+      continue;
+    }
+
+    const score = overlap / Math.max(3, claimTokens.length);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestBlockId = blockId;
+      bestIndex = index;
+    }
+  }
+
+  if (!bestBlockId || bestIndex < 0 || bestScore < 0.2) {
+    return null;
+  }
+
+  const block = document.blocks.find((entry) => entry.id === bestBlockId);
+
+  if (!block) {
+    return null;
+  }
+
+  return {
+    blockIds: [bestBlockId],
+    startIndex: bestIndex,
+    endIndex: bestIndex,
+    anchorBlockId: bestBlockId,
+    excerpt: getBlockText(block).trim()
+  };
+}
+
+function tokenizeForFactMatching(input: string): string[] {
+  return input
+    .toLowerCase()
+    .replace(/[`'’"]/g, " ")
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !FACT_CHECK_SKIP_TOKENS.has(token));
 }
 
 function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): boolean {

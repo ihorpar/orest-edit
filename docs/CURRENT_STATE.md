@@ -45,6 +45,7 @@ Status: Active handoff
 - Step drawer headers now place `Етап N / 8` under the title and use an icon-only rerun control with tooltip copy
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
 - Fact-check explanations now render trusted source chips separately from explanation text; when no acceptable grounded source is available, UI shows `Немає надійного джерела`
+- Step 2 (`Перевірка фактів`) now also auto-generates anchored follow-up cards for non-`ok` claims (local `rewrite` or `myths_vs_truth` `callout`), so fact-check findings can be acted on directly in the manuscript
 - Step run CTA (`Запустити/Оновити`) now lives in the drawer header area for diagnostics, fact-check, and recommendation steps
 - The manuscript surface now highlights the active recommendation anchor range in place and renders one inline execution surface below the affected range
 - Replace-type review proposals now open as one inline diff card below the highlighted range instead of replacing the manuscript blocks with loaders/placeholders
@@ -162,5 +163,6 @@ Status: Active handoff
 - `node --import tsx --test test/review-service.test.ts` passed on 2026-03-16 after grounded Gemini fact-check source integration
 - `npm run typecheck -w @orest/web` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
 - `node --import tsx --test test/review-action-service.test.ts test/review-contract.test.ts test/review-execution-lane.test.ts` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
+- `npm run typecheck -w @orest/web` passed on 2026-03-17 after linking `fact_check` rows to anchored `rewrite/callout` review cards in the step drawer
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)
