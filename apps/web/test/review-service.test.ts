@@ -121,6 +121,10 @@ test("generateEditorialReview returns provider-native structured fact-check rows
   assert.equal(response.factCheckRows?.length, 1);
   assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
   assert.deepEqual(response.factCheckRows?.[0]?.sources, []);
+  assert.equal(
+    response.factCheckRows?.[0]?.explanation,
+    "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка."
+  );
 });
 
 test("generateEditorialReview treats valid empty provider recommendations as empty result, not fallback", async () => {
@@ -404,6 +408,86 @@ test("generateEditorialReview drops grounded sources outside trusted domain allo
   assert.equal(response.factCheckRows?.length, 1);
   assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
   assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
+});
+
+test("generateEditorialReview replaces unsupported explanations when suspicious rows have no trusted sources", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3.1-pro-preview",
+      apiKey: "gemini-test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async (input) => {
+        const url = String(input);
+
+        if (url.includes(":generateContent")) {
+          return new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          rows: [
+                            {
+                              claim: "Тестове твердження.",
+                              status: "сумнівно",
+                              explanation: "Старе впевнене пояснення без джерела.",
+                              sources: []
+                            }
+                          ]
+                        })
+                      }
+                    ]
+                  },
+                  groundingMetadata: {
+                    groundingChunks: [
+                      {
+                        web: {
+                          uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/untrusted-only",
+                          title: "Untrusted Source"
+                        }
+                      }
+                    ],
+                    groundingSupports: [
+                      {
+                        segment: {
+                          text: "Старе впевнене пояснення без джерела."
+                        },
+                        groundingChunkIndices: [0]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        if (url === "https://vertexaisearch.cloud.google.com/grounding-api-redirect/untrusted-only") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://health-ua.com/article" }
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources.length, 0);
+  assert.equal(
+    response.factCheckRows?.[0]?.explanation,
+    "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка."
+  );
 });
 
 test("generateEditorialReview filters model-provided row sources by URL domain allowlist", async () => {

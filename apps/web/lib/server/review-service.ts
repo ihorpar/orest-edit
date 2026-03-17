@@ -26,6 +26,7 @@ const anthropicVersion = "2023-06-01";
 const reviewRequestTimeoutMs = 120000;
 const geminiGroundedFactCheckModel = "gemini-3.1-flash-lite-preview";
 const groundedSourceResolveTimeoutMs = 4000;
+const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
 const trustedFactCheckDomains = [
   "who.int",
   "cdc.gov",
@@ -955,10 +956,12 @@ async function parseGeminiGroundedFactCheckRows(
 
   const sourceByChunkIndex = await buildGroundedSourceMap(chunks, fetchImpl);
 
-  return rows.map((row) => ({
-    ...row,
-    sources: mergeFactCheckSources(row.sources, collectSourcesForFactRow(row, rawOutput, supports, sourceByChunkIndex))
-  }));
+  return rows.map((row) =>
+    finalizeFactCheckRow({
+      ...row,
+      sources: mergeFactCheckSources(row.sources, collectSourcesForFactRow(row, rawOutput, supports, sourceByChunkIndex))
+    })
+  );
 }
 
 function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
@@ -987,12 +990,14 @@ function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
       continue;
     }
 
-    normalized.push({
-      claim,
-      status,
-      explanation,
-      sources: normalizeFactCheckSources(record.sources)
-    });
+    normalized.push(
+      finalizeFactCheckRow({
+        claim,
+        status,
+        explanation,
+        sources: normalizeFactCheckSources(record.sources)
+      })
+    );
   }
 
   if (normalized.length === 0) {
@@ -1031,6 +1036,17 @@ function normalizeFactCheckSources(value: unknown): EditorialFactCheckSource[] {
   }
 
   return dedupeFactCheckSources(normalized);
+}
+
+function finalizeFactCheckRow(row: EditorialFactCheckRow): EditorialFactCheckRow {
+  if (row.status === "ok" || row.sources.length > 0) {
+    return row;
+  }
+
+  return {
+    ...row,
+    explanation: missingTrustedSourceExplanation
+  };
 }
 
 function normalizeFactCheckStatus(value: unknown): FactCheckStatus | null {
