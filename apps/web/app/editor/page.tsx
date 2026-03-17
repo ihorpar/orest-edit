@@ -2024,6 +2024,28 @@ export default function EditorPage() {
                         <option value="replace">Замінити попередній</option>
                         <option value="preserve">Зберегти окремим запуском</option>
                       </select>
+                      <div className="step-review-inline-levels">
+                        {[1, 2, 3, 4, 5].map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            className="step-review-inline-level-button"
+                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={2}
+                        placeholder="Додаткові інструкції (глобально для всіх кроків)"
+                        value={reviewComposer.additionalInstructions}
+                        onChange={(event) =>
+                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
+                        }
+                      />
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2107,6 +2129,28 @@ export default function EditorPage() {
                         <option value="replace">Замінити попередній</option>
                         <option value="preserve">Зберегти окремим запуском</option>
                       </select>
+                      <div className="step-review-inline-levels">
+                        {[1, 2, 3, 4, 5].map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            className="step-review-inline-level-button"
+                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        className="step-review-inline-textarea"
+                        rows={2}
+                        placeholder="Додаткові інструкції (глобально для всіх кроків)"
+                        value={reviewComposer.additionalInstructions}
+                        onChange={(event) =>
+                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
+                        }
+                      />
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
