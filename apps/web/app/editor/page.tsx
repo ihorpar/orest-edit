@@ -1670,6 +1670,7 @@ export default function EditorPage() {
     () => buildReviewModeSummary(reviewComposer.changeLevel, document.blocks.length),
     [reviewComposer.changeLevel, document.blocks.length]
   );
+  const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
@@ -2044,15 +2045,21 @@ export default function EditorPage() {
                         ))}
                       </div>
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={2}
-                        placeholder="Додаткові інструкції (глобально для всіх кроків)"
-                        value={reviewComposer.additionalInstructions}
-                        onChange={(event) =>
-                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
-                        }
-                      />
+                      <div className="step-review-context-row">
+                        <div className="step-review-context-copy">
+                          <span className="step-review-context-label">Глобальний контекст</span>
+                          <span className="step-review-context-value">
+                            {hasGlobalReviewInstructions ? "задано" : "не задано"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="step-review-context-action"
+                          onClick={() => selectWorkflowStep("diagnostics")}
+                        >
+                          Редагувати
+                        </button>
+                      </div>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2150,15 +2157,21 @@ export default function EditorPage() {
                         ))}
                       </div>
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={2}
-                        placeholder="Додаткові інструкції (глобально для всіх кроків)"
-                        value={reviewComposer.additionalInstructions}
-                        onChange={(event) =>
-                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
-                        }
-                      />
+                      <div className="step-review-context-row">
+                        <div className="step-review-context-copy">
+                          <span className="step-review-context-label">Глобальний контекст</span>
+                          <span className="step-review-context-value">
+                            {hasGlobalReviewInstructions ? "задано" : "не задано"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="step-review-context-action"
+                          onClick={() => selectWorkflowStep("diagnostics")}
+                        >
+                          Редагувати
+                        </button>
+                      </div>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2472,37 +2485,38 @@ function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId):
 }
 
 function buildReviewModeSummary(level: WholeTextChangeLevel, blockCount: number): string {
+  const focusSummary = getReviewModeFocusSummary(level);
+
   if (blockCount <= 0) {
-    return "Орієнтовно: 0 карток · Втручання: мінімальне · Переписування: локальне";
+    return `Орієнтовно: 0 карток · Фокус: ${focusSummary}`;
   }
 
   const blocksPerCard = CHANGE_LEVEL_GUIDANCE[level].blocksPerCard;
   const targetCards = Math.max(2, Math.round(blockCount / blocksPerCard));
   const minCards = Math.max(2, Math.floor(targetCards * 0.75));
   const maxCards = Math.max(minCards, Math.ceil(targetCards * 1.25));
-  const intervention = getInterventionLabel(level);
 
-  return `Орієнтовно: ${minCards}–${maxCards} карток · Втручання: ${intervention} · Переписування: локальне`;
+  return `Орієнтовно: ${minCards}–${maxCards} карток · Фокус: ${focusSummary}`;
 }
 
-function getInterventionLabel(level: WholeTextChangeLevel): string {
+function getReviewModeFocusSummary(level: WholeTextChangeLevel): string {
   if (level === 1) {
-    return "мінімальне";
+    return "лише явні проблеми, без перебудови";
   }
 
   if (level === 2) {
-    return "помірне";
+    return "локальне шліфування, без серйозної перебудови";
   }
 
   if (level === 3) {
-    return "відчутне";
+    return "спрощення + локальні структурні покращення";
   }
 
   if (level === 4) {
-    return "високе";
+    return "глибоке перепакування проблемних місць";
   }
 
-  return "максимальне";
+  return "радикальна перебудова подачі фрагментів";
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {
