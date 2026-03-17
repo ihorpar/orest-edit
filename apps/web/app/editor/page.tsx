@@ -963,7 +963,15 @@ export default function EditorPage() {
     }
 
     try {
-      const requestBody = buildReviewActionRequestBody(requestItem, requestVisualStylePreset, options?.editorialInstruction);
+      const factCheckInstruction = buildFactCheckActionInstruction(requestItem);
+      const mergedInstruction = [factCheckInstruction, options?.editorialInstruction?.trim()]
+        .filter((value): value is string => Boolean(value && value.trim()))
+        .join("\n\n");
+      const requestBody = buildReviewActionRequestBody(
+        requestItem,
+        requestVisualStylePreset,
+        mergedInstruction || undefined
+      );
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
         credentials: "same-origin",
@@ -2499,6 +2507,32 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<WorkflowStep
   }
 
   return groups;
+}
+
+function buildFactCheckActionInstruction(item: EditorialReviewItem): string | null {
+  if (item.stepId !== "fact_check") {
+    return null;
+  }
+
+  if (item.recommendationType === "callout") {
+    return [
+      "Це картка, згенерована саме з факт-чеку.",
+      "Мета: не дисклеймер і не розмиття тексту, а коротке і предметне пояснення статусу твердження на основі наявних джерел.",
+      "Не додавай фрази типу «усе неоднозначно», «не можна робити висновки», «порадьтеся з лікарем», якщо цього немає у вихідному фрагменті.",
+      "Формулюй нейтрально і редакторськи: що саме перевірено, чого бракує, як обережно подати це твердження без зайвого страхування."
+    ].join("\n");
+  }
+
+  if (isReplaceReviewType(item.recommendationType)) {
+    return [
+      "Це картка, згенерована саме з факт-чеку.",
+      "Перепиши локально й конкретно: прибери категоричність або уточни формулювання, але не перетворюй текст на дисклеймер.",
+      "Заборонено шаблони на кшталт «потребує обережного тлумачення», «усе неоднозначно», «не можна робити висновки», якщо це прямо не випливає з фактичного рядка.",
+      "Ціль: максимально зберегти авторський тон книги, виправивши лише фактологічний ризик у цьому фрагменті."
+    ].join("\n");
+  }
+
+  return null;
 }
 
 const FACT_CHECK_SKIP_TOKENS = new Set([
