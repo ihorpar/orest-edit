@@ -70,6 +70,7 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import {
+  CHANGE_LEVEL_GUIDANCE,
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_VISUAL_STYLE_PRESET,
   VISUAL_STYLE_PRESET_STORAGE_KEY,
@@ -1665,6 +1666,10 @@ export default function EditorPage() {
     () => getStepCardStats(reviewItems, activeWorkflowStep),
     [activeWorkflowStep, reviewItems]
   );
+  const reviewModeSummary = useMemo(
+    () => buildReviewModeSummary(reviewComposer.changeLevel, document.blocks.length),
+    [reviewComposer.changeLevel, document.blocks.length]
+  );
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
@@ -1912,6 +1917,7 @@ export default function EditorPage() {
                           </button>
                         ))}
                       </div>
+                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2037,6 +2043,7 @@ export default function EditorPage() {
                           </button>
                         ))}
                       </div>
+                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2142,6 +2149,7 @@ export default function EditorPage() {
                           </button>
                         ))}
                       </div>
+                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -2461,6 +2469,40 @@ function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId):
   }
 
   return { actionable, applied, dismissed };
+}
+
+function buildReviewModeSummary(level: WholeTextChangeLevel, blockCount: number): string {
+  if (blockCount <= 0) {
+    return "Орієнтовно: 0 карток · Втручання: мінімальне · Переписування: локальне";
+  }
+
+  const blocksPerCard = CHANGE_LEVEL_GUIDANCE[level].blocksPerCard;
+  const targetCards = Math.max(2, Math.round(blockCount / blocksPerCard));
+  const minCards = Math.max(2, Math.floor(targetCards * 0.75));
+  const maxCards = Math.max(minCards, Math.ceil(targetCards * 1.25));
+  const intervention = getInterventionLabel(level);
+
+  return `Орієнтовно: ${minCards}–${maxCards} карток · Втручання: ${intervention} · Переписування: локальне`;
+}
+
+function getInterventionLabel(level: WholeTextChangeLevel): string {
+  if (level === 1) {
+    return "мінімальне";
+  }
+
+  if (level === 2) {
+    return "помірне";
+  }
+
+  if (level === 3) {
+    return "відчутне";
+  }
+
+  if (level === 4) {
+    return "високе";
+  }
+
+  return "максимальне";
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {

@@ -5219,6 +5219,12 @@ textarea:focus {
   gap: 6px;
 }
 
+.step-review-mode-summary {
+  margin: -2px 2px 0;
+  color: #64748b;
+  font: 500 12px/1.45 var(--font-ui, sans-serif);
+}
+
 .step-review-config-details {
   border: 1px solid #eef2f7;
   background: #fdfdfe;
