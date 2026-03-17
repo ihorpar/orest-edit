@@ -316,6 +316,96 @@ test("generateEditorialReview preserves parsed row sources when grounded mapping
   assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
 });
 
+test("generateEditorialReview drops grounded sources outside trusted domain allowlist", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3.1-pro-preview",
+      apiKey: "gemini-test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async (input) => {
+        const url = String(input);
+
+        if (url.includes(":generateContent")) {
+          return new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          rows: [
+                            {
+                              claim: "Тестове твердження.",
+                              status: "ok",
+                              explanation: "Тестове обґрунтування.",
+                              sources: []
+                            }
+                          ]
+                        })
+                      }
+                    ]
+                  },
+                  groundingMetadata: {
+                    groundingChunks: [
+                      {
+                        web: {
+                          uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/untrusted",
+                          title: "Untrusted Source"
+                        }
+                      },
+                      {
+                        web: {
+                          uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/trusted",
+                          title: "Mayo Clinic"
+                        }
+                      }
+                    ],
+                    groundingSupports: [
+                      {
+                        segment: {
+                          text: "Тестове обґрунтування."
+                        },
+                        groundingChunkIndices: [0, 1]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        if (url === "https://vertexaisearch.cloud.google.com/grounding-api-redirect/untrusted") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://ujdvc.com.ua/article" }
+          });
+        }
+
+        if (url === "https://vertexaisearch.cloud.google.com/grounding-api-redirect/trusted") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://www.mayoclinic.org/symptoms/clubbing/basics/definition/sym-20050759" }
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
+});
+
 test("generateEditorialReview Gemini schema does not force nullable card fields", async () => {
   let schemaRequired: string[] = [];
 

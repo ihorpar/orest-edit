@@ -26,6 +26,24 @@ const anthropicVersion = "2023-06-01";
 const reviewRequestTimeoutMs = 120000;
 const geminiGroundedFactCheckModel = "gemini-3.1-flash-lite-preview";
 const groundedSourceResolveTimeoutMs = 4000;
+const trustedFactCheckDomains = [
+  "who.int",
+  "cdc.gov",
+  "nih.gov",
+  "ncbi.nlm.nih.gov",
+  "mayoclinic.org",
+  "clevelandclinic.org",
+  "nhs.uk",
+  "aad.org",
+  "eadv.org",
+  "cochranelibrary.com",
+  "nejm.org",
+  "jamanetwork.com",
+  "bmj.com",
+  "thelancet.com",
+  "cancer.org",
+  "moz.gov.ua"
+] as const;
 
 const openAiSchema = {
   type: "object",
@@ -1123,8 +1141,9 @@ function safeHostname(url: string): string | null {
 }
 
 function isAllowedGroundedDomain(domain: string): boolean {
-  const blocked = ["youtube.com", "wikipedia.org", "droracle.ai"];
-  return !blocked.some((blockedDomain) => domain === blockedDomain || domain.endsWith(`.${blockedDomain}`));
+  return trustedFactCheckDomains.some(
+    (trustedDomain) => domain === trustedDomain || domain.endsWith(`.${trustedDomain}`)
+  );
 }
 
 function collectSourcesForFactRow(
