@@ -5244,6 +5244,9 @@ textarea:focus {
 }
 
 .step-review-context-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #64748b;
   font: 600 12px/1.3 var(--font-ui, sans-serif);
 }
@@ -5265,6 +5268,26 @@ textarea:focus {
 }
 
 .step-review-context-action:hover {
+  background: #eff6ff;
+}
+
+.step-review-context-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #d7e3f4;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  cursor: help;
+  padding: 0;
+}
+
+.step-review-context-help:hover {
+  color: var(--surgical-blue);
+  border-color: #bfdbfe;
   background: #eff6ff;
 }
 

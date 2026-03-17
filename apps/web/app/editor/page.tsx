@@ -94,6 +94,7 @@ import {
   Stethoscope,
   Table2,
   Target,
+  Info,
   Trash2,
   Upload
 } from "lucide-react";
@@ -1711,6 +1712,8 @@ export default function EditorPage() {
     [reviewComposer.changeLevel, document.blocks.length]
   );
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
+  const globalContextHelpText =
+    "Глобальний контекст задається в «Діагностика» і додається до prompt на всіх наступних кроках. Редагування відкривається кнопкою «Редагувати».";
   const runStepButton = activeWorkflowStep === "diagnostics"
     ? (
       <Button
@@ -1807,12 +1810,17 @@ export default function EditorPage() {
                   type="button"
                   className="editor-danger-icon-button"
                   onClick={handleClearDocument}
-                  title="Очистити документ"
-                  aria-label="Очистити документ"
+                  title="Очистити лише текст документа (без скидання історії запусків)"
+                  aria-label="Очистити лише текст документа"
                 >
                   <Trash2 size={15} />
                 </button>
-                <Button variant="ghost" size="sm" onClick={handleResetDraft}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResetDraft}
+                  title="Скинути локальну сесію: документ, картки, історію запусків і стан панелей"
+                >
                   Скинути
                 </Button>
               </div>
@@ -1941,6 +1949,7 @@ export default function EditorPage() {
                         className="step-review-inline-select"
                         value={stepRunModeByStep.diagnostics}
                         onChange={(event) => updateStepRunMode("diagnostics", event.target.value as EditorialStepRunMode)}
+                        title="Замінити попередній — перезапише результати цього кроку. Зберегти окремим запуском — додасть новий запуск у історію."
                       >
                         <option value="replace">Замінити попередній</option>
                         <option value="preserve">Зберегти окремим запуском</option>
@@ -1982,6 +1991,7 @@ export default function EditorPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        title="Скинути результат діагностики і таблицю факт-чеку для повторного старту"
                         onClick={() => {
                           setReviewExpertise(null);
                           setFactCheckRows([]);
@@ -2067,6 +2077,7 @@ export default function EditorPage() {
                         className="step-review-inline-select"
                         value={stepRunModeByStep.fact_check}
                         onChange={(event) => updateStepRunMode("fact_check", event.target.value as EditorialStepRunMode)}
+                        title="Замінити попередній — перезапише результати цього кроку. Зберегти окремим запуском — додасть новий запуск у історію."
                       >
                         <option value="replace">Замінити попередній</option>
                         <option value="preserve">Зберегти окремим запуском</option>
@@ -2087,7 +2098,17 @@ export default function EditorPage() {
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <div className="step-review-context-row">
                         <div className="step-review-context-copy">
-                          <span className="step-review-context-label">Глобальний контекст</span>
+                          <span className="step-review-context-label">
+                            Глобальний контекст
+                            <button
+                              type="button"
+                              className="step-review-context-help"
+                              aria-label="Як це працює?"
+                              title={globalContextHelpText}
+                            >
+                              <Info size={12} aria-hidden="true" />
+                            </button>
+                          </span>
                           <span className="step-review-context-value">
                             {hasGlobalReviewInstructions ? "задано" : "не задано"}
                           </span>
@@ -2224,6 +2245,7 @@ export default function EditorPage() {
                         className="step-review-inline-select"
                         value={stepRunModeByStep[activeWorkflowStep]}
                         onChange={(event) => updateStepRunMode(activeWorkflowStep, event.target.value as EditorialStepRunMode)}
+                        title="Замінити попередній — перезапише картки цього кроку. Зберегти окремим запуском — додасть нову партію карток у історію."
                       >
                         <option value="replace">Замінити попередній</option>
                         <option value="preserve">Зберегти окремим запуском</option>
@@ -2244,7 +2266,17 @@ export default function EditorPage() {
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <div className="step-review-context-row">
                         <div className="step-review-context-copy">
-                          <span className="step-review-context-label">Глобальний контекст</span>
+                          <span className="step-review-context-label">
+                            Глобальний контекст
+                            <button
+                              type="button"
+                              className="step-review-context-help"
+                              aria-label="Як це працює?"
+                              title={globalContextHelpText}
+                            >
+                              <Info size={12} aria-hidden="true" />
+                            </button>
+                          </span>
                           <span className="step-review-context-value">
                             {hasGlobalReviewInstructions ? "задано" : "не задано"}
                           </span>
