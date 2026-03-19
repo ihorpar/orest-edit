@@ -14,7 +14,7 @@ export function BlockDiffOverlay({
   onReject,
   refineInstruction,
   onRefineInstructionChange,
-  onRefine
+  onRegenerate
 }: {
   item?: EditorialReviewItem | null;
   oldBlocks: Block[];
@@ -24,11 +24,13 @@ export function BlockDiffOverlay({
   onReject: () => void;
   refineInstruction: string;
   onRefineInstructionChange: (value: string) => void;
-  onRefine: (instruction: string) => void;
+  onRegenerate: (instruction?: string) => void;
 }) {
   const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => getBlockText(block)));
   const [isRefineOpen, setIsRefineOpen] = useState(false);
   const textareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const normalizedRefineInstruction = refineInstruction.trim();
+  const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
 
   const editableBlocks = useMemo(
     () =>
@@ -95,21 +97,24 @@ export function BlockDiffOverlay({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => {
-              if (!isRefineOpen) {
-                setIsRefineOpen(true);
-                return;
-              }
-
-              onRefine(refineInstruction);
-            }}
-            disabled={item == null || (isRefineOpen && !refineInstruction.trim())}
+            aria-pressed={isRefineOpen}
+            onClick={() => setIsRefineOpen((current) => !current)}
           >
-            Доопрацювати
+            Уточнити
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onRegenerate(normalizedRefineInstruction || undefined)}
+            disabled={item == null}
+          >
+            Перегенерувати
           </Button>
           <Button
             size="sm"
             variant="primary"
+            disabled={hasPendingRefineInstruction}
+            title={hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined}
             onClick={() => onAccept(newBlocks.map((block, index) => withEditedBlockText(block, draftTexts[index] ?? "")))}
           >
             Застосувати

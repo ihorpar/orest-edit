@@ -103,20 +103,14 @@ export function ReviewRecommendationDetail({
   const selectedVisualIntent = imageDraft?.visualIntent ?? currentItem.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
   const [isRefineOpen, setIsRefineOpen] = useState(false);
+  const normalizedRefineInstruction = refineInstruction.trim();
+  const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
+  const pendingRefineTitle = hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined;
 
-  function handleRefine(nextOptions?: { visualStylePreset?: VisualStylePreset }) {
-    if (!isRefineOpen) {
-      setIsRefineOpen(true);
-      return;
-    }
-
-    if (!refineInstruction.trim()) {
-      return;
-    }
-
+  function handlePrepare(nextOptions?: { visualStylePreset?: VisualStylePreset }) {
     onPrepare(currentItem, {
       ...nextOptions,
-      editorialInstruction: refineInstruction
+      editorialInstruction: normalizedRefineInstruction || undefined
     });
   }
 
@@ -211,11 +205,11 @@ export function ReviewRecommendationDetail({
             </div>
           ) : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(currentItem)}>
-              Перегенерувати
+            <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
+              Уточнити
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handleRefine()}>
-              Доопрацювати
+            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
+              Перегенерувати
             </Button>
           </div>
         </div>
@@ -258,13 +252,19 @@ export function ReviewRecommendationDetail({
           </div>
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(currentItem)}>
+            <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
+              Уточнити
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
               {calloutDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handleRefine()}>
-              Доопрацювати
-            </Button>
-            <Button size="sm" variant="primary" onClick={() => onApplyCallout(currentItem)} disabled={!canInsertCallout}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onApplyCallout(currentItem)}
+              disabled={!canInsertCallout || hasPendingRefineInstruction}
+              title={!canInsertCallout ? undefined : pendingRefineTitle}
+            >
               Вставити
             </Button>
           </div>
@@ -289,13 +289,19 @@ export function ReviewRecommendationDetail({
           </div>
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(currentItem)}>
+            <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
+              Уточнити
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
               {subsectionDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handleRefine()}>
-              Доопрацювати
-            </Button>
-            <Button size="sm" variant="primary" onClick={() => onApplySubsection(currentItem)} disabled={!canInsertSubsection}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onApplySubsection(currentItem)}
+              disabled={!canInsertSubsection || hasPendingRefineInstruction}
+              title={!canInsertSubsection ? undefined : pendingRefineTitle}
+            >
               Вставити
             </Button>
           </div>
@@ -306,12 +312,6 @@ export function ReviewRecommendationDetail({
         <div className="editorial-review-proposal">
           <div className="editorial-review-image-prompt-head">
             <p className="editorial-review-detail-label">Prompt для візуалу</p>
-            <Button size="sm" variant="secondary" onClick={() => onPrepare(currentItem)}>
-              <span className="button-content">
-                <RefreshCcw className="editorial-review-button-icon" aria-hidden="true" />
-                <span>Оновити текст</span>
-              </span>
-            </Button>
           </div>
           <textarea
             className="editorial-review-image-prompt-input"
@@ -344,14 +344,19 @@ export function ReviewRecommendationDetail({
           </div>
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
-            <Button size="sm" variant="secondary" onClick={() => handleRefine({ visualStylePreset: selectedVisualStylePreset })}>
-              Доопрацювати
+            <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
+              Уточнити
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}>
+              Перегенерувати
             </Button>
             <Button
               size="sm"
               variant={hasGeneratedAsset ? "secondary" : "primary"}
               onClick={onGenerateActiveReviewImage}
               loading={reviewImageLoading}
+              disabled={hasPendingRefineInstruction}
+              title={pendingRefineTitle}
             >
               <span className="button-content">
                 {hasGeneratedAsset ? (
@@ -366,7 +371,8 @@ export function ReviewRecommendationDetail({
               size="sm"
               variant={hasGeneratedAsset ? "primary" : "secondary"}
               onClick={onApplyActiveReviewImage}
-              disabled={!hasGeneratedAsset}
+              disabled={!hasGeneratedAsset || hasPendingRefineInstruction}
+              title={!hasGeneratedAsset ? undefined : pendingRefineTitle}
             >
               <span className="button-content">
                 <ArrowDownToLine className="editorial-review-button-icon" aria-hidden="true" />

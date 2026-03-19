@@ -733,7 +733,7 @@ export function BlockEditorSurface({
                       onReject={() => onRejectProposal?.(activeProposal.id)}
                       refineInstruction={reviewRefineInstruction ?? ""}
                       onRefineInstructionChange={(value) => onReviewRefineInstructionChange?.(value)}
-                      onRefine={(instruction) => {
+                      onRegenerate={(instruction) => {
                         const item = highlightedItem ?? proposalItem ?? activeReviewItem;
 
                         if (item) {

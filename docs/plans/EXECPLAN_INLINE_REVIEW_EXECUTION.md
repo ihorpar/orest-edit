@@ -87,6 +87,10 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   - [x] Regression coverage for block-count guardrails is added in review-action service tests.
   - [x] Full `npm test -w @orest/web` now runs green in this workspace after resolving `esbuild` platform mismatch.
   - [x] Browser QA pass for sample4-style inline behavior is validated via reusable command `npm run qa:inline-review -w @orest/web` (password-gated login, multi-block anchor range, single inline card, manual `callout` and `visual` flows).
+- [x] Clarify refine CTA semantics so regenerate is explicit and apply never hides a backend rerun.
+  - [x] Manuscript-inline diff overlay now separates `Уточнити`, `Перегенерувати`, and `Застосувати`.
+  - [x] Insert-type execution cards now separate `Уточнити` from regenerate and block `Вставити` while уточнення is pending.
+  - [x] Existing `editorialInstruction` request wiring is reused unchanged; only the CTA semantics changed.
 - [x] (2026-03-13 07:55Z) Reworked replace-type proposal generation to use lightweight provider content schemas with local block reconstruction instead of reusing the generic nested patch-diff schema.
   - [x] Verified the previous structured Gemini replace path timed out on the provided one-block `rewrite` payload in ~62s.
   - [x] Verified the new lightweight Gemini replace path returns a real `text_diff` for the same payload in ~1.3-1.4s using `gemini-3.1-flash-lite-preview`.
@@ -130,6 +134,9 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
 
 - Observation: frontend compatibility did not require a new response shape; the UI only needs final `text_diff`, not provider-native patch JSON.
   Evidence: `page.tsx` still consumes `proposal.kind === "text_diff"` plus `oldBlocks/newBlocks/blockIds/reason`, and all apply/execution-lane tests remain green after the proposal-layer refactor.
+
+- Observation: overloading `Застосувати` with hidden regenerate semantics would conflict with the existing block-first trust model.
+  Evidence: `prepareReviewItem` already owns `editorialInstruction` forwarding, while apply paths in `page.tsx` and `review-apply` operate only on currently visible proposal data.
 
 ## Decision Log
 
@@ -185,6 +192,10 @@ The implementation must remain patch-first and diff-first, and every AI prompt i
   Rationale: review proposals already know target `blockIds` and apply semantics, so the model should generate editorial content only while the server owns structural reconstruction into final block diffs.
   Date/Author: 2026-03-13 / Codex implementation pass
 
+- Decision: `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` are separate execution states.
+  Rationale: apply must remain a stable commit action for the currently visible result; уточнення is only committed to backend through explicit regenerate, and pending уточнення must block apply/insert to avoid ambiguity.
+  Date/Author: 2026-03-19 / User-confirmed UX direction + Codex implementation pass
+
 ## Outcomes & Retrospective
 
 This implementation phase is functionally complete for the core manuscript execution model: recommendation execution moved from rail-first behavior to manuscript-first behavior. Active anchors are highlighted in place with continuous left-rail rendering, replace diffs render inline below the affected range with old-context highlighting and editable replacement, and insert-type execution runs through one manuscript-inline card while the right rail remains an inbox/focus panel.
@@ -198,6 +209,8 @@ Manual insert generation now also matches this manuscript-first model: editors c
 Validation is now complete for this milestone in the current workspace: `typecheck`, `build`, `test`, and browser QA all pass. Browser QA is now runnable via `npm run qa:inline-review -w @orest/web` once the host has Playwright browser dependencies installed.
 
 The follow-up replace-architecture fix sharpened that result for real editor usage: `rewrite/simplify/expand/list` still end as block-first `text_diff` proposals, but providers no longer have to synthesize nested rich-text block JSON for those cases. The server now asks for editorial content only and rebuilds the final diff locally, which preserves the workflow, keeps the frontend contract stable, and removes a major source of latency and brittleness.
+
+The follow-up CTA clarification tightened operator trust further: refinement is now an explicit branch in the execution flow rather than a hidden side-effect of apply. Editors can open `Уточнити`, type a local instruction, and choose `Перегенерувати`; until they do, `Застосувати/Вставити` stays blocked so the current visible draft cannot be mistaken for an already-refined result.
 
 ## Context and Orientation
 

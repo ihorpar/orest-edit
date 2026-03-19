@@ -36,7 +36,7 @@ Status: Active handoff
 - Compact recommendation cards are now keyboard-focusable and support `Enter`/`Space` activation while keeping click-to-focus + auto-prepare flow
 - Dismissed recommendations now expose a 5-second inline undo affordance (`Повернути`) in the step drawer
 - Replace diff cards now use explicit rejection semantics (`Відхилити`) instead of the ambiguous `Скасувати`, so declining a prepared recommendation moves it to the rejected state
-- Active recommendation cards now include a `Доопрацювати` action with a short editor instruction field; that instruction is sent only to the current card's regenerate flow
+- Active recommendation cards now use explicit `Уточнити` + `Перегенерувати` + `Застосувати/Вставити` CTA separation; editor instructions are sent only through regenerate, while apply/insert stays blocked until pending уточнення is resolved
 - Post-generation AI self-explanations were removed from execution cards; active cards now keep only the original recommendation context plus the generated result
 - Review-action prompt contracts no longer ask providers to generate extra post-edit `reason/summary` text for replace/callout/subsection drafts
 - Recommendation-step drawers now show one recommendation queue only; the duplicate `Правки` section was removed
@@ -166,5 +166,8 @@ Status: Active handoff
 - `node --import tsx --test test/review-action-service.test.ts test/review-contract.test.ts test/review-execution-lane.test.ts` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
 - `npm run typecheck -w @orest/web` passed on 2026-03-17 after linking `fact_check` rows to anchored `rewrite/callout` review cards in the step drawer
 - `npm run typecheck -w @orest/web` passed on 2026-03-17 after adding dedicated fact-check action prompt instructions for `rewrite`/`callout` proposal generation
+- `npm run typecheck -w @orest/web` passed on 2026-03-19 after clarifying inline refine CTA states (`Уточнити` / `Перегенерувати` / `Застосувати|Вставити`)
+- `node --import tsx --test apps/web/test/review-action-service.test.ts apps/web/test/review-execution-lane.test.ts apps/web/test/review-contract.test.ts` passed on 2026-03-19 after clarifying inline refine CTA states and preserving backend `editorialInstruction` wiring
+- `npm run qa:inline-review -w @orest/web -- --url=http://127.0.0.1:3100 --no-screenshot --timeout=90000` passed on 2026-03-19 after warm dev-server start (`APP_PASSWORD=@orest0krat`, local dev server on `http://127.0.0.1:3100`)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

@@ -8,6 +8,13 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-14
 
+## 2026-03-19
+
+### Refine feedback is an explicit regenerate step, not hidden inside apply
+Decision: review execution cards separate `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` into distinct actions. Typed уточнення is sent only through regenerate; apply/insert does not implicitly re-run AI and stays blocked while there is unsent уточнення.
+
+Reason: overloading `Застосувати` to sometimes trigger regeneration is ambiguous and unsafe in a diff-first editor. Editors need a stable rule: apply commits the currently visible result only.
+
 ## 2026-03-16
 
 ### Gemini fact-check sources come from grounding metadata, not free-text citations
