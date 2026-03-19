@@ -10,7 +10,12 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
-import type { SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
+import {
+  formatSpellcheckParagraphLabel,
+  getSpellcheckCategoryLabel,
+  getSpellcheckSeverityLabel,
+  type SpellcheckBlockResult
+} from "../../lib/editor/spellcheck-view-model";
 import { VisualIntentToggle, VisualStyleToggle } from "./VisualSelectionControls";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
@@ -30,7 +35,6 @@ export function FloatingComposerPanel({
   onCustomPromptChange,
   onRequestDefaultPatch,
   onRequestCustomPatch,
-  onRequestSpellcheck,
   reviewChangeLevel,
   reviewAdditionalInstructions,
   onReviewChangeLevel,
@@ -51,6 +55,7 @@ export function FloatingComposerPanel({
   spellcheckResults,
   spellcheckLoading,
   spellcheckSummary,
+  spellcheckSecondarySummary,
   onManualCalloutPromptChange,
   onManualVisualPromptChange,
   onRequestManualCallout,
@@ -64,7 +69,6 @@ export function FloatingComposerPanel({
   onCustomPromptChange: (value: string) => void;
   onRequestDefaultPatch: () => void;
   onRequestCustomPatch: () => void;
-  onRequestSpellcheck: () => void;
   reviewChangeLevel: WholeTextChangeLevel;
   reviewAdditionalInstructions: string;
   onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
@@ -85,6 +89,7 @@ export function FloatingComposerPanel({
   spellcheckResults: SpellcheckBlockResult[];
   spellcheckLoading?: boolean;
   spellcheckSummary?: string | null;
+  spellcheckSecondarySummary?: string | null;
   onManualCalloutPromptChange: (value: string) => void;
   onManualVisualPromptChange: (value: string) => void;
   onRequestManualCallout: () => void;
@@ -248,25 +253,19 @@ export function FloatingComposerPanel({
 
             {localActionMode === "spellcheck" ? (
               <div className="floating-local-section">
-                <div className="floating-local-actions">
-                  <button
-                    type="button"
-                    className="floating-panel-inline-action"
-                    onClick={onRequestSpellcheck}
-                    disabled={localBusy}
-                  >
-                    <SpellCheck size={14} />
-                    {spellcheckLoading ? "Перевірка…" : "Перевірити правопис"}
-                  </button>
-                </div>
-                <p className="floating-mode-hint">Перевіряються лише текстові блоки. Для кожного абзацу показуються знайдені проблеми й підказки.</p>
+                <p className="floating-mode-hint">
+                  {spellcheckLoading
+                    ? "Перевіряємо вибрані текстові блоки."
+                    : "Перевіряються лише текстові блоки. Для кожного абзацу показуються знайдені проблеми й підказки."}
+                </p>
                 {spellcheckSummary ? <p className="floating-spellcheck-summary">{spellcheckSummary}</p> : null}
+                {spellcheckSecondarySummary ? <p className="floating-spellcheck-secondary">{spellcheckSecondarySummary}</p> : null}
                 {spellcheckResults.length > 0 ? (
                   <div className="floating-spellcheck-results">
                     {spellcheckResults.map((result) => (
                       <article key={result.blockId} className="floating-spellcheck-card" data-tone={result.error ? "error" : "default"}>
                         <div className="floating-spellcheck-card-head">
-                          <p className="mono-ui">{result.paragraphLabel}</p>
+                          <p className="mono-ui">{formatSpellcheckParagraphLabel(result.paragraphLabel)}</p>
                           <span className="floating-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
                         </div>
                         {result.error ? (
@@ -277,13 +276,19 @@ export function FloatingComposerPanel({
                               <div key={issue.id} className="floating-spellcheck-issue">
                                 <div className="floating-spellcheck-issue-head">
                                   <code>{issue.badText}</code>
-                                  <span className="floating-spellcheck-issue-meta">{issue.category}</span>
+                                  <span className="floating-spellcheck-issue-meta">
+                                    {getSpellcheckCategoryLabel(issue.category)} · {getSpellcheckSeverityLabel(issue.severity)}
+                                  </span>
                                 </div>
                                 <p className="floating-spellcheck-copy">{issue.message}</p>
                                 {issue.suggestions.length > 0 ? (
-                                  <p className="floating-spellcheck-copy">
-                                    {issue.suggestions.map((suggestion) => suggestion.value).join(" · ")}
-                                  </p>
+                                  <div className="floating-spellcheck-suggestions">
+                                    {issue.suggestions.map((suggestion) => (
+                                      <span key={`${issue.id}-${suggestion.value}`} className="floating-spellcheck-suggestion-chip">
+                                        {suggestion.value}
+                                      </span>
+                                    ))}
+                                  </div>
                                 ) : null}
                               </div>
                             ))}

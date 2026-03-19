@@ -28,8 +28,8 @@ test("getSpellcheckableBlocks keeps only text blocks in selection order", () => 
       text: entry.text
     })),
     [
-      { blockId: "p1", paragraphLabel: "002", text: "Перший абзац." },
-      { blockId: "h1", paragraphLabel: "004", text: "Підзаголовок" }
+      { blockId: "p1", paragraphLabel: "001", text: "Перший абзац." },
+      { blockId: "h1", paragraphLabel: "003", text: "Підзаголовок" }
     ]
   );
 });

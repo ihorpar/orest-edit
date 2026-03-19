@@ -4584,6 +4584,13 @@ textarea:focus {
   color: #334155;
 }
 
+.floating-spellcheck-secondary {
+  margin: -4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #64748b;
+}
+
 .floating-spellcheck-results {
   display: grid;
   gap: 8px;
@@ -4675,6 +4682,34 @@ textarea:focus {
 
 .floating-spellcheck-copy[data-tone="error"] {
   color: #991b1b;
+}
+
+.floating-spellcheck-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.floating-spellcheck-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e8f1fb;
+  color: #164e63;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.spellcheck-underline {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #dc2626;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  background: rgba(254, 226, 226, 0.52);
+  border-radius: 2px;
 }
 
 .floating-panel-mode-switch {

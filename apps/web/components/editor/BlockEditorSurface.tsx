@@ -39,6 +39,8 @@ import {
   type EditorialReviewItem
 } from "../../lib/editor/review-contract";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
+import type { SpellcheckIssue } from "../../lib/editor/spellcheck-contract";
+import type { SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
 import { resolveReviewExecutionLaneState } from "../../lib/editor/review-execution-lane";
 import { Button } from "../ui/Button";
 import { BlockDiffOverlay } from "./BlockDiffOverlay";
@@ -107,7 +109,8 @@ export function BlockEditorSurface({
   activeVisualStylePreset,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
-  reviewImageLoading
+  reviewImageLoading,
+  spellcheckResults = []
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -147,6 +150,7 @@ export function BlockEditorSurface({
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
   reviewImageLoading?: boolean;
+  spellcheckResults?: SpellcheckBlockResult[];
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
@@ -515,6 +519,10 @@ export function BlockEditorSurface({
   const highlightedEndBlockId = laneState.highlightedEndBlockId;
   const shouldShowInlineDetail = laneState.shouldShowInlineDetail;
   const isReplaceDiffActive = laneState.isReplaceDiffActive;
+  const spellcheckIssuesByBlockId = useMemo(
+    () => new Map(spellcheckResults.map((result) => [result.blockId, result.issues])),
+    [spellcheckResults]
+  );
 
   return (
     <div className="block-editor-shell">
@@ -707,6 +715,7 @@ export function BlockEditorSurface({
                 </button>
                 <BlockRenderer
                   block={block}
+                  spellcheckIssues={spellcheckIssuesByBlockId.get(block.id) ?? []}
                   disabled={disabled}
                   registerEditable={registerEditable}
                   onEditFocus={handleEditableFocus}
@@ -793,6 +802,7 @@ export function BlockEditorSurface({
 
 function BlockRenderer({
   block,
+  spellcheckIssues,
   disabled,
   registerEditable,
   onEditFocus,
@@ -808,6 +818,7 @@ function BlockRenderer({
   onRemoveTableColumn
 }: {
   block: Block;
+  spellcheckIssues?: SpellcheckIssue[];
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -826,6 +837,7 @@ function BlockRenderer({
     return (
       <EditableTextBlock
         block={block}
+        spellcheckIssues={spellcheckIssues}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -891,6 +903,7 @@ function BlockRenderer({
 
 function EditableTextBlock({
   block,
+  spellcheckIssues,
   disabled,
   registerEditable,
   onEditFocus,
@@ -900,6 +913,7 @@ function EditableTextBlock({
   onSoftBreak
 }: {
   block: ParagraphBlock | HeadingBlock;
+  spellcheckIssues?: SpellcheckIssue[];
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -921,7 +935,7 @@ function EditableTextBlock({
     <EditableRichText
       focusKey={makeEditableKey(block.id)}
       className={className}
-      html={inlineNodesToHtml(block.content)}
+      html={inlineNodesToHtml(block.content, spellcheckIssues)}
       disabled={disabled}
       registerEditable={registerEditable}
       onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1355,9 +1369,26 @@ function isInlineContentEmpty(nodes: InlineNode[]): boolean {
   return nodes.every((node) => node.text.replace(/\n/g, "").trim().length === 0);
 }
 
-function inlineNodesToHtml(nodes: InlineNode[]): string {
-  return nodes
+function inlineNodesToHtml(nodes: InlineNode[], spellcheckIssues: SpellcheckIssue[] = []): string {
+  const boundaries = new Set<number>([0]);
+  const textLength = nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0);
+  boundaries.add(textLength);
+
+  for (const issue of spellcheckIssues) {
+    boundaries.add(Math.max(0, Math.min(textLength, issue.range.start)));
+    boundaries.add(Math.max(0, Math.min(textLength, issue.range.end)));
+  }
+
+  const sortedBoundaries = Array.from(boundaries).sort((left, right) => left - right);
+  const segments = splitInlineNodesAtBoundaries(nodes, sortedBoundaries);
+  let consumed = 0;
+
+  return segments
     .map((node) => {
+      const start = consumed;
+      const end = start + node.text.length;
+      consumed = end;
+
       let content = escapeHtml(node.text).replace(/\n/g, "<br>");
 
       if (node.link) {
@@ -1372,9 +1403,53 @@ function inlineNodesToHtml(nodes: InlineNode[]): string {
         content = `<strong>${content}</strong>`;
       }
 
+      const activeIssue = spellcheckIssues.find((issue) => issue.range.start <= start && issue.range.end >= end && start < end);
+
+      if (activeIssue) {
+        content = `<span class="spellcheck-underline" data-spellcheck-category="${escapeAttribute(activeIssue.category)}" title="${escapeAttribute(activeIssue.message)}">${content}</span>`;
+      }
+
       return content;
     })
     .join("");
+}
+
+function splitInlineNodesAtBoundaries(nodes: InlineNode[], boundaries: number[]): InlineNode[] {
+  const result: InlineNode[] = [];
+  let consumed = 0;
+
+  for (const node of nodes) {
+    const text = node.text ?? "";
+    const nodeStart = consumed;
+    const nodeEnd = nodeStart + text.length;
+    const innerBoundaries = boundaries.filter((boundary) => boundary > nodeStart && boundary < nodeEnd);
+
+    if (innerBoundaries.length === 0) {
+      if (text.length > 0) {
+        result.push({ ...node });
+      }
+      consumed = nodeEnd;
+      continue;
+    }
+
+    let sliceStart = nodeStart;
+
+    for (const boundary of [...innerBoundaries, nodeEnd]) {
+      const localStart = sliceStart - nodeStart;
+      const localEnd = boundary - nodeStart;
+      const part = text.slice(localStart, localEnd);
+
+      if (part) {
+        result.push({ ...node, text: part });
+      }
+
+      sliceStart = boundary;
+    }
+
+    consumed = nodeEnd;
+  }
+
+  return result;
 }
 
 function htmlToInlineNodes(html: string): InlineNode[] {

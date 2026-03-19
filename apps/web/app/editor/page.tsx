@@ -82,7 +82,8 @@ import type { SpellcheckResponse } from "../../lib/editor/spellcheck-contract";
 import {
   countSpellcheckIssues,
   getSpellcheckableBlocks,
-  type SpellcheckBlockResult
+  type SpellcheckBlockResult,
+  type SpellcheckSummaryMeta
 } from "../../lib/editor/spellcheck-view-model";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
 import {
@@ -177,7 +178,9 @@ export default function EditorPage() {
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
   const [spellcheckResults, setSpellcheckResults] = useState<SpellcheckBlockResult[]>([]);
   const [spellcheckSummary, setSpellcheckSummary] = useState<string | null>(null);
+  const [spellcheckSecondarySummary, setSpellcheckSecondarySummary] = useState<string | null>(null);
   const [isSpellcheckRequestInFlight, setIsSpellcheckRequestInFlight] = useState(false);
+  const [lastSpellcheckSelectionKey, setLastSpellcheckSelectionKey] = useState<string | null>(null);
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
   const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
   const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
@@ -196,6 +199,10 @@ export default function EditorPage() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+  const spellcheckSelectionKey = useMemo(
+    () => `${revision.documentRevisionId}:${normalizedSelection.blockIds.join("|")}`,
+    [normalizedSelection.blockIds, revision.documentRevisionId]
+  );
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
@@ -257,6 +264,7 @@ export default function EditorPage() {
   useEffect(() => {
     setSpellcheckResults([]);
     setSpellcheckSummary(null);
+    setSpellcheckSecondarySummary(null);
   }, [normalizedSelection.blockIds.join("|"), revision.documentRevisionId]);
 
   function persistVisualStylePreset(preset: VisualStylePreset) {
@@ -533,12 +541,14 @@ export default function EditorPage() {
       setFeedback({ tone: "error", message: "Для перевірки правопису наразі доступні лише текстові абзаци та заголовки." });
       setSpellcheckResults([]);
       setSpellcheckSummary(null);
+      setSpellcheckSecondarySummary(null);
       return;
     }
 
     setIsSpellcheckRequestInFlight(true);
     setFeedback(null);
     setSpellcheckSummary(null);
+    setSpellcheckSecondarySummary(null);
 
     try {
       const results: SpellcheckBlockResult[] = [];
@@ -574,23 +584,30 @@ export default function EditorPage() {
 
       const issueCount = countSpellcheckIssues(results);
       const errorCount = results.filter((result) => Boolean(result.error)).length;
-      const summaryParts = [
-        issueCount > 0 ? `Знайдено ${issueCount} проблем` : "Помилок не знайдено",
-        `у ${results.length} абз.`
-      ];
+      const summary: SpellcheckSummaryMeta = {
+        checkedBlockCount: results.length,
+        issueCount,
+        skippedCount,
+        errorCount
+      };
+      const nextSummary =
+        summary.issueCount > 0
+          ? `Знайдено ${summary.issueCount} проблем у ${summary.checkedBlockCount} абз.`
+          : `Помилок не знайдено у ${summary.checkedBlockCount} абз.`;
+      const secondaryParts: string[] = [];
 
-      if (skippedCount > 0) {
-        summaryParts.push(`Пропущено блоків: ${skippedCount}`);
+      if (summary.skippedCount > 0) {
+        secondaryParts.push(`Пропущено блоків: ${summary.skippedCount}`);
       }
 
-      if (errorCount > 0) {
-        summaryParts.push(`З помилкою запиту: ${errorCount}`);
+      if (summary.errorCount > 0) {
+        secondaryParts.push(`З помилкою запиту: ${summary.errorCount}`);
       }
-
-      const nextSummary = summaryParts.join(" · ");
 
       setSpellcheckResults(results);
       setSpellcheckSummary(nextSummary);
+      setSpellcheckSecondarySummary(secondaryParts.length > 0 ? secondaryParts.join(" · ") : null);
+      setLastSpellcheckSelectionKey(spellcheckSelectionKey);
       setFeedback({
         tone: errorCount > 0 ? "error" : "info",
         message: nextSummary
@@ -613,12 +630,26 @@ export default function EditorPage() {
     } catch (error) {
       setSpellcheckResults([]);
       setSpellcheckSummary(null);
+      setSpellcheckSecondarySummary(null);
       setFeedback({
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося перевірити правопис."
       });
     } finally {
       setIsSpellcheckRequestInFlight(false);
+    }
+  }
+
+  function handleLocalActionModeChange(mode: LocalActionMode) {
+    setLocalActionMode(mode);
+
+    if (
+      mode === "spellcheck" &&
+      normalizedSelection.blockIds.length > 0 &&
+      !isSpellcheckRequestInFlight &&
+      lastSpellcheckSelectionKey !== spellcheckSelectionKey
+    ) {
+      void requestSpellcheck();
     }
   }
 
@@ -1978,6 +2009,7 @@ export default function EditorPage() {
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
               reviewImageLoading={isReviewImageRequestInFlight}
+              spellcheckResults={spellcheckResults}
             />
 
             {composerMode ? (
@@ -1994,7 +2026,6 @@ export default function EditorPage() {
                   void requestPatch("custom");
                   setComposerMode(null);
                 }}
-                onRequestSpellcheck={() => void requestSpellcheck()}
                 reviewChangeLevel={reviewComposer.changeLevel}
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
@@ -2003,7 +2034,7 @@ export default function EditorPage() {
                 patchLoading={isPatchRequestInFlight}
                 reviewLoading={isReviewRequestInFlight}
                 localActionMode={localActionMode}
-                onLocalActionModeChange={setLocalActionMode}
+                onLocalActionModeChange={handleLocalActionModeChange}
                 manualCalloutKind={manualCalloutKind}
                 manualVisualIntent={manualVisualIntent}
                 manualVisualStylePreset={visualStylePreset}
@@ -2015,6 +2046,7 @@ export default function EditorPage() {
                 spellcheckResults={spellcheckResults}
                 spellcheckLoading={isSpellcheckRequestInFlight}
                 spellcheckSummary={spellcheckSummary}
+                spellcheckSecondarySummary={spellcheckSecondarySummary}
                 onManualCalloutPromptChange={setManualCalloutPrompt}
                 onManualVisualPromptChange={setManualVisualPrompt}
                 onRequestManualCallout={() => void requestManualInsert("callout")}
