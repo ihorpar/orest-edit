@@ -10,6 +10,16 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-19
 
+### Spellcheck uses a provider-agnostic fragment contract behind a local route
+Decision: manual Ukrainian spellcheck is modeled as `POST /api/edit/spellcheck` with a provider-agnostic local contract. The request carries one selected text range inside one block, and the server is responsible for mapping that fragment to LanguageTool and rebasing matches back into block-local offsets.
+
+Reason: this keeps the client stable across public-API and self-hosted LanguageTool modes, preserves the block-first editor architecture, and avoids spreading vendor-specific response shapes into UI code.
+
+### Spellcheck v1 is block-selection driven and read-only in the floating panel
+Decision: the first UI integration for spellcheck lives in the existing floating local-action panel as a separate `Правопис` mode. It checks the currently selected text blocks one block at a time and renders grouped findings in the panel, without inline underlines or one-click replacement yet.
+
+Reason: the editor selection model is block-first, while LanguageTool returns plain-text offsets. A panel-first read-only integration gives useful validation value now without prematurely committing to multi-node inline replacement semantics.
+
 ### Refine feedback is an explicit regenerate step, not hidden inside apply
 Decision: review execution cards separate `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` into distinct actions. Typed уточнення is sent only through regenerate; apply/insert does not implicitly re-run AI and stays blocked while there is unsent уточнення.
 

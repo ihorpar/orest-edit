@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Image as ImageIcon, Search, Sparkles, Wand2 } from "lucide-react";
+import { FileText, Image as ImageIcon, Search, Sparkles, SpellCheck, Wand2 } from "lucide-react";
 import {
   getEditorialCalloutKindOptions,
   getEditorialVisualIntentOptions,
@@ -10,6 +10,7 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
+import type { SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
 import { VisualIntentToggle, VisualStyleToggle } from "./VisualSelectionControls";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
@@ -20,7 +21,7 @@ const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; de
   { level: 5, label: "5", description: "Максимально глибокий огляд" }
 ];
 
-type LocalActionMode = "patch" | "callout" | "visual";
+type LocalActionMode = "patch" | "spellcheck" | "callout" | "visual";
 
 export function FloatingComposerPanel({
   mode,
@@ -29,6 +30,7 @@ export function FloatingComposerPanel({
   onCustomPromptChange,
   onRequestDefaultPatch,
   onRequestCustomPatch,
+  onRequestSpellcheck,
   reviewChangeLevel,
   reviewAdditionalInstructions,
   onReviewChangeLevel,
@@ -46,6 +48,9 @@ export function FloatingComposerPanel({
   onManualVisualStylePresetChange,
   manualCalloutPrompt,
   manualVisualPrompt,
+  spellcheckResults,
+  spellcheckLoading,
+  spellcheckSummary,
   onManualCalloutPromptChange,
   onManualVisualPromptChange,
   onRequestManualCallout,
@@ -59,6 +64,7 @@ export function FloatingComposerPanel({
   onCustomPromptChange: (value: string) => void;
   onRequestDefaultPatch: () => void;
   onRequestCustomPatch: () => void;
+  onRequestSpellcheck: () => void;
   reviewChangeLevel: WholeTextChangeLevel;
   reviewAdditionalInstructions: string;
   onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
@@ -76,6 +82,9 @@ export function FloatingComposerPanel({
   onManualVisualStylePresetChange: (value: VisualStylePreset) => void;
   manualCalloutPrompt: string;
   manualVisualPrompt: string;
+  spellcheckResults: SpellcheckBlockResult[];
+  spellcheckLoading?: boolean;
+  spellcheckSummary?: string | null;
   onManualCalloutPromptChange: (value: string) => void;
   onManualVisualPromptChange: (value: string) => void;
   onRequestManualCallout: () => void;
@@ -88,6 +97,7 @@ export function FloatingComposerPanel({
   const visualOptions = getEditorialVisualIntentOptions();
   const visualStyleOptions = getVisualStylePresetOptions();
   const manualInFlight = Boolean(manualLoadingKind);
+  const localBusy = Boolean(patchLoading || manualInFlight || spellcheckLoading);
 
   return (
     <section className="floating-panel" data-mode={mode} data-collapsed="false" aria-label={isReview ? "Огляд документа" : "Локальна правка"}>
@@ -99,6 +109,8 @@ export function FloatingComposerPanel({
               ? "Наскільки глибоко перевірити документ?"
               : localActionMode === "patch"
                 ? "Локальна правка вибраних абзаців"
+                : localActionMode === "spellcheck"
+                  ? "Перевірка правопису у вибраних абзацах"
                 : localActionMode === "callout"
                   ? "Згенерувати врізку для виділеного фрагмента"
                   : "Згенерувати візуал для виділеного фрагмента"}
@@ -156,7 +168,7 @@ export function FloatingComposerPanel({
                 className="floating-local-mode-tab"
                 data-active={localActionMode === "patch" ? "true" : "false"}
                 onClick={() => onLocalActionModeChange("patch")}
-                disabled={patchLoading || manualInFlight}
+                disabled={localBusy}
                 title="Локальна правка"
               >
                 <Search size={14} />
@@ -165,9 +177,20 @@ export function FloatingComposerPanel({
               <button
                 type="button"
                 className="floating-local-mode-tab"
+                data-active={localActionMode === "spellcheck" ? "true" : "false"}
+                onClick={() => onLocalActionModeChange("spellcheck")}
+                disabled={localBusy}
+                title="Перевірка правопису"
+              >
+                <SpellCheck size={14} />
+                <span>Правопис</span>
+              </button>
+              <button
+                type="button"
+                className="floating-local-mode-tab"
                 data-active={localActionMode === "callout" ? "true" : "false"}
                 onClick={() => onLocalActionModeChange("callout")}
-                disabled={patchLoading || manualInFlight}
+                disabled={localBusy}
                 title="Генерація врізки"
               >
                 <FileText size={14} />
@@ -178,7 +201,7 @@ export function FloatingComposerPanel({
                 className="floating-local-mode-tab"
                 data-active={localActionMode === "visual" ? "true" : "false"}
                 onClick={() => onLocalActionModeChange("visual")}
-                disabled={patchLoading || manualInFlight}
+                disabled={localBusy}
                 title="Генерація візуалу"
               >
                 <Wand2 size={14} />
@@ -220,6 +243,58 @@ export function FloatingComposerPanel({
                     </button>
                   </div>
                 </div>
+              </div>
+            ) : null}
+
+            {localActionMode === "spellcheck" ? (
+              <div className="floating-local-section">
+                <div className="floating-local-actions">
+                  <button
+                    type="button"
+                    className="floating-panel-inline-action"
+                    onClick={onRequestSpellcheck}
+                    disabled={localBusy}
+                  >
+                    <SpellCheck size={14} />
+                    {spellcheckLoading ? "Перевірка…" : "Перевірити правопис"}
+                  </button>
+                </div>
+                <p className="floating-mode-hint">Перевіряються лише текстові блоки. Для кожного абзацу показуються знайдені проблеми й підказки.</p>
+                {spellcheckSummary ? <p className="floating-spellcheck-summary">{spellcheckSummary}</p> : null}
+                {spellcheckResults.length > 0 ? (
+                  <div className="floating-spellcheck-results">
+                    {spellcheckResults.map((result) => (
+                      <article key={result.blockId} className="floating-spellcheck-card" data-tone={result.error ? "error" : "default"}>
+                        <div className="floating-spellcheck-card-head">
+                          <p className="mono-ui">{result.paragraphLabel}</p>
+                          <span className="floating-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
+                        </div>
+                        {result.error ? (
+                          <p className="floating-spellcheck-copy" data-tone="error">{result.error}</p>
+                        ) : result.issues.length > 0 ? (
+                          <div className="floating-spellcheck-issues">
+                            {result.issues.map((issue) => (
+                              <div key={issue.id} className="floating-spellcheck-issue">
+                                <div className="floating-spellcheck-issue-head">
+                                  <code>{issue.badText}</code>
+                                  <span className="floating-spellcheck-issue-meta">{issue.category}</span>
+                                </div>
+                                <p className="floating-spellcheck-copy">{issue.message}</p>
+                                {issue.suggestions.length > 0 ? (
+                                  <p className="floating-spellcheck-copy">
+                                    {issue.suggestions.map((suggestion) => suggestion.value).join(" · ")}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="floating-spellcheck-copy">Помилок не знайдено.</p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

@@ -12,7 +12,7 @@ export interface RequestHistoryItem {
   providerUsed: string;
   requestedProvider: string;
   requestedModelId: string;
-  mode: "default" | "custom" | "review" | "proposal" | "image";
+  mode: "default" | "custom" | "review" | "proposal" | "image" | "spellcheck";
   resultCount: number;
   droppedCount: number;
   usedFallback: boolean;

@@ -78,6 +78,12 @@ import {
   readEditorSettings,
   type EditorSettings
 } from "../../lib/editor/settings";
+import type { SpellcheckResponse } from "../../lib/editor/spellcheck-contract";
+import {
+  countSpellcheckIssues,
+  getSpellcheckableBlocks,
+  type SpellcheckBlockResult
+} from "../../lib/editor/spellcheck-view-model";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
 import {
   ChevronDown,
@@ -123,7 +129,7 @@ const defaultLocalActionMode = "patch" as const;
 
 type ComposerMode = "local" | "review" | null;
 type ManualGenerationKind = "callout" | "visual";
-type LocalActionMode = "patch" | "callout" | "visual";
+type LocalActionMode = "patch" | "spellcheck" | "callout" | "visual";
 type WorkflowStepId = EditorialReviewStepId;
 type TopActionMenuId = "open" | "save" | null;
 
@@ -169,6 +175,9 @@ export default function EditorPage() {
   const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
+  const [spellcheckResults, setSpellcheckResults] = useState<SpellcheckBlockResult[]>([]);
+  const [spellcheckSummary, setSpellcheckSummary] = useState<string | null>(null);
+  const [isSpellcheckRequestInFlight, setIsSpellcheckRequestInFlight] = useState(false);
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
   const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
   const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
@@ -244,6 +253,11 @@ export default function EditorPage() {
   useEffect(() => {
     setReviewRefineInstruction("");
   }, [activeReviewItemId]);
+
+  useEffect(() => {
+    setSpellcheckResults([]);
+    setSpellcheckSummary(null);
+  }, [normalizedSelection.blockIds.join("|"), revision.documentRevisionId]);
 
   function persistVisualStylePreset(preset: VisualStylePreset) {
     setVisualStylePreset(preset);
@@ -501,6 +515,110 @@ export default function EditorPage() {
       });
     } finally {
       setIsPatchRequestInFlight(false);
+    }
+  }
+
+  async function requestSpellcheck() {
+    const targetBlockIds = resolveTargetBlockIds();
+
+    if (targetBlockIds.length === 0) {
+      setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для перевірки правопису." });
+      return;
+    }
+
+    const spellcheckTargets = getSpellcheckableBlocks(document, revision, targetBlockIds);
+    const skippedCount = targetBlockIds.length - spellcheckTargets.length;
+
+    if (spellcheckTargets.length === 0) {
+      setFeedback({ tone: "error", message: "Для перевірки правопису наразі доступні лише текстові абзаци та заголовки." });
+      setSpellcheckResults([]);
+      setSpellcheckSummary(null);
+      return;
+    }
+
+    setIsSpellcheckRequestInFlight(true);
+    setFeedback(null);
+    setSpellcheckSummary(null);
+
+    try {
+      const results: SpellcheckBlockResult[] = [];
+
+      for (const target of spellcheckTargets) {
+        const response = await fetch("/api/edit/spellcheck", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            documentRevisionId: revision.documentRevisionId,
+            language: "uk-UA",
+            provider: "languagetool_public",
+            trigger: "manual",
+            selection: {
+              blockId: target.blockId,
+              text: target.text,
+              range: { start: 0, end: target.text.length }
+            }
+          })
+        });
+
+        const payload = (await response.json()) as SpellcheckResponse;
+
+        results.push({
+          blockId: target.blockId,
+          paragraphLabel: target.paragraphLabel,
+          text: target.text,
+          issues: payload.issues ?? [],
+          error: payload.error
+        });
+      }
+
+      const issueCount = countSpellcheckIssues(results);
+      const errorCount = results.filter((result) => Boolean(result.error)).length;
+      const summaryParts = [
+        issueCount > 0 ? `Знайдено ${issueCount} проблем` : "Помилок не знайдено",
+        `у ${results.length} абз.`
+      ];
+
+      if (skippedCount > 0) {
+        summaryParts.push(`Пропущено блоків: ${skippedCount}`);
+      }
+
+      if (errorCount > 0) {
+        summaryParts.push(`З помилкою запиту: ${errorCount}`);
+      }
+
+      const nextSummary = summaryParts.join(" · ");
+
+      setSpellcheckResults(results);
+      setSpellcheckSummary(nextSummary);
+      setFeedback({
+        tone: errorCount > 0 ? "error" : "info",
+        message: nextSummary
+      });
+      pushHistoryEntry(
+        createHistoryEntry(
+          "spellcheck",
+          "languagetool_public",
+          "languagetool_public",
+          "uk-UA",
+          issueCount,
+          skippedCount,
+          false,
+          {
+            tone: errorCount > 0 ? "error" : "info",
+            message: nextSummary
+          }
+        )
+      );
+    } catch (error) {
+      setSpellcheckResults([]);
+      setSpellcheckSummary(null);
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося перевірити правопис."
+      });
+    } finally {
+      setIsSpellcheckRequestInFlight(false);
     }
   }
 
@@ -1876,6 +1994,7 @@ export default function EditorPage() {
                   void requestPatch("custom");
                   setComposerMode(null);
                 }}
+                onRequestSpellcheck={() => void requestSpellcheck()}
                 reviewChangeLevel={reviewComposer.changeLevel}
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
@@ -1893,6 +2012,9 @@ export default function EditorPage() {
                 onManualVisualStylePresetChange={persistVisualStylePreset}
                 manualCalloutPrompt={manualCalloutPrompt}
                 manualVisualPrompt={manualVisualPrompt}
+                spellcheckResults={spellcheckResults}
+                spellcheckLoading={isSpellcheckRequestInFlight}
+                spellcheckSummary={spellcheckSummary}
                 onManualCalloutPromptChange={setManualCalloutPrompt}
                 onManualVisualPromptChange={setManualVisualPrompt}
                 onRequestManualCallout={() => void requestManualInsert("callout")}

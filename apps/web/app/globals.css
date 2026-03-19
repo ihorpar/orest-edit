@@ -4504,7 +4504,7 @@ textarea:focus {
 
 .floating-local-mode-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   background: #eef2f7;
   border: 1px solid #dbe4ef;
@@ -4575,6 +4575,106 @@ textarea:focus {
   font-size: 12px;
   line-height: 1.35;
   color: #64748b;
+}
+
+.floating-spellcheck-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.floating-spellcheck-results {
+  display: grid;
+  gap: 8px;
+  max-height: min(42vh, 420px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.floating-spellcheck-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe4ef;
+  background: #fbfdff;
+  padding: 10px 12px;
+}
+
+.floating-spellcheck-card[data-tone="error"] {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.floating-spellcheck-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.floating-spellcheck-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.floating-spellcheck-issues {
+  display: grid;
+  gap: 8px;
+}
+
+.floating-spellcheck-issue {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.floating-spellcheck-issue:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.floating-spellcheck-issue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.floating-spellcheck-issue-head code {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 2px 6px;
+}
+
+.floating-spellcheck-issue-meta {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.floating-spellcheck-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.floating-spellcheck-copy[data-tone="error"] {
+  color: #991b1b;
 }
 
 .floating-panel-mode-switch {

@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-16
+Date: 2026-03-19
 Status: Active handoff
 
 ## What exists now
@@ -58,6 +58,8 @@ Status: Active handoff
 - Visual type selection is now intentionally simplified to two user-facing intents (`інфографіка`, `ілюстрація`); when `інфографіка` is selected, prompt assembly auto-picks a concrete composition subtype from the fragment context
 - The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
+- A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
+- The floating local-action panel now includes a `Правопис` mode that checks the currently selected text blocks through the spellcheck route and shows grouped findings in-panel
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
@@ -117,6 +119,7 @@ Status: Active handoff
 - No export patch flow or document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
+- No inline spellcheck underline/apply UX yet; v1 shows grouped findings in the floating panel and currently supports selected text blocks (`paragraph`/`heading`) only
 
 ## Current product direction
 - User: book editor
@@ -169,5 +172,9 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after clarifying inline refine CTA states (`Уточнити` / `Перегенерувати` / `Застосувати|Вставити`)
 - `node --import tsx --test apps/web/test/review-action-service.test.ts apps/web/test/review-execution-lane.test.ts apps/web/test/review-contract.test.ts` passed on 2026-03-19 after clarifying inline refine CTA states and preserving backend `editorialInstruction` wiring
 - `npm run qa:inline-review -w @orest/web -- --url=http://127.0.0.1:3100 --no-screenshot --timeout=90000` passed on 2026-03-19 after warm dev-server start (`APP_PASSWORD=@orest0krat`, local dev server on `http://127.0.0.1:3100`)
+- `npm run typecheck -w @orest/web` passed on 2026-03-19 after adding manual spellcheck backend contract, route, and LanguageTool proxy service
+- `npm run test -w @orest/web` passed on 2026-03-19 after adding manual spellcheck backend contract, route, and LanguageTool proxy service (88/88 tests)
+- `npm run typecheck -w @orest/web` passed on 2026-03-19 after wiring `Правопис` into the floating local-action panel
+- `npm run test -w @orest/web` passed on 2026-03-19 after wiring `Правопис` into the floating local-action panel (90/90 tests)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)
