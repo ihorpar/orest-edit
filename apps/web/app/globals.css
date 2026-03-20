@@ -5679,6 +5679,123 @@ textarea:focus {
   color: #1d4ed8 !important;
 }
 
+.step-review-spellcheck-module {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eef2f7;
+  margin-bottom: 16px;
+}
+
+.step-review-spellcheck-title-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.step-review-spellcheck-secondary {
+  color: #64748b;
+}
+
+.step-review-spellcheck-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.step-review-spellcheck-list {
+  display: grid;
+  gap: 10px;
+}
+
+.step-review-spellcheck-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e6edf5;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.step-review-spellcheck-card:hover {
+  border-color: #bfdbfe;
+  background: #fafdff;
+}
+
+.step-review-spellcheck-card[data-tone="error"] {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.step-review-spellcheck-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.step-review-spellcheck-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font: 700 11px/1 var(--font-ui, sans-serif);
+}
+
+.step-review-spellcheck-issues {
+  display: grid;
+  gap: 10px;
+}
+
+.step-review-spellcheck-issue {
+  display: grid;
+  gap: 6px;
+}
+
+.step-review-spellcheck-issue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.step-review-spellcheck-issue-head code {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 2px 6px;
+}
+
+.step-review-spellcheck-issue-meta {
+  color: #64748b;
+  font: 700 10px/1 var(--font-ui, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.step-review-spellcheck-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.step-review-spellcheck-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e8f1fb;
+  color: #164e63;
+  font: 600 11px/1 var(--font-ui, sans-serif);
+}
+
 .step-review-fact-table-wrapper {
   width: 100%;
   overflow-x: auto;

@@ -20,6 +20,11 @@ Decision: the first UI integration for spellcheck lives in the existing floating
 
 Reason: the editor selection model is block-first, while LanguageTool returns plain-text offsets. A panel-first read-only integration gives useful validation value now without prematurely committing to multi-node inline replacement semantics.
 
+### Spellcheck results live in the right drawer, not in the floating panel
+Decision: `Правопис` stays a trigger in the floating local-action panel, but spellcheck results themselves live in a dedicated module at the top of the right drawer. Only blocks with issues or request errors are listed there; clean blocks are omitted. Inline underlines remain visible independently from the floating panel until the spellcheck state is cleared or the document revision changes.
+
+Reason: spellcheck behaves like an inspection layer, not like a transient compose action. Keeping results in the persistent right drawer reduces clutter, preserves context while the editor navigates the manuscript, and avoids tying underlines to the lifecycle of the floating panel.
+
 ### Refine feedback is an explicit regenerate step, not hidden inside apply
 Decision: review execution cards separate `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` into distinct actions. Typed уточнення is sent only through regenerate; apply/insert does not implicitly re-run AI and stays blocked while there is unsent уточнення.
 

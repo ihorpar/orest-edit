@@ -81,6 +81,7 @@ import {
 import type { SpellcheckResponse } from "../../lib/editor/spellcheck-contract";
 import {
   countSpellcheckIssues,
+  getSpellcheckCategoryLabel,
   getSpellcheckableBlocks,
   type SpellcheckBlockResult,
   type SpellcheckSummaryMeta
@@ -265,7 +266,8 @@ export default function EditorPage() {
     setSpellcheckResults([]);
     setSpellcheckSummary(null);
     setSpellcheckSecondarySummary(null);
-  }, [normalizedSelection.blockIds.join("|"), revision.documentRevisionId]);
+    setLastSpellcheckSelectionKey(null);
+  }, [revision.documentRevisionId]);
 
   function persistVisualStylePreset(preset: VisualStylePreset) {
     setVisualStylePreset(preset);
@@ -434,6 +436,33 @@ export default function EditorPage() {
     const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
     anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
     // Keep focus unchanged
+  }
+
+  function focusBlockById(blockId: string) {
+    const blockIndex = revision.blockOrder.indexOf(blockId);
+
+    if (blockIndex < 0) {
+      return;
+    }
+
+    setSelection(
+      normalizeBlockSelection(document, {
+        blockIds: [blockId],
+        anchorBlockId: blockId,
+        focusBlockId: blockId
+      })
+    );
+    setFocusedBlockId(blockId);
+
+    const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+    anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function clearSpellcheckResults() {
+    setSpellcheckResults([]);
+    setSpellcheckSummary(null);
+    setSpellcheckSecondarySummary(null);
+    setLastSpellcheckSelectionKey(null);
   }
 
   function pushHistoryEntry(entry: RequestHistoryItem) {
@@ -641,16 +670,22 @@ export default function EditorPage() {
   }
 
   function handleLocalActionModeChange(mode: LocalActionMode) {
-    setLocalActionMode(mode);
+    if (mode === "spellcheck") {
+      setLocalActionMode(mode);
+      setComposerMode(null);
 
-    if (
-      mode === "spellcheck" &&
-      normalizedSelection.blockIds.length > 0 &&
-      !isSpellcheckRequestInFlight &&
-      lastSpellcheckSelectionKey !== spellcheckSelectionKey
-    ) {
-      void requestSpellcheck();
+      if (
+        normalizedSelection.blockIds.length > 0 &&
+        !isSpellcheckRequestInFlight &&
+        lastSpellcheckSelectionKey !== spellcheckSelectionKey
+      ) {
+        void requestSpellcheck();
+      }
+
+      return;
     }
+
+    setLocalActionMode(mode);
   }
 
   async function requestWorkflowStep(stepId: WorkflowStepId) {
@@ -1846,6 +1881,11 @@ export default function EditorPage() {
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
   );
   const activeStepRunCount = stepRunHistory[activeWorkflowStep].length;
+  const spellcheckIssueResults = useMemo(
+    () => spellcheckResults.filter((result) => result.error || result.issues.length > 0),
+    [spellcheckResults]
+  );
+  const canRunSpellcheck = getSpellcheckableBlocks(document, revision, resolveTargetBlockIds()).length > 0;
   const isUnstartedRecommendationStep =
     activeWorkflowStep !== "diagnostics" &&
     activeWorkflowStep !== "fact_check" &&
@@ -2086,6 +2126,91 @@ export default function EditorPage() {
             ) : null}
 
             <div className="step-review-workspace-scroll">
+              {(isSpellcheckRequestInFlight || spellcheckSummary || spellcheckIssueResults.length > 0) ? (
+                <section className="step-review-subsection step-review-spellcheck-module">
+                  <div className="step-review-subsection-head">
+                    <div className="step-review-spellcheck-title-stack">
+                      <p className="mono-ui operations-title">Правопис</p>
+                      {spellcheckSummary ? (
+                        <p className="step-review-status-copy">{spellcheckSummary}</p>
+                      ) : isSpellcheckRequestInFlight ? (
+                        <p className="step-review-status-copy">Перевіряємо вибрані абзаци…</p>
+                      ) : null}
+                      {spellcheckSecondarySummary ? (
+                        <p className="step-review-status-copy step-review-spellcheck-secondary">{spellcheckSecondarySummary}</p>
+                      ) : null}
+                    </div>
+                    <div className="step-review-spellcheck-actions">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void requestSpellcheck()}
+                        loading={isSpellcheckRequestInFlight}
+                        disabled={!canRunSpellcheck}
+                      >
+                        Оновити
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={clearSpellcheckResults}
+                        disabled={isSpellcheckRequestInFlight || (!spellcheckSummary && spellcheckResults.length === 0)}
+                      >
+                        Очистити
+                      </Button>
+                    </div>
+                  </div>
+
+                  {spellcheckIssueResults.length > 0 ? (
+                    <div className="step-review-spellcheck-list">
+                      {spellcheckIssueResults.map((result) => (
+                        <article
+                          key={result.blockId}
+                          className="step-review-spellcheck-card"
+                          data-tone={result.error ? "error" : "default"}
+                          onClick={() => focusBlockById(result.blockId)}
+                        >
+                          <div className="step-review-spellcheck-card-head">
+                            <p className="mono-ui">Абз. {result.paragraphLabel}</p>
+                            <span className="step-review-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
+                          </div>
+                          {result.error ? (
+                            <p className="step-review-status-copy" data-tone="error">{result.error}</p>
+                          ) : (
+                            <div className="step-review-spellcheck-issues">
+                              {result.issues.map((issue) => (
+                                <div key={issue.id} className="step-review-spellcheck-issue">
+                                  <div className="step-review-spellcheck-issue-head">
+                                    <code>{issue.badText}</code>
+                                    <span className="step-review-spellcheck-issue-meta">
+                                      {getSpellcheckCategoryLabel(issue.category)}
+                                    </span>
+                                  </div>
+                                  <p className="step-review-status-copy">{issue.message}</p>
+                                  {issue.suggestions.length > 0 ? (
+                                    <div className="step-review-spellcheck-suggestions">
+                                      {issue.suggestions.map((suggestion) => (
+                                        <span key={`${issue.id}-${suggestion.value}`} className="step-review-spellcheck-chip">
+                                          {suggestion.value}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  ) : spellcheckSummary && !isSpellcheckRequestInFlight ? (
+                    <p className="step-review-empty-copy">
+                      Помилки не знайдено.
+                    </p>
+                  ) : null}
+                </section>
+              ) : null}
+
               {activeWorkflowStep === "diagnostics" ? (
                 <div className="step-review-section-stack">
                   <details className="step-review-config-details">
