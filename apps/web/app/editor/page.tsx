@@ -192,7 +192,6 @@ export default function EditorPage() {
   const [spellcheckSecondarySummary, setSpellcheckSecondarySummary] = useState<string | null>(null);
   const [spellcheckInvalidatedCount, setSpellcheckInvalidatedCount] = useState(0);
   const [isSpellcheckRequestInFlight, setIsSpellcheckRequestInFlight] = useState(false);
-  const [lastSpellcheckSelectionKey, setLastSpellcheckSelectionKey] = useState<string | null>(null);
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
   const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
   const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
@@ -211,10 +210,6 @@ export default function EditorPage() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
-  const spellcheckSelectionKey = useMemo(
-    () => `${revision.documentRevisionId}:${normalizedSelection.blockIds.join("|")}`,
-    [normalizedSelection.blockIds, revision.documentRevisionId]
-  );
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
@@ -281,7 +276,6 @@ export default function EditorPage() {
     setSpellcheckSummary(null);
     setSpellcheckSecondarySummary(null);
     setSpellcheckInvalidatedCount(0);
-    setLastSpellcheckSelectionKey(null);
   }
 
   function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta, invalidatedCount = spellcheckInvalidatedCount) {
@@ -410,7 +404,6 @@ export default function EditorPage() {
         setSpellcheckSummary("У перевірених абзацах є зміни.");
         setSpellcheckSecondarySummary(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
         setSpellcheckInvalidatedCount(invalidatedCount);
-        setLastSpellcheckSelectionKey(null);
       } else {
         clearSpellcheckResults();
       }
@@ -622,8 +615,7 @@ export default function EditorPage() {
     }
   }
 
-  async function requestSpellcheck() {
-    const targetBlockIds = resolveTargetBlockIds();
+  async function requestSpellcheck(targetBlockIds = document.blocks.map((block) => block.id)) {
 
     if (targetBlockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для перевірки правопису." });
@@ -635,9 +627,7 @@ export default function EditorPage() {
 
     if (spellcheckTargets.length === 0) {
       setFeedback({ tone: "error", message: "Для перевірки правопису наразі доступні лише текстові абзаци та заголовки." });
-      setSpellcheckResults([]);
-      setSpellcheckSummary(null);
-      setSpellcheckSecondarySummary(null);
+      clearSpellcheckResults();
       return;
     }
 
@@ -728,7 +718,6 @@ export default function EditorPage() {
         errorCount
       };
       updateSpellcheckSummary(results, summary, 0);
-      setLastSpellcheckSelectionKey(spellcheckSelectionKey);
       const nextSummary =
         summary.issueCount > 0
           ? `Знайдено ${summary.issueCount} проблем у ${results.filter((result) => result.issues.length > 0).length} абз.`
@@ -863,14 +852,6 @@ export default function EditorPage() {
       setLocalActionMode(mode);
       setActiveWorkflowStep("spellcheck");
       setComposerMode(null);
-
-      if (
-        normalizedSelection.blockIds.length > 0 &&
-        !isSpellcheckRequestInFlight &&
-        lastSpellcheckSelectionKey !== spellcheckSelectionKey
-      ) {
-        void requestSpellcheck();
-      }
 
       return;
     }
@@ -2076,7 +2057,29 @@ export default function EditorPage() {
     () => spellcheckResults.filter((result) => result.error || result.issues.length > 0),
     [spellcheckResults]
   );
-  const canRunSpellcheck = getSpellcheckableBlocks(document, revision, resolveTargetBlockIds()).length > 0;
+  const spellcheckDocumentBlockIds = useMemo(() => document.blocks.map((block) => block.id), [document.blocks]);
+  const canRunSpellcheck = getSpellcheckableBlocks(document, revision, spellcheckDocumentBlockIds).length > 0;
+  const hasSpellcheckRun = Boolean(spellcheckMeta || spellcheckSummary || spellcheckResults.length > 0);
+  const spellcheckProblemParagraphCount = useMemo(
+    () => spellcheckResults.filter((result) => result.issues.length > 0).length,
+    [spellcheckResults]
+  );
+  const spellcheckStatusTone = isSpellcheckRequestInFlight
+    ? "active"
+    : !hasSpellcheckRun
+      ? "idle"
+      : (spellcheckMeta?.issueCount ?? 0) > 0 || spellcheckInvalidatedCount > 0
+        ? "warning"
+        : "success";
+  const spellcheckStatusLabel = isSpellcheckRequestInFlight
+    ? "У процесі"
+    : !hasSpellcheckRun
+      ? "Не запускалось"
+      : spellcheckInvalidatedCount > 0
+        ? "Потрібна перевірка"
+        : (spellcheckMeta?.issueCount ?? 0) > 0
+          ? "Є зауваги"
+          : "Чисто";
   const isUnstartedRecommendationStep =
     activeWorkflowStep !== "diagnostics" &&
     activeWorkflowStep !== "fact_check" &&
@@ -2127,7 +2130,23 @@ export default function EditorPage() {
         </Button>
       )
     : activeWorkflowStep === "spellcheck"
-      ? null
+      ? (
+        <Button
+          variant="secondary"
+          className={`step-review-head-action-button ${hasSpellcheckRun ? "" : "step-review-head-action-button-primary"}`.trim()}
+          size="sm"
+          onClick={() => void requestSpellcheck(spellcheckDocumentBlockIds)}
+          loading={isSpellcheckRequestInFlight}
+          disabled={!canRunSpellcheck}
+          aria-label={hasSpellcheckRun ? "Оновити аналіз правопису" : "Проаналізувати правопис"}
+          title={hasSpellcheckRun ? "Оновити аналіз правопису" : "Проаналізувати правопис"}
+        >
+          <span className="button-content">
+            {hasSpellcheckRun ? <RefreshCcw size={14} aria-hidden="true" /> : <Languages size={14} aria-hidden="true" />}
+            <span>{hasSpellcheckRun ? "Оновити аналіз" : "Проаналізувати правопис"}</span>
+          </span>
+        </Button>
+      )
     : (
       <Button
         variant="secondary"
@@ -2623,38 +2642,54 @@ export default function EditorPage() {
                   <section className="step-review-subsection step-review-spellcheck-module">
                     <div className="step-review-subsection-head">
                       <div className="step-review-spellcheck-title-stack">
-                        {spellcheckSummary ? (
-                          <p className="step-review-status-copy">{spellcheckSummary}</p>
-                        ) : isSpellcheckRequestInFlight ? (
-                          <p className="step-review-status-copy">Перевіряємо вибрані абзаци…</p>
-                        ) : (
-                          <p className="step-review-empty-copy">Оберіть абзаци через номери зліва і запустіть «Правопис».</p>
-                        )}
+                        <div className="step-review-spellcheck-status-row">
+                          <span className="step-review-spellcheck-status-pill" data-tone={spellcheckStatusTone}>
+                            {spellcheckStatusLabel}
+                          </span>
+                          {spellcheckSummary ? (
+                            <p className="step-review-status-copy">{spellcheckSummary}</p>
+                          ) : isSpellcheckRequestInFlight ? (
+                            <p className="step-review-status-copy">Аналізуємо правопис у всьому тексті…</p>
+                          ) : (
+                            <p className="step-review-empty-copy">Аналіз ще не запускали.</p>
+                          )}
+                        </div>
                         {spellcheckSecondarySummary ? (
                           <p className="step-review-status-copy step-review-spellcheck-secondary">{spellcheckSecondarySummary}</p>
                         ) : null}
                       </div>
-                      <div className="step-review-spellcheck-actions">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void requestSpellcheck()}
-                          loading={isSpellcheckRequestInFlight}
-                          disabled={!canRunSpellcheck}
-                          title="Перевірити вибрані абзаци"
-                        >
-                          Оновити
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={clearSpellcheckResults}
-                          disabled={isSpellcheckRequestInFlight || (!spellcheckSummary && spellcheckResults.length === 0)}
-                        >
-                          Очистити
-                        </Button>
-                      </div>
+                      {!isSpellcheckRequestInFlight && hasSpellcheckRun ? (
+                        <div className="step-review-spellcheck-actions">
+                          <button
+                            type="button"
+                            className="step-review-spellcheck-clear"
+                            onClick={clearSpellcheckResults}
+                            disabled={isSpellcheckRequestInFlight || (!spellcheckSummary && spellcheckResults.length === 0)}
+                            aria-label="Очистити аналіз правопису"
+                            title="Очистити аналіз правопису"
+                          >
+                            <Trash2 size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
+
+                    {hasSpellcheckRun || isSpellcheckRequestInFlight ? (
+                      <div className="step-review-spellcheck-metrics">
+                        <div className="step-review-spellcheck-metric">
+                          <span className="step-review-spellcheck-metric-value">{spellcheckMeta?.issueCount ?? 0}</span>
+                          <span className="step-review-spellcheck-metric-label">проблем</span>
+                        </div>
+                        <div className="step-review-spellcheck-metric">
+                          <span className="step-review-spellcheck-metric-value">{spellcheckProblemParagraphCount}</span>
+                          <span className="step-review-spellcheck-metric-label">абз. з помилками</span>
+                        </div>
+                        <div className="step-review-spellcheck-metric">
+                          <span className="step-review-spellcheck-metric-value">{spellcheckInvalidatedCount}</span>
+                          <span className="step-review-spellcheck-metric-label">змінено після перевірки</span>
+                        </div>
+                      </div>
+                    ) : null}
 
                     {spellcheckIssueResults.length > 0 ? (
                       <div className="step-review-spellcheck-list">
@@ -2723,7 +2758,13 @@ export default function EditorPage() {
                         ))}
                       </div>
                     ) : spellcheckSummary && !isSpellcheckRequestInFlight ? (
-                      <p className="step-review-empty-copy">Помилки не знайдено.</p>
+                      <div className="step-review-empty-state step-review-spellcheck-empty">
+                        <p className="step-review-empty-copy">Помилки не знайдено.</p>
+                      </div>
+                    ) : !isSpellcheckRequestInFlight ? (
+                      <div className="step-review-empty-state step-review-spellcheck-empty">
+                        <p className="step-review-empty-copy">Запустіть аналіз правопису для всього тексту.</p>
+                      </div>
                     ) : null}
                   </section>
                 </div>

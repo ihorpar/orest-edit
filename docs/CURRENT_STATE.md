@@ -59,7 +59,7 @@ Status: Active handoff
 - The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
-- The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; selected text blocks are batched into a few LanguageTool requests instead of one request per block
+- The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies

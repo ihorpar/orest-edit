@@ -30,6 +30,8 @@ Decision: spellcheck is surfaced as its own manual step between `Формату�
 
 Reason: a dedicated step matches the existing step-based drawer architecture better than a global injected module, and batching avoids the public LanguageTool API rate limits that would be hit by one-request-per-block behavior on long selections.
 
+Update: the primary spellcheck launch now lives in the spellcheck step header as a document-wide CTA (`Проаналізувати правопис` / `Оновити аналіз`), rather than as an in-body selection-driven button.
+
 ### Inline spellcheck apply is direct and local
 Decision: clicking an underlined spellcheck issue opens a small suggestion popover in the manuscript, and choosing a suggestion applies a local text-range replacement directly into the affected text block while preserving surrounding inline marks.
 
