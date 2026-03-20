@@ -25,6 +25,16 @@ Decision: `Правопис` stays a trigger in the floating local-action panel,
 
 Reason: spellcheck behaves like an inspection layer, not like a transient compose action. Keeping results in the persistent right drawer reduces clutter, preserves context while the editor navigates the manuscript, and avoids tying underlines to the lifecycle of the floating panel.
 
+### Spellcheck is a dedicated manual step with batched LanguageTool requests
+Decision: spellcheck is surfaced as its own manual step between `Форматування` and `Фінальна редактура` in the right review rail. Selected text blocks are packed into bounded multi-block chunks before hitting LanguageTool, then upstream matches are re-mapped back into block-local issues in the client.
+
+Reason: a dedicated step matches the existing step-based drawer architecture better than a global injected module, and batching avoids the public LanguageTool API rate limits that would be hit by one-request-per-block behavior on long selections.
+
+### Inline spellcheck apply is direct and local
+Decision: clicking an underlined spellcheck issue opens a small suggestion popover in the manuscript, and choosing a suggestion applies a local text-range replacement directly into the affected text block while preserving surrounding inline marks.
+
+Reason: spellcheck corrections are deterministic local edits, so they should not route through the heavier diff/execution-card workflow used for AI recommendations.
+
 ### Refine feedback is an explicit regenerate step, not hidden inside apply
 Decision: review execution cards separate `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` into distinct actions. Typed уточнення is sent only through regenerate; apply/insert does not implicitly re-run AI and stays blocked while there is unsent уточнення.
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createEditorAssetToken } from "../../lib/editor/asset-store";
 import type {
   Block,
@@ -60,12 +60,14 @@ import {
   Quote,
   Minus,
   Table,
-  Image as ImageIcon
+  Image as ImageIcon,
+  X
 } from "lucide-react";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
 type CaretPlacement = "start" | "end";
 type PendingFocusTarget = { key: string; placement: CaretPlacement };
+type ActiveSpellcheckPopover = { blockId: string; issueId: string; top: number; left: number };
 
 type RichTextContext = {
   element: HTMLDivElement;
@@ -110,7 +112,8 @@ export function BlockEditorSurface({
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
   reviewImageLoading,
-  spellcheckResults = []
+  spellcheckResults = [],
+  onApplySpellcheckSuggestion
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -151,12 +154,25 @@ export function BlockEditorSurface({
   onApplyActiveReviewImage?: () => void;
   reviewImageLoading?: boolean;
   spellcheckResults?: SpellcheckBlockResult[];
+  onApplySpellcheckSuggestion?: (input: { blockId: string; issueId: string; suggestion: string }) => void;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
   const activeEditableKey = useRef<string | null>(null);
   const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
+  const [activeSpellcheckPopover, setActiveSpellcheckPopover] = useState<ActiveSpellcheckPopover | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+  const spellcheckIssueMap = useMemo(() => {
+    const map = new Map<string, SpellcheckIssue>();
+
+    for (const result of spellcheckResults) {
+      for (const issue of result.issues) {
+        map.set(`${result.blockId}:${issue.id}`, issue);
+      }
+    }
+
+    return map;
+  }, [spellcheckResults]);
 
   useEffect(() => {
     function handlePointerRelease() {
@@ -171,6 +187,58 @@ export function BlockEditorSurface({
       window.removeEventListener("blur", handlePointerRelease);
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeSpellcheckPopover) {
+      return;
+    }
+
+    function handleDismiss(event: MouseEvent) {
+      const target = event.target;
+
+      if (target instanceof HTMLElement && target.closest(".spellcheck-popover")) {
+        return;
+      }
+
+      if (target instanceof HTMLElement && target.closest(".spellcheck-underline")) {
+        return;
+      }
+
+      setActiveSpellcheckPopover(null);
+    }
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActiveSpellcheckPopover(null);
+      }
+    }
+
+    function handleViewportChange() {
+      setActiveSpellcheckPopover(null);
+    }
+
+    window.addEventListener("mousedown", handleDismiss);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      window.removeEventListener("mousedown", handleDismiss);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [activeSpellcheckPopover]);
+
+  useEffect(() => {
+    if (!activeSpellcheckPopover) {
+      return;
+    }
+
+    if (!spellcheckIssueMap.has(`${activeSpellcheckPopover.blockId}:${activeSpellcheckPopover.issueId}`)) {
+      setActiveSpellcheckPopover(null);
+    }
+  }, [activeSpellcheckPopover, spellcheckIssueMap]);
 
   useLayoutEffect(() => {
     const pending = pendingFocusTarget.current;
@@ -217,6 +285,15 @@ export function BlockEditorSurface({
     activeEditableKey.current = editableKey;
     onFocusedBlockChange(blockId);
     clearAiSelection();
+  }
+
+  function handleSpellcheckIssueClick(blockId: string, issueId: string, rect: DOMRect) {
+    setActiveSpellcheckPopover({
+      blockId,
+      issueId,
+      top: rect.bottom + 10,
+      left: Math.min(rect.left, window.innerWidth - 340)
+    });
   }
 
   function selectBlockRange(anchorBlockId: string, focusBlockId: string) {
@@ -716,6 +793,7 @@ export function BlockEditorSurface({
                 <BlockRenderer
                   block={block}
                   spellcheckIssues={spellcheckIssuesByBlockId.get(block.id) ?? []}
+                  onSpellcheckIssueClick={handleSpellcheckIssueClick}
                   disabled={disabled}
                   registerEditable={registerEditable}
                   onEditFocus={handleEditableFocus}
@@ -796,6 +874,64 @@ export function BlockEditorSurface({
             ? `Фокус: ${formatParagraphLabel(getBlockIndex(document, focusedBlockId))}`
             : "AI: блок не вибрано"}
       </div>
+
+      {activeSpellcheckPopover ? (
+        (() => {
+          const issue = spellcheckIssueMap.get(`${activeSpellcheckPopover.blockId}:${activeSpellcheckPopover.issueId}`);
+
+          if (!issue) {
+            return null;
+          }
+
+          return (
+            <div
+              className="spellcheck-popover"
+              style={{
+                top: `${Math.max(16, activeSpellcheckPopover.top)}px`,
+                left: `${Math.max(16, activeSpellcheckPopover.left)}px`
+              }}
+            >
+              <div className="spellcheck-popover-head">
+                <div className="spellcheck-popover-title-stack">
+                  <code>{issue.badText}</code>
+                  <p className="spellcheck-popover-copy">{issue.message}</p>
+                </div>
+                <button
+                  type="button"
+                  className="spellcheck-popover-close"
+                  aria-label="Закрити підказки"
+                  onClick={() => setActiveSpellcheckPopover(null)}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+              {issue.suggestions.length > 0 ? (
+                <div className="spellcheck-popover-suggestions">
+                  {issue.suggestions.map((suggestion) => (
+                    <button
+                      key={`${issue.id}-${suggestion.value}`}
+                      type="button"
+                      className="spellcheck-popover-suggestion"
+                      onClick={() => {
+                        onApplySpellcheckSuggestion?.({
+                          blockId: activeSpellcheckPopover.blockId,
+                          issueId: issue.id,
+                          suggestion: suggestion.value
+                        });
+                        setActiveSpellcheckPopover(null);
+                      }}
+                    >
+                      {suggestion.value}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="spellcheck-popover-empty">Немає готових підказок.</p>
+              )}
+            </div>
+          );
+        })()
+      ) : null}
     </div>
   );
 }
@@ -803,6 +939,7 @@ export function BlockEditorSurface({
 function BlockRenderer({
   block,
   spellcheckIssues,
+  onSpellcheckIssueClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -819,6 +956,7 @@ function BlockRenderer({
 }: {
   block: Block;
   spellcheckIssues?: SpellcheckIssue[];
+  onSpellcheckIssueClick?: (blockId: string, issueId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -838,6 +976,7 @@ function BlockRenderer({
       <EditableTextBlock
         block={block}
         spellcheckIssues={spellcheckIssues}
+        onSpellcheckIssueClick={onSpellcheckIssueClick}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -904,6 +1043,7 @@ function BlockRenderer({
 function EditableTextBlock({
   block,
   spellcheckIssues,
+  onSpellcheckIssueClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -914,6 +1054,7 @@ function EditableTextBlock({
 }: {
   block: ParagraphBlock | HeadingBlock;
   spellcheckIssues?: SpellcheckIssue[];
+  onSpellcheckIssueClick?: (blockId: string, issueId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -935,7 +1076,7 @@ function EditableTextBlock({
     <EditableRichText
       focusKey={makeEditableKey(block.id)}
       className={className}
-      html={inlineNodesToHtml(block.content, spellcheckIssues)}
+      html={inlineNodesToHtml(block.id, block.content, spellcheckIssues)}
       disabled={disabled}
       registerEditable={registerEditable}
       onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -943,6 +1084,7 @@ function EditableTextBlock({
       onEnter={(context) => onEnter(block, context)}
       onBackspace={(context) => onBackspace(block, context)}
       onSoftBreak={onSoftBreak}
+      onSpellcheckIssueClick={(issueId, rect) => onSpellcheckIssueClick?.(block.id, issueId, rect)}
     />
   );
 }
@@ -976,7 +1118,7 @@ function EditableListBlock({
             <EditableRichText
               focusKey={makeEditableKey(block.id, `item-${index}`)}
               className="block-list-item"
-              html={inlineNodesToHtml(item)}
+              html={inlineNodesToHtml(block.id, item)}
               disabled={disabled}
               registerEditable={registerEditable}
               onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1017,7 +1159,7 @@ function EditableCalloutBlock({
       <EditableRichText
         focusKey={makeEditableKey(block.id, "callout-title")}
         className="block-callout-title"
-        html={inlineNodesToHtml(block.title)}
+        html={inlineNodesToHtml(block.id, block.title)}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1029,7 +1171,7 @@ function EditableCalloutBlock({
           key={`${block.id}-${index}`}
           focusKey={makeEditableKey(block.id, `callout-body-${index}`)}
           className="block-callout-body"
-          html={inlineNodesToHtml(paragraph)}
+          html={inlineNodesToHtml(block.id, paragraph)}
           disabled={disabled}
           registerEditable={registerEditable}
           onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1079,7 +1221,7 @@ function EditableTableBlock({
                   <EditableRichText
                     focusKey={makeEditableKey(block.id, `cell-${rowIndex}-${cellIndex}`)}
                     className="block-table-cell"
-                    html={inlineNodesToHtml(cell)}
+                    html={inlineNodesToHtml(block.id, cell)}
                     disabled={disabled}
                     registerEditable={registerEditable}
                     onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1137,7 +1279,7 @@ function EditableImageBlock({
       <EditableRichText
         focusKey={makeEditableKey(block.id, "image-caption")}
         className="block-image-caption"
-        html={inlineNodesToHtml(block.caption ?? [createInlineText("")])}
+        html={inlineNodesToHtml(block.id, block.caption ?? [createInlineText("")])}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1158,7 +1300,8 @@ function EditableRichText({
   onChange,
   onEnter,
   onBackspace,
-  onSoftBreak
+  onSoftBreak,
+  onSpellcheckIssueClick
 }: {
   focusKey: string;
   className: string;
@@ -1170,6 +1313,7 @@ function EditableRichText({
   onEnter?: (context: RichTextContext) => void;
   onBackspace?: (context: RichTextContext) => boolean;
   onSoftBreak?: (context: RichTextContext) => void;
+  onSpellcheckIssueClick?: (issueId: string, rect: DOMRect) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
 
@@ -1224,6 +1368,30 @@ function EditableRichText({
     }
   }
 
+  function handleClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const underline = target.closest<HTMLElement>(".spellcheck-underline[data-spellcheck-issue-id]");
+
+    if (!underline) {
+      return;
+    }
+
+    const issueId = underline.dataset.spellcheckIssueId;
+
+    if (!issueId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onSpellcheckIssueClick?.(issueId, underline.getBoundingClientRect());
+  }
+
   return (
     <div
       ref={(element) => {
@@ -1241,6 +1409,7 @@ function EditableRichText({
       onBlur={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
       onInput={(event) => onRichTextInput(event.currentTarget, onChange)}
       onKeyDown={handleKeyDown}
+      onClick={handleClick}
     />
   );
 }
@@ -1369,7 +1538,7 @@ function isInlineContentEmpty(nodes: InlineNode[]): boolean {
   return nodes.every((node) => node.text.replace(/\n/g, "").trim().length === 0);
 }
 
-function inlineNodesToHtml(nodes: InlineNode[], spellcheckIssues: SpellcheckIssue[] = []): string {
+function inlineNodesToHtml(blockId: string, nodes: InlineNode[], spellcheckIssues: SpellcheckIssue[] = []): string {
   const boundaries = new Set<number>([0]);
   const textLength = nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0);
   boundaries.add(textLength);
@@ -1406,7 +1575,7 @@ function inlineNodesToHtml(nodes: InlineNode[], spellcheckIssues: SpellcheckIssu
       const activeIssue = spellcheckIssues.find((issue) => issue.range.start <= start && issue.range.end >= end && start < end);
 
       if (activeIssue) {
-        content = `<span class="spellcheck-underline" data-spellcheck-category="${escapeAttribute(activeIssue.category)}" title="${escapeAttribute(activeIssue.message)}">${content}</span>`;
+        content = `<span class="spellcheck-underline" data-spellcheck-block-id="${escapeAttribute(blockId)}" data-spellcheck-issue-id="${escapeAttribute(activeIssue.id)}" data-spellcheck-category="${escapeAttribute(activeIssue.category)}" title="${escapeAttribute(activeIssue.message)}">${content}</span>`;
       }
 
       return content;

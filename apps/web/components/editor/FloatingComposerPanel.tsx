@@ -11,9 +11,6 @@ import {
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
 import {
-  formatSpellcheckParagraphLabel,
-  getSpellcheckCategoryLabel,
-  getSpellcheckSeverityLabel,
   type SpellcheckBlockResult
 } from "../../lib/editor/spellcheck-view-model";
 import { VisualIntentToggle, VisualStyleToggle } from "./VisualSelectionControls";
@@ -256,50 +253,10 @@ export function FloatingComposerPanel({
                 <p className="floating-mode-hint">
                   {spellcheckLoading
                     ? "Перевіряємо вибрані текстові блоки."
-                    : "Перевіряються лише текстові блоки. Для кожного абзацу показуються знайдені проблеми й підказки."}
+                    : "Результати відкриються в окремій секції праворуч."}
                 </p>
                 {spellcheckSummary ? <p className="floating-spellcheck-summary">{spellcheckSummary}</p> : null}
                 {spellcheckSecondarySummary ? <p className="floating-spellcheck-secondary">{spellcheckSecondarySummary}</p> : null}
-                {spellcheckResults.length > 0 ? (
-                  <div className="floating-spellcheck-results">
-                    {spellcheckResults.map((result) => (
-                      <article key={result.blockId} className="floating-spellcheck-card" data-tone={result.error ? "error" : "default"}>
-                        <div className="floating-spellcheck-card-head">
-                          <p className="mono-ui">{formatSpellcheckParagraphLabel(result.paragraphLabel)}</p>
-                          <span className="floating-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
-                        </div>
-                        {result.error ? (
-                          <p className="floating-spellcheck-copy" data-tone="error">{result.error}</p>
-                        ) : result.issues.length > 0 ? (
-                          <div className="floating-spellcheck-issues">
-                            {result.issues.map((issue) => (
-                              <div key={issue.id} className="floating-spellcheck-issue">
-                                <div className="floating-spellcheck-issue-head">
-                                  <code>{issue.badText}</code>
-                                  <span className="floating-spellcheck-issue-meta">
-                                    {getSpellcheckCategoryLabel(issue.category)} · {getSpellcheckSeverityLabel(issue.severity)}
-                                  </span>
-                                </div>
-                                <p className="floating-spellcheck-copy">{issue.message}</p>
-                                {issue.suggestions.length > 0 ? (
-                                  <div className="floating-spellcheck-suggestions">
-                                    {issue.suggestions.map((suggestion) => (
-                                      <span key={`${issue.id}-${suggestion.value}`} className="floating-spellcheck-suggestion-chip">
-                                        {suggestion.value}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="floating-spellcheck-copy">Помилок не знайдено.</p>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             ) : null}
 

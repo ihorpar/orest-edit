@@ -5,9 +5,9 @@ npm-debug.log*
 .DS_Store
 .env
 .env.local
+.env*.local
+*.tsbuildinfo
 coverage
 .edge-profile
 .tmp
-
 .vercel
-.env*.local

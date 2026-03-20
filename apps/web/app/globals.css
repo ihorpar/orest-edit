@@ -4710,6 +4710,98 @@ textarea:focus {
   text-underline-offset: 3px;
   background: rgba(254, 226, 226, 0.52);
   border-radius: 2px;
+  cursor: pointer;
+}
+
+.spellcheck-popover {
+  position: fixed;
+  z-index: 60;
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 251, 255, 0.98)),
+    #fff;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+.spellcheck-popover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.spellcheck-popover-title-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.spellcheck-popover-title-stack code {
+  width: fit-content;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 2px 6px;
+}
+
+.spellcheck-popover-copy,
+.spellcheck-popover-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.spellcheck-popover-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.spellcheck-popover-close:hover,
+.spellcheck-popover-close:focus-visible {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+
+.spellcheck-popover-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spellcheck-popover-suggestion {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font: 600 12px/1 var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+
+.spellcheck-popover-suggestion:hover,
+.spellcheck-popover-suggestion:focus-visible {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  outline: none;
 }
 
 .floating-panel-mode-switch {
@@ -5682,9 +5774,6 @@ textarea:focus {
 .step-review-spellcheck-module {
   display: grid;
   gap: 10px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #eef2f7;
-  margin-bottom: 16px;
 }
 
 .step-review-spellcheck-title-stack {

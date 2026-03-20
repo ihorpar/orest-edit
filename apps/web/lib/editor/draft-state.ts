@@ -15,6 +15,8 @@ import type {
 } from "./review-contract";
 import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "./review-contract";
 
+export type PersistedWorkflowStepId = EditorialReviewStepId | "spellcheck";
+
 export const EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v3";
 export const PREVIOUS_EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v2";
 export const LEGACY_EDITOR_DRAFT_STORAGE_KEY = "orest-editor-draft-v1";
@@ -54,7 +56,7 @@ export interface PersistedEditorDraftState {
   reviewDiagnostics: EditorialReviewDiagnostics | null;
   reviewExpertise: string | null;
   factCheckRows: EditorialFactCheckRow[];
-  activeWorkflowStep: EditorialReviewStepId;
+  activeWorkflowStep: PersistedWorkflowStepId;
   stepRunHistory: EditorialStepRunHistory;
   stepFeedback: EditorialStepFeedbackMap;
   stepRunModeByStep: EditorialStepRunModeMap;
@@ -160,7 +162,7 @@ function sanitizePersistedEditorDraftState(state: PersistedEditorDraftState): Pe
   };
 }
 
-function isStepId(value: unknown): value is EditorialReviewStepId {
+function isStepId(value: unknown): value is PersistedWorkflowStepId {
   return (
     value === "diagnostics" ||
     value === "fact_check" ||
@@ -169,6 +171,7 @@ function isStepId(value: unknown): value is EditorialReviewStepId {
     value === "interest" ||
     value === "visuals" ||
     value === "formatting" ||
+    value === "spellcheck" ||
     value === "final_editing"
   );
 }

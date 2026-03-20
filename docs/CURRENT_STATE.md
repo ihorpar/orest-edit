@@ -59,7 +59,7 @@ Status: Active handoff
 - The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
-- The floating local-action panel now includes a `Правопис` trigger that checks the currently selected text blocks through the spellcheck route; spellcheck results are shown in a dedicated module at the top of the right drawer
+- The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; selected text blocks are batched into a few LanguageTool requests instead of one request per block
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
@@ -119,7 +119,7 @@ Status: Active handoff
 - No export patch flow or document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
-- No spellcheck suggestion-apply popover yet; v1 shows persistent inline red underlines for checked `paragraph`/`heading` blocks and lists only problematic blocks in the right drawer module
+- Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting
 
 ## Current product direction
 - User: book editor
@@ -178,5 +178,7 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-19 after wiring `Правопис` into the floating local-action panel (90/90 tests)
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after moving spellcheck results into the right drawer and keeping underlines independent from floating-panel visibility
 - `npm run test -w @orest/web` passed on 2026-03-19 after moving spellcheck results into the right drawer and keeping underlines independent from floating-panel visibility (90/90 tests)
+- `npm run typecheck -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers
+- `npm run test -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers (91/91 tests)
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)
