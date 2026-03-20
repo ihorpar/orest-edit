@@ -113,7 +113,8 @@ export function BlockEditorSurface({
   onApplyActiveReviewImage,
   reviewImageLoading,
   spellcheckResults = [],
-  onApplySpellcheckSuggestion
+  onApplySpellcheckSuggestion,
+  onDismissSpellcheckIssue
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -155,6 +156,7 @@ export function BlockEditorSurface({
   reviewImageLoading?: boolean;
   spellcheckResults?: SpellcheckBlockResult[];
   onApplySpellcheckSuggestion?: (input: { blockId: string; issueId: string; suggestion: string }) => void;
+  onDismissSpellcheckIssue?: (input: { blockId: string; issueId: string }) => void;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
@@ -924,9 +926,36 @@ export function BlockEditorSurface({
                       {suggestion.value}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                    onClick={() => {
+                      onDismissSpellcheckIssue?.({
+                        blockId: activeSpellcheckPopover.blockId,
+                        issueId: issue.id
+                      });
+                      setActiveSpellcheckPopover(null);
+                    }}
+                  >
+                    × Залишити як є
+                  </button>
                 </div>
               ) : (
-                <p className="spellcheck-popover-empty">Немає готових підказок.</p>
+                <div className="spellcheck-popover-suggestions">
+                  <button
+                    type="button"
+                    className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                    onClick={() => {
+                      onDismissSpellcheckIssue?.({
+                        blockId: activeSpellcheckPopover.blockId,
+                        issueId: issue.id
+                      });
+                      setActiveSpellcheckPopover(null);
+                    }}
+                  >
+                    × Залишити як є
+                  </button>
+                </div>
               )}
             </div>
           );
@@ -1325,8 +1354,15 @@ function EditableRichText({
       return;
     }
 
-    if (element.innerHTML !== html && window.document.activeElement !== element) {
+    if (element.innerHTML !== html) {
+      const isActive = window.document.activeElement === element;
+      const caretOffset = isActive ? getCaretOffset(element) : null;
+
       element.innerHTML = html;
+
+      if (isActive) {
+        placeCaretAtOffset(element, Math.min(caretOffset ?? getNodeTextLength(element), getNodeTextLength(element)));
+      }
     }
   }, [html]);
 
@@ -1409,7 +1445,7 @@ function EditableRichText({
         elementRef.current = element;
         registerEditable(focusKey, element);
 
-        if (element && element.innerHTML !== html && window.document.activeElement !== element) {
+        if (element && element.innerHTML !== html) {
           element.innerHTML = html;
         }
       }}
@@ -1748,6 +1784,21 @@ function placeCaret(root: HTMLElement, placement: CaretPlacement) {
 
   const offset = placement === "start" ? 0 : getNodeTextLength(root);
   const position = resolveDomPosition(root, offset);
+  const range = window.document.createRange();
+  range.setStart(position.node, position.offset);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function placeCaretAtOffset(root: HTMLElement, targetOffset: number) {
+  const selection = window.getSelection();
+
+  if (!selection) {
+    return;
+  }
+
+  const position = resolveDomPosition(root, targetOffset);
   const range = window.document.createRange();
   range.setStart(position.node, position.offset);
   range.collapse(true);

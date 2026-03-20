@@ -190,6 +190,7 @@ export default function EditorPage() {
   const [spellcheckMeta, setSpellcheckMeta] = useState<SpellcheckSummaryMeta | null>(null);
   const [spellcheckSummary, setSpellcheckSummary] = useState<string | null>(null);
   const [spellcheckSecondarySummary, setSpellcheckSecondarySummary] = useState<string | null>(null);
+  const [spellcheckInvalidatedCount, setSpellcheckInvalidatedCount] = useState(0);
   const [isSpellcheckRequestInFlight, setIsSpellcheckRequestInFlight] = useState(false);
   const [lastSpellcheckSelectionKey, setLastSpellcheckSelectionKey] = useState<string | null>(null);
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
@@ -279,10 +280,11 @@ export default function EditorPage() {
     setSpellcheckMeta(null);
     setSpellcheckSummary(null);
     setSpellcheckSecondarySummary(null);
+    setSpellcheckInvalidatedCount(0);
     setLastSpellcheckSelectionKey(null);
   }
 
-  function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta) {
+  function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta, invalidatedCount = spellcheckInvalidatedCount) {
     setSpellcheckMeta(meta);
     const nextSummary =
       meta.issueCount > 0
@@ -296,6 +298,10 @@ export default function EditorPage() {
 
     if (meta.errorCount > 0) {
       secondaryParts.push(`З помилкою запиту: ${meta.errorCount}`);
+    }
+
+    if (invalidatedCount > 0) {
+      secondaryParts.push(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
     }
 
     setSpellcheckResults(results);
@@ -386,6 +392,7 @@ export default function EditorPage() {
       !options?.preserveSpellcheck && spellcheckResults.length > 0
         ? invalidateSpellcheckResultsForChangedBlocks(document, nextDocument, spellcheckResults)
         : spellcheckResults;
+    const invalidatedCount = Math.max(0, spellcheckResults.length - nextSpellcheckResults.length);
 
     setDocument(nextDocument);
     setRevision(nextRevision);
@@ -397,16 +404,27 @@ export default function EditorPage() {
     }
 
     if (nextSpellcheckResults.length === 0) {
-      clearSpellcheckResults();
+      if (spellcheckResults.length > 0 && invalidatedCount > 0) {
+        setSpellcheckResults([]);
+        setSpellcheckMeta(null);
+        setSpellcheckSummary("У перевірених абзацах є зміни.");
+        setSpellcheckSecondarySummary(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
+        setSpellcheckInvalidatedCount(invalidatedCount);
+        setLastSpellcheckSelectionKey(null);
+      } else {
+        clearSpellcheckResults();
+      }
       return;
     }
 
+    const nextInvalidatedCount = spellcheckInvalidatedCount + invalidatedCount;
+    setSpellcheckInvalidatedCount(nextInvalidatedCount);
     updateSpellcheckSummary(nextSpellcheckResults, {
       checkedBlockCount: nextSpellcheckResults.length,
       issueCount: countSpellcheckIssues(nextSpellcheckResults),
       skippedCount: spellcheckMeta?.skippedCount ?? 0,
       errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
-    });
+    }, nextInvalidatedCount);
   }
 
   function createBlankDocument(): EditorDocument {
@@ -625,6 +643,7 @@ export default function EditorPage() {
 
     setIsSpellcheckRequestInFlight(true);
     setFeedback(null);
+    setSpellcheckInvalidatedCount(0);
     setSpellcheckSummary(null);
     setSpellcheckSecondarySummary(null);
 
@@ -708,7 +727,7 @@ export default function EditorPage() {
         skippedCount,
         errorCount
       };
-      updateSpellcheckSummary(results, summary);
+      updateSpellcheckSummary(results, summary, 0);
       setLastSpellcheckSelectionKey(spellcheckSelectionKey);
       const nextSummary =
         summary.issueCount > 0
@@ -811,9 +830,32 @@ export default function EditorPage() {
       errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
     };
 
+    setSpellcheckInvalidatedCount(0);
     commitDocument(nextDocument, { preserveSpellcheck: true });
-    updateSpellcheckSummary(nextSpellcheckResults, summaryMeta);
+    updateSpellcheckSummary(nextSpellcheckResults, summaryMeta, 0);
     setFeedback({ tone: "info", message: "Правопис виправлено." });
+  }
+
+  function dismissSpellcheckIssue(input: { blockId: string; issueId: string }) {
+    const nextSpellcheckResults = spellcheckResults.map((entry) =>
+      entry.blockId === input.blockId
+        ? {
+            ...entry,
+            issues: entry.issues.filter((issue) => issue.id !== input.issueId)
+          }
+        : entry
+    );
+
+    const summaryMeta: SpellcheckSummaryMeta = {
+      checkedBlockCount: spellcheckMeta?.checkedBlockCount ?? nextSpellcheckResults.length,
+      issueCount: countSpellcheckIssues(nextSpellcheckResults),
+      skippedCount: spellcheckMeta?.skippedCount ?? 0,
+      errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
+    };
+
+    setSpellcheckInvalidatedCount(0);
+    updateSpellcheckSummary(nextSpellcheckResults, summaryMeta, 0);
+    setFeedback({ tone: "info", message: "Варіант залишено без змін." });
   }
 
   function handleLocalActionModeChange(mode: LocalActionMode) {
@@ -2203,6 +2245,7 @@ export default function EditorPage() {
               reviewImageLoading={isReviewImageRequestInFlight}
               spellcheckResults={spellcheckResults}
               onApplySpellcheckSuggestion={applySpellcheckSuggestion}
+              onDismissSpellcheckIssue={dismissSpellcheckIssue}
             />
 
             {composerMode ? (
@@ -2648,7 +2691,9 @@ export default function EditorPage() {
                                         {getSpellcheckCategoryLabel(issue.category)}
                                       </span>
                                     </div>
-                                    <p className="step-review-status-copy">{issue.message}</p>
+                                    {shouldShowSpellcheckMessage(issue.message) ? (
+                                      <p className="step-review-status-copy step-review-spellcheck-issue-copy">{issue.message}</p>
+                                    ) : null}
                                     {issue.suggestions.length > 0 ? (
                                       <div className="step-review-spellcheck-suggestions">
                                         {issue.suggestions.map((suggestion) => (
@@ -2853,6 +2898,20 @@ export default function EditorPage() {
 
 function replaceTextRange(text: string, start: number, end: number, replacement: string): string {
   return `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+}
+
+function shouldShowSpellcheckMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return !(
+    normalized === "знайдено потенційну орфографічну помилку." ||
+    normalized === "можлива орфографічна помилка." ||
+    normalized === "ймовірна орфографічна помилка."
+  );
 }
 
 function invalidateSpellcheckResultsForChangedBlocks(

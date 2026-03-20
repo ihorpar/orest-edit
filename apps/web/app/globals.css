@@ -4804,6 +4804,19 @@ textarea:focus {
   outline: none;
 }
 
+.spellcheck-popover-suggestion-muted {
+  border-color: #dbe4ef;
+  background: #fff;
+  color: #64748b;
+}
+
+.spellcheck-popover-suggestion-muted:hover,
+.spellcheck-popover-suggestion-muted:focus-visible {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+}
+
 .floating-panel-mode-switch {
   border: 1px solid #dbe4ef;
   background: #ffffff;
@@ -5794,13 +5807,13 @@ textarea:focus {
 
 .step-review-spellcheck-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .step-review-spellcheck-card {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid #e6edf5;
   background: linear-gradient(180deg, #ffffff, #fbfdff);
 }
@@ -5820,7 +5833,7 @@ textarea:focus {
 .step-review-spellcheck-card-head-main {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .step-review-spellcheck-badge {
@@ -5859,15 +5872,15 @@ textarea:focus {
 
 .step-review-spellcheck-issues {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .step-review-spellcheck-issue {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #e8edf5;
-  background: #f8fbff;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #edf2f7;
+  background: #fbfdff;
 }
 
 .step-review-spellcheck-issue-head {
@@ -5899,6 +5912,10 @@ textarea:focus {
   letter-spacing: 0.04em;
 }
 
+.step-review-spellcheck-issue-copy {
+  color: #475569;
+}
+
 .step-review-spellcheck-suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -5908,13 +5925,13 @@ textarea:focus {
 .step-review-spellcheck-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 26px;
+  padding: 0 9px;
   border: 1px solid #93c5fd;
   border-radius: 999px;
   background: #eff6ff;
   color: #1d4ed8;
-  font: 700 11px/1 var(--font-ui, sans-serif);
+  font: 700 10px/1 var(--font-ui, sans-serif);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
