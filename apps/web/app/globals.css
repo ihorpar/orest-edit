@@ -5879,10 +5879,19 @@ textarea:focus {
   align-items: center;
   min-height: 24px;
   padding: 0 8px;
+  border: 1px solid #bfdbfe;
   border-radius: 999px;
   background: #e8f1fb;
   color: #164e63;
   font: 600 11px/1 var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+
+.step-review-spellcheck-chip:hover,
+.step-review-spellcheck-chip:focus-visible {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  outline: none;
 }
 
 .step-review-fact-table-wrapper {

@@ -2623,9 +2623,21 @@ export default function EditorPage() {
                                     {issue.suggestions.length > 0 ? (
                                       <div className="step-review-spellcheck-suggestions">
                                         {issue.suggestions.map((suggestion) => (
-                                          <span key={`${issue.id}-${suggestion.value}`} className="step-review-spellcheck-chip">
+                                          <button
+                                            key={`${issue.id}-${suggestion.value}`}
+                                            type="button"
+                                            className="step-review-spellcheck-chip"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              applySpellcheckSuggestion({
+                                                blockId: result.blockId,
+                                                issueId: issue.id,
+                                                suggestion: suggestion.value
+                                              });
+                                            }}
+                                          >
                                             {suggestion.value}
-                                          </span>
+                                          </button>
                                         ))}
                                       </div>
                                     ) : null}

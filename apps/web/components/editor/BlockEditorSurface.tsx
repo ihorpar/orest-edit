@@ -1316,6 +1316,7 @@ function EditableRichText({
   onSpellcheckIssueClick?: (issueId: string, rect: DOMRect) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
+  const baselineContent = useMemo(() => htmlToInlineNodes(html), [html]);
 
   useLayoutEffect(() => {
     const element = elementRef.current;
@@ -1368,6 +1369,16 @@ function EditableRichText({
     }
   }
 
+  function emitChangeIfNeeded(nextHtml: string) {
+    const nextContent = htmlToInlineNodes(nextHtml);
+
+    if (areInlineNodesEqual(nextContent, baselineContent)) {
+      return;
+    }
+
+    onChange(nextContent);
+  }
+
   function handleClick(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target;
 
@@ -1406,20 +1417,12 @@ function EditableRichText({
       contentEditable={!disabled}
       suppressContentEditableWarning
       onFocus={() => onEditFocus(focusKey)}
-      onBlur={(event) => onChange(htmlToInlineNodes(event.currentTarget.innerHTML))}
-      onInput={(event) => onRichTextInput(event.currentTarget, onChange)}
+      onBlur={(event) => emitChangeIfNeeded(event.currentTarget.innerHTML)}
+      onInput={(event) => emitChangeIfNeeded(event.currentTarget.innerHTML)}
       onKeyDown={handleKeyDown}
       onClick={handleClick}
     />
   );
-}
-
-function onRichTextInput(element: HTMLDivElement, onChange?: (content: InlineNode[]) => void) {
-  if (!onChange) {
-    return;
-  }
-
-  onChange(htmlToInlineNodes(element.innerHTML));
 }
 
 function toParagraphBlock(block: Block): ParagraphBlock {
@@ -1659,6 +1662,22 @@ function htmlToInlineNodes(html: string): InlineNode[] {
 
   Array.from(root.childNodes).forEach((child) => walk(child));
   return normalizeInlineNodes(nodes);
+}
+
+function areInlineNodesEqual(left: InlineNode[], right: InlineNode[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((node, index) => {
+    const other = right[index];
+    return (
+      node.text === other?.text &&
+      node.bold === other?.bold &&
+      node.italic === other?.italic &&
+      node.link === other?.link
+    );
+  });
 }
 
 function getCaretOffset(root: HTMLElement): number | null {

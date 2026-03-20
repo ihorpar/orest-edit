@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orest Edit: UI Overhaul Concepts</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
+        :root {
+            --primary: #2563eb;
+            --primary-light: #eff6ff;
+            --accent: #7c3aed;
+            --bg-page: #f9fafb;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --glass: rgba(255, 255, 255, 0.85);
+            --border: rgba(0, 0, 0, 0.08);
+            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-main);
+            padding: 40px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+
+        section {
+            margin-bottom: 100px;
+            position: relative;
+        }
+
+        .section-header {
+            margin-bottom: 30px;
+            border-left: 4px solid var(--primary);
+            padding-left: 20px;
+        }
+
+        .section-header h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 4px;
+        }
+
+        .section-description {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Mock Editor Background */
+        .editor-mockup {
+            background: white;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            padding: 60px;
+            position: relative;
+            min-height: 400px;
+            overflow: hidden;
+        }
+
+        .manuscript-text {
+            max-width: 600px;
+            margin: 0 auto;
+            color: #4b5563;
+            font-family: 'Georgia', serif;
+            font-size: 18px;
+            line-height: 1.8;
+        }
+
+        .selection {
+            background: rgba(37, 99, 235, 0.1);
+            border-bottom: 2px solid var(--primary);
+            color: inherit;
+        }
+
+        /* --- OPTION 1: THE FLOATING CAPSULE --- */
+        .capsule-ui {
+            position: absolute;
+            top: 140px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--glass);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 999px;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+            animation: fadeInScale 0.3s ease-out;
+            z-index: 100;
+        }
+
+        .capsule-btn {
+            background: transparent;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 999px;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .capsule-btn:hover {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .capsule-btn.primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .capsule-btn i {
+            width: 16px;
+            height: 16px;
+        }
+
+        .divider {
+            width: 1px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.1);
+            margin: 0 4px;
+        }
+
+        /* --- OPTION 2: THE INSTRUMENT SIDEBAR --- */
+        .instrument-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            bottom: 20px;
+            width: 320px;
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.03);
+            animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .instrument-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .instrument-header h3 {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        .instrument-body {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .metric-card {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid #f1f5f9;
+        }
+
+        .metric-title {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .tool-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .tool-btn {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .tool-btn i {
+            margin-bottom: 8px;
+            color: var(--text-muted);
+        }
+
+        .tool-btn span {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* --- OPTION 3: THE COMMAND GHOST --- */
+        .ghost-ui {
+            position: absolute;
+            top: 200px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 480px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.12), 0 0 0 1px var(--border);
+            padding: 12px;
+            z-index: 100;
+            animation: fadeInDown 0.3s ease-out;
+        }
+
+        .ghost-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 4px;
+        }
+
+        .ghost-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 15px;
+            color: var(--text-main);
+        }
+
+        .ghost-hints {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .hint-chip {
+            padding: 4px 10px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .hint-chip:hover {
+            background: #e2e8f0;
+            color: var(--primary);
+        }
+
+        /* Animations */
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: translateX(-50%) scale(0.95); }
+            to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+
+        .badge {
+            background: #22c55e;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 800;
+            vertical-align: middle;
+            margin-left: 6px;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Еволюція Інтерфейсу Orest</h1>
+        <p class="subtitle">Три концепції преміального досвіду для медичного редгування</p>
+    </header>
+
+    <!-- OPTION 1 -->
+    <section id="option1">
+        <div class="section-header">
+            <h2>1. Контекстна Капсула (Floating Capsule)</h2>
+            <p class="section-description">Мінімалістична панель, що слідує за виділенням. Фокус на "один клік".</p>
+        </div>
+        <div class="editor-mockup">
+            <div class="manuscript-text">
+                <p>Метилювання ДНК — це складний біохімічний процес, при якому метильна група додається до молекули ДНК. <span class="selection">Це критично важливо для регуляції експресії генів без зміни самої послідовності нуклеотидів</span>, що дозволяє організму адаптуватися до навколишнього середовища.</p>
+            </div>
+            
+            <div class="capsule-ui">
+                <button class="capsule-btn primary">
+                    <i data-lucide="sparkles"></i>
+                    Покращити
+                </button>
+                <div class="divider"></div>
+                <button class="capsule-btn">
+                    <i data-lucide="feather"></i>
+                    Спростити
+                </button>
+                <button class="capsule-btn">
+                    <i data-lucide="check-circle"></i>
+                    Факт-чек
+                </button>
+                <button class="capsule-btn">
+                    <i data-lucide="more-horizontal"></i>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- OPTION 2 -->
+    <section id="option2">
+        <div class="section-header">
+            <h2>2. Аналітичний Термінал (Scientific Panel)</h2>
+            <p class="section-description">Інтегрована права панель. Для тих, хто любить контроль та глибинну аналітику.</p>
+        </div>
+        <div class="editor-mockup">
+            <div class="manuscript-text">
+                <p>Наукові дослідження показують, що рівень кортизолу безпосередньо корелює з активацією прозапальних цитокінів. <span class="selection">Цей механізм пояснює, чому хронічний стрес призводить до системного запалення</span> та прискореного старіння клітин.</p>
+            </div>
+
+            <div class="instrument-ui">
+                <div class="instrument-header">
+                    <h3>Параметри фрагменту</h3>
+                    <i data-lucide="x" style="width: 16px; cursor: pointer; color: var(--text-muted)"></i>
+                </div>
+                <div class="instrument-body">
+                    <div class="metric-card">
+                        <div class="metric-title">Складність тексту</div>
+                        <div class="metric-value">Висока (84/100)</div>
+                    </div>
+
+                    <div class="tool-grid">
+                        <button class="tool-btn">
+                            <i data-lucide="zap"></i>
+                            <span>Адаптувати мову</span>
+                        </button>
+                        <button class="tool-btn">
+                            <i data-lucide="microscope"></i>
+                            <span>Перевірити терміни</span>
+                        </button>
+                        <button class="tool-btn">
+                            <i data-lucide="list"></i>
+                            <span>Врізка (Callout)</span>
+                        </button>
+                        <button class="tool-btn">
+                            <i data-lucide="refresh-cw"></i>
+                            <span>Перефразувати</span>
+                        </button>
+                    </div>
+
+                    <div style="margin-top: auto;">
+                        <button style="width: 100%; border: none; background: var(--primary); color: white; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Виконати обробку
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- OPTION 3 -->
+    <section id="option3">
+        <div class="section-header">
+            <h2>3. Розумний Командний Привид (Ghost Command)</h2>
+            <p class="section-description">Майже невидимий інтерфейс. Взаємодія через природну мову та швидкі підказки.</p>
+        </div>
+        <div class="editor-mockup">
+            <div class="manuscript-text">
+                <p>Біометричні дані пацієнтів, зібрані за допомогою носійних пристроїв, надають унікальну можливість превентивного моніторингу станів. <span class="selection">Система здатна виявляти аномалії в ритмі серця за 48 годин до появи симптомів.</span></p>
+            </div>
+
+            <div class="ghost-ui">
+                <div class="ghost-input-wrapper">
+                    <i data-lucide="search" style="width: 18px; color: var(--primary)"></i>
+                    <input type="text" class="ghost-input" placeholder="Що зробити з цим текстом?">
+                    <kbd style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700;">ENTER</kbd>
+                </div>
+                <div class="ghost-hints">
+                    <div class="hint-chip">Зробити простіше</div>
+                    <div class="hint-chip">Перекласти англійською</div>
+                    <div class="hint-chip">Знайти джерело</div>
+                    <div class="hint-chip">Видалити жаргон</div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+    lucide.createIcons();
+</script>
+
+</body>
+</html>
