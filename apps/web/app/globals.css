@@ -5799,16 +5799,10 @@ textarea:focus {
 
 .step-review-spellcheck-card {
   display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid #e6edf5;
-  background: #ffffff;
-  cursor: pointer;
-}
-
-.step-review-spellcheck-card:hover {
-  border-color: #bfdbfe;
-  background: #fafdff;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
 }
 
 .step-review-spellcheck-card[data-tone="error"] {
@@ -5821,6 +5815,12 @@ textarea:focus {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.step-review-spellcheck-card-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .step-review-spellcheck-badge {
@@ -5836,6 +5836,27 @@ textarea:focus {
   font: 700 11px/1 var(--font-ui, sans-serif);
 }
 
+.step-review-spellcheck-focus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.step-review-spellcheck-focus:hover,
+.step-review-spellcheck-focus:focus-visible {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+
 .step-review-spellcheck-issues {
   display: grid;
   gap: 10px;
@@ -5843,26 +5864,36 @@ textarea:focus {
 
 .step-review-spellcheck-issue {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e8edf5;
+  background: #f8fbff;
 }
 
 .step-review-spellcheck-issue-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .step-review-spellcheck-issue-head code {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: #0f172a;
-  background: #f1f5f9;
-  padding: 2px 6px;
+  background: #eef4fb;
+  padding: 3px 7px;
 }
 
 .step-review-spellcheck-issue-meta {
-  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
   font: 700 10px/1 var(--font-ui, sans-serif);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -5877,20 +5908,23 @@ textarea:focus {
 .step-review-spellcheck-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
-  border: 1px solid #bfdbfe;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #93c5fd;
   border-radius: 999px;
-  background: #e8f1fb;
-  color: #164e63;
-  font: 600 11px/1 var(--font-ui, sans-serif);
+  background: #eff6ff;
+  color: #1d4ed8;
+  font: 700 11px/1 var(--font-ui, sans-serif);
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 .step-review-spellcheck-chip:hover,
 .step-review-spellcheck-chip:focus-visible {
-  border-color: #93c5fd;
+  border-color: #60a5fa;
   background: #dbeafe;
+  color: #1d4ed8;
+  transform: translateY(-1px);
   outline: none;
 }
 

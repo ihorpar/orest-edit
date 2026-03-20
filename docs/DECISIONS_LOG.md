@@ -35,6 +35,11 @@ Decision: clicking an underlined spellcheck issue opens a small suggestion popov
 
 Reason: spellcheck corrections are deterministic local edits, so they should not route through the heavier diff/execution-card workflow used for AI recommendations.
 
+### Manual editing invalidates spellcheck per changed block, not globally
+Decision: when the editor manually changes the manuscript after a spellcheck run, spellcheck findings are dropped only for the changed checked block(s); findings for untouched checked blocks remain visible and actionable.
+
+Reason: locking the whole manuscript during spellcheck is too rigid, but keeping stale offsets alive inside an edited block is unsafe. Per-block invalidation preserves momentum without showing incorrect underlines or suggestions.
+
 ### Refine feedback is an explicit regenerate step, not hidden inside apply
 Decision: review execution cards separate `Уточнити`, `Перегенерувати`, and `Застосувати/Вставити` into distinct actions. Typed уточнення is sent only through regenerate; apply/insert does not implicitly re-run AI and stays blocked while there is unsent уточнення.
 

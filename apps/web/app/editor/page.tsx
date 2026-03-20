@@ -97,6 +97,7 @@ import {
   FolderOpen,
   Image as ImageIcon,
   LayoutGrid,
+  LocateFixed,
   Languages,
   RefreshCcw,
   Search,
@@ -186,6 +187,7 @@ export default function EditorPage() {
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
   const [spellcheckResults, setSpellcheckResults] = useState<SpellcheckBlockResult[]>([]);
+  const [spellcheckMeta, setSpellcheckMeta] = useState<SpellcheckSummaryMeta | null>(null);
   const [spellcheckSummary, setSpellcheckSummary] = useState<string | null>(null);
   const [spellcheckSecondarySummary, setSpellcheckSecondarySummary] = useState<string | null>(null);
   const [isSpellcheckRequestInFlight, setIsSpellcheckRequestInFlight] = useState(false);
@@ -274,12 +276,14 @@ export default function EditorPage() {
 
   function clearSpellcheckResults() {
     setSpellcheckResults([]);
+    setSpellcheckMeta(null);
     setSpellcheckSummary(null);
     setSpellcheckSecondarySummary(null);
     setLastSpellcheckSelectionKey(null);
   }
 
   function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta) {
+    setSpellcheckMeta(meta);
     const nextSummary =
       meta.issueCount > 0
         ? `Знайдено ${meta.issueCount} проблем у ${results.filter((result) => result.issues.length > 0).length} абз.`
@@ -378,14 +382,31 @@ export default function EditorPage() {
 
   function commitDocument(nextDocument: EditorDocument, options?: { preserveSpellcheck?: boolean }) {
     const nextRevision = deriveManuscriptRevisionState(nextDocument);
+    const nextSpellcheckResults =
+      !options?.preserveSpellcheck && spellcheckResults.length > 0
+        ? invalidateSpellcheckResultsForChangedBlocks(document, nextDocument, spellcheckResults)
+        : spellcheckResults;
+
     setDocument(nextDocument);
     setRevision(nextRevision);
     setSelection((current) => normalizeBlockSelection(nextDocument, current));
     setReviewItems((current) => reconcileReviewItemsWithRevision(current, nextDocument, nextRevision));
 
-    if (!options?.preserveSpellcheck) {
-      clearSpellcheckResults();
+    if (options?.preserveSpellcheck) {
+      return;
     }
+
+    if (nextSpellcheckResults.length === 0) {
+      clearSpellcheckResults();
+      return;
+    }
+
+    updateSpellcheckSummary(nextSpellcheckResults, {
+      checkedBlockCount: nextSpellcheckResults.length,
+      issueCount: countSpellcheckIssues(nextSpellcheckResults),
+      skippedCount: spellcheckMeta?.skippedCount ?? 0,
+      errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
+    });
   }
 
   function createBlankDocument(): EditorDocument {
@@ -786,9 +807,7 @@ export default function EditorPage() {
     const summaryMeta: SpellcheckSummaryMeta = {
       checkedBlockCount: nextSpellcheckResults.length,
       issueCount: countSpellcheckIssues(nextSpellcheckResults),
-      skippedCount: spellcheckSecondarySummary?.match(/Пропущено блоків: (\d+)/)?.[1]
-        ? Number.parseInt(spellcheckSecondarySummary.match(/Пропущено блоків: (\d+)/)?.[1] ?? "0", 10)
-        : 0,
+      skippedCount: spellcheckMeta?.skippedCount ?? 0,
       errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
     };
 
@@ -2601,11 +2620,21 @@ export default function EditorPage() {
                             key={result.blockId}
                             className="step-review-spellcheck-card"
                             data-tone={result.error ? "error" : "default"}
-                            onClick={() => focusBlockById(result.blockId)}
                           >
                             <div className="step-review-spellcheck-card-head">
-                              <p className="mono-ui">Абз. {result.paragraphLabel}</p>
-                              <span className="step-review-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
+                              <div className="step-review-spellcheck-card-head-main">
+                                <p className="mono-ui">Абз. {result.paragraphLabel}</p>
+                                <span className="step-review-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
+                              </div>
+                              <button
+                                type="button"
+                                className="step-review-spellcheck-focus"
+                                aria-label={`Перейти до абзацу ${result.paragraphLabel}`}
+                                title={`Перейти до абзацу ${result.paragraphLabel}`}
+                                onClick={() => focusBlockById(result.blockId)}
+                              >
+                                <LocateFixed size={14} aria-hidden="true" />
+                              </button>
                             </div>
                             {result.error ? (
                               <p className="step-review-status-copy" data-tone="error">{result.error}</p>
@@ -2824,6 +2853,26 @@ export default function EditorPage() {
 
 function replaceTextRange(text: string, start: number, end: number, replacement: string): string {
   return `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+}
+
+function invalidateSpellcheckResultsForChangedBlocks(
+  previousDocument: EditorDocument,
+  nextDocument: EditorDocument,
+  results: SpellcheckBlockResult[]
+): SpellcheckBlockResult[] {
+  const previousBlocks = new Map(previousDocument.blocks.map((block) => [block.id, block]));
+  const nextBlocks = new Map(nextDocument.blocks.map((block) => [block.id, block]));
+
+  return results.filter((result) => {
+    const previousBlock = previousBlocks.get(result.blockId);
+    const nextBlock = nextBlocks.get(result.blockId);
+
+    if (!previousBlock || !nextBlock) {
+      return false;
+    }
+
+    return getBlockText(previousBlock) === getBlockText(nextBlock);
+  });
 }
 
 function replaceInlineRangeWithText(nodes: Array<{ text: string; bold?: true; italic?: true; link?: string }>, start: number, end: number, replacement: string) {

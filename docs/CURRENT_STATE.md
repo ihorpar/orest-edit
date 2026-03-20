@@ -119,7 +119,7 @@ Status: Active handoff
 - No export patch flow or document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
-- Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting
+- Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting; manual edits invalidate spellcheck only for the changed checked block instead of clearing the whole spellcheck session
 
 ## Current product direction
 - User: book editor
