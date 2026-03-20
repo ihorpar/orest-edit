@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Floating Composer UI Options</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #f9f9fb;
+      --surface: #ffffff;
+      --border: rgba(0,0,0,0.08);
+      --border-light: rgba(0,0,0,0.04);
+      --text: #1a1a1c;
+      --text-muted: #737378;
+      --text-placeholder: #a1a1aa;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-light: #eff6ff;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --shadow-sm: 0 2px 8px rgba(0,0,0,0.04);
+      --shadow-md: 0 8px 24px rgba(0,0,0,0.08);
+      --shadow-lg: 0 16px 40px rgba(0,0,0,0.12);
+      --font: "Inter", -apple-system, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); padding: 60px 20px; display: flex; flex-direction: column; align-items: center; gap: 80px; }
+    .showcase { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 24px; align-items: center; }
+    .showcase-header { width: 100%; align-self: flex-start; margin-bottom: 10px; }
+    .showcase-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 6px; }
+    .showcase-desc { font-size: 0.9rem; color: var(--text-muted); line-height: 1.5; }
+
+    input, textarea, select { font-family: inherit; font-size: 0.9rem; color: var(--text); background: transparent; border: none; outline: none; }
+    textarea::placeholder, input::placeholder { color: var(--text-placeholder); }
+    button { font-family: inherit; cursor: pointer; border: none; background: transparent; color: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.9rem; font-weight: 500; transition: 0.2s ease; }
+    
+    /* Option 1: Spotlight */
+    .opt1 { background: var(--surface); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); width: 100%; padding: 16px; display: flex; flex-direction: column; gap: 16px; border: 1px solid var(--surface); transition: border 0.3s ease; }
+    .opt1:focus-within { border: 1px solid var(--border); box-shadow: 0 0 0 4px rgba(0,0,0,0.02), var(--shadow-lg); }
+    .opt1-input-wrapper { display: flex; gap: 12px; align-items: flex-start; }
+    .opt1-textarea { flex: 1; min-height: 48px; padding: 4px 0; resize: none; line-height: 1.5; font-size: 1.05rem; }
+    .opt1-submit { width: 36px; height: 36px; border-radius: 50%; background: var(--text); color: white; flex-shrink: 0; }
+    .opt1-submit:hover { background: #000; transform: scale(1.05); }
+    .opt1-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .opt1-chip { padding: 6px 12px; border-radius: 20px; background: #f4f4f5; font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+    .opt1-chip:hover { background: var(--border); color: var(--text); }
+    .opt1-chip.highlight { background: var(--surface); border: 1px solid var(--border); color: var(--text); box-shadow: var(--shadow-sm); }
+    .opt1-chip i { width: 14px; height: 14px; }
+
+    /* Option 2: Pill & Context Menu */
+    .opt2-layout { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+    .opt2-pill { background: var(--surface); border-radius: 40px; box-shadow: var(--shadow-md); padding: 6px; display: flex; gap: 4px; border: 1px solid var(--border); }
+    .opt2-btn { padding: 8px 14px; border-radius: 20px; color: var(--text-muted); justify-content: center; }
+    .opt2-btn:hover { background: var(--bg); color: var(--text); }
+    .opt2-btn.active { background: var(--text); color: white; }
+    .opt2-popover { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: 100%; max-width: 380px; padding: 16px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+    .opt2-textarea { width: 100%; height: 70px; background: var(--bg); border-radius: var(--radius-md); padding: 12px; font-size: 0.9rem; resize: none; }
+    .opt2-action { width: 100%; padding: 10px; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-md); justify-content: center; font-weight: 600; box-shadow: var(--shadow-sm); }
+    .opt2-action:hover { background: var(--bg); }
+
+    /* Option 3: Refined Segmented Card */
+    .opt3 { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); width: 100%; max-width: 440px; border: 1px solid var(--border); overflow: hidden; }
+    .opt3-header { padding: 12px; border-bottom: 1px solid var(--bg); background: var(--surface); }
+    .opt3-segmented { display: flex; background: #f4f4f5; padding: 4px; border-radius: var(--radius-md); gap: 4px; }
+    .opt3-tab { flex: 1; padding: 6px 0; font-size: 0.8rem; color: var(--text-muted); border-radius: var(--radius-sm); text-align: center; }
+    .opt3-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 600; }
+    .opt3-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+    .opt3-top-action { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 600; font-size: 0.9rem; padding: 8px 12px; background: var(--bg); border-radius: var(--radius-sm); width: fit-content; }
+    .opt3-textarea { width: 100%; height: 60px; font-size: 0.95rem; resize: none; }
+    .opt3-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .opt3-hint { font-size: 0.75rem; color: var(--text-placeholder); width: 60%; line-height: 1.3; }
+    .opt3-btn-submit { padding: 8px 16px; background: var(--text); color: white; border-radius: var(--radius-md); font-size: 0.85rem; }
+
+    /* Option 4: Notion-style Command Menu */
+    .opt4 { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: 100%; max-width: 320px; border: 1px solid var(--border); padding: 8px; display: flex; flex-direction: column; }
+    .opt4-item { padding: 10px 12px; display: flex; align-items: center; gap: 12px; border-radius: var(--radius-sm); color: var(--text); font-size: 0.9rem; cursor: pointer; }
+    .opt4-item i { color: var(--text-muted); width: 16px; height: 16px; }
+    .opt4-item:hover { background: var(--bg); }
+    .opt4-divider { height: 1px; background: var(--border-light); margin: 6px 0; }
+    .opt4-input-row { display: flex; align-items: center; padding: 8px 12px; gap: 8px; background: var(--bg); border-radius: var(--radius-sm); margin: 4px; }
+    .opt4-input-row textarea { flex: 1; height: 20px; line-height: 20px; font-size: 0.9rem; resize: none; }
+    .opt4-input-submit { color: var(--text); opacity: 0.5; }
+    .opt4-input-submit:hover { opacity: 1; }
+
+    /* Option 5: Minimal Vertical Split */
+    .opt5 { background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); width: 100%; max-width: 480px; border: 1px solid var(--border); display: flex; overflow: hidden; }
+    .opt5-sidebar { width: 48px; background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 8px; }
+    .opt5-icon { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; transition: 0.1s; }
+    .opt5-icon:hover { color: var(--text); }
+    .opt5-icon.active { background: var(--surface); box-shadow: var(--shadow-sm); color: var(--text); border: 1px solid rgba(0,0,0,0.03); }
+    .opt5-content { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .opt5-title { font-size: 0.95rem; font-weight: 600; }
+    .opt5-select-wrap { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface); }
+    .opt5-select-wrap select { width: 100%; font-size: 0.9rem; background: transparent; cursor: pointer; }
+    .opt5-textarea-wrap { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; background: var(--surface); }
+    .opt5-textarea-wrap textarea { width: 100%; min-height: 60px; resize: none; }
+    .opt5-btn { width: 100%; padding: 10px; background: var(--text); color: white; border-radius: var(--radius-sm); justify-content: center; font-weight: 500; }
+  </style>
+</head>
+<body>
+
+  <!-- TITLE -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h1 class="showcase-title">Floating Composer Redesign Options</h1>
+      <p class="showcase-desc">We reimagined the "Local Change" modal to prioritize clarity and speed, removing generic headers and focusing purely on actionable intents. Below are 5 radically different approaches to the same functionality.</p>
+    </div>
+  </div>
+
+  <!-- OPTION 1 -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h2 class="showcase-title">1. The Spotlight (Input-First)</h2>
+      <p class="showcase-desc">Inverts the hierarchy. Instead of forcing you to choose a tab first, you just type what you want done. Chips below act as quick templates or mode limits.</p>
+    </div>
+    
+    <div class="opt1">
+      <div class="opt1-input-wrapper">
+        <textarea class="opt1-textarea" placeholder="Уточніть, як саме редагувати..."></textarea>
+        <button class="opt1-submit"><i data-lucide="arrow-up"></i></button>
+      </div>
+      <div class="opt1-chips">
+        <button class="opt1-chip highlight"><i data-lucide="sparkles"></i> Швидко покращити</button>
+        <button class="opt1-chip"><i data-lucide="spell-check"></i> Правопис</button>
+        <button class="opt1-chip"><i data-lucide="file-text"></i> Врізка</button>
+        <button class="opt1-chip"><i data-lucide="image"></i> Візуал</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION 2 -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h2 class="showcase-title">2. Pill & Context Menus</h2>
+      <p class="showcase-desc">Extremely compact. The floating element is just a small pill. Clicking an action drops down a minimal popover for secondary inputs (like prompts or options).</p>
+    </div>
+    
+    <div class="opt2-layout">
+      <div class="opt2-pill">
+        <button class="opt2-btn active"><i data-lucide="search"></i></button>
+        <button class="opt2-btn"><i data-lucide="spell-check"></i></button>
+        <button class="opt2-btn"><i data-lucide="file-text"></i></button>
+        <button class="opt2-btn"><i data-lucide="image"></i></button>
+      </div>
+      
+      <div class="opt2-popover">
+        <textarea class="opt2-textarea" placeholder="Введіть запит для врізки... (необов'язково)"></textarea>
+        <button class="opt2-action"><i data-lucide="file-text"></i> Згенерувати врізку</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION 3 -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h2 class="showcase-title">3. Refined iOS-style Card</h2>
+      <p class="showcase-desc">Similar to the current logic, but greatly cleaned up. Heavy title headers are removed. Tabs use a smooth segmented control. Layout is visually balanced and borders are softer.</p>
+    </div>
+    
+    <div class="opt3">
+      <div class="opt3-header">
+        <div class="opt3-segmented">
+          <button class="opt3-tab active">Правка</button>
+          <button class="opt3-tab">Правопис</button>
+          <button class="opt3-tab">Врізка</button>
+          <button class="opt3-tab">Візуал</button>
+        </div>
+      </div>
+      <div class="opt3-body">
+        <button class="opt3-top-action"><i data-lucide="sparkles" size="16"></i> Швидко покращити</button>
+        <textarea class="opt3-textarea" placeholder="Уточніть, як саме редагувати (необов'язково)"></textarea>
+        <div class="opt3-footer">
+          <span class="opt3-hint">Запит вище використовується лише для режиму «Правка за запитом».</span>
+          <button class="opt3-btn-submit"><i data-lucide="search" size="16"></i> Виконати</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION 4 -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h2 class="showcase-title">4. Notion-style Command List</h2>
+      <p class="showcase-desc">A vertical flat list of commands. No tabs, no hidden states. Everything is immediately visible and clickable. Excellent for power-users who want zero friction.</p>
+    </div>
+    
+    <div class="opt4">
+      <button class="opt4-item"><i data-lucide="sparkles"></i> Швидко покращити текст</button>
+      <button class="opt4-item"><i data-lucide="spell-check"></i> Перевірити правопис</button>
+      
+      <div class="opt4-divider"></div>
+      
+      <div class="opt4-input-row">
+        <i data-lucide="search" width="14" style="color:var(--text-muted)"></i>
+        <textarea placeholder="Напишіть запити для редагування..."></textarea>
+        <button class="opt4-input-submit"><i data-lucide="arrow-right" size="16"></i></button>
+      </div>
+      
+      <div class="opt4-divider"></div>
+      
+      <button class="opt4-item"><i data-lucide="file-text"></i> Згенерувати врізку...</button>
+      <button class="opt4-item"><i data-lucide="image"></i> Створити візуалізацію...</button>
+    </div>
+  </div>
+
+  <!-- OPTION 5 -->
+  <div class="showcase">
+    <div class="showcase-header">
+      <h2 class="showcase-title">5. Minimal Vertical Sidebar</h2>
+      <p class="showcase-desc">Saves horizontal space for text. The left strip handles mode switching with clean, unlabelled icons. The right pane adjusts dynamically based on the chosen mode.</p>
+    </div>
+    
+    <div class="opt5">
+      <div class="opt5-sidebar">
+        <div class="opt5-icon"><i data-lucide="search"></i></div>
+        <div class="opt5-icon"><i data-lucide="spell-check"></i></div>
+        <div class="opt5-icon active"><i data-lucide="image"></i></div>
+        <div class="opt5-icon"><i data-lucide="file-text"></i></div>
+      </div>
+      
+      <div class="opt5-content">
+        <div class="opt5-title">Генерація візуалу</div>
+        <div class="opt5-select-wrap">
+          <select>
+            <option>Фотографія</option>
+            <option>Ілюстрація</option>
+            <option>Схема</option>
+          </select>
+        </div>
+        <div class="opt5-textarea-wrap">
+          <textarea placeholder="Додатковий запит для візуалу (необов'язково)"></textarea>
+        </div>
+        <button class="opt5-btn"><i data-lucide="wand-2" size="16"></i> Згенерувати візуал</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
