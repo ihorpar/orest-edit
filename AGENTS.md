@@ -32,6 +32,14 @@ The main job is to turn dense scientific language into simple, readable Ukrainia
 - After UI updates, validate the UI result in runtime; capture screenshots only when explicitly requested.
 - Treat `docs/CURRENT_STATE.md` as the first handoff document before making changes.
 
+### Playwright screenshots
+- Use the `playwright-interactive` workflow for browser screenshots.
+- Keep a dev server running in a persistent terminal session, then open the app at `http://127.0.0.1:3000` rather than `localhost`.
+- For protected pages, prefer a direct `POST /api/auth/login` with `APP_PASSWORD` from `.env` or `.env.local`, then reuse the returned `orest_app_session` cookie in the browser context.
+- Do not rely on login form redirect timing when the goal is a screenshot; load the authenticated page only after the session cookie is in place.
+- Capture the initial viewport with `page.screenshot({ path, type: "png", fullPage: false })` unless a full-page shot is explicitly required.
+- Before sharing a screenshot, verify the rendered viewport with a numeric check and open the saved image to confirm there is no clipping or blank state.
+
 ## Documentation discipline
 - Keep `AGENTS.md` focused on durable project rules and context.
 - Keep temporary scope decisions and active priorities in `docs/CURRENT_STATE.md` or the current active ExecPlan under `docs/plans/` (or `docs/EXECPLAN_MVP.md` if that is the active plan).

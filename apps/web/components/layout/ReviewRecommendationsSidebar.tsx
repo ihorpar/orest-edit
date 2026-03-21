@@ -8,7 +8,8 @@ export function ReviewRecommendationsSidebar({
   reviewLoading,
   activeReviewItemId,
   onFocusReviewItem,
-  onPrepareReviewItem
+  onPrepareReviewItem,
+  onDismissReviewItem
 }: {
   revision: ManuscriptRevisionState;
   reviewItems: EditorialReviewItem[];
@@ -16,6 +17,7 @@ export function ReviewRecommendationsSidebar({
   activeReviewItemId?: string | null;
   onFocusReviewItem: (item: EditorialReviewItem) => void;
   onPrepareReviewItem: (item: EditorialReviewItem) => void;
+  onDismissReviewItem: (item: EditorialReviewItem) => void;
 }) {
   return (
     <div className="review-sidebar">
@@ -54,7 +56,7 @@ export function ReviewRecommendationsSidebar({
             onFocus={onFocusReviewItem}
             onPrepare={onPrepareReviewItem}
             onApplyCallout={onPrepareReviewItem}
-            onDismiss={() => {}}
+            onDismiss={onDismissReviewItem}
           />
         ))}
       </div>
