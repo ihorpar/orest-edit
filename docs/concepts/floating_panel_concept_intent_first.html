@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Floating Panel Concept 2</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #f2f4f7;
+      --surface: rgba(255, 255, 255, 0.9);
+      --surface-strong: #ffffff;
+      --line: rgba(15, 23, 42, 0.08);
+      --line-strong: rgba(15, 23, 42, 0.16);
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #0f172a;
+      --accent-soft: rgba(15, 23, 42, 0.06);
+      --blue: #1d4ed8;
+      --blue-soft: rgba(29, 78, 216, 0.1);
+      --green: #047857;
+      --green-soft: rgba(4, 120, 87, 0.1);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --shadow: 0 28px 70px rgba(15, 23, 42, 0.14);
+      --sans: Inter, "Segoe UI", sans-serif;
+      --serif: Georgia, "Times New Roman", serif;
+      --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        linear-gradient(135deg, rgba(29, 78, 216, 0.06), transparent 28%),
+        linear-gradient(315deg, rgba(4, 120, 87, 0.06), transparent 22%),
+        var(--bg);
+    }
+
+    .page {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 40px 20px 120px;
+    }
+
+    .stage {
+      position: relative;
+      width: min(1140px, 100%);
+      min-height: 760px;
+      padding: 36px 36px 200px;
+      border-radius: 40px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 28px;
+      height: 100%;
+    }
+
+    .rail,
+    .paper {
+      position: relative;
+      z-index: 1;
+    }
+
+    .rail {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(14px);
+    }
+
+    .rail h1 {
+      margin: 0 0 20px;
+      font-size: 1.65rem;
+      line-height: 0.94;
+      letter-spacing: -0.05em;
+    }
+
+    .rail p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .rail-list {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      margin: 24px 0 0;
+      list-style: none;
+    }
+
+    .rail-list li {
+      display: grid;
+      gap: 4px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    .rail-list strong {
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+    }
+
+    .rail-list span {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .paper {
+      padding: 72px 74px 94px;
+      background: var(--surface-strong);
+      border: 1px solid rgba(15, 23, 42, 0.06);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font: 600 11px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .paper p {
+      margin: 0 0 22px;
+      font: 1.14rem/1.84 var(--serif);
+      color: #1f2937;
+    }
+
+    .selected {
+      margin: 28px -22px;
+      padding: 18px 22px;
+      border-left: 3px solid var(--blue);
+      background: rgba(219, 234, 254, 0.32);
+    }
+
+    .panel {
+      position: absolute;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      z-index: 2;
+      width: min(860px, calc(100% - 40px));
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .panel-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel-top strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.02rem;
+      letter-spacing: -0.02em;
+    }
+
+    .panel-top span,
+    .muted-mono {
+      color: var(--muted);
+      font: 600 11px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .category-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .category {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--text);
+      cursor: pointer;
+      transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .category:hover { transform: translateY(-1px); }
+
+    .category.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .body-shell {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .subactions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .subaction {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 46px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.86);
+      cursor: pointer;
+      transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+    }
+
+    .subaction:hover { transform: translateY(-1px); }
+
+    .subaction.active {
+      border-color: rgba(29, 78, 216, 0.28);
+      background: var(--blue-soft);
+    }
+
+    .subaction-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+    }
+
+    .workspace {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    .summary-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: var(--green);
+      font: 600 11px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      width: fit-content;
+    }
+
+    .field,
+    .selector {
+      width: 100%;
+      min-height: 46px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #ffffff;
+      color: var(--text);
+      font: 0.95rem/1.45 var(--sans);
+      outline: none;
+    }
+
+    .field {
+      min-height: 98px;
+      resize: none;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 14px;
+      border: 1px solid var(--line-strong);
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .top-link {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 3;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.76);
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .paper { padding: 44px 24px 72px; }
+      .body-shell,
+      .grid-2 { grid-template-columns: 1fr; }
+      .panel { width: calc(100% - 20px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="stage">
+      <a class="top-link" href="./floating_panel_concepts_index.html">
+        <i data-lucide="arrow-left" size="16"></i>
+        <span>Назад</span>
+      </a>
+
+      <div class="layout">
+        <aside class="rail">
+          <div class="muted-mono">Concept 2 / Intent First</div>
+          <h1>Менше магії,<br>більше контролю</h1>
+          <p>Панель спочатку фіксує категорію дії, а вже потім просить уточнення. Це зменшує ризик хибного роутинга та краще пояснює, який executor буде викликано.</p>
+          <ul class="rail-list">
+            <li><strong>Текст</strong><span>Переписати, скоротити, спростити, зробити список або таблицю.</span></li>
+            <li><strong>Орфографія</strong><span>Прямий виклик LanguageTool без участі patch або review proposal.</span></li>
+            <li><strong>Врізка / Візуал</strong><span>Йдуть через review proposal з typed params, а не через загальний текстовий prompt.</span></li>
+          </ul>
+        </aside>
+
+        <article class="paper">
+          <p class="eyebrow">Selected fragment</p>
+          <p>Читачеві легше довіряти тексту, коли пояснення не лише точне, а й побудоване з правильною ритмікою: одна думка, один крок, одна опора на приклад.</p>
+          <div class="selected">
+            <p>Саме тому редакторська правка має не просто стискати або спрощувати фрагмент. Вона має зберігати логіку аргументу і водночас підводити до наступного абзацу без розриву темпу.</p>
+            <p>Для цього інколи потрібен список, інколи врізка, а інколи достатньо лише прибрати синтаксичний шум і перевірити правопис.</p>
+          </div>
+          <p>Цей концепт показує панель, де користувач спочатку явно обирає клас дії, а потім задає лише потрібні для нього параметри.</p>
+        </article>
+      </div>
+
+      <section class="panel">
+        <div class="panel-top">
+          <div>
+            <span>Крок 1 / Категорія</span>
+            <strong>Виберіть, що саме робити з виділеним</strong>
+          </div>
+          <span class="muted-mono">2 blocks</span>
+        </div>
+
+        <div class="category-row" id="categories">
+          <button class="category active" type="button" data-category="text"><i data-lucide="pen-line" size="15"></i><span>Текст</span></button>
+          <button class="category" type="button" data-category="spellcheck"><i data-lucide="spell-check" size="15"></i><span>Орфографія</span></button>
+          <button class="category" type="button" data-category="callout"><i data-lucide="square-stack" size="15"></i><span>Врізка</span></button>
+          <button class="category" type="button" data-category="visual"><i data-lucide="image" size="15"></i><span>Візуал</span></button>
+        </div>
+
+        <div class="body-shell">
+          <div class="subactions" id="subactions"></div>
+
+          <div class="workspace">
+            <div class="summary-badge" id="executorBadge">
+              <i data-lucide="git-branch" size="14"></i>
+              <span>Executor: patch</span>
+            </div>
+            <div class="grid-2" id="topFields"></div>
+            <textarea class="field" id="detailField" placeholder="Уточніть дію"></textarea>
+            <div class="actions">
+              <button class="button" type="button">Скинути</button>
+              <button class="button primary" type="button"><i data-lucide="arrow-up" size="16"></i><span>Виконати</span></button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    const categoryButtons = Array.from(document.querySelectorAll(".category"));
+    const subactions = document.getElementById("subactions");
+    const topFields = document.getElementById("topFields");
+    const detailField = document.getElementById("detailField");
+    const executorBadge = document.getElementById("executorBadge").querySelector("span");
+
+    const config = {
+      text: {
+        executor: "Executor: patch",
+        placeholder: "Наприклад: зроби ясніше, але без втрати наукового тону",
+        fields: [],
+        actions: [
+          ["rewrite", "Переписати"],
+          ["shorten", "Скоротити"],
+          ["simplify", "Спростити"],
+          ["list", "Список"],
+          ["table", "Таблиця"]
+        ]
+      },
+      spellcheck: {
+        executor: "Executor: spellcheck",
+        placeholder: "Додаткових вказівок не потрібно",
+        fields: [],
+        actions: [["proof", "Перевірити правопис"]]
+      },
+      callout: {
+        executor: "Executor: review proposal / prepare_callout",
+        placeholder: "Наприклад: зроби врізку у форматі міф / правда",
+        fields: [
+          "<select class='selector'><option>Як це працює</option><option>Міфи й правда</option><option>Ключові пункти</option><option>Аналогія</option></select>"
+        ],
+        actions: [["callout", "Згенерувати врізку"]]
+      },
+      visual: {
+        executor: "Executor: review proposal / prepare_visual",
+        placeholder: "Наприклад: зроби інфографіку про три ключові етапи",
+        fields: [
+          "<select class='selector'><option>Інфографіка</option><option>Ілюстрація</option></select>",
+          "<select class='selector'><option>Поточний стиль</option><option>Мінімум</option><option>Calm gradient</option><option>Modern glass</option></select>"
+        ],
+        actions: [["visual", "Підготувати візуал"]]
+      }
+    };
+
+    function render(category) {
+      const entry = config[category];
+      executorBadge.textContent = entry.executor;
+      detailField.placeholder = entry.placeholder;
+      topFields.innerHTML = entry.fields.join("");
+      subactions.innerHTML = entry.actions.map(([id, label], index) => `
+        <button class="subaction ${index === 0 ? "active" : ""}" type="button" data-id="${id}">
+          <span class="subaction-label">${label}</span>
+          <i data-lucide="arrow-right" size="14"></i>
+        </button>
+      `).join("");
+      lucide.createIcons();
+    }
+
+    categoryButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        categoryButtons.forEach((item) => item.classList.toggle("active", item === button));
+        render(button.dataset.category);
+      });
+    });
+
+    render("text");
+  </script>
+</body>
+</html>

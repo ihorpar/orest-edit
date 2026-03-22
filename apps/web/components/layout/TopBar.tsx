@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useAiActivity } from "../providers/AiActivityProvider";
 
 export function TopBar({
   activePath = "/editor"
@@ -10,10 +9,6 @@ export function TopBar({
   activePath?: "/editor" | "/settings";
 }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const { runningCount, unreadCount } = useAiActivity();
-  const hasActivity = runningCount > 0 || unreadCount > 0;
-  const activityLabel =
-    runningCount > 0 ? `ШІ виконує ${runningCount} запит(ів)` : unreadCount > 0 ? `ШІ підготував ${unreadCount} результат(ів)` : "ШІ";
 
   async function handleLogout() {
     if (isLoggingOut) {
@@ -52,12 +47,6 @@ export function TopBar({
       </div>
 
       <div className="topbar-right">
-        <Link href="/editor" className="topbar-activity button-reset" data-active={hasActivity ? "true" : "false"} aria-label={activityLabel}>
-          <span className="topbar-activity-orb" data-state={runningCount > 0 ? "running" : unreadCount > 0 ? "ready" : "idle"} aria-hidden="true" />
-          <span className="mono-ui">ШІ</span>
-          {runningCount > 0 ? <span className="mono-ui topbar-activity-count">{runningCount}</span> : null}
-          {runningCount === 0 && unreadCount > 0 ? <span className="mono-ui topbar-activity-count">{unreadCount}</span> : null}
-        </Link>
         <button type="button" className="mono-ui nav-link button-reset" onClick={handleLogout} disabled={isLoggingOut}>
           {"\u0412\u0438\u0439\u0442\u0438"}
         </button>
