@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Trash2 } from "lucide-react";
+import { ArrowUp, ChevronDown, X } from "lucide-react";
 import {
   getLocalActionTextIntentOptions,
   type LocalActionMode,
@@ -169,6 +169,7 @@ export function FloatingComposerPanel({
   const autoCalloutPromptValue = localActionMode === "callout" ? manualCalloutPrompt : customPrompt;
   const autoVisualPromptValue = localActionMode === "visual" ? manualVisualPrompt : customPrompt;
   const isExplicitSpecialMode = localActionMode === "callout" || localActionMode === "visual";
+  const showAutoStateToken = localActionMode === "auto";
   const sendLabel =
     localActionMode === "callout"
       ? "Підготувати врізку"
@@ -218,7 +219,7 @@ export function FloatingComposerPanel({
               ))}
             </div>
             <button type="button" className="floating-bridge-close" onClick={onClose} aria-label="Закрити панель" title="Закрити">
-              <Trash2 size={14} />
+              <X size={14} />
             </button>
           </div>
 
@@ -253,6 +254,7 @@ export function FloatingComposerPanel({
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
+                  {showAutoStateToken ? <span className="floating-bridge-token floating-bridge-token-state">Авто</span> : null}
                   {showAutoTextModes ? (
                     <div className="floating-bridge-segmented" role="tablist" aria-label="Режим текстової дії">
                       {textIntentOptions.map((option) => (
@@ -301,6 +303,7 @@ export function FloatingComposerPanel({
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
+                  {showAutoStateToken ? <span className="floating-bridge-token floating-bridge-token-state">Авто</span> : null}
                   <span className="floating-bridge-token">Локально</span>
                   <span className="floating-bridge-token">
                     {spellcheckResults.length > 0 ? `${spellcheckResults.length} абз.` : "Виділення"}
@@ -337,6 +340,7 @@ export function FloatingComposerPanel({
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
+                  {showAutoStateToken ? <span className="floating-bridge-token floating-bridge-token-state">Авто</span> : null}
                   <div className="floating-bridge-select-shell">
                     <select
                       value={manualCalloutKind}
@@ -383,6 +387,7 @@ export function FloatingComposerPanel({
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
+                  {showAutoStateToken ? <span className="floating-bridge-token floating-bridge-token-state">Авто</span> : null}
                   <div className="floating-bridge-segmented floating-bridge-segmented-compact">
                     {visualOptions.map((option) => (
                       <button

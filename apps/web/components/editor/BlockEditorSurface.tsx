@@ -61,7 +61,8 @@ import {
   Minus,
   Table,
   Image as ImageIcon,
-  X
+  X,
+  Trash2
 } from "lucide-react";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
@@ -790,7 +791,7 @@ export function BlockEditorSurface({
 
               <div className="block-editor-block">
                 <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
-                  ×
+                  <Trash2 size={14} />
                 </button>
                 <BlockRenderer
                   block={block}
