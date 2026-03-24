@@ -4463,7 +4463,7 @@ textarea:focus {
 .floating-bridge-shell {
   position: fixed;
   left: 50%;
-  bottom: clamp(200px, 28vh, 260px);
+  bottom: 24px;
   transform: translateX(-50%);
   width: min(484px, calc(100vw - 32px));
   z-index: 31;
@@ -4998,7 +4998,7 @@ textarea:focus {
 
 @media (max-width: 720px) {
   .floating-bridge-shell {
-    bottom: clamp(168px, 22vh, 220px);
+    bottom: 16px;
     width: calc(100vw - 24px);
   }
 
@@ -6968,6 +6968,17 @@ textarea:focus {
 .block-editor-row[data-selected="true"] .block-editor-block {
   border-color: #dbeafe;
   background: #fafcff;
+}
+
+.block-editor-row[data-selected="true"][data-review-anchor="false"] .block-editor-block::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  background: #2563eb;
+  border-radius: 999px;
 }
 
 .block-editor-row[data-recent-change="true"] .block-editor-block {

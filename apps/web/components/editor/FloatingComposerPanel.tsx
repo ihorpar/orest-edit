@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Trash2 } from "lucide-react";
 import {
   getLocalActionTextIntentOptions,
   type LocalActionMode,
@@ -218,7 +218,7 @@ export function FloatingComposerPanel({
               ))}
             </div>
             <button type="button" className="floating-bridge-close" onClick={onClose} aria-label="Закрити панель" title="Закрити">
-              <X size={14} />
+              <Trash2 size={14} />
             </button>
           </div>
 
