@@ -6956,12 +6956,18 @@ textarea:focus {
   border-radius: 4px;
   font: 400 18px/1 var(--font-ui, sans-serif);
   opacity: 0;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.block-editor-row[data-focused="true"] .block-row-action,
 .block-editor-row:hover .block-row-action {
   opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .block-row-action:hover,
