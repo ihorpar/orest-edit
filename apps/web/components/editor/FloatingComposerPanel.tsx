@@ -1,6 +1,13 @@
 "use client";
 
-import { FileText, Image as ImageIcon, Search, Sparkles, SpellCheck, Wand2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, ChevronDown, X } from "lucide-react";
+import {
+  getLocalActionTextIntentOptions,
+  type LocalActionMode,
+  type LocalActionRouteResponse,
+  type LocalActionTextIntent
+} from "../../lib/editor/local-action-router";
 import {
   getEditorialCalloutKindOptions,
   getEditorialVisualIntentOptions,
@@ -10,10 +17,7 @@ import {
   type WholeTextChangeLevel
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
-import {
-  type SpellcheckBlockResult
-} from "../../lib/editor/spellcheck-view-model";
-import { VisualIntentToggle, VisualStyleToggle } from "./VisualSelectionControls";
+import { type SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
 
 const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
   { level: 1, label: "1", description: "Мінімальні зауваги" },
@@ -23,15 +27,23 @@ const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; de
   { level: 5, label: "5", description: "Максимально глибокий огляд" }
 ];
 
-type LocalActionMode = "patch" | "spellcheck" | "callout" | "visual";
+type LocalSurfaceMode = "edit" | "proof" | "callout" | "visual";
+
+const LOCAL_SURFACE_MODE_LABELS: Record<LocalSurfaceMode, string> = {
+  edit: "Правка",
+  proof: "Правопис",
+  callout: "Врізка",
+  visual: "Візуал"
+};
 
 export function FloatingComposerPanel({
   mode,
-  selectedBlockCount,
   customPrompt,
   onCustomPromptChange,
-  onRequestDefaultPatch,
-  onRequestCustomPatch,
+  localTextIntent,
+  localActionRoute,
+  onLocalTextIntentChange,
+  onRequestAutoAction,
   reviewChangeLevel,
   reviewAdditionalInstructions,
   onReviewChangeLevel,
@@ -57,15 +69,17 @@ export function FloatingComposerPanel({
   onManualVisualPromptChange,
   onRequestManualCallout,
   onRequestManualVisual,
+  onRequestSpellcheck,
   manualLoadingKind,
   onClose
 }: {
   mode: "local" | "review";
-  selectedBlockCount: number;
   customPrompt: string;
   onCustomPromptChange: (value: string) => void;
-  onRequestDefaultPatch: () => void;
-  onRequestCustomPatch: () => void;
+  localTextIntent: LocalActionTextIntent;
+  localActionRoute: LocalActionRouteResponse;
+  onLocalTextIntentChange: (intent: LocalActionTextIntent) => void;
+  onRequestAutoAction: () => void;
   reviewChangeLevel: WholeTextChangeLevel;
   reviewAdditionalInstructions: string;
   onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
@@ -91,6 +105,7 @@ export function FloatingComposerPanel({
   onManualVisualPromptChange: (value: string) => void;
   onRequestManualCallout: () => void;
   onRequestManualVisual: () => void;
+  onRequestSpellcheck: () => void;
   manualLoadingKind?: "callout" | "visual" | null;
   onClose: () => void;
 }) {
@@ -100,22 +115,336 @@ export function FloatingComposerPanel({
   const visualStyleOptions = getVisualStylePresetOptions();
   const manualInFlight = Boolean(manualLoadingKind);
   const localBusy = Boolean(patchLoading || manualInFlight || spellcheckLoading);
+  const primaryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const autoCalloutTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const autoVisualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const calloutTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const visualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const reviewTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const textIntentOptions = getLocalActionTextIntentOptions();
+  const showAutoTextModes = localActionRoute.executor === "patch" || localActionRoute.executor === "clarify";
+  const [isModeTrayOpen, setIsModeTrayOpen] = useState(false);
+
+  useAutosizeTextarea(primaryTextareaRef, customPrompt);
+  useAutosizeTextarea(autoCalloutTextareaRef, customPrompt);
+  useAutosizeTextarea(autoVisualTextareaRef, customPrompt);
+  useAutosizeTextarea(calloutTextareaRef, manualCalloutPrompt);
+  useAutosizeTextarea(visualTextareaRef, manualVisualPrompt);
+  useAutosizeTextarea(reviewTextareaRef, reviewAdditionalInstructions);
+
+  const localSurfaceMode = useMemo<LocalSurfaceMode>(() => {
+    if (localActionMode === "spellcheck") {
+      return "proof";
+    }
+
+    if (localActionMode === "callout") {
+      return "callout";
+    }
+
+    if (localActionMode === "visual") {
+      return "visual";
+    }
+
+    if (localActionRoute.executor === "spellcheck") {
+      return "proof";
+    }
+
+    if (localActionRoute.executor === "callout") {
+      return "callout";
+    }
+
+    if (localActionRoute.executor === "visual") {
+      return "visual";
+    }
+
+    return "edit";
+  }, [localActionMode, localActionRoute.executor]);
+
+  const modeTriggerLabel = isModeTrayOpen ? "Режими" : LOCAL_SURFACE_MODE_LABELS[localSurfaceMode];
+  const spellcheckStatusCopy =
+    spellcheckSummary ??
+    (spellcheckLoading
+      ? "Перевіряємо вибрані текстові блоки."
+      : "Перевірити виділений фрагмент через LanguageTool і показати проблеми в рукописі.");
+  const autoCalloutPromptValue = localActionMode === "callout" ? manualCalloutPrompt : customPrompt;
+  const autoVisualPromptValue = localActionMode === "visual" ? manualVisualPrompt : customPrompt;
+  const isExplicitSpecialMode = localActionMode === "callout" || localActionMode === "visual";
+  const sendLabel =
+    localActionMode === "callout"
+      ? "Підготувати врізку"
+      : localActionMode === "visual"
+        ? "Підготувати візуал"
+        : localActionMode === "spellcheck"
+          ? "Перевірити правопис"
+          : localActionRoute.actionLabel;
+
+  function handleModeSelect(nextMode: LocalSurfaceMode) {
+    setIsModeTrayOpen(false);
+    onLocalActionModeChange(
+      nextMode === "edit" ? "auto" : nextMode === "proof" ? "spellcheck" : nextMode
+    );
+  }
+
+  if (!isReview) {
+    return (
+      <section className="floating-bridge-shell" aria-label="Локальна правка">
+        <div className="floating-bridge-surface" data-mode={localSurfaceMode}>
+          <div className="floating-bridge-top" data-open={isModeTrayOpen ? "true" : "false"}>
+            <button
+              type="button"
+              className="floating-bridge-mode-trigger"
+              onClick={() => setIsModeTrayOpen((current) => !current)}
+              aria-expanded={isModeTrayOpen}
+              aria-label="Режими локальної дії"
+              disabled={localBusy}
+            >
+              <span>{modeTriggerLabel}</span>
+              <ChevronDown size={12} />
+            </button>
+            <div className="floating-bridge-mode-tray" role="tablist" aria-label="Режими локальної дії">
+              {(["edit", "proof", "callout", "visual"] as LocalSurfaceMode[]).map((surfaceMode) => (
+                <button
+                  key={surfaceMode}
+                  type="button"
+                  role="tab"
+                  aria-selected={localSurfaceMode === surfaceMode}
+                  className="floating-bridge-mode-tab"
+                  data-active={localSurfaceMode === surfaceMode ? "true" : "false"}
+                  onClick={() => handleModeSelect(surfaceMode)}
+                  disabled={localBusy}
+                >
+                  {LOCAL_SURFACE_MODE_LABELS[surfaceMode]}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="floating-bridge-close" onClick={onClose} aria-label="Закрити панель" title="Закрити">
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="floating-bridge-mode-shell">
+            <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "edit" ? "true" : "false"}>
+              <div className="floating-bridge-main">
+                <textarea
+                  ref={primaryTextareaRef}
+                  className="floating-bridge-textarea"
+                  rows={2}
+                  placeholder="Що зробити з виділеним?"
+                  value={customPrompt}
+                  onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
+                  disabled={localBusy}
+                />
+                {localActionRoute.executor === "clarify" ? (
+                  <div className="floating-bridge-clarify">
+                    <span className="floating-bridge-clarify-label">Уточніть дію</span>
+                    <div className="floating-bridge-clarify-row">
+                      <button type="button" className="floating-bridge-clarify-button" onClick={() => onLocalTextIntentChange("rewrite")}>
+                        Правка
+                      </button>
+                      <button type="button" className="floating-bridge-clarify-button" onClick={() => handleModeSelect("callout")}>
+                        Врізка
+                      </button>
+                      <button type="button" className="floating-bridge-clarify-button" onClick={() => handleModeSelect("visual")}>
+                        Візуал
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="floating-bridge-footer">
+                <div className="floating-bridge-footer-left">
+                  {showAutoTextModes ? (
+                    <div className="floating-bridge-segmented" role="tablist" aria-label="Режим текстової дії">
+                      {textIntentOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="tab"
+                          aria-selected={localTextIntent === option.value}
+                          className="floating-bridge-segmented-option"
+                          data-active={localTextIntent === option.value ? "true" : "false"}
+                          onClick={() => onLocalTextIntentChange(option.value)}
+                          disabled={localBusy}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="floating-bridge-segmented floating-bridge-segmented-ghost">
+                      <button type="button" className="floating-bridge-segmented-option" disabled>
+                        {getLocalActionTextIntentOptions().find((option) => option.value === localTextIntent)?.label ?? "Переписати"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="floating-bridge-send"
+                  onClick={onRequestAutoAction}
+                  disabled={localBusy}
+                  aria-label={sendLabel}
+                  title={sendLabel}
+                >
+                  <ArrowUp size={15} />
+                </button>
+              </div>
+            </section>
+
+            <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "proof" ? "true" : "false"}>
+              <div className="floating-bridge-main">
+                <p className="floating-bridge-status-copy">{spellcheckStatusCopy}</p>
+                {spellcheckSecondarySummary ? <p className="floating-bridge-status-copy floating-bridge-status-copy-secondary">{spellcheckSecondarySummary}</p> : null}
+                {spellcheckResults.length > 0 ? (
+                  <p className="floating-bridge-status-copy floating-bridge-status-copy-secondary">Проблемні блоки вже підсвічено в рукописі.</p>
+                ) : null}
+              </div>
+              <div className="floating-bridge-footer">
+                <div className="floating-bridge-footer-left">
+                  <span className="floating-bridge-token">Локально</span>
+                  <span className="floating-bridge-token">
+                    {spellcheckResults.length > 0 ? `${spellcheckResults.length} абз.` : "Виділення"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="floating-bridge-send"
+                  onClick={localActionMode === "spellcheck" ? onRequestSpellcheck : onRequestAutoAction}
+                  disabled={localActionMode === "spellcheck" ? Boolean(spellcheckLoading) : localBusy}
+                  aria-label={sendLabel}
+                  title={sendLabel}
+                >
+                  <ArrowUp size={15} />
+                </button>
+              </div>
+            </section>
+
+            <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "callout" ? "true" : "false"}>
+              <div className="floating-bridge-main">
+                <textarea
+                  ref={localActionMode === "callout" ? calloutTextareaRef : autoCalloutTextareaRef}
+                  className="floating-bridge-textarea"
+                  rows={2}
+                  placeholder="Що саме підкреслити у врізці..."
+                  value={autoCalloutPromptValue}
+                  onChange={(event) =>
+                    localActionMode === "callout"
+                      ? onManualCalloutPromptChange(event.currentTarget.value)
+                      : onCustomPromptChange(event.currentTarget.value)
+                  }
+                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                />
+              </div>
+              <div className="floating-bridge-footer">
+                <div className="floating-bridge-footer-left">
+                  <div className="floating-bridge-select-shell">
+                    <select
+                      value={manualCalloutKind}
+                      onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
+                      disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                      aria-label="Тип врізки"
+                    >
+                      {calloutOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="floating-bridge-send"
+                  onClick={localActionMode === "callout" ? onRequestManualCallout : onRequestAutoAction}
+                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  aria-label={sendLabel}
+                  title={sendLabel}
+                >
+                  <ArrowUp size={15} />
+                </button>
+              </div>
+            </section>
+
+            <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "visual" ? "true" : "false"}>
+              <div className="floating-bridge-main">
+                <textarea
+                  ref={localActionMode === "visual" ? visualTextareaRef : autoVisualTextareaRef}
+                  className="floating-bridge-textarea"
+                  rows={2}
+                  placeholder="Що саме має показати візуал..."
+                  value={autoVisualPromptValue}
+                  onChange={(event) =>
+                    localActionMode === "visual"
+                      ? onManualVisualPromptChange(event.currentTarget.value)
+                      : onCustomPromptChange(event.currentTarget.value)
+                  }
+                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                />
+              </div>
+              <div className="floating-bridge-footer">
+                <div className="floating-bridge-footer-left">
+                  <div className="floating-bridge-segmented floating-bridge-segmented-compact">
+                    {visualOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className="floating-bridge-segmented-option"
+                        data-active={manualVisualIntent === option.value ? "true" : "false"}
+                        onClick={() => onManualVisualIntentChange(option.value)}
+                        disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="floating-bridge-select-shell">
+                    <select
+                      value={manualVisualStylePreset}
+                      onChange={(event) => onManualVisualStylePresetChange(event.target.value as VisualStylePreset)}
+                      disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                      aria-label="Стиль візуалу"
+                    >
+                      {visualStyleOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="floating-bridge-send"
+                  onClick={localActionMode === "visual" ? onRequestManualVisual : onRequestAutoAction}
+                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  aria-label={sendLabel}
+                  title={sendLabel}
+                >
+                  <ArrowUp size={15} />
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="floating-panel" data-mode={mode} data-collapsed="false" aria-label={isReview ? "Огляд документа" : "Локальна правка"}>
       <header className="floating-panel-header">
         <div className="floating-panel-title-stack">
-          <p className="mono-ui">{isReview ? "Огляд документа" : `Локальна правка · ${selectedBlockCount}`}</p>
+          <p className="mono-ui">{isReview ? "Огляд документа" : "Локальні дії"}</p>
           <div className="floating-panel-question">
             {isReview
               ? "Наскільки глибоко перевірити документ?"
-              : localActionMode === "patch"
-                ? "Локальна правка вибраних абзаців"
+              : localActionMode === "auto"
+                ? "Виконайте локальну дію для виділеного фрагмента"
                 : localActionMode === "spellcheck"
-                  ? "Перевірка правопису у вибраних абзацах"
-                : localActionMode === "callout"
-                  ? "Згенерувати врізку для виділеного фрагмента"
-                  : "Згенерувати візуал для виділеного фрагмента"}
+                  ? "Перевірте правопис у виділеному фрагменті"
+                  : localActionMode === "callout"
+                    ? "Підготуйте врізку для виділеного фрагмента"
+                    : "Підготуйте візуал для виділеного фрагмента"}
           </div>
         </div>
         <div className="floating-panel-header-actions">
@@ -126,8 +455,7 @@ export function FloatingComposerPanel({
       </header>
 
       <div className="floating-panel-body">
-        {isReview ? (
-          <div className="floating-review-body">
+        <div className="floating-review-body">
             <div className="floating-review-scale">
               {reviewLevelOptions.map((option) => (
                 <button
@@ -146,6 +474,7 @@ export function FloatingComposerPanel({
             </p>
             <div className="floating-textarea-shell">
               <textarea
+                ref={reviewTextareaRef}
                 className="floating-textarea"
                 rows={3}
                 placeholder="Додаткові інструкції для огляду"
@@ -162,203 +491,23 @@ export function FloatingComposerPanel({
               </div>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="floating-local-mode-tabs">
-              <button
-                type="button"
-                className="floating-local-mode-tab"
-                data-active={localActionMode === "patch" ? "true" : "false"}
-                onClick={() => onLocalActionModeChange("patch")}
-                disabled={localBusy}
-                title="Локальна правка"
-              >
-                <Search size={14} />
-                <span>Правка</span>
-              </button>
-              <button
-                type="button"
-                className="floating-local-mode-tab"
-                data-active={localActionMode === "spellcheck" ? "true" : "false"}
-                onClick={() => onLocalActionModeChange("spellcheck")}
-                disabled={localBusy}
-                title="Перевірка правопису"
-              >
-                <SpellCheck size={14} />
-                <span>Правопис</span>
-              </button>
-              <button
-                type="button"
-                className="floating-local-mode-tab"
-                data-active={localActionMode === "callout" ? "true" : "false"}
-                onClick={() => onLocalActionModeChange("callout")}
-                disabled={localBusy}
-                title="Генерація врізки"
-              >
-                <FileText size={14} />
-                <span>Врізка</span>
-              </button>
-              <button
-                type="button"
-                className="floating-local-mode-tab"
-                data-active={localActionMode === "visual" ? "true" : "false"}
-                onClick={() => onLocalActionModeChange("visual")}
-                disabled={localBusy}
-                title="Генерація візуалу"
-              >
-                <Wand2 size={14} />
-                <span>Візуал</span>
-              </button>
-            </div>
-
-            {localActionMode === "patch" ? (
-              <div className="floating-local-section">
-                <div className="floating-local-actions">
-                  <button type="button" className="floating-panel-inline-action" onClick={onRequestDefaultPatch} disabled={patchLoading}>
-                    <Sparkles size={14} />
-                    Швидко покращити
-                  </button>
-                </div>
-                <div className="floating-textarea-shell">
-                  <textarea
-                    className="floating-textarea"
-                    rows={2}
-                    placeholder="Уточніть, як саме редагувати (необов'язково)"
-                    value={customPrompt}
-                    onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
-                  />
-                </div>
-                <p className="floating-mode-hint">Запит вище використовується лише для режиму «Правка за запитом».</p>
-                <div className="floating-footer">
-                  <div />
-                  <div className="send-row">
-                    <button
-                      type="button"
-                      className="floating-panel-inline-action"
-                      onClick={onRequestCustomPatch}
-                      disabled={patchLoading || !customPrompt.trim()}
-                      aria-label="Виконати правку за запитом"
-                      title="Виконати правку за запитом"
-                    >
-                      <Search size={14} />
-                      Виконати за запитом
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {localActionMode === "spellcheck" ? (
-              <div className="floating-local-section">
-                <p className="floating-mode-hint">
-                  {spellcheckLoading
-                    ? "Перевіряємо вибрані текстові блоки."
-                    : "Результати відкриються в окремій секції праворуч."}
-                </p>
-                {spellcheckSummary ? <p className="floating-spellcheck-summary">{spellcheckSummary}</p> : null}
-                {spellcheckSecondarySummary ? <p className="floating-spellcheck-secondary">{spellcheckSecondarySummary}</p> : null}
-              </div>
-            ) : null}
-
-            {localActionMode === "callout" ? (
-              <div className="floating-local-section">
-                <label className="mono-ui floating-local-label">
-                  Тип врізки
-                  <select
-                    className="floating-local-select"
-                    value={manualCalloutKind}
-                    onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
-                    disabled={manualInFlight}
-                  >
-                    {calloutOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="floating-textarea-shell">
-                  <textarea
-                    className="floating-textarea"
-                    rows={2}
-                    placeholder="Додатковий запит для врізки (необов'язково)"
-                    value={manualCalloutPrompt}
-                    onChange={(event) => onManualCalloutPromptChange(event.currentTarget.value)}
-                    disabled={manualInFlight}
-                  />
-                </div>
-                <p className="floating-mode-hint">Цей запит буде враховано під час генерації врізки.</p>
-                <div className="floating-footer">
-                  <div />
-                  <div className="send-row">
-                    <button
-                      type="button"
-                      className="floating-panel-inline-action"
-                      onClick={onRequestManualCallout}
-                      disabled={manualInFlight}
-                      aria-label="Згенерувати врізку"
-                      title="Згенерувати врізку"
-                    >
-                      <FileText size={14} />
-                      {manualLoadingKind === "callout" ? "Генерація…" : "Згенерувати врізку"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {localActionMode === "visual" ? (
-              <div className="floating-local-section">
-                <div className="floating-local-label">
-                  <span className="mono-ui">Тип візуалу</span>
-                  <VisualIntentToggle
-                    value={manualVisualIntent}
-                    options={visualOptions}
-                    onChange={onManualVisualIntentChange}
-                    disabled={manualInFlight}
-                  />
-                </div>
-                <div className="floating-local-label">
-                  <span className="mono-ui">Стиль візуалу</span>
-                  <VisualStyleToggle
-                    value={manualVisualStylePreset}
-                    options={visualStyleOptions}
-                    onChange={onManualVisualStylePresetChange}
-                    disabled={manualInFlight}
-                  />
-                </div>
-                <div className="floating-textarea-shell">
-                  <textarea
-                    className="floating-textarea"
-                    rows={2}
-                    placeholder="Додатковий запит для візуалу (необов'язково)"
-                    value={manualVisualPrompt}
-                    onChange={(event) => onManualVisualPromptChange(event.currentTarget.value)}
-                    disabled={manualInFlight}
-                  />
-                </div>
-                <p className="floating-mode-hint">Цей запит буде враховано під час генерації візуалу.</p>
-                <div className="floating-footer">
-                  <div />
-                  <div className="send-row">
-                    <button
-                      type="button"
-                      className="floating-panel-inline-action"
-                      onClick={onRequestManualVisual}
-                      disabled={manualInFlight}
-                      aria-label="Згенерувати візуал"
-                      title="Згенерувати візуал"
-                    >
-                      <ImageIcon size={14} />
-                      {manualLoadingKind === "visual" ? "Генерація…" : "Згенерувати візуал"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
       </div>
     </section>
   );
+}
+
+function useAutosizeTextarea(ref: React.RefObject<HTMLTextAreaElement | null>, value: string) {
+  useEffect(() => {
+    const node = ref.current;
+
+    if (!node) {
+      return;
+    }
+
+    node.style.height = "auto";
+    const lineHeight = Number.parseFloat(window.getComputedStyle(node).lineHeight || "22");
+    const maxHeight = lineHeight * 5 + 24;
+    node.style.height = `${Math.min(node.scrollHeight, maxHeight)}px`;
+    node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [ref, value]);
 }

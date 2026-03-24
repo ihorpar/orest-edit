@@ -10,6 +10,35 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-19
 
+## 2026-03-22
+
+### The floating local panel is now a universal local-action bridge
+Decision: the old mode-first local panel with separate `Швидко покращити` and `Виконати за запитом` actions is replaced by a compact four-tab bridge: `Редактор`, `Правопис`, `Врізка`, and `Візуал`. `Редактор` is the default local entry and exposes one prompt field plus explicit text intents (`rewrite`, `shorten`, `list`, `table`).
+
+Reason: the product needs one clear local entry point for selected blocks without multiplying CTA meanings or duplicating the existing specialized executors.
+
+### Local action routing is typed and thin
+Decision: universal local requests first go through `POST /api/edit/local-action`, which returns one structured execution plan (`patch`, `spellcheck`, `callout`, `visual`, or `clarify`) and then hands off to the existing executor-specific flows.
+
+Reason: this keeps prompt interpretation separate from actual execution, avoids inventing a heavyweight orchestrator, and preserves the current patch/spellcheck/review-proposal backends.
+
+## 2026-03-24
+
+### The local-action bridge is a single compact composer surface
+Decision: the production local-action UI no longer renders as a separate top pill plus lower card. It now uses one compact single-surface composer with three layers: a mode-aware header, one main prompt/status area, and one contextual footer strip with the send action anchored on the right.
+
+Reason: the split shell overemphasized tabs, duplicated chrome, and consumed too much space relative to the actual editor task. One compact surface keeps focus on the prompt while preserving mode-specific controls.
+
+### The local composer header shows current mode only when collapsed
+Decision: the collapsed local composer header shows the currently active local mode (`Правка`, `Правопис`, `Врізка`, `Візуал`). When the mode list is expanded, the trigger label switches to neutral `Режими`, while the active mode stays highlighted only inside the revealed list.
+
+Reason: showing the current mode in both the trigger and the expanded list duplicates state and makes the header visually noisy. The collapsed/expanded label split keeps state legible without repetition.
+
+### Explicit feature keywords may override text-mode intent inside `Редактор`
+Decision: inside the universal `Редактор` tab, explicit feature keywords such as `правопис`, `врізка`, or `візуал` can reroute the request into the corresponding executor, while text-shape choices remain explicit segmented intents rather than being guessed over the user’s selected text mode.
+
+Reason: special feature requests should feel universal, but text editing still benefits from deterministic, editor-controlled intent selection.
+
 ### Spellcheck uses a provider-agnostic fragment contract behind a local route
 Decision: manual Ukrainian spellcheck is modeled as `POST /api/edit/spellcheck` with a provider-agnostic local contract. The request carries one selected text range inside one block, and the server is responsible for mapping that fragment to LanguageTool and rebasing matches back into block-local offsets.
 

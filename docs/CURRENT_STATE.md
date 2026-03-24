@@ -76,6 +76,13 @@ Status: Active handoff
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
 - The floating `Локальна правка` panel now uses explicit local mode switches (`Правка`, `Врізка`, `Візуал`) so each mode has one unambiguous primary action and mode-specific prompt usage
+- The floating local-action UI now uses a compact four-tab bridge (`Редактор`, `Правопис`, `Врізка`, `Візуал`) instead of the older split `Правка` CTA pair
+- The floating local-action UI now renders as one compact single-surface composer instead of the older split `pill + card` shell
+- The local composer header is mode-aware: collapsed state shows the current local mode (`Правка`, `Правопис`, `Врізка`, `Візуал`), while expanded state switches the trigger label to neutral `Режими` and reveals the full mode list with animated expand/collapse
+- `Редактор` is now the default local mode: one prompt field plus explicit text intents (`Переписати`, `Скоротити`, `Список`, `Таблиця`) route into the existing local executors
+- Universal local-action routing now lives behind `POST /api/edit/local-action`, which returns a typed execution target (`patch`, `spellcheck`, `callout`, `visual`, or `clarify`) without replacing the underlying specialized backends
+- In the `Редактор` tab, explicit feature keywords such as `правопис`, `врізка`, and `візуал` can route the request into the corresponding existing executor while text-shape choices remain explicit segmented intents
+- `Редактор`, `Врізка`, and `Візуал` now use the same compact autosizing textarea behavior (2 rows by default, growth up to 5 rows), and mode-specific controls now live in one unified footer strip (`segmented` text intents, callout kind select, visual type/style controls, compact send button)
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
 - Runtime proposal prompt contracts are now aligned by action type: replace uses structured block diff JSON, callout/subsection use strict JSON drafts, and image uses one downstream plain-text prompt (while parser remains backward-compatible with legacy JSON image drafts)
@@ -180,5 +187,11 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-19 after moving spellcheck results into the right drawer and keeping underlines independent from floating-panel visibility (90/90 tests)
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers
 - `npm run test -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers (91/91 tests)
+- `npm run typecheck -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`
+- `npm run build -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`
+- `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` passed on 2026-03-22 after adding local-action router coverage
+- Runtime smoke check on 2026-03-22 succeeded against `next start` at `http://127.0.0.1:3100`: login gate, selected-block activation, and all four floating bridge tabs (`Редактор`, `Правопис`, `Врізка`, `Візуал`) rendered their expected controls
+- `npm run typecheck -w @orest/web` passed on 2026-03-24 after replacing the old split local-action bridge shell with the compact single-surface composer
+- Runtime smoke check on 2026-03-24 succeeded against local dev server `http://127.0.0.1:3102` after API login: selected-block activation, current-mode trigger collapse/expand, manual `Врізка` select, auto-routing from `Правка` into `Візуал` and `Правопис`, busy-state persistence, and viewport screenshot capture for the new local composer
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

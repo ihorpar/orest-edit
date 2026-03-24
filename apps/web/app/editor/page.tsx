@@ -34,6 +34,12 @@ import {
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
 import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
+import {
+  inferLocalActionRoute,
+  type LocalActionMode,
+  type LocalActionRouteResponse,
+  type LocalActionTextIntent
+} from "../../lib/editor/local-action-router";
 import { insertBlocksBefore } from "../../lib/editor/review-apply";
 import {
   createPatchId,
@@ -131,11 +137,11 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
 const defaultManualVisualIntent: EditorialVisualIntent = "infographic";
 const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
-const defaultLocalActionMode = "patch" as const;
+const defaultLocalActionMode = "auto" as const;
+const defaultLocalTextIntent = "rewrite" as const;
 
 type ComposerMode = "local" | "review" | null;
 type ManualGenerationKind = "callout" | "visual";
-type LocalActionMode = "patch" | "spellcheck" | "callout" | "visual";
 type WorkflowStepId = PersistedWorkflowStepId;
 type TopActionMenuId = "open" | "save" | null;
 
@@ -153,6 +159,10 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
 
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
   return stepId !== "spellcheck";
+}
+
+function isLocalActionRoutePayload(value: LocalActionRouteResponse | { error?: string }): value is LocalActionRouteResponse {
+  return "executor" in value;
 }
 
 export default function EditorPage() {
@@ -184,6 +194,7 @@ export default function EditorPage() {
   const [manualVisualIntent, setManualVisualIntent] = useState<EditorialVisualIntent>(defaultManualVisualIntent);
   const [manualGenerationInFlight, setManualGenerationInFlight] = useState<{ kind: ManualGenerationKind; key: string } | null>(null);
   const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
+  const [localTextIntent, setLocalTextIntent] = useState<LocalActionTextIntent>(defaultLocalTextIntent);
   const [manualCalloutPrompt, setManualCalloutPrompt] = useState("");
   const [manualVisualPrompt, setManualVisualPrompt] = useState("");
   const [spellcheckResults, setSpellcheckResults] = useState<SpellcheckBlockResult[]>([]);
@@ -210,6 +221,23 @@ export default function EditorPage() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+  const localActionRoute = useMemo<LocalActionRouteResponse>(
+    () =>
+      inferLocalActionRoute({
+        prompt:
+          localActionMode === "callout"
+            ? manualCalloutPrompt
+            : localActionMode === "visual"
+              ? manualVisualPrompt
+              : customPrompt,
+        explicitMode: localActionMode === "auto" ? null : localActionMode,
+        preferredTextIntent: localTextIntent,
+        calloutKind: manualCalloutKind,
+        visualIntent: manualVisualIntent,
+        visualStylePreset: visualStylePreset
+      }),
+    [customPrompt, localActionMode, localTextIntent, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
+  );
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
@@ -460,6 +488,7 @@ export default function EditorPage() {
     setManualVisualIntent(defaultManualVisualIntent);
     setManualGenerationInFlight(null);
     setLocalActionMode(defaultLocalActionMode);
+    setLocalTextIntent(defaultLocalTextIntent);
     setManualCalloutPrompt("");
     setManualVisualPrompt("");
     setStepFeedback(createDefaultStepFeedbackMap());
@@ -551,7 +580,7 @@ export default function EditorPage() {
     return focusedBlockId ? [focusedBlockId] : [];
   }
 
-  async function requestPatch(mode: RequestMode) {
+  async function requestPatch(mode: RequestMode, promptOverride?: string) {
     const targetBlockIds = resolveTargetBlockIds();
 
     if (targetBlockIds.length === 0) {
@@ -567,7 +596,7 @@ export default function EditorPage() {
         document,
         targetBlockIds,
         mode,
-        prompt: mode === "custom" ? customPrompt.trim() : undefined,
+        prompt: mode === "custom" ? (promptOverride ?? customPrompt).trim() : undefined,
         provider: settings.provider,
         modelId: settings.modelId,
         apiKey: settings.apiKey || undefined,
@@ -848,15 +877,79 @@ export default function EditorPage() {
   }
 
   function handleLocalActionModeChange(mode: LocalActionMode) {
-    if (mode === "spellcheck") {
-      setLocalActionMode(mode);
-      setActiveWorkflowStep("spellcheck");
-      setComposerMode(null);
+    setLocalActionMode(mode);
+  }
 
+  async function requestResolvedLocalAction() {
+    const targetBlockIds = resolveTargetBlockIds();
+
+    if (targetBlockIds.length === 0) {
+      setFeedback({ tone: "error", message: "Оберіть блоки для локальної дії." });
       return;
     }
 
-    setLocalActionMode(mode);
+    try {
+      const response = await fetch("/api/edit/local-action", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt:
+            localActionMode === "callout"
+              ? manualCalloutPrompt
+              : localActionMode === "visual"
+                ? manualVisualPrompt
+                : customPrompt,
+          explicitMode: localActionMode === "auto" ? null : localActionMode,
+          preferredTextIntent: localTextIntent,
+          calloutKind: manualCalloutKind,
+          visualIntent: manualVisualIntent,
+          visualStylePreset
+        })
+      });
+
+      const payload = (await response.json()) as LocalActionRouteResponse | { error?: string };
+
+      if (!response.ok || !isLocalActionRoutePayload(payload)) {
+        setFeedback({
+          tone: "error",
+          message: "error" in payload && payload.error ? payload.error : "Не вдалося визначити локальну дію."
+        });
+        return;
+      }
+
+      if (payload.executor === "clarify") {
+        setFeedback({ tone: "info", message: "Уточніть, що саме зробити: правка, врізка чи візуал." });
+        return;
+      }
+
+      if (payload.executor === "spellcheck") {
+        setActiveWorkflowStep("spellcheck");
+        await requestSpellcheck(targetBlockIds);
+        return;
+      }
+
+      if (payload.executor === "patch") {
+        await requestPatch(payload.requestMode, payload.prompt);
+        return;
+      }
+
+      if (payload.executor === "callout") {
+        await requestManualInsert("callout", {
+          calloutKind: payload.calloutKind,
+          editorialInstruction: payload.prompt
+        });
+        return;
+      }
+
+      await requestManualInsert("visual", {
+        visualIntent: payload.visualIntent,
+        visualStylePreset: payload.visualStylePreset,
+        editorialInstruction: payload.prompt
+      });
+    } finally {
+      // Keep the floating bridge visible while the resolved local action is running.
+    }
   }
 
   async function requestWorkflowStep(stepId: EditorialReviewStepId) {
@@ -1107,10 +1200,17 @@ export default function EditorPage() {
     setActiveReviewItemId(null);
     setActiveProposal(null);
     setPreparingReviewItemId(null);
-    setComposerMode(null);
   }
 
-  async function requestManualInsert(kind: ManualGenerationKind) {
+  async function requestManualInsert(
+    kind: ManualGenerationKind,
+    overrides?: {
+      calloutKind?: EditorialCalloutKind;
+      visualIntent?: EditorialVisualIntent;
+      visualStylePreset?: VisualStylePreset;
+      editorialInstruction?: string;
+    }
+  ) {
     const blockIds = normalizedSelection.blockIds;
 
     if (blockIds.length === 0) {
@@ -1122,7 +1222,7 @@ export default function EditorPage() {
 
     const recommendationType = kind === "callout" ? "callout" : "visual";
     if (kind === "visual") {
-      persistVisualStylePreset(visualStylePreset);
+      persistVisualStylePreset(overrides?.visualStylePreset ?? visualStylePreset);
     }
     const draftItem = buildManualReviewItem({
       document,
@@ -1130,9 +1230,9 @@ export default function EditorPage() {
       blockIds,
       changeLevel: reviewComposer.changeLevel,
       recommendationType,
-      calloutKind: manualCalloutKind,
-      visualIntent: manualVisualIntent,
-      manualInstruction: kind === "callout" ? manualCalloutPrompt : manualVisualPrompt
+      calloutKind: overrides?.calloutKind ?? manualCalloutKind,
+      visualIntent: overrides?.visualIntent ?? manualVisualIntent,
+      manualInstruction: overrides?.editorialInstruction ?? (kind === "callout" ? manualCalloutPrompt : manualVisualPrompt)
     });
     const upserted = upsertManualReviewItem(reviewItems, draftItem);
 
@@ -1141,7 +1241,10 @@ export default function EditorPage() {
     setManualGenerationInFlight({ kind, key: upserted.dedupeKey });
 
     try {
-      await prepareReviewItem(upserted.item);
+      await prepareReviewItem(upserted.item, {
+        visualStylePreset: overrides?.visualStylePreset,
+        editorialInstruction: overrides?.editorialInstruction
+      });
     } finally {
       setManualGenerationInFlight((current) =>
         current && current.kind === kind && current.key === upserted.dedupeKey ? null : current
@@ -2270,17 +2373,12 @@ export default function EditorPage() {
             {composerMode ? (
               <FloatingComposerPanel
                 mode={composerMode}
-                selectedBlockCount={normalizedSelection.blockIds.length}
                 customPrompt={customPrompt}
                 onCustomPromptChange={setCustomPrompt}
-                onRequestDefaultPatch={() => {
-                  void requestPatch("default");
-                  setComposerMode(null);
-                }}
-                onRequestCustomPatch={() => {
-                  void requestPatch("custom");
-                  setComposerMode(null);
-                }}
+                localTextIntent={localTextIntent}
+                localActionRoute={localActionRoute}
+                onLocalTextIntentChange={setLocalTextIntent}
+                onRequestAutoAction={() => void requestResolvedLocalAction()}
                 reviewChangeLevel={reviewComposer.changeLevel}
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
@@ -2306,6 +2404,7 @@ export default function EditorPage() {
                 onManualVisualPromptChange={setManualVisualPrompt}
                 onRequestManualCallout={() => void requestManualInsert("callout")}
                 onRequestManualVisual={() => void requestManualInsert("visual")}
+                onRequestSpellcheck={() => void requestSpellcheck(resolveTargetBlockIds())}
                 manualLoadingKind={manualGenerationInFlight?.kind ?? null}
                 onClose={() => setComposerMode(null)}
               />
