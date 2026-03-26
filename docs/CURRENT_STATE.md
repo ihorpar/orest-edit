@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-19
+Date: 2026-03-25
 Status: Active handoff
 
 ## What exists now
@@ -9,9 +9,15 @@ Status: Active handoff
 - `/editor` uses a block-first rich editor surface
 - Canonical editor state is `EditorDocument { version: 2, blocks[] }` with stable block IDs
 - Supported block types in the editor: `paragraph`, `heading`, `bullet_list`, `ordered_list`, `image`, `callout`, `divider`, `table`
-- Manual editing happens inside blocks with inline `bold`, `italic`, and `link` formatting
+- Manual editing happens inside blocks with inline `bold` and `italic` formatting; the old link affordance was removed from the manuscript toolbar because this book-editor flow does not use inline hyperlinks
+- `Backspace` at the start of a paragraph/heading now merges that text block into the previous text block and places the caret at the join point; when no compatible previous text block exists, the old empty-block fallback still applies
 - `Enter` inside paragraph-like editing creates a new block
+- Text rewrites may now preserve explicit internal line breaks (`\n`) inside a single paragraph/heading block, so verse-like or short-line formatting can stay inside one block when the editor asks for it
 - Paragraph numbering is visible and tracks block IDs
+- Manuscript mutations now keep an in-session undo/redo stack, exposed in the manuscript sticky toolbar and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
+- Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the sticky-toolbar `Порівняти` action
+- Sticky manuscript toolbar now starts with undo/redo/compare on the far left; compare uses a split-view icon instead of a history glyph
+- The compare dialog now keeps a short fixed title, clamps the verbose change summary into supporting copy, shows compact metadata chips, and uses concise history-picker labels so side-by-side content stays primary
 - Local AI patch requests are block-based and send `targetBlockIds`, not character offsets
 - Local patch apply semantics are whole-block replacement
 - Whole-text review exists through `/api/edit/review`
@@ -60,28 +66,38 @@ Status: Active handoff
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
+- Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
+- The floating local composer now adds a subtle animated baseline inside its main textarea shell while a local AI request is in flight, so the active text surface shows motion beyond the send-button spinner
+- When a local spellcheck run completes, the right drawer now auto-switches to the dedicated `Правопис` step so the result list is visible immediately
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
+- AI-generated replace/callout/subsection text now supports sparse editorial emphasis via `**...**` markers in proposal transport; those markers are parsed into real inline `bold` nodes on apply, while unsupported markdown is still stripped
 - The manuscript now marks active replace-source blocks in red while the inline diff card renders only proposed replacement blocks in green (no nested old/new card frames)
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
 - Replace-type proposal generation (`rewrite`, `simplify`, `expand`, `list`) now runs through a dedicated lightweight proposal-content contract in `review-action-service` instead of reusing the generic nested patch-diff generator; LLMs return plain replacement content (`replacements[]` or `items[]`) and the server reconstructs final block-first `text_diff`
 - Gemini `rewrite`/`simplify`/`expand` proposal generation now uses a lightweight `replacements[] + reason` schema with local block reconstruction instead of the older nested Gemini `newBlocks` contract, which avoids timeout-prone local replace requests on Flash Lite
+- Local patch requests from the floating composer now surface their first `replace_blocks` result directly in the manuscript inline diff lane instead of only updating hidden patch state, and fallback list rewrites collapse list blocks into a visible paragraph draft instead of returning a no-op list clone
+- Gemini local patch generation for floating-composer `Переписати` now also uses a lightweight `replacements[] + reason + type` structured-output contract with server-side block reconstruction instead of asking Gemini to emit nested `newBlocks` rich-text AST directly
+- Inline recommendation refine now treats typed уточнення as a first-class regenerate intent: `Перегенерувати` becomes an accent CTA once уточнення is present, applies via click or `Cmd/Ctrl+Enter`, and keeps apply/insert blocked until the variant is regenerated
 - Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
 - Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
 - `subsection` recommendation preparation now returns an editable heading+optional lead draft and applies insertion before the first affected block
 - Subsection preparation now has a deterministic fast-path: when recommendation text already includes explicit `Підзаголовок:` + `Текст:`, the draft is built directly from that instruction without an extra model call
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks
+- Manual local `callout`, `visual`, and `list` generations now switch the right drawer to a matching workflow step so their cards remain visible and recoverable after dismissal
 - The floating `Локальна правка` panel now uses explicit local mode switches (`Правка`, `Врізка`, `Візуал`) so each mode has one unambiguous primary action and mode-specific prompt usage
 - The floating local-action UI now uses a compact four-tab bridge (`Редактор`, `Правопис`, `Врізка`, `Візуал`) instead of the older split `Правка` CTA pair
 - The floating local-action UI now renders as one compact single-surface composer instead of the older split `pill + card` shell
-- The local composer header is mode-aware: collapsed state shows the current local mode (`Правка`, `Правопис`, `Врізка`, `Візуал`), while expanded state switches the trigger label to neutral `Режими` and reveals the full mode list with animated expand/collapse
+- The local composer header now keeps all four local modes (`Правка`, `Правопис`, `Врізка`, `Візуал`) visible as direct tabs at all times; the extra `Режими` disclosure trigger was removed
+- The spellcheck local mode footer now keeps only the send action, and the floating local composer reserves a consistent default body height across local modes so the panel does not jump when switching tabs
 - `Редактор` is now the default local mode: one prompt field plus explicit text intents (`Переписати`, `Скоротити`, `Список`, `Таблиця`) route into the existing local executors
 - Universal local-action routing now lives behind `POST /api/edit/local-action`, which returns a typed execution target (`patch`, `spellcheck`, `callout`, `visual`, or `clarify`) without replacing the underlying specialized backends
 - In the `Редактор` tab, explicit feature keywords such as `правопис`, `врізка`, and `візуал` can route the request into the corresponding existing executor while text-shape choices remain explicit segmented intents
+- Local `list` intent now routes into the review/proposal path instead of the generic patch executor, which keeps the green diff editor list-shaped and preserves regenerate/apply semantics
 - `Редактор`, `Врізка`, and `Візуал` now use the same compact autosizing textarea behavior (2 rows by default, growth up to 5 rows), and mode-specific controls now live in one unified footer strip (`segmented` text intents, callout kind select, visual type/style controls, compact send button)
 - Review-image generation endpoints already exist at `/api/edit/review/image`
 - Review-image generation is now wired into the inline manuscript execution card and can insert an image block below the anchor
@@ -123,7 +139,7 @@ Status: Active handoff
 - No CI-integrated full browser E2E suite yet for the block editor (current coverage is a local scripted QA command)
 - No hardened provider normalization yet for arbitrary mixed block output from real models
 - No full fidelity Word/paste import yet for tracked changes, comments, footnotes, embedded images, or shapes
-- No export patch flow or document version history
+- No export patch flow or full document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
 - Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting; manual edits invalidate spellcheck only for the changed checked block instead of clearing the whole spellcheck session
@@ -140,9 +156,15 @@ Status: Active handoff
 - The editor surface is a docs-like rich block editor, not a source-visible markdown editor
 - DOCX remains the external handoff/export format
 - Existing browser-local drafts were intentionally reset by the v2 migration
-- The first-class inline formatting set in v1 is limited to `bold`, `italic`, and `link`
+- The first-class inline formatting set in v1 is limited to `bold` and `italic`
 - `callout` is already a first-class block type
 - `image` is already a first-class block type
+- Toolbar inline formatting now preserves the selected range when bold/italic actions are triggered from the manuscript toolbar instead of dropping the caret to block start
+- AI formatting policy is intentionally narrow: generated editorial text may use only sparse `bold` emphasis on short key phrases, not arbitrary markdown or full-sentence highlighting
+- Toolbar list toggles can now convert existing bullet/ordered lists back to paragraphs instead of forcing editors to manually strip list structure
+- Pressing `Enter` on an empty list item now exits the list safely instead of wiping the whole block: multi-item lists keep their existing items and insert an empty paragraph after the list, while a single empty item converts in place to an empty paragraph
+- Manually inserted manuscript callouts now expose an in-block kind selector, and switching kind updates the default title only when the title still matches the previous kind default
+- Undo/redo applies only to manuscript mutations in the current session; compare history is persisted separately as accepted-change snapshots rather than as a full revision timeline
 
 ## Highest-priority next work
 1. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions).
@@ -193,5 +215,19 @@ Status: Active handoff
 - Runtime smoke check on 2026-03-22 succeeded against `next start` at `http://127.0.0.1:3100`: login gate, selected-block activation, and all four floating bridge tabs (`Редактор`, `Правопис`, `Врізка`, `Візуал`) rendered their expected controls
 - `npm run typecheck -w @orest/web` passed on 2026-03-24 after replacing the old split local-action bridge shell with the compact single-surface composer
 - Runtime smoke check on 2026-03-24 succeeded against local dev server `http://127.0.0.1:3102` after API login: selected-block activation, current-mode trigger collapse/expand, manual `Врізка` select, auto-routing from `Правка` into `Візуал` and `Правопис`, busy-state persistence, and viewport screenshot capture for the new local composer
+- `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` passed on 2026-03-25 after the editor/list/recovery pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-25 after the editor/list/recovery pass
+- Runtime QA on 2026-03-25 against local dev server `http://127.0.0.1:3000` after API login confirmed: toolbar bold preserves the selected range, manual toolbar callouts expose a kind selector, local list intent produces bullet-prefixed green diff output through `/api/edit/review/proposal`, and dismissed manual list cards can be reopened from `Показати завершені` and rerun
+- `npm run build -w @orest/web` passed on 2026-03-25 after the local composer follow-up pass
+- `node --import tsx --test apps/web/test/patch-service.test.ts apps/web/test/spellcheck-view-model.test.ts apps/web/test/spellcheck-route.test.ts` passed on 2026-03-25 after the local composer follow-up pass
+- Runtime QA on 2026-03-25 against production `next start` at `http://127.0.0.1:3001` after API login confirmed: the link button is gone, manual callouts use one compact inline kind select, local `Правопис` shows a send-spinner and preserves earlier untouched underlines across separate runs, and local `Переписати` shows an inline diff/result with a loading spinner even when starting from a list block
+- `node --import tsx --test apps/web/test/change-history.test.ts apps/web/test/patch-service.test.ts apps/web/test/manual-review-items.test.ts apps/web/test/local-action-router.test.ts` passed on 2026-03-25 after the Epic 5 history/reversibility pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
+- `npm run build -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
+- Runtime QA on 2026-03-25 against production `next start` at `http://127.0.0.1:3002` after API login confirmed: sticky-toolbar undo/redo restores manuscript edits, accepted AI rewrite opens `Порівняти`, and the compare dialog shows distinct `Було` / `Стало` snapshots for the accepted change
+- `node --import tsx --test apps/web/test/list-editing.test.ts apps/web/test/patch-service.test.ts` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
+- `node --import tsx --test apps/web/test/inline-markup.test.ts apps/web/test/patch-contract.test.ts apps/web/test/review-action-service.test.ts` passed on 2026-03-26 after the AI bold-formatting policy pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after the AI bold-formatting policy pass
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

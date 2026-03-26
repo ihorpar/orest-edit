@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floating Bar Loading Prototypes</title>
+  <style>
+    :root {
+      --porcelain: #ffffff;
+      --bone: #f8fafc;
+      --mist: #eef4fb;
+      --panel: rgba(255, 255, 255, 0.92);
+      --border: rgba(15, 23, 42, 0.08);
+      --border-strong: rgba(37, 99, 235, 0.18);
+      --ink: #0f172a;
+      --muted: #64748b;
+      --muted-soft: #94a3b8;
+      --blue: #2563eb;
+      --blue-soft: #c7defa;
+      --blue-pale: rgba(37, 99, 235, 0.08);
+      --green: #059669;
+      --shadow: 0 22px 50px rgba(15, 23, 42, 0.08);
+      --font-ui: "Inter", "Segoe UI", sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-ui);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(199, 222, 250, 0.42), transparent 32%),
+        linear-gradient(180deg, #fbfdff 0%, #f5f8fc 100%);
+    }
+
+    .page {
+      width: min(1380px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    .intro {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      font: 700 11px/1 var(--font-mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--blue);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 42px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .intro p {
+      margin: 0;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .prototype-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .prototype-card {
+      position: relative;
+      border: 1px solid rgba(15, 23, 42, 0.07);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.76);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .prototype-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.36), transparent 35%);
+      pointer-events: none;
+    }
+
+    .prototype-meta {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 8px;
+      padding: 18px 18px 10px;
+    }
+
+    .prototype-topline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .prototype-index,
+    .prototype-chip {
+      min-height: 22px;
+      padding: 0 10px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: 700 10px/1 var(--font-mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .prototype-index {
+      color: #ffffff;
+      background: #111827;
+    }
+
+    .prototype-chip {
+      color: var(--blue);
+      background: rgba(37, 99, 235, 0.08);
+    }
+
+    .prototype-card h2 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+    }
+
+    .prototype-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .composer-demo-wrap {
+      position: relative;
+      z-index: 1;
+      padding: 10px 18px 18px;
+    }
+
+    .composer-demo {
+      width: 100%;
+      max-width: 560px;
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+      box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+    }
+
+    .composer-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 10px 0;
+    }
+
+    .mode-pill,
+    .token-pill {
+      min-height: 24px;
+      padding: 0 10px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .mode-pill {
+      color: #334155;
+      background: rgba(15, 23, 42, 0.06);
+    }
+
+    .mode-pill.active {
+      background: rgba(15, 23, 42, 0.92);
+      color: #ffffff;
+    }
+
+    .close-button {
+      margin-left: auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted-soft);
+      background: transparent;
+      border: 0;
+    }
+
+    .close-button svg,
+    .send-button svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .composer-main {
+      position: relative;
+      padding: 10px 12px 8px;
+    }
+
+    .composer-shell {
+      position: relative;
+      min-height: 74px;
+      border-radius: 16px;
+      border: 1px solid transparent;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(248, 250, 252, 0.84));
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .composer-shell::before,
+    .composer-shell::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .composer-text {
+      position: relative;
+      z-index: 2;
+      margin: 0;
+      padding: 14px 14px 18px;
+      color: #0f172a;
+      font-size: 14px;
+      line-height: 1.45;
+      letter-spacing: -0.01em;
+    }
+
+    .composer-caret {
+      display: inline-block;
+      width: 1px;
+      height: 1.05em;
+      margin-left: 3px;
+      vertical-align: -0.15em;
+      background: rgba(37, 99, 235, 0.72);
+      animation: caret-blink 1s steps(1) infinite;
+    }
+
+    .composer-shell[data-working="true"] {
+      border-color: var(--border-strong);
+    }
+
+    .composer-shell[data-working="true"] .composer-text {
+      color: #172554;
+    }
+
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 44px;
+      padding: 6px 8px;
+      border-top: 1px solid rgba(15, 23, 42, 0.05);
+      background: rgba(248, 250, 252, 0.92);
+    }
+
+    .token-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .token-pill {
+      color: #475569;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(15, 23, 42, 0.055);
+    }
+
+    .token-pill.live {
+      color: var(--green);
+      border-color: rgba(5, 150, 105, 0.16);
+      background: rgba(5, 150, 105, 0.06);
+    }
+
+    .send-button {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #0f172a;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+    }
+
+    .send-button .spinner {
+      width: 14px;
+      height: 14px;
+      border: 1.7px solid rgba(255, 255, 255, 0.28);
+      border-top-color: #ffffff;
+      border-radius: 999px;
+      animation: spin 0.92s linear infinite;
+    }
+
+    .variant-scan .composer-shell::before {
+      inset: -10% auto -10% -20%;
+      width: 42%;
+      background: linear-gradient(100deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.12) 30%,
+        rgba(255, 255, 255, 0.72) 48%,
+        rgba(199, 222, 250, 0.6) 58%,
+        rgba(255, 255, 255, 0) 100%);
+      transform: translateX(-120%) skewX(-18deg);
+      opacity: 1;
+      animation: scan-sweep 1.9s ease-in-out infinite;
+    }
+
+    .variant-scan .composer-shell::after {
+      inset: 0;
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), rgba(255, 255, 255, 0));
+      opacity: 1;
+    }
+
+    .variant-breathe .composer-shell {
+      animation: shell-breathe 2.2s ease-in-out infinite;
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.03);
+    }
+
+    .variant-breathe .composer-shell::before {
+      inset: 0;
+      background: radial-gradient(circle at 30% 35%, rgba(199, 222, 250, 0.5), transparent 45%);
+      opacity: 1;
+      animation: glow-drift 3.2s ease-in-out infinite;
+    }
+
+    .variant-baseline .composer-shell::after {
+      left: 12px;
+      right: 12px;
+      bottom: 8px;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.22);
+      opacity: 1;
+    }
+
+    .variant-baseline .composer-shell::before {
+      left: 12px;
+      bottom: 8px;
+      width: 22%;
+      height: 3px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #7aa2ef);
+      box-shadow: 0 0 12px rgba(37, 99, 235, 0.32);
+      opacity: 1;
+      animation: baseline-run 1.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+    }
+
+    .variant-baseline .composer-text {
+      padding-bottom: 22px;
+    }
+
+    .variant-shimmer .composer-text {
+      background: linear-gradient(90deg,
+        rgba(15, 23, 42, 0.84) 0%,
+        rgba(15, 23, 42, 0.84) 33%,
+        rgba(37, 99, 235, 0.95) 47%,
+        rgba(15, 23, 42, 0.84) 61%,
+        rgba(15, 23, 42, 0.84) 100%);
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: text-shimmer 1.7s linear infinite;
+    }
+
+    .variant-shimmer .composer-shell::before {
+      inset: 0;
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.04), rgba(255, 255, 255, 0));
+      opacity: 1;
+    }
+
+    .variant-tokens .composer-shell::before {
+      inset: 10px 10px auto 10px;
+      height: 38px;
+      opacity: 1;
+      background:
+        radial-gradient(circle, rgba(37, 99, 235, 0.26) 0 1.5px, transparent 2px) 0 12px / 68px 12px repeat-x,
+        linear-gradient(90deg, rgba(37, 99, 235, 0.16) 0 16px, transparent 16px 26px) 0 0 / 72px 100% repeat-x;
+      animation: token-drift 2.4s linear infinite;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent);
+    }
+
+    .variant-tokens .composer-shell::after {
+      inset: auto 12px 9px 12px;
+      height: 1px;
+      opacity: 1;
+      background: linear-gradient(90deg, rgba(37, 99, 235, 0), rgba(37, 99, 235, 0.28), rgba(37, 99, 235, 0));
+    }
+
+    .variant-tokens .composer-text {
+      padding-top: 18px;
+    }
+
+    .footer-note {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes caret-blink {
+      0%, 45% {
+        opacity: 1;
+      }
+
+      46%, 100% {
+        opacity: 0;
+      }
+    }
+
+    @keyframes scan-sweep {
+      0% {
+        transform: translateX(-125%) skewX(-18deg);
+      }
+
+      55%,
+      100% {
+        transform: translateX(300%) skewX(-18deg);
+      }
+    }
+
+    @keyframes shell-breathe {
+      0%,
+      100% {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(248, 250, 252, 0.86));
+        border-color: rgba(37, 99, 235, 0.12);
+      }
+
+      50% {
+        background: linear-gradient(180deg, rgba(240, 247, 255, 0.95), rgba(248, 250, 252, 0.98));
+        border-color: rgba(37, 99, 235, 0.22);
+      }
+    }
+
+    @keyframes glow-drift {
+      0%,
+      100% {
+        transform: translateX(-2%);
+        opacity: 0.72;
+      }
+
+      50% {
+        transform: translateX(6%);
+        opacity: 1;
+      }
+    }
+
+    @keyframes baseline-run {
+      0% {
+        transform: translateX(0);
+      }
+
+      50% {
+        transform: translateX(260%);
+      }
+
+      100% {
+        transform: translateX(0);
+      }
+    }
+
+    @keyframes text-shimmer {
+      to {
+        background-position: -120% 0;
+      }
+    }
+
+    @keyframes token-drift {
+      from {
+        background-position: 0 12px, 0 0;
+      }
+
+      to {
+        background-position: -72px 12px, -72px 0;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .prototype-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="intro">
+      <span class="eyebrow">Floating Composer / AI Working</span>
+      <h1>5 prototypes for the main text-area loading effect</h1>
+      <p>
+        Each card shows the floating bar already in the active “AI working” state. The goal is to add motion to the main prompt area without making it feel noisy, consumer-chatty, or disconnected from the current clean medical-editor direction.
+      </p>
+    </section>
+
+    <section class="prototype-grid">
+      <article class="prototype-card">
+        <div class="prototype-meta">
+          <div class="prototype-topline">
+            <span class="prototype-index">01</span>
+            <span class="prototype-chip">Recommended</span>
+          </div>
+          <h2>Scan Sweep</h2>
+          <p>Clinical sweep across the text shell. Feels like active analysis, stays calm, and matches the existing blue loading language best.</p>
+        </div>
+        <div class="composer-demo-wrap">
+          <div class="composer-demo variant-scan">
+            <div class="composer-top">
+              <span class="mode-pill active">Правка</span>
+              <span class="mode-pill">Правопис</span>
+              <span class="mode-pill">Врізка</span>
+              <span class="mode-pill">Візуал</span>
+              <button class="close-button" aria-label="Закрити">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div class="composer-main">
+              <div class="composer-shell" data-working="true">
+                <p class="composer-text">Спрости абзац і прибери перевантажені наукові формулювання<span class="composer-caret"></span></p>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <div class="token-group">
+                <span class="token-pill live">AI працює</span>
+                <span class="token-pill">Переписати</span>
+              </div>
+              <button class="send-button" aria-label="Надіслано">
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="prototype-card">
+        <div class="prototype-meta">
+          <div class="prototype-topline">
+            <span class="prototype-index">02</span>
+            <span class="prototype-chip">Low risk</span>
+          </div>
+          <h2>Breathing Wash</h2>
+          <p>Soft pulse of the textarea shell with a drifting blue glow. Minimal and safe if you want almost no visual noise.</p>
+        </div>
+        <div class="composer-demo-wrap">
+          <div class="composer-demo variant-breathe">
+            <div class="composer-top">
+              <span class="mode-pill active">Правка</span>
+              <span class="mode-pill">Правопис</span>
+              <span class="mode-pill">Врізка</span>
+              <span class="mode-pill">Візуал</span>
+              <button class="close-button" aria-label="Закрити">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div class="composer-main">
+              <div class="composer-shell" data-working="true">
+                <p class="composer-text">Укороти фрагмент і залиш лише сенс без повторів<span class="composer-caret"></span></p>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <div class="token-group">
+                <span class="token-pill live">AI працює</span>
+                <span class="token-pill">Спростити</span>
+              </div>
+              <button class="send-button" aria-label="Надіслано">
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="prototype-card">
+        <div class="prototype-meta">
+          <div class="prototype-topline">
+            <span class="prototype-index">03</span>
+            <span class="prototype-chip">Progress feel</span>
+          </div>
+          <h2>Baseline Runner</h2>
+          <p>A moving line along the text area’s baseline. Keeps the text readable and adds motion without washing over the whole field.</p>
+        </div>
+        <div class="composer-demo-wrap">
+          <div class="composer-demo variant-baseline">
+            <div class="composer-top">
+              <span class="mode-pill active">Правка</span>
+              <span class="mode-pill">Правопис</span>
+              <span class="mode-pill">Врізка</span>
+              <span class="mode-pill">Візуал</span>
+              <button class="close-button" aria-label="Закрити">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div class="composer-main">
+              <div class="composer-shell" data-working="true">
+                <p class="composer-text">Зроби речення плавнішими і прибери канцелярит<span class="composer-caret"></span></p>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <div class="token-group">
+                <span class="token-pill live">AI працює</span>
+                <span class="token-pill">Шліфування</span>
+              </div>
+              <button class="send-button" aria-label="Надіслано">
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="prototype-card">
+        <div class="prototype-meta">
+          <div class="prototype-topline">
+            <span class="prototype-index">04</span>
+            <span class="prototype-chip">Riskier</span>
+          </div>
+          <h2>Text Shimmer</h2>
+          <p>Shimmer travels across the actual prompt copy. Stronger “processing this instruction” signal, but more sensitive to readability.</p>
+        </div>
+        <div class="composer-demo-wrap">
+          <div class="composer-demo variant-shimmer">
+            <div class="composer-top">
+              <span class="mode-pill active">Правка</span>
+              <span class="mode-pill">Правопис</span>
+              <span class="mode-pill">Врізка</span>
+              <span class="mode-pill">Візуал</span>
+              <button class="close-button" aria-label="Закрити">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div class="composer-main">
+              <div class="composer-shell" data-working="true">
+                <p class="composer-text">Перепакуй абзац у простішу книжкову українську<span class="composer-caret"></span></p>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <div class="token-group">
+                <span class="token-pill live">AI працює</span>
+                <span class="token-pill">Книжковий тон</span>
+              </div>
+              <button class="send-button" aria-label="Надіслано">
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="prototype-card">
+        <div class="prototype-meta">
+          <div class="prototype-topline">
+            <span class="prototype-index">05</span>
+            <span class="prototype-chip">Most distinctive</span>
+          </div>
+          <h2>Token Drift</h2>
+          <p>Tiny moving marks in the upper layer of the text area. Feels more “the model is parsing the prompt,” but more stylized than the others.</p>
+        </div>
+        <div class="composer-demo-wrap">
+          <div class="composer-demo variant-tokens">
+            <div class="composer-top">
+              <span class="mode-pill active">Правка</span>
+              <span class="mode-pill">Правопис</span>
+              <span class="mode-pill">Врізка</span>
+              <span class="mode-pill">Візуал</span>
+              <button class="close-button" aria-label="Закрити">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div class="composer-main">
+              <div class="composer-shell" data-working="true">
+                <p class="composer-text">Перероби фрагмент без втрати сенсу й авторського наміру<span class="composer-caret"></span></p>
+              </div>
+            </div>
+            <div class="composer-footer">
+              <div class="token-group">
+                <span class="token-pill live">AI працює</span>
+                <span class="token-pill">Локальна дія</span>
+              </div>
+              <button class="send-button" aria-label="Надіслано">
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <p class="footer-note">
+      Suggested production path: start with <strong>Scan Sweep</strong> or <strong>Breathing Wash</strong>. They fit the current UI direction best and are least likely to age badly once merged into the real floating composer.
+    </p>
+  </main>
+</body>
+</html>

@@ -39,6 +39,13 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-11 00:00Z) Resolved local `esbuild` platform mismatch and restored green `npm test -w @orest/web` execution in this workspace.
 - [x] (2026-03-11 00:00Z) Added reusable browser QA command `npm run qa:inline-review -w @orest/web` and validated password-gated inline execution flow (single-lane anchors + manual `callout`/`visual`).
 - [x] (2026-03-11 00:00Z) Completed callout/visual/rewrite-simplify UX pass: hidden callout prompt UI, visual caption parsing+editing, insertion-context labels, collapsible rationale section, no-op warning state for rewrite/simplify, and markdown-leakage cleanup in replace normalization.
+- [x] (2026-03-25 00:00Z) Hardened manuscript-toolbar interaction so inline formatting preserves range selection, list toggles can exit back to paragraphs, and focused spellcheck wrappers no longer force needless active-editor DOM rewrites.
+- [x] (2026-03-25 00:00Z) Switched local `list` intent to the review-backed proposal flow, restored visible bullet prefixes in the green diff editor, and added manual-list router/item regression coverage.
+- [x] (2026-03-25 00:00Z) Restored review-card recovery for manual local generation by binding manual cards to visible workflow steps and exposing rerun from completed-card views after dismissal.
+- [x] (2026-03-25 00:00Z) Removed the broken inline link affordance, added local send-button spinner states, preserved spellcheck findings across separate untouched-block runs, surfaced local patch results inline, and taught fallback list rewrites to produce a visible paragraph draft.
+- [x] (2026-03-25 00:00Z) Added session-scoped manuscript undo/redo plus persisted accepted-change compare snapshots, with top-bar controls, keyboard shortcuts, and a focused `Було` / `Стало` compare dialog.
+- [x] (2026-03-25 00:00Z) Fixed the destructive empty-list-item `Enter` path so exiting a list no longer wipes the entire block, and normalized provider fetch failures to a user-facing fallback message instead of raw `fetch failed`.
+- [x] (2026-03-26 00:00Z) Added a narrow AI-formatting policy: proposals may carry sparse `**bold**` emphasis, the diff/apply path preserves those markers, and accepted content lands as real inline `bold` in the manuscript.
 
 ## Surprises & Discoveries
 
@@ -62,6 +69,10 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Observation: browser QA is now scriptable and repeatable from the repo.
   Evidence: `apps/web/scripts/qa-inline-review.mjs` executes login, selection, manual generation, and single-lane assertions; command is exposed as `npm run qa:inline-review -w @orest/web`.
+- Observation: preserving DOM node ranges is not enough for toolbar formatting inside `contentEditable`.
+  Evidence: runtime QA on 2026-03-25 showed `execCommand("bold")` still collapsed selection after click until toolbar actions switched to `mousedown` execution with cached text-offset restoration.
+- Observation: manual local review items were already grouped into workflow steps, but the drawer did not switch to those steps automatically.
+  Evidence: `mapReviewItemsByStep(...)` in `apps/web/app/editor/page.tsx` grouped manual `list` items under `formatting`, yet the UI stayed on the previous step, making dismissed cards unreachable in practice.
 
 - Observation: the first post-migration diff editor was structurally incompatible with multi-block review replacements.
   Evidence: `apps/web/components/editor/BlockDiffOverlay.tsx` used one textarea for all replacement blocks and `apps/web/app/editor/page.tsx` wrote that single edited string back into every block of the proposal.
@@ -77,6 +88,15 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 
 - Observation: enforcing replace block-count constraints at review-action normalization avoids breaking generic local patch behavior while still protecting review execution anchors.
   Evidence: `apps/web/lib/server/review-action-service.ts` now normalizes overflow/underflow output by recommendation type before publishing `text_diff`.
+
+- Observation: local `patch` requests were still updating only background patch state, while the manuscript surface renders replace drafts from `activeProposal`.
+  Evidence: runtime QA on 2026-03-25 showed `Переписати` returning `replace_blocks` from `/api/edit/patch` with no visible result until the first local patch operation was promoted into the inline diff lane in `apps/web/app/editor/page.tsx`.
+- Observation: “undo” and “compare previous text” are related trust needs, but they should not share the same storage model.
+  Evidence: manuscript recovery needs cheap in-memory mutation snapshots for immediate reversal, while accepted-change inspection needs durable before/after evidence that survives refresh in browser draft state.
+- Observation: list editing needs a separate “exit list” path, not the same conversion behavior as deleting a whole list block.
+  Evidence: handling `Enter` on an empty list item by replacing the whole block with a paragraph caused the entire list content to disappear when the editor created a trailing empty bullet and pressed `Enter` again.
+- Observation: the request for “AI bold accents” is mostly a transport problem, not a rendering primitive problem.
+  Evidence: the editor model already supports inline `bold`, but review/prompt contracts, sanitizers, and diff editors were flattening generated text to plain strings before apply.
 
 ## Decision Log
 
@@ -135,6 +155,17 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - Decision: visual prompt proposals accept dual-mode provider output: preferred JSON (`prompt`, optional `caption`, optional `alt`) with plain-text fallback.
   Rationale: this allows richer media metadata when available while preserving backward compatibility with current provider behavior.
   Date/Author: 2026-03-11 / Codex implementation
+- Decision: local `list` intent now uses the review/proposal pipeline rather than the generic patch executor, and manual local generations auto-select the workflow step that surfaces their cards in the right drawer.
+  Rationale: list output needs review-backed normalization and visible diff editing, while dismissed manual cards must remain recoverable after the undo timeout expires.
+  Date/Author: 2026-03-25 / Codex implementation
+
+- Decision: undo/redo is implemented as a manuscript-only in-session mutation history, while `Порівняти` persists compact before/after snapshots for accepted editorial changes.
+  Rationale: these features answer different user jobs. Undo must be fast and local to the current editing session; compare must remain available later as trust evidence without pretending to be full revision control.
+  Date/Author: 2026-03-25 / Codex implementation
+
+- Decision: generated editorial text may use only sparse `**bold**` markers as the single supported formatting transport across proposal parsing and diff editing.
+  Rationale: this keeps the AI-formatting feature useful but narrow. The manuscript receives real inline bold after apply, while the proposal editor can still remain text-based without becoming a general markdown surface.
+  Date/Author: 2026-03-26 / Codex implementation
 
 ## Outcomes & Retrospective
 
@@ -143,6 +174,16 @@ The first implementation milestone is now complete. The runtime contract no long
 Validation is complete for this phase. `npm run typecheck -w @orest/web`, `npm run build -w @orest/web`, `npm run test -w @orest/web`, and `npm run qa:inline-review -w @orest/web` pass in this workspace.
 
 The review execution path is now materially safer than before this bugfix pass. Multi-block replace proposals no longer collapse into one repeated string during inline editing, the manuscript no longer creates fake empty placeholder blocks while AI is preparing a recommendation, and `callout`/`visual` execution now happens from one manuscript-side pendant card below the highlighted anchor range. `Subsection` execution is now also live: recommendation preparation yields an editable heading/lead draft, and apply inserts it before the first affected block. Replace-type proposals now enforce recommendation-specific block-count constraints so anchor stability is preserved (`rewrite/simplify/expand` exact count, `list` capped by selection size). Prompt contracts are now centralized and explicit about plain-text editor-compatible output, with per-kind callout guardrails. Browser QA for inline execution is now codified as a repeatable command rather than an ad-hoc manual check.
+
+The 2026-03-25 follow-up pass tightened the manual editing surface rather than the model contract. Toolbar formatting now preserves the selected inline range instead of jumping to block start, list toggles can return cleanly to paragraphs, focused spellcheck-marked blocks no longer get their DOM replaced on every wrapper-only render, and manually inserted callouts now expose a kind selector directly in the manuscript. Local `list` intent also now runs through the review-backed proposal flow, which keeps the green diff editor visibly bullet-shaped and preserves regenerate/apply semantics. Finally, manual local cards now switch the drawer to a step that actually shows them, so dismissed cards remain recoverable through `Показати завершені` and `Підготувати знову`.
+
+The second 2026-03-25 follow-up pass closed the local-composer QA loop. The manuscript toolbar no longer exposes a broken inline link action, manual callouts now use one compact inline kind select without the duplicate chip label, local `Правопис` and `Переписати` sends show an explicit in-button spinner, repeated spellcheck runs keep earlier untouched underlines alive by merging results per block, and local patch responses now open the inline diff lane immediately. On the fallback path, list rewrites no longer degrade into identical list clones: the server collapses standalone list blocks into a visible paragraph draft so the editor still receives a reviewable result.
+
+The Epic 5 follow-up pass added the first explicit reversibility layer on top of the block editor. Manuscript mutations now register session-scoped undo/redo snapshots with top-bar controls and keyboard shortcuts, so editors can back out of manual edits, direct spellcheck applies, accepted AI replacements, and inserted blocks without refreshing the document. Separately, accepted AI text changes and direct spellcheck corrections now persist compact `Було` / `Стало` compare snapshots in draft state and expose them through a focused compare dialog. This gives the editor a lightweight way to inspect meaning-preserving changes later without claiming full document version history.
+
+The latest stability pass closed two sharp edges from manual QA. Empty trailing bullets now exit the list safely by removing only the empty item and inserting a new empty paragraph after the list, rather than replacing the whole list block. On the provider side, raw undici-style `fetch failed` exceptions are now normalized into a user-facing “provider unavailable or network not responding” fallback message, while raw diagnostics still keep the underlying error for debugging.
+
+The Epic 6 pass added a narrow formatting layer for AI-generated editorial text without reopening markdown as an editing mode. Replace proposals, local patch loose-text normalization, callout drafts, subsection leads, and the inline diff editor now preserve sparse `**...**` emphasis markers end-to-end. Unsupported markdown is still stripped. In practice, this means the proposal/edit transport remains text-based, but once the editor applies a change, the manuscript renders true inline bold on the emphasized phrase.
 
 ## Context and Orientation
 

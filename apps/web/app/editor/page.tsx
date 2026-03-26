@@ -15,6 +15,8 @@ import {
   createBlockId,
   createEmptyParagraphBlock,
   createInlineText,
+  cloneBlock,
+  cloneEditorDocument,
   documentToPlainText,
   EMPTY_BLOCK_SELECTION,
   getBlockText,
@@ -27,6 +29,7 @@ import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, type PersistedWorkflowStepId } from "../../lib/editor/draft-state";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
+import { parseBoldMarkdownToInlineNodes } from "../../lib/editor/inline-markup";
 import {
   computeAnchorFingerprint,
   deriveManuscriptRevisionState,
@@ -34,6 +37,16 @@ import {
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
 import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
+import {
+  createCompareHistoryEntry,
+  createMutationEntry,
+  createMutationSnapshot,
+  pushMutationEntry,
+  type CompareHistoryEntry,
+  type EditorMutationEntry,
+  type EditorMutationKind,
+  type EditorSpellcheckSnapshot
+} from "../../lib/editor/change-history";
 import {
   inferLocalActionRoute,
   type LocalActionMode,
@@ -113,6 +126,7 @@ import {
   Table2,
   Target,
   Trash2,
+  X,
   Upload
 } from "lucide-react";
 
@@ -123,6 +137,29 @@ interface RequestFeedback {
 
 interface DismissUndoState {
   item: EditorialReviewItem;
+}
+
+interface CompareEntryDraft {
+  label: string;
+  kind: EditorMutationKind;
+  blockIds: string[];
+  beforeBlocks: Block[];
+  afterBlocks: Block[];
+}
+
+interface CommitDocumentOptions {
+  preserveSpellcheck?: boolean;
+  suppressHistory?: boolean;
+  spellcheckState?: EditorSpellcheckSnapshot;
+  history?:
+    | {
+        kind: EditorMutationKind;
+        label: string;
+        blockIds?: string[];
+        mergeKey?: string;
+        compare?: CompareEntryDraft | null;
+      }
+    | null;
 }
 
 const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
@@ -141,7 +178,7 @@ const defaultLocalActionMode = "auto" as const;
 const defaultLocalTextIntent = "rewrite" as const;
 
 type ComposerMode = "local" | "review" | null;
-type ManualGenerationKind = "callout" | "visual";
+type ManualGenerationKind = "callout" | "visual" | "list";
 type WorkflowStepId = PersistedWorkflowStepId;
 type TopActionMenuId = "open" | "save" | null;
 
@@ -177,6 +214,10 @@ export default function EditorPage() {
   const [reviewDiagnostics, setReviewDiagnostics] = useState<EditorialReviewDiagnostics | null>(null);
   const [feedback, setFeedback] = useState<RequestFeedback | null>(null);
   const [history, setHistory] = useState<RequestHistoryItem[]>([]);
+  const [mutationHistoryPast, setMutationHistoryPast] = useState<EditorMutationEntry[]>([]);
+  const [mutationHistoryFuture, setMutationHistoryFuture] = useState<EditorMutationEntry[]>([]);
+  const [compareHistory, setCompareHistory] = useState<CompareHistoryEntry[]>([]);
+  const [activeCompareEntryId, setActiveCompareEntryId] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState("");
   const [activeReviewItemId, setActiveReviewItemId] = useState<string | null>(null);
   const [activeProposal, setActiveProposal] = useState<ReviewActionProposal | null>(null);
@@ -285,6 +326,7 @@ export default function EditorPage() {
       setStepRunModeByStep(draft.stepRunModeByStep ?? createDefaultStepRunModeMap("replace"));
       setFeedback(draft.feedback);
       setHistory(draft.history);
+      setCompareHistory(draft.compareHistory ?? []);
       setActiveReviewItemId(draft.activeReviewItemId);
       setActiveProposal(draft.activeProposal);
       setReviewComposer(draft.reviewComposer ?? defaultReviewComposer);
@@ -298,16 +340,168 @@ export default function EditorPage() {
     setReviewRefineInstruction("");
   }, [activeReviewItemId]);
 
-  function clearSpellcheckResults() {
-    setSpellcheckResults([]);
-    setSpellcheckMeta(null);
-    setSpellcheckSummary(null);
-    setSpellcheckSecondarySummary(null);
-    setSpellcheckInvalidatedCount(0);
+  const activeCompareEntry = useMemo(
+    () => (activeCompareEntryId ? compareHistory.find((entry) => entry.id === activeCompareEntryId) ?? null : null),
+    [activeCompareEntryId, compareHistory]
+  );
+  const canUndo = mutationHistoryPast.length > 0;
+  const canRedo = mutationHistoryFuture.length > 0;
+
+  function registerMutation(
+    nextDocument: EditorDocument,
+    nextSelection: BlockSelection,
+    nextFocusedBlockId: string | null,
+    historyOptions: NonNullable<CommitDocumentOptions["history"]>,
+    nextSpellcheckState: EditorSpellcheckSnapshot
+  ) {
+    const timestamp = Date.now();
+    const entryId = createPatchId("mutation");
+    const blockIds = historyOptions.blockIds ?? deriveChangedBlockIds(document, nextDocument);
+
+    if (blockIds.length === 0 && !historyOptions.compare) {
+      return;
+    }
+
+    const entry = createMutationEntry({
+      id: entryId,
+      kind: historyOptions.kind,
+      label: historyOptions.label,
+      timestamp,
+      timestampLabel: historyTimeFormatter.format(new Date(timestamp)),
+      blockIds,
+      mergeKey: historyOptions.mergeKey,
+      before: createMutationSnapshot({
+        document,
+        selection: normalizedSelection,
+        focusedBlockId,
+        spellcheck: captureCurrentSpellcheckState()
+      }),
+      after: createMutationSnapshot({
+        document: nextDocument,
+        selection: nextSelection,
+        focusedBlockId: nextFocusedBlockId,
+        spellcheck: nextSpellcheckState
+      })
+    });
+
+    setMutationHistoryPast((current) => pushMutationEntry(current, entry));
+    setMutationHistoryFuture([]);
+
+    if (historyOptions.compare && historyOptions.compare.beforeBlocks.length > 0 && historyOptions.compare.afterBlocks.length > 0) {
+      const compareEntry = createCompareHistoryEntry({
+        id: entryId,
+        kind: historyOptions.compare.kind,
+        label: historyOptions.compare.label,
+        timestampLabel: historyTimeFormatter.format(new Date(timestamp)),
+        blockIds: historyOptions.compare.blockIds,
+        beforeBlocks: historyOptions.compare.beforeBlocks,
+        afterBlocks: historyOptions.compare.afterBlocks
+      });
+
+      setCompareHistory((current) => [compareEntry, ...current.filter((candidate) => candidate.id !== compareEntry.id)].slice(0, 20));
+    }
   }
 
-  function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta, invalidatedCount = spellcheckInvalidatedCount) {
-    setSpellcheckMeta(meta);
+  function applySnapshot(snapshot: {
+    document: EditorDocument;
+    selection: BlockSelection;
+    focusedBlockId: string | null;
+    spellcheck?: EditorSpellcheckSnapshot;
+  }) {
+    const nextDocument = cloneEditorDocument(snapshot.document);
+    const nextRevision = deriveManuscriptRevisionState(nextDocument);
+
+    setDocument(nextDocument);
+    setRevision(nextRevision);
+    setSelection(normalizeBlockSelection(nextDocument, snapshot.selection));
+    setFocusedBlockId(snapshot.focusedBlockId ?? snapshot.selection.focusBlockId ?? snapshot.selection.anchorBlockId ?? nextDocument.blocks[0]?.id ?? null);
+    setReviewItems((current) => reconcileReviewItemsWithRevision(current, nextDocument, nextRevision));
+    setOperations([]);
+    setPatchDiagnostics(null);
+    setActiveProposal(null);
+    setActiveReviewItemId(null);
+    applySpellcheckState(snapshot.spellcheck ?? createEmptySpellcheckState());
+  }
+
+  function undoLastMutation() {
+    const entry = mutationHistoryPast.at(-1);
+
+    if (!entry) {
+      return;
+    }
+
+    applySnapshot(entry.before);
+    setMutationHistoryPast((current) => current.slice(0, -1));
+    setMutationHistoryFuture((current) => [...current, entry]);
+    setFeedback({ tone: "info", message: `Скасовано: ${entry.label.toLowerCase()}.` });
+  }
+
+  function redoLastMutation() {
+    const entry = mutationHistoryFuture.at(-1);
+
+    if (!entry) {
+      return;
+    }
+
+    applySnapshot(entry.after);
+    setMutationHistoryFuture((current) => current.slice(0, -1));
+    setMutationHistoryPast((current) => [...current.slice(Math.max(0, current.length - 49)), entry]);
+    setFeedback({ tone: "info", message: `Повторено: ${entry.label.toLowerCase()}.` });
+  }
+
+  function handleManualDocumentChange(nextDocument: EditorDocument) {
+    const changedBlockIds = deriveChangedBlockIds(document, nextDocument);
+
+    commitDocument(nextDocument, {
+      history: {
+        kind: "manual_edit",
+        label: "Ручне редагування",
+        blockIds: changedBlockIds,
+        mergeKey: changedBlockIds.length > 0 ? `manual:${changedBlockIds.join("|")}` : "manual"
+      }
+    });
+  }
+
+  function clearSpellcheckResults() {
+    applySpellcheckState(createEmptySpellcheckState());
+  }
+
+  function mergeSpellcheckBlockResults(
+    currentResults: SpellcheckBlockResult[],
+    nextResults: SpellcheckBlockResult[]
+  ): SpellcheckBlockResult[] {
+    const nextByBlockId = new Map(nextResults.map((result) => [result.blockId, result]));
+    const currentByBlockId = new Map(currentResults.map((result) => [result.blockId, result]));
+
+    return document.blocks
+      .map((block) => nextByBlockId.get(block.id) ?? currentByBlockId.get(block.id) ?? null)
+      .filter((result): result is SpellcheckBlockResult => Boolean(result));
+  }
+
+  function buildSpellcheckSummaryMeta(results: SpellcheckBlockResult[], skippedCount: number): SpellcheckSummaryMeta {
+    return {
+      checkedBlockCount: results.length,
+      issueCount: countSpellcheckIssues(results),
+      skippedCount,
+      errorCount: results.filter((entry) => Boolean(entry.error)).length
+    };
+  }
+
+  function createEmptySpellcheckState(): EditorSpellcheckSnapshot {
+    return {
+      results: [],
+      meta: null,
+      summary: null,
+      secondarySummary: null,
+      invalidatedCount: 0
+    };
+  }
+
+  function createSpellcheckState(
+    results: SpellcheckBlockResult[],
+    meta: SpellcheckSummaryMeta,
+    invalidatedCount = spellcheckInvalidatedCount
+  ): EditorSpellcheckSnapshot {
     const nextSummary =
       meta.issueCount > 0
         ? `Знайдено ${meta.issueCount} проблем у ${results.filter((result) => result.issues.length > 0).length} абз.`
@@ -326,9 +520,88 @@ export default function EditorPage() {
       secondaryParts.push(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
     }
 
-    setSpellcheckResults(results);
-    setSpellcheckSummary(nextSummary);
-    setSpellcheckSecondarySummary(secondaryParts.length > 0 ? secondaryParts.join(" · ") : null);
+    return {
+      results,
+      meta,
+      summary: nextSummary,
+      secondarySummary: secondaryParts.length > 0 ? secondaryParts.join(" · ") : null,
+      invalidatedCount
+    };
+  }
+
+  function createInvalidatedSpellcheckState(invalidatedCount: number): EditorSpellcheckSnapshot {
+    return {
+      results: [],
+      meta: null,
+      summary: "У перевірених абзацах є зміни.",
+      secondarySummary: `Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`,
+      invalidatedCount
+    };
+  }
+
+  function captureCurrentSpellcheckState(): EditorSpellcheckSnapshot {
+    if (!spellcheckMeta) {
+      return {
+        results: spellcheckResults,
+        meta: null,
+        summary: spellcheckSummary,
+        secondarySummary: spellcheckSecondarySummary,
+        invalidatedCount: spellcheckInvalidatedCount
+      };
+    }
+
+    return createSpellcheckState(spellcheckResults, spellcheckMeta, spellcheckInvalidatedCount);
+  }
+
+  function applySpellcheckState(state: EditorSpellcheckSnapshot) {
+    setSpellcheckResults(state.results);
+    setSpellcheckMeta(state.meta);
+    setSpellcheckSummary(state.summary);
+    setSpellcheckSecondarySummary(state.secondarySummary);
+    setSpellcheckInvalidatedCount(state.invalidatedCount);
+  }
+
+  function resolveSpellcheckStateAfterDocumentCommit(
+    nextDocument: EditorDocument,
+    options?: CommitDocumentOptions
+  ): EditorSpellcheckSnapshot {
+    if (options?.spellcheckState) {
+      return options.spellcheckState;
+    }
+
+    if (options?.preserveSpellcheck) {
+      return captureCurrentSpellcheckState();
+    }
+
+    if (spellcheckResults.length === 0) {
+      return createEmptySpellcheckState();
+    }
+
+    const nextSpellcheckResults = invalidateSpellcheckResultsForChangedBlocks(document, nextDocument, spellcheckResults);
+    const invalidatedCount = Math.max(0, spellcheckResults.length - nextSpellcheckResults.length);
+
+    if (nextSpellcheckResults.length === 0) {
+      return spellcheckResults.length > 0 && invalidatedCount > 0
+        ? createInvalidatedSpellcheckState(invalidatedCount)
+        : createEmptySpellcheckState();
+    }
+
+    const nextInvalidatedCount = spellcheckInvalidatedCount + invalidatedCount;
+
+    return createSpellcheckState(
+      nextSpellcheckResults,
+      {
+        checkedBlockCount: nextSpellcheckResults.length,
+        issueCount: countSpellcheckIssues(nextSpellcheckResults),
+        skippedCount: spellcheckMeta?.skippedCount ?? 0,
+        errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
+      },
+      nextInvalidatedCount
+    );
+  }
+
+  function updateSpellcheckSummary(results: SpellcheckBlockResult[], meta: SpellcheckSummaryMeta, invalidatedCount = spellcheckInvalidatedCount) {
+    applySpellcheckState(createSpellcheckState(results, meta, invalidatedCount));
   }
 
   function persistVisualStylePreset(preset: VisualStylePreset) {
@@ -359,6 +632,7 @@ export default function EditorPage() {
       stepRunModeByStep,
       history,
       appliedDiffs: [],
+      compareHistory,
       feedback,
       activeReviewItemId,
       activeProposal,
@@ -373,6 +647,7 @@ export default function EditorPage() {
     feedback,
     hasHydratedDraft,
     history,
+    compareHistory,
     normalizedSelection,
     operations,
     patchDiagnostics,
@@ -408,44 +683,59 @@ export default function EditorPage() {
     []
   );
 
-  function commitDocument(nextDocument: EditorDocument, options?: { preserveSpellcheck?: boolean }) {
+  useEffect(() => {
+    function handleUndoRedoHotkeys(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+
+      if (target && (target.closest("input, textarea, select") || target.closest('[contenteditable="true"]'))) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "z" && event.shiftKey) {
+        event.preventDefault();
+        redoLastMutation();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redoLastMutation();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undoLastMutation();
+      }
+    }
+
+    window.addEventListener("keydown", handleUndoRedoHotkeys);
+    return () => window.removeEventListener("keydown", handleUndoRedoHotkeys);
+  }, [mutationHistoryFuture.length, mutationHistoryPast.length]);
+
+  function commitDocument(nextDocument: EditorDocument, options?: CommitDocumentOptions) {
     const nextRevision = deriveManuscriptRevisionState(nextDocument);
-    const nextSpellcheckResults =
-      !options?.preserveSpellcheck && spellcheckResults.length > 0
-        ? invalidateSpellcheckResultsForChangedBlocks(document, nextDocument, spellcheckResults)
-        : spellcheckResults;
-    const invalidatedCount = Math.max(0, spellcheckResults.length - nextSpellcheckResults.length);
+    const nextSpellcheckState = resolveSpellcheckStateAfterDocumentCommit(nextDocument, options);
+    const nextSelection = normalizeBlockSelection(nextDocument, normalizedSelection);
+    const nextFocusedBlockId =
+      focusedBlockId && nextDocument.blocks.some((block) => block.id === focusedBlockId)
+        ? focusedBlockId
+        : nextSelection.focusBlockId ?? nextSelection.anchorBlockId ?? nextDocument.blocks[0]?.id ?? null;
+
+    if (!options?.suppressHistory && options?.history) {
+      registerMutation(nextDocument, nextSelection, nextFocusedBlockId, options.history, nextSpellcheckState);
+    }
 
     setDocument(nextDocument);
     setRevision(nextRevision);
-    setSelection((current) => normalizeBlockSelection(nextDocument, current));
+    setSelection(nextSelection);
+    setFocusedBlockId(nextFocusedBlockId);
     setReviewItems((current) => reconcileReviewItemsWithRevision(current, nextDocument, nextRevision));
-
-    if (options?.preserveSpellcheck) {
-      return;
-    }
-
-    if (nextSpellcheckResults.length === 0) {
-      if (spellcheckResults.length > 0 && invalidatedCount > 0) {
-        setSpellcheckResults([]);
-        setSpellcheckMeta(null);
-        setSpellcheckSummary("У перевірених абзацах є зміни.");
-        setSpellcheckSecondarySummary(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
-        setSpellcheckInvalidatedCount(invalidatedCount);
-      } else {
-        clearSpellcheckResults();
-      }
-      return;
-    }
-
-    const nextInvalidatedCount = spellcheckInvalidatedCount + invalidatedCount;
-    setSpellcheckInvalidatedCount(nextInvalidatedCount);
-    updateSpellcheckSummary(nextSpellcheckResults, {
-      checkedBlockCount: nextSpellcheckResults.length,
-      issueCount: countSpellcheckIssues(nextSpellcheckResults),
-      skippedCount: spellcheckMeta?.skippedCount ?? 0,
-      errorCount: nextSpellcheckResults.filter((entry) => Boolean(entry.error)).length
-    }, nextInvalidatedCount);
+    applySpellcheckState(nextSpellcheckState);
   }
 
   function createBlankDocument(): EditorDocument {
@@ -479,6 +769,10 @@ export default function EditorPage() {
     setFactCheckRows([]);
     setFeedback(nextFeedback);
     setHistory([]);
+    setMutationHistoryPast([]);
+    setMutationHistoryFuture([]);
+    setCompareHistory([]);
+    setActiveCompareEntryId(null);
     setActiveReviewItemId(null);
     setActiveProposal(null);
     setReviewComposer(defaultReviewComposer);
@@ -590,6 +884,8 @@ export default function EditorPage() {
 
     setIsPatchRequestInFlight(true);
     setFeedback(null);
+    setActiveProposal(null);
+    setActiveReviewItemId(null);
 
     try {
       const requestBody = {
@@ -629,6 +925,34 @@ export default function EditorPage() {
       }
 
       setOperations(payload.operations);
+      const primaryOperation = payload.operations.find((operation) => operation.op === "replace_blocks");
+
+      if (primaryOperation) {
+        setActiveProposal(
+          buildLocalPatchProposal(
+            primaryOperation,
+            revision.documentRevisionId,
+            noOpAssessment.isNoOp
+              ? {
+                  code: "no_op",
+                  message: nextFeedback.message,
+                  similarity: noOpAssessment.maxSimilarity
+                }
+              : undefined
+          )
+        );
+        setFocusedBlockId(primaryOperation.blockIds.at(-1) ?? primaryOperation.blockIds[0] ?? null);
+
+        const anchorBlockId = primaryOperation.blockIds[0];
+
+        if (anchorBlockId) {
+          window.requestAnimationFrame(() => {
+            const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
+            element?.scrollIntoView({ block: "center", behavior: "smooth" });
+          });
+        }
+      }
+
       setPatchDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
       pushHistoryEntry(
@@ -735,22 +1059,19 @@ export default function EditorPage() {
         }
       }
 
-      const results = spellcheckTargets
+      const runResults = spellcheckTargets
         .map((target) => resultsMap.get(target.blockId))
         .filter((result): result is SpellcheckBlockResult => Boolean(result));
-      const issueCount = countSpellcheckIssues(results);
-      const errorCount = results.filter((result) => Boolean(result.error)).length;
-      const summary: SpellcheckSummaryMeta = {
-        checkedBlockCount: results.length,
-        issueCount,
-        skippedCount,
-        errorCount
-      };
-      updateSpellcheckSummary(results, summary, 0);
+      const mergedResults = mergeSpellcheckBlockResults(spellcheckResults, runResults);
+      const issueCount = countSpellcheckIssues(runResults);
+      const errorCount = runResults.filter((result) => Boolean(result.error)).length;
+      const summary = buildSpellcheckSummaryMeta(mergedResults, skippedCount);
+      setActiveWorkflowStep("spellcheck");
+      updateSpellcheckSummary(mergedResults, summary, 0);
       const nextSummary =
-        summary.issueCount > 0
-          ? `Знайдено ${summary.issueCount} проблем у ${results.filter((result) => result.issues.length > 0).length} абз.`
-          : `Помилок не знайдено у ${summary.checkedBlockCount} абз.`;
+        issueCount > 0
+          ? `Знайдено ${issueCount} проблем у ${runResults.filter((result) => result.issues.length > 0).length} абз.`
+          : `Помилок не знайдено у ${runResults.length} абз.`;
       setFeedback({
         tone: errorCount > 0 ? "error" : "info",
         message: nextSummary
@@ -849,7 +1170,27 @@ export default function EditorPage() {
     };
 
     setSpellcheckInvalidatedCount(0);
-    commitDocument(nextDocument, { preserveSpellcheck: true });
+    const previousChangedBlock = document.blocks.find((entry) => entry.id === input.blockId);
+    const nextChangedBlock = nextDocument.blocks.find((entry) => entry.id === input.blockId);
+    commitDocument(nextDocument, {
+      preserveSpellcheck: true,
+      spellcheckState: createSpellcheckState(nextSpellcheckResults, summaryMeta, 0),
+      history: {
+        kind: "spellcheck_apply",
+        label: "Виправлення правопису",
+        blockIds: [input.blockId],
+        compare:
+          previousChangedBlock && nextChangedBlock
+            ? {
+                kind: "spellcheck_apply",
+                label: "Виправлення правопису",
+                blockIds: [input.blockId],
+                beforeBlocks: [previousChangedBlock],
+                afterBlocks: [nextChangedBlock]
+              }
+            : null
+      }
+    });
     updateSpellcheckSummary(nextSpellcheckResults, summaryMeta, 0);
     setFeedback({ tone: "info", message: "Правопис виправлено." });
   }
@@ -931,6 +1272,13 @@ export default function EditorPage() {
 
       if (payload.executor === "patch") {
         await requestPatch(payload.requestMode, payload.prompt);
+        return;
+      }
+
+      if (payload.executor === "review") {
+        await requestManualInsert("list", {
+          editorialInstruction: payload.prompt
+        });
         return;
       }
 
@@ -1211,7 +1559,7 @@ export default function EditorPage() {
       editorialInstruction?: string;
     }
   ) {
-    const blockIds = normalizedSelection.blockIds;
+    const blockIds = resolveTargetBlockIds();
 
     if (blockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для ручної генерації." });
@@ -1219,8 +1567,9 @@ export default function EditorPage() {
     }
 
     resetActiveExecutionLane();
+    setActiveWorkflowStep(getWorkflowStepForManualKind(kind));
 
-    const recommendationType = kind === "callout" ? "callout" : "visual";
+    const recommendationType = kind === "callout" ? "callout" : kind === "visual" ? "visual" : "list";
     if (kind === "visual") {
       persistVisualStylePreset(overrides?.visualStylePreset ?? visualStylePreset);
     }
@@ -1232,7 +1581,9 @@ export default function EditorPage() {
       recommendationType,
       calloutKind: overrides?.calloutKind ?? manualCalloutKind,
       visualIntent: overrides?.visualIntent ?? manualVisualIntent,
-      manualInstruction: overrides?.editorialInstruction ?? (kind === "callout" ? manualCalloutPrompt : manualVisualPrompt)
+      manualInstruction:
+        overrides?.editorialInstruction ??
+        (kind === "callout" ? manualCalloutPrompt : kind === "visual" ? manualVisualPrompt : customPrompt)
     });
     const upserted = upsertManualReviewItem(reviewItems, draftItem);
 
@@ -1257,7 +1608,20 @@ export default function EditorPage() {
 
     if (activeProposal.kind === "text_diff" && activeProposal.textDiff) {
       const nextDocument = replaceBlocksByIds(document, activeProposal.textDiff.blockIds, nextBlocks);
-      commitDocument(nextDocument);
+      commitDocument(nextDocument, {
+        history: {
+          kind: "ai_apply",
+          label: "ШІ правка",
+          blockIds: activeProposal.textDiff.blockIds,
+          compare: {
+            kind: "ai_apply",
+            label: activeProposal.summary || activeProposal.textDiff.reason || "ШІ правка",
+            blockIds: activeProposal.textDiff.blockIds,
+            beforeBlocks: activeProposal.textDiff.oldBlocks,
+            afterBlocks: nextBlocks
+          }
+        }
+      });
       focusAndHighlightChangedBlocks(activeProposal.textDiff.blockIds);
       reviewNoOpStreakRef.current[activeProposal.reviewItemId] = 0;
       setOperations((current) => current.filter((op) => op.id !== proposalId));
@@ -1556,11 +1920,17 @@ export default function EditorPage() {
       id: createBlockId("callout"),
       type: "callout",
       kind: item.calloutDraft.calloutKind,
-      title: [createInlineText(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind))],
+      title: parseBoldMarkdownToInlineNodes(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind)),
       body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText, item.calloutDraft.calloutKind)
     };
 
-    commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]));
+    commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]), {
+      history: {
+        kind: "insert_block",
+        label: "Вставка врізки",
+        blockIds: [block.id]
+      }
+    });
     focusAndHighlightChangedBlocks([block.id]);
     setReviewItems((current) =>
       current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -1587,7 +1957,7 @@ export default function EditorPage() {
         id: createBlockId("heading"),
         type: "heading",
         level: 3,
-        content: [createInlineText(title)]
+        content: parseBoldMarkdownToInlineNodes(title)
       }
     ];
 
@@ -1596,12 +1966,18 @@ export default function EditorPage() {
         ...splitTextIntoParagraphBlocks(lead).map((part) => ({
           id: createBlockId("paragraph"),
           type: "paragraph" as const,
-          content: [createInlineText(part)]
+          content: parseBoldMarkdownToInlineNodes(part)
         }))
       );
     }
 
-    commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks));
+    commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks), {
+      history: {
+        kind: "insert_block",
+        label: "Вставка підзаголовка",
+        blockIds: blocks.map((entry) => entry.id)
+      }
+    });
     focusAndHighlightChangedBlocks(blocks.map((entry) => entry.id));
     setReviewItems((current) =>
       current.map((entry) => (entry.id === item.id ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -1950,7 +2326,13 @@ export default function EditorPage() {
     };
 
     const item = reviewItems.find((entry) => entry.id === proposal.reviewItemId);
-    commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]));
+    commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]), {
+      history: {
+        kind: "insert_block",
+        label: "Вставка візуалу",
+        blockIds: [block.id]
+      }
+    });
     focusAndHighlightChangedBlocks([block.id]);
     setReviewItems((current) =>
       current.map((entry) => (entry.id === proposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
@@ -2004,7 +2386,13 @@ export default function EditorPage() {
       caption: [createInlineText("")]
     };
 
-    commitDocument(insertBlocksAfter(document, anchorBlockId, [block]));
+    commitDocument(insertBlocksAfter(document, anchorBlockId, [block]), {
+      history: {
+        kind: "insert_block",
+        label: "Вставка зображення",
+        blockIds: [block.id]
+      }
+    });
   }
 
   async function handleExportDocx() {
@@ -2335,7 +2723,7 @@ export default function EditorPage() {
               revision={revision}
               selection={normalizedSelection}
               focusedBlockId={focusedBlockId}
-              onDocumentChange={commitDocument}
+              onDocumentChange={handleManualDocumentChange}
               onSelectionChange={setSelection}
               onFocusedBlockChange={setFocusedBlockId}
               onInsertImage={handleInsertImage}
@@ -2368,6 +2756,12 @@ export default function EditorPage() {
               spellcheckResults={spellcheckResults}
               onApplySpellcheckSuggestion={applySpellcheckSuggestion}
               onDismissSpellcheckIssue={dismissSpellcheckIssue}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              canCompare={compareHistory.length > 0}
+              onUndo={undoLastMutation}
+              onRedo={redoLastMutation}
+              onCompare={() => setActiveCompareEntryId(compareHistory[0]?.id ?? null)}
             />
 
             {composerMode ? (
@@ -3032,12 +3426,155 @@ export default function EditorPage() {
         onStepSelect={(stepId) => selectWorkflowStep(stepId as WorkflowStepId)}
         initialDrawerWidth={560}
       />
+      {activeCompareEntry ? (
+        <div
+          className="change-compare-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setActiveCompareEntryId(null);
+            }
+          }}
+        >
+          <section className="change-compare-dialog" role="dialog" aria-modal="true" aria-label="Порівняння правки">
+            <header className="change-compare-head">
+              <div className="change-compare-head-copy">
+                <p className="change-compare-kicker mono-ui">Порівняння правки</p>
+                <h3 className="change-compare-title">Було / Стало</h3>
+                <p className="change-compare-summary" title={activeCompareEntry.label}>
+                  {activeCompareEntry.label}
+                </p>
+                <div className="change-compare-meta-row" aria-label="Деталі правки">
+                  <span className="change-compare-meta-chip mono-ui">{activeCompareEntry.timestampLabel}</span>
+                  <span className="change-compare-meta-chip mono-ui">{getCompareEntryKindLabel(activeCompareEntry.kind)}</span>
+                  <span className="change-compare-meta-chip mono-ui">{formatCompareEntryBlockCount(activeCompareEntry)} абз.</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="draft-reset-dialog-close"
+                onClick={() => setActiveCompareEntryId(null)}
+                aria-label="Закрити порівняння"
+              >
+                <X className="draft-reset-dialog-close-icon" aria-hidden="true" />
+              </button>
+            </header>
+            {compareHistory.length > 1 ? (
+              <div className="change-compare-toolbar">
+                <label className="change-compare-select-shell">
+                  <span className="change-compare-select-label mono-ui">Історія правок</span>
+                  <select
+                    value={activeCompareEntry.id}
+                    onChange={(event) => setActiveCompareEntryId(event.target.value)}
+                    aria-label="Вибрати правку для порівняння"
+                  >
+                    {compareHistory.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {formatCompareEntryOptionLabel(entry)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            <div className="change-compare-grid">
+              <section className="change-compare-panel">
+                <p className="mono-ui change-compare-panel-title">Було</p>
+                <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.beforeBlocks)}</pre>
+              </section>
+              <section className="change-compare-panel">
+                <p className="mono-ui change-compare-panel-title">Стало</p>
+                <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.afterBlocks)}</pre>
+              </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }
 
 function replaceTextRange(text: string, start: number, end: number, replacement: string): string {
   return `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+}
+
+function deriveChangedBlockIds(previousDocument: EditorDocument, nextDocument: EditorDocument): string[] {
+  const previousBlocks = new Map(previousDocument.blocks.map((block) => [block.id, block]));
+  const nextBlocks = new Map(nextDocument.blocks.map((block) => [block.id, block]));
+  const orderedIds = Array.from(new Set([...previousDocument.blocks.map((block) => block.id), ...nextDocument.blocks.map((block) => block.id)]));
+
+  return orderedIds.filter((blockId) => {
+    const previousBlock = previousBlocks.get(blockId);
+    const nextBlock = nextBlocks.get(blockId);
+
+    if (!previousBlock || !nextBlock) {
+      return true;
+    }
+
+    return JSON.stringify(previousBlock) !== JSON.stringify(nextBlock);
+  });
+}
+
+function formatCompareBlocks(blocks: Block[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === "bullet_list") {
+        return block.items
+          .map((item) => `• ${item.map((node) => node.text).join("")}`)
+          .join("\n");
+      }
+
+      if (block.type === "ordered_list") {
+        return block.items
+          .map((item, index) => `${index + 1}. ${item.map((node) => node.text).join("")}`)
+          .join("\n");
+      }
+
+      if (block.type === "callout") {
+        return [block.title.map((node) => node.text).join(""), ...block.body.map((paragraph) => paragraph.map((node) => node.text).join(""))]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+
+      if (block.type === "image") {
+        return [block.alt, block.caption?.map((node) => node.text).join("")].filter(Boolean).join("\n");
+      }
+
+      if (block.type === "table") {
+        return block.rows
+          .map((row) => row.map((cell) => cell.map((node) => node.text).join("")).join(" | "))
+          .join("\n");
+      }
+
+      if (block.type === "divider") {
+        return "────────";
+      }
+
+      return getBlockText(block);
+    })
+    .join("\n\n");
+}
+
+function getCompareEntryKindLabel(kind: EditorMutationKind): string {
+  switch (kind) {
+    case "manual_edit":
+      return "Ручне";
+    case "spellcheck_apply":
+      return "Правопис";
+    case "ai_apply":
+      return "ШІ";
+    case "insert_block":
+      return "Вставка";
+    default:
+      return "Правка";
+  }
+}
+
+function formatCompareEntryBlockCount(entry: CompareHistoryEntry): number {
+  return Math.max(entry.blockIds.length, entry.beforeBlocks.length, entry.afterBlocks.length, 1);
+}
+
+function formatCompareEntryOptionLabel(entry: CompareHistoryEntry): string {
+  return `${entry.timestampLabel} · ${getCompareEntryKindLabel(entry.kind)} · ${formatCompareEntryBlockCount(entry)} абз.`;
 }
 
 function shouldShowSpellcheckMessage(message: string): boolean {
@@ -3203,6 +3740,34 @@ function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean):
   };
 }
 
+function buildLocalPatchProposal(
+  operation: PatchOperation,
+  revisionId: string,
+  warning?: {
+    code: "no_op";
+    message: string;
+    similarity: number;
+  }
+): ReviewActionProposal {
+  return {
+    id: operation.id,
+    reviewItemId: operation.id,
+    sourceRevisionId: revisionId,
+    targetRevisionId: revisionId,
+    kind: "text_diff",
+    summary: operation.reason,
+    canApplyDirectly: true,
+    textDiff: {
+      op: "replace_blocks",
+      blockIds: operation.blockIds,
+      oldBlocks: operation.oldBlocks,
+      newBlocks: operation.newBlocks,
+      reason: operation.reason,
+      warning
+    }
+  };
+}
+
 function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk: boolean, sectionItemCount?: number): RequestFeedback {
   if (!responseOk || payload.error) {
     return {
@@ -3294,6 +3859,18 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<EditorialRev
   }
 
   return groups;
+}
+
+function getWorkflowStepForManualKind(kind: ManualGenerationKind): WorkflowStepId {
+  if (kind === "visual") {
+    return "visuals";
+  }
+
+  if (kind === "callout") {
+    return "interest";
+  }
+
+  return "formatting";
 }
 
 function buildFactCheckActionInstruction(item: EditorialReviewItem): string | null {
@@ -3796,7 +4373,7 @@ function splitCalloutDraftIntoParagraphs(text: string, kind: EditorialCalloutKin
       ? normalized.split("\n").map((part) => part.trim()).filter(Boolean)
       : normalized.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
 
-  return (parts.length > 0 ? parts : [""]).map((part) => [createInlineText(part)]);
+  return (parts.length > 0 ? parts : [""]).map((part) => parseBoldMarkdownToInlineNodes(part));
 }
 
 function splitTextIntoParagraphBlocks(text: string): string[] {

@@ -116,6 +116,7 @@ test("generatePatchResponse normalizes loose provider text replacement", async (
 test("generatePatchResponse sends Gemini API key via header instead of URL query", async () => {
   let requestedUrl = "";
   let requestHeaders = new Headers();
+  let requestBody = "";
 
   const response = await generatePatchResponse(
     createRequest({
@@ -127,6 +128,7 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
       fetchImpl: async (input, init) => {
         requestedUrl = String(input);
         requestHeaders = new Headers(init?.headers);
+        requestBody = typeof init?.body === "string" ? init.body : "";
 
         return new Response(
           JSON.stringify({
@@ -139,7 +141,7 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
                         operations: [
                           {
                             blockIds: ["p1"],
-                            newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
+                            replacements: ["Пояснений блок."],
                             reason: "Спростив блок.",
                             type: "clarity"
                           }
@@ -160,9 +162,91 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
 
   assert.equal(response.usedFallback, false);
   assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.equal(
+    response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0]?.text : "",
+    "Пояснений блок."
+  );
   assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
   assert.doesNotMatch(requestedUrl, /\?key=/);
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
+
+  const payload = JSON.parse(requestBody) as {
+    systemInstruction?: { parts?: Array<{ text?: string }> };
+    generationConfig?: {
+      responseSchema?: {
+        properties?: {
+          operations?: {
+            items?: {
+              properties?: {
+                replacements?: { type?: string; items?: { type?: string } };
+              };
+              required?: string[];
+            };
+          };
+        };
+      };
+      temperature?: number;
+    };
+  };
+
+  assert.equal(
+    payload.generationConfig?.responseSchema?.properties?.operations?.items?.properties?.replacements?.type,
+    "ARRAY"
+  );
+  assert.equal(
+    payload.generationConfig?.responseSchema?.properties?.operations?.items?.properties?.replacements?.items?.type,
+    "STRING"
+  );
+  assert.ok(payload.generationConfig?.responseSchema?.properties?.operations?.items?.required?.includes("replacements"));
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /Не повертай rich-text blocks, newBlocks/i);
+});
+
+test("generatePatchResponse preserves line breaks inside a single replacement block", async () => {
+  const response = await generatePatchResponse(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-test-key"
+    }),
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        operations: [
+                          {
+                            blockIds: ["p1"],
+                            replacements: ["Рядок один\nРядок два\nРядок три\nРядок чотири"],
+                            reason: "Перетворив фрагмент на короткий вірш.",
+                            type: "clarity"
+                          }
+                        ]
+                      })
+                    }
+                  ]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.equal(
+    response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0]?.text : "",
+    "Рядок один\nРядок два\nРядок три\nРядок чотири"
+  );
 });
 
 test("generatePatchResponse sends strict OpenAI patch schema with closed objects", async () => {
@@ -216,4 +300,52 @@ test("generatePatchResponse sends strict OpenAI patch schema with closed objects
 
   assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.additionalProperties, false);
   assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.properties?.newBlocks?.items?.additionalProperties, false);
+});
+
+test("generatePatchResponse fallback rewrites standalone lists into a visible paragraph draft", async () => {
+  const response = await generatePatchResponse(
+    createRequest({
+      document: {
+        version: 2,
+        blocks: [
+          {
+            id: "p1",
+            type: "bullet_list",
+            items: [[{ text: "Шкірні хвороби" }], [{ text: "Хронічні захворювання нирок" }], [{ text: "Синдром Рейтера" }]]
+          }
+        ]
+      },
+      prompt: "Перепиши це природною зв'язною мовою.",
+      mode: "custom"
+    }),
+    {
+      readEnvValue: () => null,
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.operations.length, 1);
+  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.match(response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0].text : "", /Шкірні хвороби, Хронічні захворювання нирок та Синдром Рейтера\./);
+});
+
+test("generatePatchResponse turns fetch failures into a user-facing provider availability message", async () => {
+  const response = await generatePatchResponse(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3-flash-preview",
+      apiKey: "gemini-test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        throw new TypeError("fetch failed");
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, true);
+  assert.match(response.error ?? "", /Gemini недоступний або мережа не відповідає/i);
+  assert.match(response.diagnostics.rawError ?? "", /fetch failed/i);
 });

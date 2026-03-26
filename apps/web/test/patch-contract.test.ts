@@ -10,6 +10,13 @@ import {
 } from "../lib/editor/patch-contract.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 
+function compact(nodes: Array<{ text: string; bold?: true; italic?: true; link?: string }>) {
+  return nodes.map((node) => ({
+    text: node.text,
+    ...(node.bold ? { bold: true as const } : {})
+  }));
+}
+
 function createDocument(): EditorDocument {
   return {
     version: 2,
@@ -99,4 +106,32 @@ test("normalizePatchOperationsResult accepts loose text blocks without explicit 
       : "",
     "Спростив пояснення без зайвих деталей."
   );
+});
+
+test("normalizePatchOperationsResult parses **bold** markers from loose replacement text", () => {
+  const document = createDocument();
+
+  const normalized = normalizePatchOperationsResult(document, ["p1"], [
+    {
+      newBlocks: [{ text: "Спростив **ключовий термін** для читача." }],
+      reason: "Спростив фрагмент.",
+      type: "clarity"
+    }
+  ]);
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.operations.length, 1);
+
+  const paragraph = normalized.operations[0]?.newBlocks[0];
+  assert.equal(paragraph?.type, "paragraph");
+
+  if (paragraph?.type !== "paragraph") {
+    assert.fail("Expected paragraph replacement block.");
+  }
+
+  assert.deepEqual(compact(paragraph.content), [
+    { text: "Спростив " },
+    { text: "ключовий термін", bold: true },
+    { text: " для читача." }
+  ]);
 });

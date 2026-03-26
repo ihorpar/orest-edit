@@ -25,16 +25,20 @@ import {
   getInlineText,
   hasSelectedBlocks,
   insertBlocksAfter,
+  mergeTextBlockIntoPrevious,
   normalizeBlockSelection,
   normalizeInlineNodes,
   removeBlocksByIds,
   type DividerBlock
 } from "../../lib/editor/document-model";
+import { exitListItemToParagraph } from "../../lib/editor/list-editing";
 import {
   type EditorialCalloutKind,
   type EditorialVisualIntent,
   type VisualStylePreset,
+  getEditorialCalloutKindOptions,
   getEditorialCalloutKindLabel,
+  getEditorialCalloutKindTitle,
   type ReviewActionProposal,
   type EditorialReviewItem
 } from "../../lib/editor/review-contract";
@@ -48,8 +52,8 @@ import { ReviewRecommendationDetail } from "../layout/ReviewRecommendationDetail
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 import {
   Bold,
+  Columns2,
   Italic,
-  Link as LinkIcon,
   Type,
   Heading1,
   Heading2,
@@ -61,13 +65,15 @@ import {
   Minus,
   Table,
   Image as ImageIcon,
+  Redo2,
   X,
-  Trash2
+  Trash2,
+  Undo2
 } from "lucide-react";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
 type CaretPlacement = "start" | "end";
-type PendingFocusTarget = { key: string; placement: CaretPlacement };
+type PendingFocusTarget = { key: string; placement: CaretPlacement } | { key: string; offset: number };
 type ActiveSpellcheckPopover = { blockId: string; issueId: string; top: number; left: number };
 
 type RichTextContext = {
@@ -115,7 +121,13 @@ export function BlockEditorSurface({
   reviewImageLoading,
   spellcheckResults = [],
   onApplySpellcheckSuggestion,
-  onDismissSpellcheckIssue
+  onDismissSpellcheckIssue,
+  canUndo = false,
+  canRedo = false,
+  canCompare = false,
+  onUndo,
+  onRedo,
+  onCompare
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -158,10 +170,17 @@ export function BlockEditorSurface({
   spellcheckResults?: SpellcheckBlockResult[];
   onApplySpellcheckSuggestion?: (input: { blockId: string; issueId: string; suggestion: string }) => void;
   onDismissSpellcheckIssue?: (input: { blockId: string; issueId: string }) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  canCompare?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onCompare?: () => void;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
   const activeEditableKey = useRef<string | null>(null);
+  const savedSelectionOffsets = useRef(new Map<string, { start: number; end: number }>());
   const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
   const [activeSpellcheckPopover, setActiveSpellcheckPopover] = useState<ActiveSpellcheckPopover | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
@@ -188,6 +207,43 @@ export function BlockEditorSurface({
     return () => {
       window.removeEventListener("mouseup", handlePointerRelease);
       window.removeEventListener("blur", handlePointerRelease);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleSelectionChange() {
+      const activeKey = activeEditableKey.current;
+
+      if (!activeKey) {
+        return;
+      }
+
+      const element = editableRefs.current.get(activeKey);
+
+      if (!element) {
+        return;
+      }
+
+      const offsets = getSelectionOffsets(element);
+
+      if (offsets) {
+        savedSelectionOffsets.current.set(activeKey, offsets);
+        return;
+      }
+
+      if (window.document.activeElement === element) {
+        const caretOffset = getCaretOffset(element);
+
+        if (caretOffset !== null) {
+          savedSelectionOffsets.current.set(activeKey, { start: caretOffset, end: caretOffset });
+        }
+      }
+    }
+
+    window.document.addEventListener("selectionchange", handleSelectionChange);
+
+    return () => {
+      window.document.removeEventListener("selectionchange", handleSelectionChange);
     };
   }, []);
 
@@ -257,7 +313,11 @@ export function BlockEditorSurface({
     }
 
     target.focus();
-    placeCaret(target, pending.placement);
+    if ("offset" in pending) {
+      placeCaretAtOffset(target, pending.offset);
+    } else {
+      placeCaret(target, pending.placement);
+    }
     pendingFocusTarget.current = null;
   }, [document]);
 
@@ -276,6 +336,10 @@ export function BlockEditorSurface({
 
   function setPendingFocus(key: string, placement: CaretPlacement) {
     pendingFocusTarget.current = { key, placement };
+  }
+
+  function setPendingFocusOffset(key: string, offset: number) {
+    pendingFocusTarget.current = { key, offset };
   }
 
   function clearAiSelection() {
@@ -329,7 +393,7 @@ export function BlockEditorSurface({
     selectBlockRange(dragAnchorBlockId.current, blockId);
   }
 
-  function handleFormatCommand(command: "bold" | "italic" | "link") {
+  function handleFormatCommand(command: "bold" | "italic") {
     const targetKey = activeEditableKey.current ?? focusedBlockId;
 
     if (!targetKey || disabled) {
@@ -342,19 +406,15 @@ export function BlockEditorSurface({
       return;
     }
 
-    element.focus();
+    const selectionOffsets = savedSelectionOffsets.current.get(targetKey) ?? getSelectionOffsets(element);
 
-    if (command === "link") {
-      const href = window.prompt("Посилання", "https://");
+    element.focus({ preventScroll: true });
+    restoreSelectionOffsets(selectionOffsets, element);
 
-      if (!href) {
-        return;
-      }
-
-      window.document.execCommand("createLink", false, href);
-    } else {
-      window.document.execCommand(command);
-    }
+    restoreSelectionOffsets(selectionOffsets, element);
+    window.document.execCommand(command);
+    restoreSelectionOffsets(selectionOffsets, element);
+    scheduleSelectionRestore(selectionOffsets, element);
   }
 
   function handleBlockFormat(action: BlockFormatAction) {
@@ -365,6 +425,12 @@ export function BlockEditorSurface({
     }
 
     const targetSet = new Set(targetIds);
+    const selectedBlocks = targetIds
+      .map((blockId) => getBlock(document, blockId))
+      .filter((block): block is Block => Boolean(block));
+    const shouldToggleToParagraph =
+      (action === "bullet-list" && selectedBlocks.length > 0 && selectedBlocks.every((block) => block.type === "bullet_list")) ||
+      (action === "ordered-list" && selectedBlocks.length > 0 && selectedBlocks.every((block) => block.type === "ordered_list"));
     const transformed: Block[] = [];
 
     for (const block of document.blocks) {
@@ -385,12 +451,12 @@ export function BlockEditorSurface({
       }
 
       if (action === "bullet-list") {
-        transformed.push(toListBlock(block, "bullet_list"));
+        transformed.push(shouldToggleToParagraph ? toParagraphBlock(block) : toListBlock(block, "bullet_list"));
         continue;
       }
 
       if (action === "ordered-list") {
-        transformed.push(toListBlock(block, "ordered_list"));
+        transformed.push(shouldToggleToParagraph ? toParagraphBlock(block) : toListBlock(block, "ordered_list"));
         continue;
       }
 
@@ -411,6 +477,18 @@ export function BlockEditorSurface({
     }
 
     commit({ version: 2, blocks: transformed });
+  }
+
+  function handleToolbarMouseDown(event: ReactMouseEvent<HTMLButtonElement | HTMLLabelElement>) {
+    event.preventDefault();
+  }
+
+  function handleInlineFormatMouseDown(
+    event: ReactMouseEvent<HTMLButtonElement>,
+    command: "bold" | "italic"
+  ) {
+    event.preventDefault();
+    handleFormatCommand(command);
   }
 
   function insertBlockAfterCurrent(factory: () => Block) {
@@ -487,21 +565,41 @@ export function BlockEditorSurface({
   }
 
   function handleTextBlockBackspace(block: ParagraphBlock | HeadingBlock, context: RichTextContext): boolean {
-    if (!isInlineContentEmpty(context.content) || context.caretOffset > 0) {
+    if (context.caretOffset > 0) {
       return false;
     }
 
-    deleteBlock(block.id);
-    return true;
+    const mergeResult = mergeTextBlockIntoPrevious(document, block.id);
+
+    if (mergeResult) {
+      commit(mergeResult.document);
+      setPendingFocusOffset(makeEditableKey(mergeResult.focusBlockId), mergeResult.focusOffset);
+      onFocusedBlockChange(mergeResult.focusBlockId);
+      onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+      return true;
+    }
+
+    if (isInlineContentEmpty(context.content)) {
+      deleteBlock(block.id);
+      return true;
+    }
+
+    return false;
   }
 
   function handleListItemEnter(block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) {
     const currentText = getInlineText(context.content);
 
     if (currentText.length === 0) {
-      replaceBlock(block.id, createEmptyParagraphBlock(block.id));
-      setPendingFocus(makeEditableKey(block.id), "start");
-      onFocusedBlockChange(block.id);
+      const exitResult = exitListItemToParagraph(document, block.id, itemIndex);
+
+      if (!exitResult) {
+        return;
+      }
+
+      commit(exitResult.document);
+      setPendingFocus(makeEditableKey(exitResult.focusBlockId), "start");
+      onFocusedBlockChange(exitResult.focusBlockId);
       onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
       return;
     }
@@ -607,11 +705,47 @@ export function BlockEditorSurface({
   return (
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
+        <div className="block-editor-toolbar-group" aria-label="Історія змін">
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
+            onClick={onUndo}
+            disabled={disabled || !canUndo}
+            title="Назад (Ctrl/Cmd+Z)"
+            aria-label="Назад"
+          >
+            <Undo2 />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
+            onClick={onRedo}
+            disabled={disabled || !canRedo}
+            title="Вперед (Ctrl/Cmd+Shift+Z)"
+            aria-label="Вперед"
+          >
+            <Redo2 />
+          </button>
+          <button
+            type="button"
+            className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
+            onClick={onCompare}
+            disabled={disabled || !canCompare}
+            title="Порівняти прийняту правку"
+            aria-label="Порівняти"
+          >
+            <Columns2 />
+          </button>
+        </div>
+
         <div className="block-editor-toolbar-group">
           <button
             type="button"
             className="block-toolbar-button"
-            onClick={() => handleFormatCommand("bold")}
+            onMouseDown={(event) => handleInlineFormatMouseDown(event, "bold")}
             disabled={disabled}
             title="Жирний"
           >
@@ -620,20 +754,11 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
-            onClick={() => handleFormatCommand("italic")}
+            onMouseDown={(event) => handleInlineFormatMouseDown(event, "italic")}
             disabled={disabled}
             title="Курсив"
           >
             <Italic />
-          </button>
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onClick={() => handleFormatCommand("link")}
-            disabled={disabled}
-            title="Посилання"
-          >
-            <LinkIcon />
           </button>
         </div>
 
@@ -641,6 +766,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("paragraph")}
             disabled={disabled}
             title="Абзац"
@@ -651,6 +777,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-1")}
             disabled={disabled}
             title="H1"
@@ -661,6 +788,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-2")}
             disabled={disabled}
             title="H2"
@@ -671,6 +799,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-3")}
             disabled={disabled}
             title="H3"
@@ -681,6 +810,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("bullet-list")}
             disabled={disabled}
             title="Список"
@@ -691,6 +821,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("ordered-list")}
             disabled={disabled}
             title="Нумерований список"
@@ -704,6 +835,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => createEmptyParagraphBlock())}
             disabled={disabled}
             title="Додати абзац"
@@ -713,7 +845,16 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
-            onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("callout"), type: "callout", kind: "mechanism", title: [createInlineText("Як це працює")], body: [[createInlineText("")]] }))}
+            onMouseDown={handleToolbarMouseDown}
+            onClick={() =>
+              insertBlockAfterCurrent(() => ({
+                id: createBlockId("callout"),
+                type: "callout",
+                kind: "mechanism",
+                title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
+                body: [[createInlineText("")]]
+              }))
+            }
             disabled={disabled}
             title="Врізка"
           >
@@ -722,6 +863,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))}
             disabled={disabled}
             title="Роздільник"
@@ -731,6 +873,7 @@ export function BlockEditorSurface({
           <button
             type="button"
             className="block-toolbar-button"
+            onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))}
             disabled={disabled}
             title="Таблиця"
@@ -742,6 +885,7 @@ export function BlockEditorSurface({
             <input type="file" accept="image/*" onChange={handleFileSelection} disabled={disabled} />
           </label>
         </div>
+
       </div>
 
       <div className="block-editor-canvas">
@@ -1185,7 +1329,36 @@ function EditableCalloutBlock({
 }) {
   return (
     <div className="block-callout-shell" data-kind={block.kind}>
-      <div className="block-callout-chip mono-ui">{getEditorialCalloutKindLabel(block.kind)}</div>
+      <div className="block-callout-head">
+        <label className="block-callout-kind-field">
+          <select
+            className="block-callout-kind-select"
+            value={block.kind}
+            onChange={(event) => {
+              const nextKind = event.target.value as EditorialCalloutKind;
+              const currentTitle = getInlineText(block.title).trim();
+              const currentDefaultTitle = getEditorialCalloutKindTitle(block.kind);
+              const nextDefaultTitle = getEditorialCalloutKindTitle(nextKind);
+              const shouldReplaceTitle = currentTitle.length === 0 || currentTitle === currentDefaultTitle;
+
+              onBlockChange({
+                ...block,
+                kind: nextKind,
+                title: shouldReplaceTitle ? [createInlineText(nextDefaultTitle)] : block.title
+              });
+            }}
+            disabled={disabled}
+            aria-label="Тип врізки"
+            title={getEditorialCalloutKindLabel(block.kind)}
+          >
+            {getEditorialCalloutKindOptions().map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <EditableRichText
         focusKey={makeEditableKey(block.id, "callout-title")}
         className="block-callout-title"
@@ -1357,6 +1530,13 @@ function EditableRichText({
 
     if (element.innerHTML !== html) {
       const isActive = window.document.activeElement === element;
+      const matchesCurrentContent = areInlineNodesEqual(htmlToInlineNodes(element.innerHTML), baselineContent);
+      const hasSpellcheckMarkup = html.includes("spellcheck-underline") || element.innerHTML.includes("spellcheck-underline");
+
+      if (isActive && matchesCurrentContent && !hasSpellcheckMarkup) {
+        return;
+      }
+
       const caretOffset = isActive ? getCaretOffset(element) : null;
 
       element.innerHTML = html;
@@ -1466,7 +1646,7 @@ function toParagraphBlock(block: Block): ParagraphBlock {
   return {
     id: block.id,
     type: "paragraph",
-    content: [createInlineText(getBlockPreviewText(block))]
+    content: [createInlineText(getBlockTextForParagraph(block))]
   };
 }
 
@@ -1480,9 +1660,9 @@ function toHeadingBlock(block: Block, level: 1 | 2 | 3): HeadingBlock {
 }
 
 function toListBlock(block: Block, type: "bullet_list" | "ordered_list"): BulletListBlock | OrderedListBlock {
-  const sourceText = getBlockPreviewText(block);
+  const sourceText = getBlockTextForParagraph(block);
   const items = sourceText
-    .split(/\n+|[.;]\s+/)
+    .split(/\n+|[•*-]\s+|\d+[.)]\s+|[.;]\s+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => [createInlineText(item)]);
@@ -1499,7 +1679,7 @@ function toCalloutBlock(block: Block): CalloutBlock {
     id: block.id,
     type: "callout",
     kind: "mechanism",
-    title: [createInlineText("Як це працює")],
+    title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
     body: [[createInlineText(getBlockPreviewText(block))]]
   };
 }
@@ -1534,6 +1714,14 @@ function getBlockPreviewText(block: Block): string {
   }
 
   return "";
+}
+
+function getBlockTextForParagraph(block: Block): string {
+  if (block.type === "bullet_list" || block.type === "ordered_list") {
+    return block.items.map((item) => getInlineText(item)).join("\n");
+  }
+
+  return getBlockPreviewText(block);
 }
 
 function makeEditableKey(blockId: string, slot = "main"): string {
@@ -1715,6 +1903,62 @@ function areInlineNodesEqual(left: InlineNode[], right: InlineNode[]): boolean {
       node.link === other?.link
     );
   });
+}
+
+function getSelectionOffsets(element: HTMLElement): { start: number; end: number } | null {
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!isRangeInsideElement(range, element)) {
+    return null;
+  }
+
+  return {
+    start: getTextOffsetWithin(element, range.startContainer, range.startOffset),
+    end: getTextOffsetWithin(element, range.endContainer, range.endOffset)
+  };
+}
+
+function restoreSelectionOffsets(offsets: { start: number; end: number } | null, element: HTMLElement) {
+  if (!offsets) {
+    return;
+  }
+
+  const selection = window.getSelection();
+
+  if (!selection) {
+    return;
+  }
+
+  const startPosition = resolveDomPosition(element, offsets.start);
+  const endPosition = resolveDomPosition(element, offsets.end);
+  const range = window.document.createRange();
+  range.setStart(startPosition.node, startPosition.offset);
+  range.setEnd(endPosition.node, endPosition.offset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function scheduleSelectionRestore(offsets: { start: number; end: number } | null, element: HTMLElement) {
+  if (!offsets) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    if (!window.document.body.contains(element)) {
+      return;
+    }
+
+    restoreSelectionOffsets(offsets, element);
+  }, 0);
+}
+
+function isRangeInsideElement(range: Range, element: HTMLElement): boolean {
+  return element.contains(range.commonAncestorContainer);
 }
 
 function getCaretOffset(root: HTMLElement): number | null {

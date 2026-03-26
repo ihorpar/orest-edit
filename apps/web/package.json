@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/patch-contract.test.ts test/patch-service.test.ts test/review-contract.test.ts test/review-service.test.ts test/review-action-service.test.ts test/review-image-service.test.ts test/review-image-job-service.test.ts test/manual-review-items.test.ts test/review-execution-lane.test.ts test/review-apply.test.ts test/docx-export.test.ts test/import.test.ts test/password-auth.test.ts test/settings.test.ts test/spellcheck-service.test.ts test/spellcheck-route.test.ts test/spellcheck-view-model.test.ts",
+    "test": "node --import tsx --test test/document-model.test.ts test/patch-contract.test.ts test/patch-service.test.ts test/review-contract.test.ts test/review-service.test.ts test/review-action-service.test.ts test/review-image-service.test.ts test/review-image-job-service.test.ts test/manual-review-items.test.ts test/review-execution-lane.test.ts test/review-apply.test.ts test/docx-export.test.ts test/import.test.ts test/password-auth.test.ts test/settings.test.ts test/spellcheck-service.test.ts test/spellcheck-route.test.ts test/spellcheck-view-model.test.ts",
     "qa:inline-review": "node scripts/qa-inline-review.mjs"
   },
   "dependencies": {

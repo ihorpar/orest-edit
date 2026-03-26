@@ -29,6 +29,8 @@ const fallbackGlossary: Array<{
   { pattern: /хронічне запалення/gi, replacement: "тривале запалення", type: "terminology", reason: "Зробив термін зрозумілішим." }
 ];
 
+const preserveListStructurePatterns = /(спис|перел(ік|іч)|bullet|таблиц|table|скорот|стисл|ущільн|корот)/i;
+
 const openAiSchema = {
   type: "object",
   additionalProperties: false,
@@ -177,11 +179,11 @@ const geminiSchema = {
         type: "OBJECT",
         properties: {
           blockIds: { type: "ARRAY", items: { type: "STRING" } },
-          newBlocks: { type: "ARRAY", items: { type: "OBJECT" } },
+          replacements: { type: "ARRAY", items: { type: "STRING" } },
           reason: { type: "STRING" },
-          type: { type: "STRING" }
+          type: { type: "STRING", enum: ["clarity", "structure", "terminology", "source", "tone"] }
         },
-        required: ["blockIds", "newBlocks", "reason", "type"]
+        required: ["blockIds", "replacements", "reason", "type"]
       }
     }
   },
@@ -427,16 +429,16 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
       },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [{ text: buildSystemPrompt(request.basePrompt) }]
+          parts: [{ text: buildGeminiSystemPrompt(request.basePrompt) }]
         },
         contents: [
           {
             role: "user",
-            parts: [{ text: buildUserPrompt(request) }]
+            parts: [{ text: buildGeminiUserPrompt(request) }]
           }
         ],
         generationConfig: {
-          temperature: request.mode === "custom" ? 0.4 : 0.2,
+          temperature: request.mode === "custom" ? 0.25 : 0.15,
           responseMimeType: "application/json",
           responseSchema: geminiSchema
         }
@@ -541,6 +543,14 @@ function rewriteBlockFallback(block: Block, prompt?: string): Block {
   }
 
   if (block.type === "bullet_list") {
+    if (shouldCollapseListFallback(prompt)) {
+      return {
+        id: block.id,
+        type: "paragraph",
+        content: [createTextNode(rewriteTextFallback(collapseListItemsToSentence(block.items), prompt))]
+      };
+    }
+
     return {
       id: block.id,
       type: "bullet_list",
@@ -549,6 +559,14 @@ function rewriteBlockFallback(block: Block, prompt?: string): Block {
   }
 
   if (block.type === "ordered_list") {
+    if (shouldCollapseListFallback(prompt)) {
+      return {
+        id: block.id,
+        type: "paragraph",
+        content: [createTextNode(rewriteTextFallback(collapseListItemsToSentence(block.items), prompt))]
+      };
+    }
+
     return {
       id: block.id,
       type: "ordered_list",
@@ -613,6 +631,36 @@ function rewriteTextFallback(text: string, prompt?: string): string {
   return next;
 }
 
+function shouldCollapseListFallback(prompt?: string): boolean {
+  const trimmedPrompt = prompt?.trim();
+
+  if (!trimmedPrompt) {
+    return true;
+  }
+
+  return !preserveListStructurePatterns.test(trimmedPrompt);
+}
+
+function collapseListItemsToSentence(items: InlineNode[][]): string {
+  const parts = items
+    .map((item) => item.map((node) => node.text).join("").trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return "";
+  }
+
+  if (parts.length === 1) {
+    return `${parts[0]}.`;
+  }
+
+  if (parts.length === 2) {
+    return `${parts[0]} та ${parts[1]}.`;
+  }
+
+  return `${parts.slice(0, -1).join(", ")} та ${parts.at(-1)}.`;
+}
+
 function inferCombinedReason(blocks: Block[]): string {
   const text = blocks.map((block) => getBlockText(block)).join(" ");
   const match = fallbackGlossary.find((entry) => entry.pattern.test(text));
@@ -636,6 +684,26 @@ function buildSystemPrompt(basePrompt?: string): string {
     "Працюй тільки в межах виділених блоків.",
     "Поверни JSON з однією операцією replace_blocks.",
     "newBlocks має містити готові rich-text blocks без markdown-синтаксису.",
+    "Можна дуже ощадно використовувати bold:true для коротких змістових акцентів у ключових словах або коротких фразах.",
+    "Не виділяй жирним цілі речення, абзаци або весь блок.",
+    "Якщо редактор просить форму вірша, короткі рядки або строфи, дозволено повертати перенос рядка всередині одного текстового блока через символ \\n; не розбивай такий результат на кілька блоків без окремої вказівки.",
+    "Роби відчутне переформулювання: міняй синтаксис і лексику, не повертай майже ідентичний текст."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildGeminiSystemPrompt(basePrompt?: string): string {
+  return [
+    basePrompt?.trim(),
+    "Ти редагуєш український науково-популярний рукопис.",
+    "Працюй тільки в межах виділених блоків.",
+    "Поверни JSON з однією операцією replace_blocks у масиві operations.",
+    "Не повертай rich-text blocks, newBlocks, markdown, HTML або вкладений JSON усередині рядків.",
+    "Поле operations[0].replacements має містити по одному plain-text replacement для кожного виділеного блока в тому самому порядку, що й targetBlockIds.",
+    "У replacement strings дозволено рідкісний **жирний** для коротких змістових акцентів, але не для цілих речень або абзаців.",
+    "Якщо редактор просить форму вірша, короткі рядки або строфи, дозволено повертати перенос рядка всередині одного replacement string через символ \\n; не розбивай такий результат на кілька blocks без окремої вказівки.",
+    "Залишай відповідь українською мовою.",
     "Роби відчутне переформулювання: міняй синтаксис і лексику, не повертай майже ідентичний текст."
   ]
     .filter(Boolean)
@@ -656,6 +724,30 @@ function buildUserPrompt(request: PatchRequest): string {
     "Вибрані блоки:",
     targetText,
     'Поверни JSON: {"operations":[{"blockIds":[...],"newBlocks":[...],"reason":"...","type":"clarity"}]}'
+  ].join("\n\n");
+}
+
+function buildGeminiUserPrompt(request: PatchRequest): string {
+  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  const context = buildNeighborContext(request.document, request.targetBlockIds);
+
+  return [
+    "Ось вибрані блоки для локальної правки.",
+    request.mode === "custom" && request.prompt?.trim() ? `Додаткова інструкція: ${request.prompt.trim()}` : "Завдання: зроби текст яснішим і природнішим.",
+    "Критично: результат має помітно відрізнятися від оригіналу на рівні формулювань, але без вигаданих фактів.",
+    `targetBlockIds: ${JSON.stringify(request.targetBlockIds)}`,
+    "Контекст поруч:",
+    context,
+    "Вибрані блоки:",
+    targetText,
+    "Формат відповіді:",
+    '{"operations":[{"blockIds":["p1"],"replacements":["Переписаний текст для блока p1."],"reason":"Коротко поясни редакторську зміну.","type":"clarity"}]}',
+    "Правила:",
+    "- operations має містити рівно одну операцію.",
+    "- replacements.length має дорівнювати кількості targetBlockIds.",
+    "- Кожен елемент replacements є plain text для відповідного блока; дозволено лише рідкісний **жирний** для коротких змістових акцентів.",
+    "- Якщо потрібні внутрішні рядки в межах одного блока, використовуй символ \\n всередині replacement string.",
+    "- Не повертай ключ newBlocks."
   ].join("\n\n");
 }
 
@@ -768,6 +860,13 @@ function formatRawError(error: unknown): string | undefined {
 function formatProviderErrorMessage(provider: string, error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
     return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с, тому показано локальну fallback-правку.`;
+  }
+
+  if (
+    error instanceof TypeError ||
+    (error instanceof Error && /fetch failed|network|econnreset|enotfound|eai_again/i.test(error.message))
+  ) {
+    return `${providerDisplayName(provider)} недоступний або мережа не відповідає, тому показано локальну fallback-правку.`;
   }
 
   if (error instanceof Error) {

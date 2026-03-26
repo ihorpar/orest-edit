@@ -6,6 +6,13 @@ import { computeAnchorFingerprint, deriveManuscriptRevisionState } from "../lib/
 import { generateReviewAction } from "../lib/server/review-action-service.ts";
 import type { ReviewActionRequest } from "../lib/editor/review-contract.ts";
 
+function compact(nodes: Array<{ text: string; bold?: true; italic?: true; link?: string }>) {
+  return nodes.map((node) => ({
+    text: node.text,
+    ...(node.bold ? { bold: true as const } : {})
+  }));
+}
+
 function createRequest(): ReviewActionRequest {
   const document: EditorDocument = {
     version: 2,
@@ -137,7 +144,7 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Міф/i);
   assert.match(String(requestBody?.input ?? ""), /Правда/i);
   assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
-  assert.match(String(requestBody?.input ?? ""), /без \*\*жирного\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /markdown не використовуй, крім рідкісного \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
@@ -202,6 +209,74 @@ test("generateReviewAction forwards editorial refine instruction into replace pr
 
   assert.equal(response.proposal.kind, "text_diff");
   assert.match(String(requestBody?.input ?? ""), /Додаткова вказівка редактора: Зберігай формат короткого списку і прибери канцеляризми\./i);
+});
+
+test("generateReviewAction preserves sparse **bold** accents in replace proposals", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Щільний абзац із термінами." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-rewrite-bold-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Переписати абзац",
+        reason: "Потрібно зробити ключову думку сканованою.",
+        recommendation: "Переписати ясніше.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Щільний абзац із термінами.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              replacements: ["Стисла рамка з **ключовим терміном** для читача."],
+              reason: "Додав акцент."
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+
+  const paragraph = response.proposal.textDiff?.newBlocks[0];
+  assert.equal(paragraph?.type, "paragraph");
+
+  if (paragraph?.type !== "paragraph") {
+    assert.fail("Expected paragraph replacement block.");
+  }
+
+  assert.deepEqual(compact(paragraph.content), [
+    { text: "Стисла рамка з " },
+    { text: "ключовим терміном", bold: true },
+    { text: " для читача." }
+  ]);
 });
 
 test("generateReviewAction renders image template placeholders and adds visual-intent guidance", async () => {
@@ -520,9 +595,9 @@ test("generateReviewAction parses structured callout draft output and strips mar
 
   assert.equal(response.proposal.kind, "callout_prompt");
   assert.equal(response.proposal.calloutDraft?.title, "Шкіра — дзеркало мозку");
-  assert.equal(response.proposal.calloutDraft?.previewText, "Шкіра і нервова система мають спільне походження.");
+  assert.equal(response.proposal.calloutDraft?.previewText, "**Шкіра** і нервова система мають спільне походження.");
   assert.equal(response.proposal.summary, "Аналогія зніме когнітивне навантаження.");
-  assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /\*\*|^-\s/m);
+  assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /^-\s/m);
 });
 
 test("generateReviewAction normalizes top_list callout body into actionable multi-line entries", async () => {
@@ -1186,9 +1261,11 @@ test("generateReviewAction strips markdown artifacts from rewrite replacements",
   );
 
   assert.equal(response.proposal.kind, "text_diff");
-  const nextText = (response.proposal.textDiff?.newBlocks[0] as { content: Array<{ text: string }> } | undefined)?.content?.[0]?.text ?? "";
+  const nextNodes = (response.proposal.textDiff?.newBlocks[0] as { content: Array<{ text: string; bold?: true }> } | undefined)?.content ?? [];
+  const nextText = nextNodes.map((node) => node.text).join("");
   assert.equal(nextText, "Простіше пояснення\nПерший пункт");
-  assert.doesNotMatch(nextText, /^#|^\s*-\s|\*\*/m);
+  assert.equal(nextNodes[0]?.bold, true);
+  assert.doesNotMatch(nextText, /^#|^\s*-\s/m);
 });
 
 test("generateReviewAction preserves leading numeric prose in rewrite replacements", async () => {

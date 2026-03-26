@@ -76,6 +76,45 @@ Decision: review execution cards separate `Уточнити`, `Перегене�
 
 Reason: overloading `Застосувати` to sometimes trigger regeneration is ambiguous and unsafe in a diff-first editor. Editors need a stable rule: apply commits the currently visible result only.
 
+## 2026-03-25
+
+### The manuscript toolbar no longer exposes inline links
+Decision: the manuscript toolbar keeps inline `bold` and `italic`, but the old inline link action is removed from the editor surface.
+
+Reason: this product edits book/manuscript prose rather than hyperlink-heavy web copy, and the link action was providing broken value relative to the rest of the local editing surface.
+
+### Local list intent is review-backed, not patch-backed
+Decision: local `list` requests from the floating composer route into manual review items plus `/api/edit/review/proposal`, not into the generic patch executor.
+
+Reason: list generation needs recommendation-type normalization, block-shape enforcement, regenerate flow, and a green diff surface that preserves visible bullets.
+
+### Manual local generations bind to visible workflow steps
+Decision: manual local `callout`, `visual`, and `list` generations automatically switch the right drawer to their matching workflow steps (`interest`, `visuals`, `formatting`) so the resulting cards stay visible and recoverable after dismissal.
+
+Reason: leaving manual cards on an unrelated active step made dismissed items effectively unreachable beyond the 5-second undo affordance.
+
+### Local spellcheck accumulates by untouched block, and local patch results open inline
+Decision: repeated manual `Правопис` runs merge results by block ID so untouched earlier findings remain visible, while local `patch` executions immediately open the manuscript inline diff lane from their first `replace_blocks` result.
+
+Reason: clearing prior spellcheck findings on every new local check breaks trust, and hiding local patch output behind background state makes `Переписати` feel broken even when the backend returns a usable draft.
+
+### Undo and redo are manuscript-only and session-scoped
+Decision: the editor keeps an undo/redo stack only for manuscript mutations in the current browser session. It covers manual edits, accepted AI replacements, direct spellcheck applies, and inserted manuscript blocks, but it does not attempt to rewind review-card state or persist a replayable command log across refresh.
+
+Reason: the core trust problem is recovering the manuscript after an accepted or manual change. Session-scoped mutation snapshots solve that directly without introducing the complexity of durable collaborative history or coupling undo to review workflow state.
+
+### Compare history is stored as accepted-change snapshots, not as full versioning
+Decision: the `Порівняти` surface stores compact before/after snapshots only for accepted editorial changes that are meaningful to inspect later, starting with AI replace applies and direct spellcheck corrections. These compare entries persist in draft state independently from the undo/redo stack.
+
+Reason: editors asked to verify that accepted changes did not distort meaning, which requires focused before/after evidence rather than a full document timeline. Compact compare snapshots are cheap to persist, easy to explain, and avoid overpromising “version history” before that system exists.
+
+## 2026-03-26
+
+### AI formatting is limited to sparse bold emphasis
+Decision: generated editorial text may use only sparse `bold` emphasis on short key phrases. The only supported transport syntax is `**...**`, which is parsed into real inline `bold` nodes in the editor. Other markdown remains unsupported and is still stripped from replace/callout/subsection text.
+
+Reason: editors want scan-friendly emphasis, but the product is still a block editor, not a markdown authoring surface. Allowing one narrow emphasis mechanism solves the need without opening generic markdown, noisy styling, or unstable rendering rules.
+
 ## 2026-03-16
 
 ### Gemini fact-check sources come from grounding metadata, not free-text citations
@@ -273,6 +312,13 @@ Decision: import v1 accepts `.txt`, `.docx`, and clipboard text/HTML, and always
 Reason: the editor is block-first internally, so external content must converge into the same canonical model to keep patch, review, selection, and export behavior coherent.
 
 ## 2026-03-10
+
+## 2026-03-26
+
+### Gemini local patch output stays shallow and is reconstructed server-side
+Decision: local floating-composer patch requests (`Переписати` / clarity-style rewrites) use a Gemini structured-output contract that returns plain per-block replacement strings (`replacements[]`) plus short metadata, and the server reconstructs final block-first patch operations instead of asking Gemini to emit nested `newBlocks` rich-text AST directly.
+
+Reason: Gemini structured output is materially more reliable with shallow schemas than with deep block-object payloads. Server-side reconstruction keeps the UI contract block-first while avoiding malformed `{}`-heavy responses and unnecessary fallback rewrites.
 
 ### Block-first canonical editor model
 Decision: the canonical manuscript state is a block-first `EditorDocument` with stable block IDs; patch and review actions are block-anchored and replace whole selected block ranges; markdown is removed from the main editor workflow.

@@ -32,6 +32,12 @@ export interface EditorDocument {
   blocks: Block[];
 }
 
+export interface MergeTextBlockResult {
+  document: EditorDocument;
+  focusBlockId: string;
+  focusOffset: number;
+}
+
 export interface BlockSelection {
   blockIds: string[];
   anchorBlockId: string | null;
@@ -338,6 +344,45 @@ export function removeBlocksByIds(document: EditorDocument, blockIds: string[]):
   return {
     version: 2,
     blocks: blocks.length > 0 ? blocks : [createEmptyParagraphBlock()]
+  };
+}
+
+export function mergeTextBlockIntoPrevious(document: EditorDocument, blockId: string): MergeTextBlockResult | null {
+  const blockIndex = getBlockIndex(document, blockId);
+
+  if (blockIndex <= 0) {
+    return null;
+  }
+
+  const previousBlock = document.blocks[blockIndex - 1];
+  const currentBlock = document.blocks[blockIndex];
+
+  if (
+    !previousBlock ||
+    !currentBlock ||
+    !isTextBlock(previousBlock) ||
+    !isTextBlock(currentBlock) ||
+    previousBlock.type !== currentBlock.type
+  ) {
+    return null;
+  }
+
+  const focusOffset = getInlineText(previousBlock.content).length;
+  const mergedPreviousBlock = {
+    ...previousBlock,
+    content: normalizeInlineNodes([...cloneInlineNodes(previousBlock.content), ...cloneInlineNodes(currentBlock.content)])
+  };
+  const nextBlocks = [...document.blocks];
+  nextBlocks[blockIndex - 1] = mergedPreviousBlock;
+  nextBlocks.splice(blockIndex, 1);
+
+  return {
+    document: {
+      version: 2,
+      blocks: nextBlocks
+    },
+    focusBlockId: previousBlock.id,
+    focusOffset
   };
 }
 

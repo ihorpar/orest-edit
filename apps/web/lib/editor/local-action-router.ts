@@ -9,7 +9,7 @@ import {
 
 export type LocalActionMode = "auto" | "spellcheck" | "callout" | "visual";
 export type LocalActionTextIntent = "rewrite" | "shorten" | "list" | "table";
-export type LocalActionExecutor = "patch" | "spellcheck" | "callout" | "visual" | "clarify";
+export type LocalActionExecutor = "patch" | "review" | "spellcheck" | "callout" | "visual" | "clarify";
 export type LocalActionClarifyChoice = "patch" | "spellcheck" | "callout" | "visual";
 
 export interface LocalActionRouteRequest {
@@ -26,6 +26,12 @@ export type LocalActionRouteResponse =
       executor: "patch";
       textIntent: LocalActionTextIntent;
       requestMode: "default" | "custom";
+      prompt?: string;
+      actionLabel: string;
+    }
+  | {
+      executor: "review";
+      recommendationType: "list";
       prompt?: string;
       actionLabel: string;
     }
@@ -140,6 +146,15 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
           : "rewrite");
 
   const normalizedPrompt = buildPatchPromptForTextIntent(inferredTextIntent, trimmedPrompt);
+
+  if (inferredTextIntent === "list") {
+    return {
+      executor: "review",
+      recommendationType: "list",
+      prompt: trimmedPrompt || undefined,
+      actionLabel: TEXT_INTENT_LABELS[inferredTextIntent]
+    };
+  }
 
   return {
     executor: "patch",

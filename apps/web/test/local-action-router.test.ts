@@ -41,7 +41,7 @@ test("local action router builds normalized patch prompts for structured text in
   assert.equal(buildPatchPromptForTextIntent("rewrite", ""), null);
 });
 
-test("local action route returns authenticated routed plan", async () => {
+test("local action route returns authenticated review-backed list plan", async () => {
   const previousPassword = process.env.APP_PASSWORD;
   process.env.APP_PASSWORD = "local-action-secret";
 
@@ -61,10 +61,9 @@ test("local action route returns authenticated routed plan", async () => {
     );
 
     assert.equal(response.status, 200);
-    const payload = (await response.json()) as { executor: string; textIntent?: string; requestMode?: string };
-    assert.equal(payload.executor, "patch");
-    assert.equal(payload.textIntent, "list");
-    assert.equal(payload.requestMode, "custom");
+    const payload = (await response.json()) as { executor: string; recommendationType?: string };
+    assert.equal(payload.executor, "review");
+    assert.equal(payload.recommendationType, "list");
   } finally {
     if (previousPassword === undefined) {
       delete process.env.APP_PASSWORD;

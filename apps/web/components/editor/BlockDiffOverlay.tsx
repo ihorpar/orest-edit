@@ -1,8 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import type { Block } from "../../lib/editor/document-model";
 import type { EditorialReviewItem } from "../../lib/editor/review-contract";
-import { createInlineText, getBlockText } from "../../lib/editor/document-model";
+import { getBlockText } from "../../lib/editor/document-model";
+import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
 import { Button } from "../ui/Button";
 
 export function BlockDiffOverlay({
@@ -26,20 +27,32 @@ export function BlockDiffOverlay({
   onRefineInstructionChange: (value: string) => void;
   onRegenerate: (instruction?: string) => void;
 }) {
-  const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => getBlockText(block)));
+  const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => formatDiffBlockText(block)));
   const [isRefineOpen, setIsRefineOpen] = useState(false);
   const textareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const refineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const normalizedRefineInstruction = refineInstruction.trim();
   const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
+  const regenerateLabel = hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати";
+
+  useEffect(() => {
+    if (isRefineOpen) {
+      refineTextareaRef.current?.focus();
+    }
+  }, [isRefineOpen]);
 
   const editableBlocks = useMemo(
     () =>
       newBlocks.map((block, index) => ({
         block,
-        newText: draftTexts[index] ?? getBlockText(block)
+        newText: draftTexts[index] ?? formatDiffBlockText(block)
       })),
     [draftTexts, newBlocks]
   );
+
+  useEffect(() => {
+    setDraftTexts(newBlocks.map((block) => formatDiffBlockText(block)));
+  }, [newBlocks]);
 
   useLayoutEffect(() => {
     for (const { block } of editableBlocks) {
@@ -50,6 +63,13 @@ export function BlockDiffOverlay({
       }
     }
   }, [editableBlocks]);
+
+  function handleRefineKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      onRegenerate(normalizedRefineInstruction || undefined);
+    }
+  }
 
   return (
     <div className="block-diff-inline-container">
@@ -82,10 +102,12 @@ export function BlockDiffOverlay({
           <div className="editorial-review-field-group">
             <p className="editorial-review-detail-label">Що змінити в рекомендації</p>
             <textarea
+              ref={refineTextareaRef}
               className="editorial-review-callout-body-input editorial-review-refine-input"
               value={refineInstruction}
               placeholder="Наприклад: спростити тон, зберегти структуру списку, прибрати канцеляризми"
               onChange={(event) => onRefineInstructionChange(event.target.value)}
+              onKeyDown={handleRefineKeyDown}
             />
           </div>
         ) : null}
@@ -104,11 +126,12 @@ export function BlockDiffOverlay({
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant={hasPendingRefineInstruction ? "primary" : "secondary"}
             onClick={() => onRegenerate(normalizedRefineInstruction || undefined)}
             disabled={item == null}
+            title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати поточний варіант."}
           >
-            Перегенерувати
+            {regenerateLabel}
           </Button>
           <Button
             size="sm"
@@ -130,24 +153,24 @@ function withEditedBlockText(block: Block, editedText: string): Block {
   const text = editedText.replace(/\r\n?/g, "\n");
 
   if (block.type === "paragraph") {
-    return { ...block, content: [createInlineText(text)] };
+    return { ...block, content: parseBoldMarkdownToInlineNodes(text) };
   }
 
   if (block.type === "heading") {
-    return { ...block, content: [createInlineText(text)] };
+    return { ...block, content: parseBoldMarkdownToInlineNodes(text) };
   }
 
   if (block.type === "bullet_list") {
     return {
       ...block,
-      items: splitListItems(text).map((item) => [createInlineText(item)])
+      items: splitListItems(text).map((item) => parseBoldMarkdownToInlineNodes(item))
     };
   }
 
   if (block.type === "ordered_list") {
     return {
       ...block,
-      items: splitListItems(text).map((item) => [createInlineText(item)])
+      items: splitListItems(text).map((item) => parseBoldMarkdownToInlineNodes(item))
     };
   }
 
@@ -155,8 +178,8 @@ function withEditedBlockText(block: Block, editedText: string): Block {
     const [title, ...body] = text.split(/\n\s*\n+/).map((part) => part.trim());
     return {
       ...block,
-      title: [createInlineText(title ?? "")],
-      body: (body.length > 0 ? body : [""]).map((part) => [createInlineText(part)])
+      title: parseBoldMarkdownToInlineNodes(title ?? ""),
+      body: (body.length > 0 ? body : [""]).map((part) => parseBoldMarkdownToInlineNodes(part))
     };
   }
 
@@ -170,6 +193,30 @@ function splitListItems(text: string): string[] {
     .filter(Boolean);
 
   return items.length > 0 ? items : [""];
+}
+
+function formatDiffBlockText(block: Block): string {
+  if (block.type === "paragraph" || block.type === "heading") {
+    return serializeInlineNodesToBoldMarkdown(block.content);
+  }
+
+  if (block.type === "bullet_list") {
+    return block.items.map((item) => `• ${serializeInlineNodesToBoldMarkdown(item)}`).join("\n");
+  }
+
+  if (block.type === "ordered_list") {
+    return block.items
+      .map((item, index) => `${index + 1}. ${serializeInlineNodesToBoldMarkdown(item)}`)
+      .join("\n");
+  }
+
+  if (block.type === "callout") {
+    return [serializeInlineNodesToBoldMarkdown(block.title), ...block.body.map((part) => serializeInlineNodesToBoldMarkdown(part))]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  return getBlockText(block);
 }
 
 function autosizeTextarea(textarea: HTMLTextAreaElement) {

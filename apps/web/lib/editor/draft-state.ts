@@ -1,4 +1,5 @@
 import type { EditorDocument } from "./document-model";
+import type { CompareHistoryEntry } from "./change-history";
 import type { PatchOperation, PatchResponseDiagnostics, PatchSelection } from "./patch-contract";
 import type { ManuscriptRevisionState } from "./manuscript-structure";
 import type {
@@ -62,6 +63,7 @@ export interface PersistedEditorDraftState {
   stepRunModeByStep: EditorialStepRunModeMap;
   history: PersistedHistoryItem[];
   appliedDiffs: PersistedAppliedDiffMarker[];
+  compareHistory: CompareHistoryEntry[];
   feedback: PersistedEditorFeedback | null;
   activeReviewItemId: string | null;
   activeProposal: ReviewActionProposal | null;
@@ -122,7 +124,8 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
       activeWorkflowStep,
       stepRunHistory: coerceStepRunHistory(parsed.stepRunHistory, defaultRunHistory),
       stepFeedback: coerceStepFeedback(parsed.stepFeedback, defaultFeedback),
-      stepRunModeByStep: coerceStepRunModes(parsed.stepRunModeByStep, defaultRunModes)
+      stepRunModeByStep: coerceStepRunModes(parsed.stepRunModeByStep, defaultRunModes),
+      compareHistory: Array.isArray(parsed.compareHistory) ? parsed.compareHistory : []
     };
   } catch {
     return null;

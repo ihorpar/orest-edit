@@ -1,6 +1,7 @@
 import { createPatchId } from "../editor/patch-contract.ts";
 import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../editor/manuscript-structure.ts";
 import { createInlineText, getBlockText, getInlineText, type Block } from "../editor/document-model.ts";
+import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import type {
   EditorialCalloutKind,
   EditorialReviewRecommendationType,
@@ -415,6 +416,7 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
     "Якщо вибраний блок є коротким вступом або lead-in фразою, редагуй саме цю lead-in фразу, не вигадуй відсутній сусідній текст.",
     "Не додавай загальних пересторог, медичних дисклеймерів, порад звернутися до лікаря, фраз про самодіагностику або консультацію, якщо цього немає в оригіналі і це не є прямою метою рекомендації.",
     "Якщо джерело є переліком, серією коротких тверджень або ритмічним списком, збережи цю scan-friendly структуру; не перетворюй кожен пункт на розлогий абзац.",
+    "Якщо редактор просить форму вірша, 4 рядки, строфу або короткі рядки, дозволено повертати внутрішні переноси рядка через символ \\n всередині одного replacement string; сервер збереже їх у межах одного блока.",
     "Поверни лише JSON без markdown.",
     `Схема: {"replacements":["..."]}. replacements має містити рівно ${blockCount} рядків plain text у тому самому порядку, що й вибрані блоки.`,
     `Редакторська рекомендація: ${request.item.recommendation}`,
@@ -785,7 +787,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
       "Схема JSON: {\"title\":\"...\",\"body\":\"...\"}.",
       "title: короткий заголовок врізки (1 рядок, plain text).",
-      "body: основний текст врізки у вигляді plain text для block editor; без **жирного**, списків markdown, # заголовків або code fences."
+      "body: основний текст врізки для block editor; markdown не використовуй, крім рідкісного **жирного** для коротких змістових акцентів."
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -796,7 +798,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
       "Поверни лише JSON-об'єкт без markdown: {\"title\":\"...\",\"lead\":\"...\"}.",
       "title: короткий і точний підзаголовок (plain text, один рядок).",
-      "lead: необов'язковий короткий вступний абзац (plain text), можна порожній рядок.",
+      "lead: необов'язковий короткий вступний абзац; markdown не використовуй, крім рідкісного **жирного** для коротких акцентів, можна порожній рядок.",
       "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
       `Рекомендація: ${request.item.recommendation}`,
       request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
@@ -928,7 +930,9 @@ function getInfographicLayoutGuidance(layout: InfographicLayout): string {
 
 function buildReplacePromptByType(type: EditorialReviewRecommendationType, blockCount: number): string {
   const shared = [
-    "Формат результату: лише повна заміна вибраних блоків у форматі block editor; без markdown-розмітки (**жирного**, # заголовків, markdown-списків або code fences).",
+    "Формат результату: лише повна заміна вибраних блоків у форматі block editor.",
+    "Markdown не використовуй, крім рідкісного акценту через **жирний** на ключових словах або дуже коротких фразах.",
+    "Жирний дозволений лише ощадно: не більше 1-2 акцентів на блок, не виділяй цілі речення, абзаци або кожен пункт списку.",
     "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
     "Не додавай нових фактів.",
     "Не додавай службових пересторог, моралізаторства або повторюваних застережень, яких не було у джерелі.",
@@ -1052,7 +1056,7 @@ function normalizeReviewTextDiffOperation(
     const oldBlock = operation.oldBlocks[index];
 
     if (strictTypePreservation && oldBlock) {
-      return cloneBlockWithText(oldBlock, sanitizeReplacementText(getBlockText(block)));
+      return cloneBlockWithText(oldBlock, sanitizeReplacementText(getBlockTextWithBoldMarkdown(block)));
     }
 
     return sanitizeReplacementBlock(block);
@@ -1135,31 +1139,31 @@ function cloneBlockWithText(block: Block, text: string): Block {
   const plain = text.replace(/\r\n?/g, "\n");
 
   if (block.type === "paragraph") {
-    return { ...block, content: [createInlineText(plain)] };
+    return { ...block, content: parseBoldMarkdownToInlineNodes(plain) };
   }
 
   if (block.type === "heading") {
-    return { ...block, content: [createInlineText(plain)] };
+    return { ...block, content: parseBoldMarkdownToInlineNodes(plain) };
   }
 
   if (block.type === "bullet_list") {
     return {
       ...block,
-      items: splitListItemsForBlock(plain).map((item) => [createInlineText(item)])
+      items: splitListItemsForBlock(plain).map((item) => parseBoldMarkdownToInlineNodes(item))
     };
   }
 
   if (block.type === "ordered_list") {
     return {
       ...block,
-      items: splitListItemsForBlock(plain).map((item) => [createInlineText(item)])
+      items: splitListItemsForBlock(plain).map((item) => parseBoldMarkdownToInlineNodes(item))
     };
   }
 
   return {
     id: block.id,
     type: "paragraph",
-    content: [createInlineText(plain)]
+    content: parseBoldMarkdownToInlineNodes(plain)
   };
 }
 
@@ -1195,22 +1199,22 @@ function sanitizeReplacementBlock(block: Block): Block {
   if (block.type === "bullet_list") {
     return {
       ...block,
-      items: block.items.map((item) => [createInlineText(sanitizeListItemText(getInlineText(item)))])
+      items: block.items.map((item) => parseBoldMarkdownToInlineNodes(sanitizeListItemText(getInlineText(item))))
     };
   }
 
   if (block.type === "ordered_list") {
     return {
       ...block,
-      items: block.items.map((item) => [createInlineText(sanitizeListItemText(getInlineText(item)))])
+      items: block.items.map((item) => parseBoldMarkdownToInlineNodes(sanitizeListItemText(getInlineText(item))))
     };
   }
 
   if (block.type === "callout") {
     return {
       ...block,
-      title: [createInlineText(sanitizeReplacementText(getInlineText(block.title)))],
-      body: block.body.map((part) => [createInlineText(sanitizeReplacementText(getInlineText(part)))])
+      title: parseBoldMarkdownToInlineNodes(sanitizeReplacementText(getInlineText(block.title))),
+      body: block.body.map((part) => parseBoldMarkdownToInlineNodes(sanitizeReplacementText(getInlineText(part))))
     };
   }
 
@@ -1218,25 +1222,29 @@ function sanitizeReplacementBlock(block: Block): Block {
 }
 
 function sanitizeListItemText(value: string): string {
-  return sanitizeReplacementText(value).replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+  return sanitizeReplacementText(value).replace(/^\s*(?:[-•]|\d+[.)]|\*(?!\*))\s*/, "").trim();
 }
 
 function sanitizeReplacementText(value: string): string {
-  return value
+  return protectBoldMarkdown(value)
     .replace(/\r\n?/g, "\n")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/^\s{0,3}#{1,6}\s*/gm, "")
     .replace(/^\s*>\s?/gm, "")
     .replace(/^\s*[-*•]\s+/gm, "")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/_(.*?)_/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    .replace(/\uE000([\s\S]+?)\uE001/g, "**$1**")
     .trim();
+}
+
+function protectBoldMarkdown(value: string): string {
+  return value.replace(/\*\*([\s\S]+?)\*\*/g, "\uE000$1\uE001");
 }
 
 function detectReplaceNoOpWarning(
@@ -1493,7 +1501,7 @@ function buildBulletListBlock(items: string[], id?: string): Block {
   return {
     id: id ?? createPatchId("block"),
     type: "bullet_list",
-    items: items.map((item) => [createInlineText(item)])
+    items: items.map((item) => parseBoldMarkdownToInlineNodes(item))
   };
 }
 
@@ -1528,7 +1536,7 @@ function coerceProviderBlocks(candidates: unknown[], oldBlocks: Block[]): Block[
         normalized.push({
           id: fallbackId,
           type,
-          items: items.map((item) => [createInlineText(item)])
+          items: items.map((item) => parseBoldMarkdownToInlineNodes(item))
         } as Block);
       }
 
@@ -1555,7 +1563,7 @@ function coerceProviderBlocks(candidates: unknown[], oldBlocks: Block[]): Block[
       id: fallbackId,
       type: type === "heading" ? "heading" : "paragraph",
       ...(type === "heading" ? { level: 2 as const } : {}),
-      content: [createInlineText(sanitizeReplacementText(contentText))]
+      content: parseBoldMarkdownToInlineNodes(sanitizeReplacementText(contentText))
     } as Block);
   }
 
@@ -2042,7 +2050,7 @@ function sanitizePromptInput(value: string, maxLength: number): string {
 }
 
 function sanitizeCalloutTitle(value: string): string {
-  const plain = sanitizeCalloutText(value).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  const plain = sanitizeCalloutText(value).replace(/\*\*(.*?)\*\*/g, "$1").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
   return plain.slice(0, 140);
 }
 
@@ -2055,19 +2063,37 @@ function sanitizeImageAlt(value: string): string {
 }
 
 function sanitizeCalloutText(value: string): string {
-  return value
+  return protectBoldMarkdown(value)
     .replace(/\r\n?/g, "\n")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/^\s{0,3}#{1,6}\s*/gm, "")
     .replace(/^\s*[-*•]\s+/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/_(.*?)_/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    .replace(/\uE000([\s\S]+?)\uE001/g, "**$1**")
     .trim();
+}
+
+function getBlockTextWithBoldMarkdown(block: Block): string {
+  if (block.type === "paragraph" || block.type === "heading") {
+    return serializeInlineNodesToBoldMarkdown(block.content);
+  }
+
+  if (block.type === "bullet_list" || block.type === "ordered_list") {
+    return block.items.map((item) => serializeInlineNodesToBoldMarkdown(item)).join("\n");
+  }
+
+  if (block.type === "callout") {
+    return [serializeInlineNodesToBoldMarkdown(block.title), ...block.body.map((part) => serializeInlineNodesToBoldMarkdown(part))]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return getBlockText(block);
 }
 
 function normalizeCalloutBodyByKind(value: string, calloutKind: EditorialCalloutKind): string {

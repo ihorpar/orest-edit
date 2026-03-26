@@ -135,3 +135,23 @@ test("upsertManualReviewItem creates a new manual item when type differs", () =>
     })
   );
 });
+
+test("buildManualReviewItem supports local list generation as replace suggestion", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const item = buildManualReviewItem({
+    document,
+    revision,
+    blockIds: ["p2", "p3"],
+    changeLevel: 2,
+    recommendationType: "list",
+    manualInstruction: "Зберегти причинно-наслідковий порядок."
+  });
+
+  assert.equal(item.recommendationType, "list");
+  assert.equal(item.suggestedAction, "rewrite_text");
+  assert.equal(item.insertionPoint.mode, "replace");
+  assert.equal(item.insertionPoint.anchorBlockId, "p2");
+  assert.match(item.recommendation, /компактний список/i);
+  assert.match(item.reason, /Зберегти причинно-наслідковий порядок/i);
+});

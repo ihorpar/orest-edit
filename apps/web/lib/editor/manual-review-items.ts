@@ -8,13 +8,17 @@ import type {
   EditorialVisualIntent,
   WholeTextChangeLevel
 } from "./review-contract";
+import {
+  getInsertionHintForRecommendationType,
+  getSuggestedActionForRecommendationType
+} from "./review-contract";
 
 export interface BuildManualReviewItemInput {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
   blockIds: string[];
   changeLevel: WholeTextChangeLevel;
-  recommendationType: "callout" | "visual";
+  recommendationType: "callout" | "visual" | "list";
   calloutKind?: EditorialCalloutKind;
   visualIntent?: EditorialVisualIntent;
   manualInstruction?: string;
@@ -57,20 +61,31 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
   const now = input.now ?? new Date().toISOString();
   const manualInstruction = input.manualInstruction?.trim() ?? "";
   const instructionSuffix = manualInstruction ? ` Додаткова інструкція: ${manualInstruction}` : "";
+  const recommendationType = input.recommendationType;
+  const suggestedAction = getSuggestedActionForRecommendationType(recommendationType);
+  const insertionMode = getInsertionHintForRecommendationType(recommendationType);
+  const anchorBlockId = insertionMode === "after" ? orderedBlockIds[orderedBlockIds.length - 1] : orderedBlockIds[0];
 
   return {
     id: createPatchId("manual-review-item"),
     reviewSessionId: createPatchId("manual-review-session"),
     documentRevisionId: input.revision.documentRevisionId,
     changeLevel: input.changeLevel,
-    title: input.recommendationType === "callout" ? "Ручна врізка" : "Ручний візуал",
+    title:
+      recommendationType === "callout"
+        ? "Ручна врізка"
+        : recommendationType === "visual"
+          ? "Ручний візуал"
+          : "Ручний список",
     reason: `Ручний запит із панелі локальної правки.${instructionSuffix}`,
     recommendation:
-      input.recommendationType === "callout"
+      recommendationType === "callout"
         ? `Згенерувати врізку для виділеного фрагмента.${instructionSuffix}`
-        : `Згенерувати візуал для виділеного фрагмента.${instructionSuffix}`,
-    recommendationType: input.recommendationType,
-    suggestedAction: input.recommendationType === "callout" ? "prepare_callout" : "prepare_visual",
+        : recommendationType === "visual"
+          ? `Згенерувати візуал для виділеного фрагмента.${instructionSuffix}`
+          : `Перетворити виділений фрагмент на компактний список.${instructionSuffix}`,
+    recommendationType,
+    suggestedAction,
     priority: "medium",
     anchor: {
       blockIds: orderedBlockIds,
@@ -79,11 +94,11 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
       fingerprint: computeAnchorFingerprint(input.document, orderedBlockIds)
     },
     insertionPoint: {
-      mode: "after",
-      anchorBlockId: orderedBlockIds[orderedBlockIds.length - 1]
+      mode: insertionMode,
+      anchorBlockId
     },
-    calloutKind: input.recommendationType === "callout" ? input.calloutKind ?? "mechanism" : undefined,
-    visualIntent: input.recommendationType === "visual" ? input.visualIntent ?? "infographic" : undefined,
+    calloutKind: recommendationType === "callout" ? input.calloutKind ?? "mechanism" : undefined,
+    visualIntent: recommendationType === "visual" ? input.visualIntent ?? "infographic" : undefined,
     status: "pending",
     origin: "manual",
     manualRequest: {

@@ -11,6 +11,7 @@ import {
   normalizeBlockSelection,
   replaceBlocksByIds
 } from "./document-model";
+import { parseBoldMarkdownToInlineNodes } from "./inline-markup";
 
 export type PatchOperationKind = "replace_blocks";
 export type PatchOperationType = "clarity" | "structure" | "terminology" | "source" | "tone";
@@ -346,7 +347,7 @@ function normalizeInlineArray(value: unknown): InlineNode[] {
 
 function normalizeInlineArrayFromTextFields(record: Record<string, unknown>): InlineNode[] {
   const text = extractLooseReplacementText(record);
-  return text ? [createInlineText(text)] : [createInlineText("")];
+  return parseBoldMarkdownToInlineNodes(text ?? "");
 }
 
 function normalizeInlineArrayOrText(value: unknown, record: Record<string, unknown>): InlineNode[] {
@@ -355,6 +356,12 @@ function normalizeInlineArrayOrText(value: unknown, record: Record<string, unkno
 }
 
 function normalizeLooseReplacementBlocks(record: Record<string, unknown>, oldBlocks: Block[]): Block[] {
+  const textParts = extractLooseReplacementTexts(record);
+
+  if (textParts) {
+    return buildBlocksFromTextParts(textParts, oldBlocks);
+  }
+
   const text = extractLooseReplacementText(record);
 
   if (!text) {
@@ -380,6 +387,38 @@ function extractLooseReplacementText(record: Record<string, unknown>): string | 
   return null;
 }
 
+function extractLooseReplacementTexts(record: Record<string, unknown>): string[] | null {
+  const candidates = [record.replacements, record.paragraphs];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) {
+      continue;
+    }
+
+    const normalized = candidate
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function buildBlocksFromTextParts(parts: string[], oldBlocks: Block[]): Block[] {
+  if (parts.length === 0) {
+    return [];
+  }
+
+  if (parts.length === 1) {
+    return buildBlocksFromPlainText(parts[0]!, oldBlocks);
+  }
+
+  return parts.map((part, index) => buildLikeBlock(oldBlocks[index], part));
+}
+
 function buildBlocksFromPlainText(text: string, oldBlocks: Block[]): Block[] {
   const normalizedText = text.replace(/\r\n?/g, "\n").trim();
 
@@ -396,7 +435,7 @@ function buildBlocksFromPlainText(text: string, oldBlocks: Block[]): Block[] {
           .split(/\n+/)
           .map((line) => line.replace(/^\s*[-•*]\s*/, "").trim())
           .filter(Boolean)
-          .map((line) => [createInlineText(line)])
+          .map((line) => parseBoldMarkdownToInlineNodes(line))
       }
     ];
   }
@@ -410,7 +449,7 @@ function buildBlocksFromPlainText(text: string, oldBlocks: Block[]): Block[] {
           .split(/\n+/)
           .map((line) => line.replace(/^\s*\d+[.)]\s*/, "").trim())
           .filter(Boolean)
-          .map((line) => [createInlineText(line)])
+          .map((line) => parseBoldMarkdownToInlineNodes(line))
       }
     ];
   }
@@ -426,14 +465,14 @@ function buildBlocksFromPlainText(text: string, oldBlocks: Block[]): Block[] {
 
 function buildLikeBlock(oldBlock: Block | undefined, text: string): Block {
   if (oldBlock?.type === "heading") {
-    return { id: createPatchId("block"), type: "heading", level: oldBlock.level, content: [createInlineText(text)] };
+    return { id: createPatchId("block"), type: "heading", level: oldBlock.level, content: parseBoldMarkdownToInlineNodes(text) };
   }
 
   if (oldBlock?.type === "bullet_list") {
     return {
       id: createPatchId("block"),
       type: "bullet_list",
-      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => [createInlineText(line)])
+      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => parseBoldMarkdownToInlineNodes(line))
     };
   }
 
@@ -441,7 +480,7 @@ function buildLikeBlock(oldBlock: Block | undefined, text: string): Block {
     return {
       id: createPatchId("block"),
       type: "ordered_list",
-      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => [createInlineText(line)])
+      items: text.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => parseBoldMarkdownToInlineNodes(line))
     };
   }
 
@@ -452,7 +491,7 @@ function buildParagraphBlockFromText(text: string): Block {
   return {
     id: createPatchId("block"),
     type: "paragraph",
-    content: [createInlineText(text)]
+    content: parseBoldMarkdownToInlineNodes(text)
   };
 }
 

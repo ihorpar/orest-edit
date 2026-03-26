@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, X } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { ArrowUp, LoaderCircle, X } from "lucide-react";
 import {
   getLocalActionTextIntentOptions,
+  type LocalActionExecutor,
   type LocalActionMode,
   type LocalActionRouteResponse,
   type LocalActionTextIntent
@@ -106,7 +107,7 @@ export function FloatingComposerPanel({
   onRequestManualCallout: () => void;
   onRequestManualVisual: () => void;
   onRequestSpellcheck: () => void;
-  manualLoadingKind?: "callout" | "visual" | null;
+  manualLoadingKind?: "callout" | "visual" | "list" | null;
   onClose: () => void;
 }) {
   const isReview = mode === "review";
@@ -122,9 +123,8 @@ export function FloatingComposerPanel({
   const visualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const reviewTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textIntentOptions = getLocalActionTextIntentOptions();
-  const showAutoTextModes = localActionRoute.executor === "patch" || localActionRoute.executor === "clarify";
-  const [isModeTrayOpen, setIsModeTrayOpen] = useState(false);
-
+  const showAutoTextModes =
+    localActionRoute.executor === "patch" || localActionRoute.executor === "review" || localActionRoute.executor === "clarify";
   useAutosizeTextarea(primaryTextareaRef, customPrompt);
   useAutosizeTextarea(autoCalloutTextareaRef, customPrompt);
   useAutosizeTextarea(autoVisualTextareaRef, customPrompt);
@@ -160,7 +160,6 @@ export function FloatingComposerPanel({
     return "edit";
   }, [localActionMode, localActionRoute.executor]);
 
-  const modeTriggerLabel = isModeTrayOpen ? "Режими" : LOCAL_SURFACE_MODE_LABELS[localSurfaceMode];
   const spellcheckStatusCopy =
     spellcheckSummary ??
     (spellcheckLoading
@@ -178,8 +177,50 @@ export function FloatingComposerPanel({
           ? "Перевірити правопис"
           : localActionRoute.actionLabel;
 
+  function isExecutorLoading(executor: LocalActionExecutor) {
+    if (executor === "patch") {
+      return Boolean(patchLoading);
+    }
+
+    if (executor === "review") {
+      return manualLoadingKind === "list";
+    }
+
+    if (executor === "spellcheck") {
+      return Boolean(spellcheckLoading);
+    }
+
+    if (executor === "callout") {
+      return manualLoadingKind === "callout";
+    }
+
+    if (executor === "visual") {
+      return manualLoadingKind === "visual";
+    }
+
+    return false;
+  }
+
+  const editSendLoading = !isReview && localActionMode === "auto" ? isExecutorLoading(localActionRoute.executor) : false;
+  const proofSendLoading = Boolean(spellcheckLoading);
+  const calloutSendLoading =
+    localActionMode === "callout"
+      ? manualLoadingKind === "callout"
+      : !isReview && localActionRoute.executor === "callout" && manualLoadingKind === "callout";
+  const visualSendLoading =
+    localActionMode === "visual"
+      ? manualLoadingKind === "visual"
+      : !isReview && localActionRoute.executor === "visual" && manualLoadingKind === "visual";
+
+  function renderSendIcon(isLoading: boolean) {
+    if (isLoading) {
+      return <LoaderCircle size={15} className="floating-bridge-send-spinner" />;
+    }
+
+    return <ArrowUp size={15} />;
+  }
+
   function handleModeSelect(nextMode: LocalSurfaceMode) {
-    setIsModeTrayOpen(false);
     onLocalActionModeChange(
       nextMode === "edit" ? "auto" : nextMode === "proof" ? "spellcheck" : nextMode
     );
@@ -189,19 +230,8 @@ export function FloatingComposerPanel({
     return (
       <section className="floating-bridge-shell" aria-label="Локальна правка">
         <div className="floating-bridge-surface" data-mode={localSurfaceMode}>
-          <div className="floating-bridge-top" data-open={isModeTrayOpen ? "true" : "false"}>
-            <button
-              type="button"
-              className="floating-bridge-mode-trigger"
-              onClick={() => setIsModeTrayOpen((current) => !current)}
-              aria-expanded={isModeTrayOpen}
-              aria-label="Режими локальної дії"
-              disabled={localBusy}
-            >
-              <span>{modeTriggerLabel}</span>
-              <ChevronDown size={12} />
-            </button>
-            <div className="floating-bridge-mode-tray" role="tablist" aria-label="Режими локальної дії">
+          <div className="floating-bridge-top">
+            <div className="floating-bridge-mode-tabs" role="tablist" aria-label="Режими локальної дії">
               {(["edit", "proof", "callout", "visual"] as LocalSurfaceMode[]).map((surfaceMode) => (
                 <button
                   key={surfaceMode}
@@ -225,15 +255,17 @@ export function FloatingComposerPanel({
           <div className="floating-bridge-mode-shell">
             <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "edit" ? "true" : "false"}>
               <div className="floating-bridge-main">
-                <textarea
-                  ref={primaryTextareaRef}
-                  className="floating-bridge-textarea"
-                  rows={2}
-                  placeholder="Що зробити з виділеним?"
-                  value={customPrompt}
-                  onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
-                  disabled={localBusy}
-                />
+                <div className="floating-bridge-textarea-shell" data-working={editSendLoading ? "true" : "false"}>
+                  <textarea
+                    ref={primaryTextareaRef}
+                    className="floating-bridge-textarea"
+                    rows={2}
+                    placeholder="Що зробити з виділеним?"
+                    value={customPrompt}
+                    onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
+                    disabled={localBusy}
+                  />
+                </div>
                 {localActionRoute.executor === "clarify" ? (
                   <div className="floating-bridge-clarify">
                     <span className="floating-bridge-clarify-label">Уточніть дію</span>
@@ -283,10 +315,12 @@ export function FloatingComposerPanel({
                   className="floating-bridge-send"
                   onClick={onRequestAutoAction}
                   disabled={localBusy}
+                  data-loading={editSendLoading ? "true" : "false"}
+                  aria-busy={editSendLoading}
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  <ArrowUp size={15} />
+                  {renderSendIcon(editSendLoading)}
                 </button>
               </div>
             </section>
@@ -300,40 +334,39 @@ export function FloatingComposerPanel({
                 ) : null}
               </div>
               <div className="floating-bridge-footer">
-                <div className="floating-bridge-footer-left">
-                  <span className="floating-bridge-token">Локально</span>
-                  <span className="floating-bridge-token">
-                    {spellcheckResults.length > 0 ? `${spellcheckResults.length} абз.` : "Виділення"}
-                  </span>
-                </div>
+                <div className="floating-bridge-footer-left" />
                 <button
                   type="button"
                   className="floating-bridge-send"
                   onClick={localActionMode === "spellcheck" ? onRequestSpellcheck : onRequestAutoAction}
                   disabled={localActionMode === "spellcheck" ? Boolean(spellcheckLoading) : localBusy}
+                  data-loading={proofSendLoading ? "true" : "false"}
+                  aria-busy={proofSendLoading}
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  <ArrowUp size={15} />
+                  {renderSendIcon(proofSendLoading)}
                 </button>
               </div>
             </section>
 
             <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "callout" ? "true" : "false"}>
               <div className="floating-bridge-main">
-                <textarea
-                  ref={localActionMode === "callout" ? calloutTextareaRef : autoCalloutTextareaRef}
-                  className="floating-bridge-textarea"
-                  rows={2}
-                  placeholder="Що саме підкреслити у врізці..."
-                  value={autoCalloutPromptValue}
-                  onChange={(event) =>
-                    localActionMode === "callout"
-                      ? onManualCalloutPromptChange(event.currentTarget.value)
-                      : onCustomPromptChange(event.currentTarget.value)
-                  }
-                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
-                />
+                <div className="floating-bridge-textarea-shell" data-working={calloutSendLoading ? "true" : "false"}>
+                  <textarea
+                    ref={localActionMode === "callout" ? calloutTextareaRef : autoCalloutTextareaRef}
+                    className="floating-bridge-textarea"
+                    rows={2}
+                    placeholder="Що саме підкреслити у врізці..."
+                    value={autoCalloutPromptValue}
+                    onChange={(event) =>
+                      localActionMode === "callout"
+                        ? onManualCalloutPromptChange(event.currentTarget.value)
+                        : onCustomPromptChange(event.currentTarget.value)
+                    }
+                    disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  />
+                </div>
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
@@ -357,29 +390,33 @@ export function FloatingComposerPanel({
                   className="floating-bridge-send"
                   onClick={localActionMode === "callout" ? onRequestManualCallout : onRequestAutoAction}
                   disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  data-loading={calloutSendLoading ? "true" : "false"}
+                  aria-busy={calloutSendLoading}
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  <ArrowUp size={15} />
+                  {renderSendIcon(calloutSendLoading)}
                 </button>
               </div>
             </section>
 
             <section className="floating-bridge-mode-panel" data-active={localSurfaceMode === "visual" ? "true" : "false"}>
               <div className="floating-bridge-main">
-                <textarea
-                  ref={localActionMode === "visual" ? visualTextareaRef : autoVisualTextareaRef}
-                  className="floating-bridge-textarea"
-                  rows={2}
-                  placeholder="Що саме має показати візуал..."
-                  value={autoVisualPromptValue}
-                  onChange={(event) =>
-                    localActionMode === "visual"
-                      ? onManualVisualPromptChange(event.currentTarget.value)
-                      : onCustomPromptChange(event.currentTarget.value)
-                  }
-                  disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
-                />
+                <div className="floating-bridge-textarea-shell" data-working={visualSendLoading ? "true" : "false"}>
+                  <textarea
+                    ref={localActionMode === "visual" ? visualTextareaRef : autoVisualTextareaRef}
+                    className="floating-bridge-textarea"
+                    rows={2}
+                    placeholder="Що саме має показати візуал..."
+                    value={autoVisualPromptValue}
+                    onChange={(event) =>
+                      localActionMode === "visual"
+                        ? onManualVisualPromptChange(event.currentTarget.value)
+                        : onCustomPromptChange(event.currentTarget.value)
+                    }
+                    disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  />
+                </div>
               </div>
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
@@ -417,10 +454,12 @@ export function FloatingComposerPanel({
                   className="floating-bridge-send"
                   onClick={localActionMode === "visual" ? onRequestManualVisual : onRequestAutoAction}
                   disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                  data-loading={visualSendLoading ? "true" : "false"}
+                  aria-busy={visualSendLoading}
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  <ArrowUp size={15} />
+                  {renderSendIcon(visualSendLoading)}
                 </button>
               </div>
             </section>

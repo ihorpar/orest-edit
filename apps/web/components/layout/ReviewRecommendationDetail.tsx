@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import type {
   EditorialCalloutKind,
@@ -103,15 +103,32 @@ export function ReviewRecommendationDetail({
   const selectedVisualIntent = imageDraft?.visualIntent ?? currentItem.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
   const [isRefineOpen, setIsRefineOpen] = useState(false);
+  const refineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const normalizedRefineInstruction = refineInstruction.trim();
   const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
   const pendingRefineTitle = hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined;
+  const canPrepareFromCard = currentItem.status === "pending" || currentItem.status === "dismissed";
+  const prepareButtonLabel = currentItem.status === "dismissed" ? "Підготувати знову" : "Підготувати";
+  const textDiffRegenerateLabel = hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати";
+
+  useEffect(() => {
+    if (isRefineOpen) {
+      refineTextareaRef.current?.focus();
+    }
+  }, [isRefineOpen]);
 
   function handlePrepare(nextOptions?: { visualStylePreset?: VisualStylePreset }) {
     onPrepare(currentItem, {
       ...nextOptions,
       editorialInstruction: normalizedRefineInstruction || undefined
     });
+  }
+
+  function handleRefineKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      handlePrepare();
+    }
   }
 
   return (
@@ -143,10 +160,12 @@ export function ReviewRecommendationDetail({
             <div className="editorial-review-field-group">
               <p className="editorial-review-detail-label">Що змінити в рекомендації</p>
               <textarea
+                ref={refineTextareaRef}
                 className="editorial-review-callout-body-input editorial-review-refine-input"
                 value={refineInstruction}
                 placeholder="Наприклад: спростити тон, зберегти локальність правки, переписати коротше"
                 onChange={(event) => onRefineInstructionChange(event.target.value)}
+                onKeyDown={handleRefineKeyDown}
               />
             </div>
           ) : null}
@@ -159,15 +178,15 @@ export function ReviewRecommendationDetail({
         </div>
       ) : null}
 
-      {!isPreparing && currentItem.status === "pending" && currentItem.recommendationType !== "callout" && currentItem.recommendationType !== "subsection" && currentItem.recommendationType !== "visual" ? (
+      {!isPreparing && canPrepareFromCard && currentItem.recommendationType !== "callout" && currentItem.recommendationType !== "subsection" && currentItem.recommendationType !== "visual" ? (
         <div className="editorial-review-detail-actions">
           <Button size="sm" variant="primary" onClick={() => onPrepare(currentItem)}>
-            Підготувати
+            {prepareButtonLabel}
           </Button>
         </div>
       ) : null}
 
-      {!isPreparing && currentItem.status === "pending" && currentItem.recommendationType === "visual" ? (
+      {!isPreparing && canPrepareFromCard && currentItem.recommendationType === "visual" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-callout-kind-row">
             <p className="editorial-review-detail-label">Тип візуалу</p>
@@ -191,7 +210,7 @@ export function ReviewRecommendationDetail({
               variant="primary"
               onClick={() => onPrepare(currentItem, { visualStylePreset: selectedVisualStylePreset })}
             >
-              Підготувати
+              {prepareButtonLabel}
             </Button>
           </div>
         </div>
@@ -208,8 +227,13 @@ export function ReviewRecommendationDetail({
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
               Уточнити
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
-              Перегенерувати
+            <Button
+              size="sm"
+              variant={hasPendingRefineInstruction ? "primary" : "secondary"}
+              onClick={() => handlePrepare()}
+              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати поточний варіант."}
+            >
+              {textDiffRegenerateLabel}
             </Button>
           </div>
         </div>
@@ -255,8 +279,13 @@ export function ReviewRecommendationDetail({
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
               Уточнити
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
-              {calloutDraft ? "Перегенерувати" : "Згенерувати"}
+            <Button
+              size="sm"
+              variant={hasPendingRefineInstruction ? "primary" : "secondary"}
+              onClick={() => handlePrepare()}
+              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : undefined}
+            >
+              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : calloutDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
             <Button
               size="sm"
@@ -292,8 +321,13 @@ export function ReviewRecommendationDetail({
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
               Уточнити
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handlePrepare()}>
-              {subsectionDraft ? "Перегенерувати" : "Згенерувати"}
+            <Button
+              size="sm"
+              variant={hasPendingRefineInstruction ? "primary" : "secondary"}
+              onClick={() => handlePrepare()}
+              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : undefined}
+            >
+              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : subsectionDraft ? "Перегенерувати" : "Згенерувати"}
             </Button>
             <Button
               size="sm"
@@ -347,8 +381,13 @@ export function ReviewRecommendationDetail({
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
               Уточнити
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}>
-              Перегенерувати
+            <Button
+              size="sm"
+              variant={hasPendingRefineInstruction ? "primary" : "secondary"}
+              onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
+              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати prompt для візуалу."}
+            >
+              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати"}
             </Button>
             <Button
               size="sm"
