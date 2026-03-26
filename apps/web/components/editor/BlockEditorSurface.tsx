@@ -748,6 +748,7 @@ export function BlockEditorSurface({
             onMouseDown={(event) => handleInlineFormatMouseDown(event, "bold")}
             disabled={disabled}
             title="Жирний"
+            aria-label="Жирний"
           >
             <Bold />
           </button>
@@ -757,6 +758,7 @@ export function BlockEditorSurface({
             onMouseDown={(event) => handleInlineFormatMouseDown(event, "italic")}
             disabled={disabled}
             title="Курсив"
+            aria-label="Курсив"
           >
             <Italic />
           </button>
@@ -770,6 +772,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("paragraph")}
             disabled={disabled}
             title="Абзац"
+            aria-label="Абзац"
             data-active={getBlock(document, focusedBlockId)?.type === "paragraph"}
           >
             <Type />
@@ -781,6 +784,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-1")}
             disabled={disabled}
             title="H1"
+            aria-label="Заголовок 1"
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 1}
           >
             <Heading1 />
@@ -792,6 +796,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-2")}
             disabled={disabled}
             title="H2"
+            aria-label="Заголовок 2"
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 2}
           >
             <Heading2 />
@@ -803,6 +808,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-3")}
             disabled={disabled}
             title="H3"
+            aria-label="Заголовок 3"
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 3}
           >
             <Heading3 />
@@ -814,6 +820,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("bullet-list")}
             disabled={disabled}
             title="Список"
+            aria-label="Маркований список"
             data-active={getBlock(document, focusedBlockId)?.type === "bullet_list"}
           >
             <List />
@@ -825,6 +832,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("ordered-list")}
             disabled={disabled}
             title="Нумерований список"
+            aria-label="Нумерований список"
             data-active={getBlock(document, focusedBlockId)?.type === "ordered_list"}
           >
             <ListOrdered />
@@ -839,6 +847,7 @@ export function BlockEditorSurface({
             onClick={() => insertBlockAfterCurrent(() => createEmptyParagraphBlock())}
             disabled={disabled}
             title="Додати абзац"
+            aria-label="Додати абзац"
           >
             <Plus />
           </button>
@@ -857,6 +866,7 @@ export function BlockEditorSurface({
             }
             disabled={disabled}
             title="Врізка"
+            aria-label="Додати врізку"
           >
             <Quote />
           </button>
@@ -867,6 +877,7 @@ export function BlockEditorSurface({
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))}
             disabled={disabled}
             title="Роздільник"
+            aria-label="Додати роздільник"
           >
             <Minus />
           </button>
@@ -877,11 +888,13 @@ export function BlockEditorSurface({
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))}
             disabled={disabled}
             title="Таблиця"
+            aria-label="Додати таблицю"
           >
             <Table />
           </button>
-          <label className="block-toolbar-button block-toolbar-button-file" title="Зображення">
+          <label className="block-toolbar-button block-toolbar-button-file" title="Зображення" aria-label="Додати зображення">
             <ImageIcon />
+            <span className="sr-only">Додати зображення</span>
             <input type="file" accept="image/*" onChange={handleFileSelection} disabled={disabled} />
           </label>
         </div>
@@ -929,6 +942,7 @@ export function BlockEditorSurface({
                 onMouseDown={(event) => handleGutterMouseDown(block.id, event)}
                 onMouseEnter={(event) => handleGutterMouseEnter(block.id, event)}
                 title="Виділити блок або діапазон"
+                aria-label={`Виділити абзац ${formatParagraphLabel(index)}`}
               >
                 {formatParagraphLabel(index)}
               </button>

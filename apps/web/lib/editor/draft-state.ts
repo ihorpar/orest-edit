@@ -15,6 +15,7 @@ import type {
   WholeTextChangeLevel
 } from "./review-contract";
 import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "./review-contract";
+import type { RequestFeedback, RequestFeedbackTone } from "./workflow-ui";
 
 export type PersistedWorkflowStepId = EditorialReviewStepId | "spellcheck";
 
@@ -28,9 +29,8 @@ export interface PersistedAppliedDiffMarker {
   reason: string;
 }
 
-export interface PersistedEditorFeedback {
-  message: string;
-  tone: "info" | "error";
+export interface PersistedEditorFeedback extends RequestFeedback {
+  tone: RequestFeedbackTone;
 }
 
 export interface PersistedHistoryItem {

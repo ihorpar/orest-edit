@@ -46,6 +46,7 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-25 00:00Z) Added session-scoped manuscript undo/redo plus persisted accepted-change compare snapshots, with top-bar controls, keyboard shortcuts, and a focused `Було` / `Стало` compare dialog.
 - [x] (2026-03-25 00:00Z) Fixed the destructive empty-list-item `Enter` path so exiting a list no longer wipes the entire block, and normalized provider fetch failures to a user-facing fallback message instead of raw `fetch failed`.
 - [x] (2026-03-26 00:00Z) Added a narrow AI-formatting policy: proposals may carry sparse `**bold**` emphasis, the diff/apply path preserves those markers, and accepted content lands as real inline `bold` in the manuscript.
+- [x] (2026-03-26 00:00Z) Added a focused full-screen visual workspace for prompt/result review, kept it bound to the same active visual proposal state as the inline card, and invalidated stale generated previews whenever the prompt text changes.
 
 ## Surprises & Discoveries
 
@@ -97,6 +98,8 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
   Evidence: handling `Enter` on an empty list item by replacing the whole block with a paragraph caused the entire list content to disappear when the editor created a trailing empty bullet and pressed `Enter` again.
 - Observation: the request for “AI bold accents” is mostly a transport problem, not a rendering primitive problem.
   Evidence: the editor model already supports inline `bold`, but review/prompt contracts, sanitizers, and diff editors were flattening generated text to plain strings before apply.
+- Observation: the visual workflow already had most of the data plumbing; Epic 7 was primarily a state-sharing and surface-layout problem.
+  Evidence: `ReviewRecommendationDetail.tsx` already exposed editable prompt/caption/style/intent plus generate/apply handlers, so the new focused workspace could reuse the same proposal callbacks instead of introducing a second visual draft model.
 
 ## Decision Log
 
@@ -166,6 +169,12 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - Decision: generated editorial text may use only sparse `**bold**` markers as the single supported formatting transport across proposal parsing and diff editing.
   Rationale: this keeps the AI-formatting feature useful but narrow. The manuscript receives real inline bold after apply, while the proposal editor can still remain text-based without becoming a general markdown surface.
   Date/Author: 2026-03-26 / Codex implementation
+- Decision: visual prompt editing now has two synchronized surfaces: the inline manuscript card for quick edits and a full-screen workspace for focused review of prompt plus generated result.
+  Rationale: editors asked for a larger dedicated place to inspect “what got generated” and to tune infographic prompts before or after generation, but duplicating proposal state would create drift between surfaces.
+  Date/Author: 2026-03-26 / Codex implementation
+- Decision: changing the visual prompt text clears the current generated asset until the image is regenerated.
+  Rationale: a previously generated image should never be presented as if it still corresponds to an edited prompt.
+  Date/Author: 2026-03-26 / Codex implementation
 
 ## Outcomes & Retrospective
 
@@ -184,6 +193,8 @@ The Epic 5 follow-up pass added the first explicit reversibility layer on top of
 The latest stability pass closed two sharp edges from manual QA. Empty trailing bullets now exit the list safely by removing only the empty item and inserting a new empty paragraph after the list, rather than replacing the whole list block. On the provider side, raw undici-style `fetch failed` exceptions are now normalized into a user-facing “provider unavailable or network not responding” fallback message, while raw diagnostics still keep the underlying error for debugging.
 
 The Epic 6 pass added a narrow formatting layer for AI-generated editorial text without reopening markdown as an editing mode. Replace proposals, local patch loose-text normalization, callout drafts, subsection leads, and the inline diff editor now preserve sparse `**...**` emphasis markers end-to-end. Unsupported markdown is still stripped. In practice, this means the proposal/edit transport remains text-based, but once the editor applies a change, the manuscript renders true inline bold on the emphasized phrase.
+
+The Epic 7 pass turned visual prompt editing into a two-surface workflow instead of a cramped inline-only card. Visual recommendations still prepare and apply through the manuscript execution lane, but they now also expose a full-screen workspace with a large prompt editor, focused preview area, caption/intent/style controls, and the same generate/insert actions before or after image generation. The key behavioral rule is that prompt edits invalidate the current generated asset immediately, so the UI never claims that an old preview still matches a changed prompt. Runtime QA on 2026-03-26 validated the manual local `Візуал` path end-to-end: creating a visual card from selected blocks, opening the focused workspace, editing prompt text there, syncing it back to the inline card, generating an image in the focused workspace, and clearing the preview again after subsequent prompt edits.
 
 ## Context and Orientation
 

@@ -111,7 +111,7 @@ export function StepReviewWorkspaceShell({
           const Icon = step.icon;
 
           return (
-            <div className="step-review-mini-hub-item" key={step.id}>
+            <div className="step-review-mini-hub-item" key={step.id} data-active={isActive ? "true" : "false"}>
               <button
                 type="button"
                 className="step-review-mini-hub-button"
@@ -119,7 +119,7 @@ export function StepReviewWorkspaceShell({
                 data-completed={step.completed ? "true" : "false"}
                 onClick={() => onStepSelect(step.id)}
                 aria-label={step.label}
-                title={step.label}
+                aria-current={isActive ? "step" : undefined}
               >
                 <Icon className="step-review-mini-hub-icon" aria-hidden="true" />
               </button>

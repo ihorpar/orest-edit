@@ -23,7 +23,7 @@ import { VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelection
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
-import { ArrowDownToLine, RefreshCcw, Sparkles, X } from "lucide-react";
+import { ArrowDownToLine, Expand, RefreshCcw, Sparkles, X } from "lucide-react";
 
 export function ReviewRecommendationDetail({
   item,
@@ -103,7 +103,9 @@ export function ReviewRecommendationDetail({
   const selectedVisualIntent = imageDraft?.visualIntent ?? currentItem.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
   const [isRefineOpen, setIsRefineOpen] = useState(false);
+  const [isVisualWorkspaceOpen, setIsVisualWorkspaceOpen] = useState(false);
   const refineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const visualWorkspacePromptRef = useRef<HTMLTextAreaElement | null>(null);
   const normalizedRefineInstruction = refineInstruction.trim();
   const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
   const pendingRefineTitle = hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined;
@@ -116,6 +118,29 @@ export function ReviewRecommendationDetail({
       refineTextareaRef.current?.focus();
     }
   }, [isRefineOpen]);
+
+  useEffect(() => {
+    if (!isVisualWorkspaceOpen) {
+      return;
+    }
+
+    const previousOverflow = window.document.body.style.overflow;
+    window.document.body.style.overflow = "hidden";
+    visualWorkspacePromptRef.current?.focus();
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsVisualWorkspaceOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isVisualWorkspaceOpen]);
 
   function handlePrepare(nextOptions?: { visualStylePreset?: VisualStylePreset }) {
     onPrepare(currentItem, {
@@ -132,20 +157,21 @@ export function ReviewRecommendationDetail({
   }
 
   return (
-    <article className="editorial-review-detail" data-layout={layout} data-type={currentItem.recommendationType}>
-      <div className="editorial-review-detail-head">
-        <div>
-          <p className="editorial-review-detail-label">
-            {rangeLabel
-              ? `${rangeLabel} • ${getEditorialRecommendationTypeLabel(currentItem.recommendationType)}`
-              : getEditorialRecommendationTypeLabel(currentItem.recommendationType)}
-          </p>
-          <h3 className="editorial-review-detail-title">{currentItem.title}</h3>
+    <>
+      <article className="editorial-review-detail" data-layout={layout} data-type={currentItem.recommendationType}>
+        <div className="editorial-review-detail-head">
+          <div>
+            <p className="editorial-review-detail-label">
+              {rangeLabel
+                ? `${rangeLabel} • ${getEditorialRecommendationTypeLabel(currentItem.recommendationType)}`
+                : getEditorialRecommendationTypeLabel(currentItem.recommendationType)}
+            </p>
+            <h3 className="editorial-review-detail-title">{currentItem.title}</h3>
+          </div>
+          <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(currentItem)} aria-label="Відхилити рекомендацію" title="Відхилити рекомендацію">
+            <X className="editorial-review-detail-close-icon" aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(currentItem)} aria-label="Відхилити рекомендацію" title="Відхилити рекомендацію">
-          <X className="editorial-review-detail-close-icon" aria-hidden="true" />
-        </button>
-      </div>
 
       {currentItem.recommendation.trim() && currentItem.recommendation.trim() !== currentItem.title.trim() ? (
         <div className="editorial-review-detail-recommendation">
@@ -346,6 +372,15 @@ export function ReviewRecommendationDetail({
         <div className="editorial-review-proposal">
           <div className="editorial-review-image-prompt-head">
             <p className="editorial-review-detail-label">Prompt для візуалу</p>
+            <button
+              type="button"
+              className="editorial-review-focus-button"
+              onClick={() => setIsVisualWorkspaceOpen(true)}
+              aria-label="Відкрити фокусний режим для візуалу"
+              title="Відкрити фокусний режим"
+            >
+              <Expand size={16} aria-hidden="true" />
+            </button>
           </div>
           <textarea
             className="editorial-review-image-prompt-input"
@@ -430,15 +465,155 @@ export function ReviewRecommendationDetail({
         </div>
       ) : null}
 
-      {!isPreparing && proposal?.kind === "stale_anchor" ? (
-        <div className="editorial-review-proposal">
-          <div className="editorial-review-proposal-block editorial-review-proposal-warning">
-            <p className="editorial-review-proposal-summary">{proposal.summary}</p>
+        {!isPreparing && proposal?.kind === "stale_anchor" ? (
+          <div className="editorial-review-proposal">
+            <div className="editorial-review-proposal-block editorial-review-proposal-warning">
+              <p className="editorial-review-proposal-summary">{proposal.summary}</p>
+            </div>
           </div>
+        ) : null}
+      </article>
+      {imageDraft && isVisualWorkspaceOpen ? (
+        <div
+          className="visual-workspace-backdrop"
+          role="presentation"
+          onClick={() => setIsVisualWorkspaceOpen(false)}
+        >
+          <section
+            className="visual-workspace-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Фокусний режим візуалу"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="visual-workspace-head">
+              <div className="visual-workspace-head-copy">
+                <p className="mono-ui visual-workspace-kicker">Фокусний режим</p>
+                <h3 className="visual-workspace-title">Візуал: prompt і результат</h3>
+              </div>
+              <button
+                type="button"
+                className="visual-workspace-close"
+                aria-label="Закрити фокусний режим"
+                title="Закрити"
+                onClick={() => setIsVisualWorkspaceOpen(false)}
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </header>
+
+            <div className="visual-workspace-grid">
+              <section className="visual-workspace-panel visual-workspace-panel-form">
+                <div className="visual-workspace-panel-head">
+                  <p className="mono-ui visual-workspace-panel-title">Prompt</p>
+                </div>
+                <textarea
+                  ref={visualWorkspacePromptRef}
+                  className="visual-workspace-prompt"
+                  value={imageDraft.prompt}
+                  onChange={(event) => onUpdateActiveImagePrompt(event.target.value)}
+                />
+                <div className="visual-workspace-controls">
+                  <div className="visual-workspace-field">
+                    <p className="editorial-review-detail-label">Тип візуалу</p>
+                    <VisualIntentToggle
+                      value={selectedVisualIntent}
+                      options={visualIntentOptions}
+                      onChange={(nextIntent) => onUpdateActiveVisualIntent(currentItem, nextIntent)}
+                    />
+                  </div>
+                  <div className="visual-workspace-field">
+                    <p className="editorial-review-detail-label">Стиль візуалу</p>
+                    <VisualStyleToggle
+                      value={selectedVisualStylePreset}
+                      options={visualStyleOptions}
+                      onChange={(nextPreset) => onUpdateActiveVisualStylePreset(nextPreset)}
+                    />
+                  </div>
+                  <div className="visual-workspace-field">
+                    <p className="editorial-review-detail-label">Підпис</p>
+                    <input
+                      className="editorial-review-callout-title-input"
+                      value={imageDraft.caption ?? ""}
+                      onChange={(event) => onUpdateActiveImageCaption(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="visual-workspace-actions">
+                  <Button
+                    size="sm"
+                    variant={hasPendingRefineInstruction ? "primary" : "secondary"}
+                    onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
+                    title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати prompt для візуалу."}
+                  >
+                    {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати prompt"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={hasGeneratedAsset ? "secondary" : "primary"}
+                    onClick={onGenerateActiveReviewImage}
+                    loading={reviewImageLoading}
+                    disabled={hasPendingRefineInstruction}
+                    title={pendingRefineTitle}
+                  >
+                    <span className="button-content">
+                      {hasGeneratedAsset ? (
+                        <RefreshCcw className="editorial-review-button-icon" aria-hidden="true" />
+                      ) : (
+                        <Sparkles className="editorial-review-button-icon" aria-hidden="true" />
+                      )}
+                      <span>{hasGeneratedAsset ? "Згенерувати ще раз" : "Згенерувати"}</span>
+                    </span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={hasGeneratedAsset ? "primary" : "secondary"}
+                    onClick={onApplyActiveReviewImage}
+                    disabled={!hasGeneratedAsset || hasPendingRefineInstruction}
+                    title={!hasGeneratedAsset ? undefined : pendingRefineTitle}
+                  >
+                    <span className="button-content">
+                      <ArrowDownToLine className="editorial-review-button-icon" aria-hidden="true" />
+                      <span>Вставити в документ</span>
+                    </span>
+                  </Button>
+                </div>
+              </section>
+
+              <section className="visual-workspace-panel visual-workspace-panel-preview">
+                <div className="visual-workspace-panel-head">
+                  <p className="mono-ui visual-workspace-panel-title">Результат</p>
+                  <p className="visual-workspace-status">
+                    {hasGeneratedAsset ? "Згенеровано за поточним prompt." : "Ще не згенеровано."}
+                  </p>
+                </div>
+                {hasGeneratedAsset && imageUrl ? (
+                  <div className="visual-workspace-preview-frame">
+                    <img src={imageUrl} alt={imageDraft.alt} className="visual-workspace-preview-image" />
+                  </div>
+                ) : (
+                  <div className="visual-workspace-preview-empty">
+                    <p>Підготуйте або відредагуйте prompt і запустіть генерацію.</p>
+                  </div>
+                )}
+                <div className="visual-workspace-meta">
+                  <div className="visual-workspace-meta-row">
+                    <span className="mono-ui visual-workspace-meta-label">Alt</span>
+                    <span className="visual-workspace-meta-value">{imageDraft.alt}</span>
+                  </div>
+                  {imageDraft.caption ? (
+                    <div className="visual-workspace-meta-row">
+                      <span className="mono-ui visual-workspace-meta-label">Підпис</span>
+                      <span className="visual-workspace-meta-value">{imageDraft.caption}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+          </section>
         </div>
       ) : null}
-
-    </article>
+    </>
   );
 }
 

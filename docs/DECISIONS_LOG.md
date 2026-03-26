@@ -12,6 +12,28 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-22
 
+## 2026-03-26
+
+### Step drawer headers now expose explicit workflow state and labeled primary actions
+Decision: the review drawer header no longer relies primarily on compact icon-only run controls. Each step now shows three explicit header elements: `Етап N / 8`, a visible status pill + status copy derived from shared workflow state, and a labeled primary CTA (`Запустити…` / `Оновити…`) whose wording depends on the active step and whether prior results already exist.
+
+Reason: the editor workflow already had enough local state to describe readiness and progress, but the UI hid too much behind icon recognition and implicit behavior. Explicit header state and CTA copy improve first-run comprehension and create a reusable foundation for later UX remediation work.
+
+### Drawer-level action feedback is now visible for both success and error states
+Decision: the editor now renders one shared drawer-level feedback banner for action outcomes, and `info` feedback is treated as visible success state rather than being silently ignored.
+
+Reason: successful actions such as apply, prepare, export, or clear were already writing `info` feedback into state, but only errors were rendered. Surfacing both outcomes restores trust and makes the existing state model useful to the operator.
+
+### Destructive document actions now use inline confirmation and session-local undo
+Decision: `Очистити текст` and `Скинути сесію` no longer execute immediately. The editor now shows inline consequence copy before execution and stores a full local session snapshot so the user can undo the destructive action from an in-place recovery banner.
+
+Reason: these controls affect trust-sensitive manuscript state, but the current app can still recover them locally without a modal workflow or server persistence. Inline confirmation keeps scope legible at the point of action, and undo is a better trust pattern than immediate irreversible execution.
+
+### Hover-only help is being replaced by inline context and explicit labels
+Decision: critical help and control meaning should not depend on native browser `title` tooltips. For this remediation phase, step-context hints move inline, the active mini-hub step label stays visible, and icon-first controls gain explicit accessibility labels rather than relying on hidden hover text.
+
+Reason: the app targets compact professional editing on mixed-input devices. Native tooltip discovery fails on touch and weakens accessibility, while inline context plus labeled controls preserves the compact UI without hiding essential meaning.
+
 ### The floating local panel is now a universal local-action bridge
 Decision: the old mode-first local panel with separate `Швидко покращити` and `Виконати за запитом` actions is replaced by a compact four-tab bridge: `Редактор`, `Правопис`, `Врізка`, and `Візуал`. `Редактор` is the default local entry and exposes one prompt field plus explicit text intents (`rewrite`, `shorten`, `list`, `table`).
 
@@ -114,6 +136,16 @@ Reason: editors asked to verify that accepted changes did not distort meaning, w
 Decision: generated editorial text may use only sparse `bold` emphasis on short key phrases. The only supported transport syntax is `**...**`, which is parsed into real inline `bold` nodes in the editor. Other markdown remains unsupported and is still stripped from replace/callout/subsection text.
 
 Reason: editors want scan-friendly emphasis, but the product is still a block editor, not a markdown authoring surface. Allowing one narrow emphasis mechanism solves the need without opening generic markdown, noisy styling, or unstable rendering rules.
+
+### Visual prompt editing has both inline and focused surfaces
+Decision: visual recommendations now keep the existing inline card for quick edits, but also expose a dedicated full-screen workspace for focused prompt/result review. The focused workspace edits the same active proposal state and remains available both before and after image generation.
+
+Reason: editors need a place to inspect and tune long image prompts and generated assets without compressing that work into the narrow manuscript card, but splitting the state into a second draft model would create drift and trust problems.
+
+### Generated visual previews are invalidated on prompt edits
+Decision: whenever the editor changes the active visual prompt text after generation, the current generated asset is cleared immediately until generation is run again.
+
+Reason: keeping the old image visible after a prompt change falsely suggests that the preview still matches the current prompt. Clearing the asset is the simplest honest rule and matches editor expectations.
 
 ## 2026-03-16
 

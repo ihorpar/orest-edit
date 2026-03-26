@@ -109,6 +109,12 @@ import {
 } from "../../lib/editor/spellcheck-view-model";
 import { storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
 import {
+  getStepPrimaryAction,
+  getStepWorkspaceStatus,
+  presentRequestFeedback,
+  type RequestFeedback
+} from "../../lib/editor/workflow-ui";
+import {
   ChevronDown,
   Clipboard,
   Download,
@@ -130,13 +136,21 @@ import {
   Upload
 } from "lucide-react";
 
-interface RequestFeedback {
-  message: string;
-  tone: "info" | "error";
-}
-
 interface DismissUndoState {
   item: EditorialReviewItem;
+}
+
+interface PendingDestructiveAction {
+  kind: "clear_document" | "reset_draft";
+  title: string;
+  description: string;
+  confirmLabel: string;
+}
+
+interface DestructiveRecoveryState {
+  kind: PendingDestructiveAction["kind"];
+  message: string;
+  snapshot: EditorSessionSnapshot;
 }
 
 interface CompareEntryDraft {
@@ -160,6 +174,42 @@ interface CommitDocumentOptions {
         compare?: CompareEntryDraft | null;
       }
     | null;
+}
+
+interface EditorSessionSnapshot {
+  document: EditorDocument;
+  selection: BlockSelection;
+  focusedBlockId: string | null;
+  operations: PatchOperation[];
+  reviewItems: EditorialReviewItem[];
+  patchDiagnostics: PatchResponseDiagnostics | null;
+  reviewDiagnostics: EditorialReviewDiagnostics | null;
+  feedback: RequestFeedback | null;
+  history: RequestHistoryItem[];
+  mutationHistoryPast: EditorMutationEntry[];
+  mutationHistoryFuture: EditorMutationEntry[];
+  compareHistory: CompareHistoryEntry[];
+  activeCompareEntryId: string | null;
+  customPrompt: string;
+  activeReviewItemId: string | null;
+  activeProposal: ReviewActionProposal | null;
+  composerMode: ComposerMode;
+  reviewExpertise: string | null;
+  activeWorkflowStep: WorkflowStepId;
+  manualCalloutKind: EditorialCalloutKind;
+  manualVisualIntent: EditorialVisualIntent;
+  localActionMode: LocalActionMode;
+  localTextIntent: LocalActionTextIntent;
+  manualCalloutPrompt: string;
+  manualVisualPrompt: string;
+  spellcheck: EditorSpellcheckSnapshot;
+  visualStylePreset: VisualStylePreset;
+  stepFeedback: EditorialStepFeedbackMap;
+  stepRunModeByStep: EditorialStepRunModeMap;
+  stepRunHistory: EditorialStepRunHistory;
+  factCheckRows: EditorialFactCheckRow[];
+  showCompletedCards: boolean;
+  reviewRefineInstruction: string;
 }
 
 const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
@@ -255,6 +305,8 @@ export default function EditorPage() {
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
   const [reviewRefineInstruction, setReviewRefineInstruction] = useState("");
+  const [pendingDestructiveAction, setPendingDestructiveAction] = useState<PendingDestructiveAction | null>(null);
+  const [destructiveRecoveryState, setDestructiveRecoveryState] = useState<DestructiveRecoveryState | null>(null);
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const dismissUndoTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
@@ -745,6 +797,89 @@ export default function EditorPage() {
     };
   }
 
+  function captureEditorSessionSnapshot(): EditorSessionSnapshot {
+    return structuredClone({
+      document,
+      selection: normalizedSelection,
+      focusedBlockId,
+      operations,
+      reviewItems,
+      patchDiagnostics,
+      reviewDiagnostics,
+      feedback,
+      history,
+      mutationHistoryPast,
+      mutationHistoryFuture,
+      compareHistory,
+      activeCompareEntryId,
+      customPrompt,
+      activeReviewItemId,
+      activeProposal,
+      composerMode,
+      reviewExpertise,
+      activeWorkflowStep,
+      manualCalloutKind,
+      manualVisualIntent,
+      localActionMode,
+      localTextIntent,
+      manualCalloutPrompt,
+      manualVisualPrompt,
+      spellcheck: captureCurrentSpellcheckState(),
+      visualStylePreset,
+      stepFeedback,
+      stepRunModeByStep,
+      stepRunHistory,
+      factCheckRows,
+      showCompletedCards,
+      reviewRefineInstruction
+    });
+  }
+
+  function restoreEditorSessionSnapshot(snapshot: EditorSessionSnapshot) {
+    const nextDocument = cloneEditorDocument(snapshot.document);
+    const nextRevision = deriveManuscriptRevisionState(nextDocument);
+
+    setDocument(nextDocument);
+    setRevision(nextRevision);
+    setSelection(normalizeBlockSelection(nextDocument, snapshot.selection));
+    setFocusedBlockId(snapshot.focusedBlockId ?? snapshot.selection.focusBlockId ?? snapshot.selection.anchorBlockId ?? nextDocument.blocks[0]?.id ?? null);
+    setOperations(snapshot.operations);
+    setReviewItems(snapshot.reviewItems);
+    setPatchDiagnostics(snapshot.patchDiagnostics);
+    setReviewDiagnostics(snapshot.reviewDiagnostics);
+    setFeedback(snapshot.feedback);
+    setHistory(snapshot.history);
+    setMutationHistoryPast(snapshot.mutationHistoryPast);
+    setMutationHistoryFuture(snapshot.mutationHistoryFuture);
+    setCompareHistory(snapshot.compareHistory);
+    setActiveCompareEntryId(snapshot.activeCompareEntryId);
+    setCustomPrompt(snapshot.customPrompt);
+    setActiveReviewItemId(snapshot.activeReviewItemId);
+    setActiveProposal(snapshot.activeProposal);
+    setComposerMode(snapshot.composerMode);
+    setReviewExpertise(snapshot.reviewExpertise);
+    setActiveWorkflowStep(snapshot.activeWorkflowStep);
+    setManualCalloutKind(snapshot.manualCalloutKind);
+    setManualVisualIntent(snapshot.manualVisualIntent);
+    setLocalActionMode(snapshot.localActionMode);
+    setLocalTextIntent(snapshot.localTextIntent);
+    setManualCalloutPrompt(snapshot.manualCalloutPrompt);
+    setManualVisualPrompt(snapshot.manualVisualPrompt);
+    applySpellcheckState(snapshot.spellcheck);
+    setVisualStylePreset(snapshot.visualStylePreset);
+    setStepFeedback(snapshot.stepFeedback);
+    setStepRunModeByStep(snapshot.stepRunModeByStep);
+    setStepRunHistory(snapshot.stepRunHistory);
+    setFactCheckRows(snapshot.factCheckRows);
+    setShowCompletedCards(snapshot.showCompletedCards);
+    setReviewRefineInstruction(snapshot.reviewRefineInstruction);
+    setPendingDestructiveAction(null);
+    setDestructiveRecoveryState(null);
+    setRecentlyChangedBlockIds([]);
+    setDismissUndoState(null);
+    setActiveTopActionMenu(null);
+  }
+
   function replaceEditorSession(nextDocument: EditorDocument, nextFeedback: RequestFeedback | null = null) {
     if (recentChangeTimeoutRef.current) {
       window.clearTimeout(recentChangeTimeoutRef.current);
@@ -791,6 +926,7 @@ export default function EditorPage() {
     setActiveWorkflowStep("diagnostics");
     setRecentlyChangedBlockIds([]);
     setDismissUndoState(null);
+    setPendingDestructiveAction(null);
     reviewNoOpStreakRef.current = {};
     patchNoOpStreakRef.current = {};
     clearSpellcheckResults();
@@ -864,6 +1000,7 @@ export default function EditorPage() {
     setActiveWorkflowStep(stepId);
     setShowCompletedCards(false);
     setFeedback(null);
+    setPendingDestructiveAction(null);
   }
 
   function resolveTargetBlockIds() {
@@ -2180,11 +2317,15 @@ export default function EditorPage() {
         return current;
       }
 
+      const nextPrompt = prompt;
+      const shouldClearGeneratedAsset = nextPrompt.trim() !== current.imageDraft.prompt.trim();
+
       return {
         ...current,
         imageDraft: {
           ...current.imageDraft,
-          prompt
+          prompt: nextPrompt,
+          generatedAsset: shouldClearGeneratedAsset ? undefined : current.imageDraft.generatedAsset
         }
       };
     });
@@ -2521,14 +2662,59 @@ export default function EditorPage() {
 
   function handleClearDocument() {
     setActiveTopActionMenu(null);
-    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Документ очищено." });
+    setDestructiveRecoveryState(null);
+    setPendingDestructiveAction({
+      kind: "clear_document",
+      title: "Очистити текст документа?",
+      description: "Буде очищено лише поточний текст рукопису. Історія запусків і налаштування кроків залишаться в цій сесії.",
+      confirmLabel: "Очистити текст"
+    });
   }
 
   function handleResetDraft() {
     setActiveTopActionMenu(null);
-    setShowCompletedCards(false);
+    setDestructiveRecoveryState(null);
+    setPendingDestructiveAction({
+      kind: "reset_draft",
+      title: "Скинути локальну сесію?",
+      description: "Буде скинуто документ, картки, історію запусків і стан панелей у браузері.",
+      confirmLabel: "Скинути сесію"
+    });
+  }
+
+  function confirmDestructiveAction() {
+    if (!pendingDestructiveAction) {
+      return;
+    }
+
+    const snapshot = captureEditorSessionSnapshot();
+
+    if (pendingDestructiveAction.kind === "clear_document") {
+      replaceEditorSession(createBlankDocument(), { tone: "info", message: "Документ очищено." });
+      setDestructiveRecoveryState({
+        kind: "clear_document",
+        message: "Текст документа очищено.",
+        snapshot
+      });
+      return;
+    }
+
     clearEditorDraftState();
-    replaceEditorSession(DEFAULT_EDITOR_DOCUMENT);
+    replaceEditorSession(DEFAULT_EDITOR_DOCUMENT, { tone: "info", message: "Локальну сесію скинуто." });
+    setDestructiveRecoveryState({
+      kind: "reset_draft",
+      message: "Локальну сесію скинуто.",
+      snapshot
+    });
+  }
+
+  function undoDestructiveAction() {
+    if (!destructiveRecoveryState) {
+      return;
+    }
+
+    restoreEditorSessionSnapshot(destructiveRecoveryState.snapshot);
+    setFeedback({ tone: "info", message: "Попередній стан відновлено." });
   }
 
   const canRequestReview = document.blocks.length > 0;
@@ -2571,12 +2757,6 @@ export default function EditorPage() {
         : (spellcheckMeta?.issueCount ?? 0) > 0
           ? "Є зауваги"
           : "Чисто";
-  const isUnstartedRecommendationStep =
-    activeWorkflowStep !== "diagnostics" &&
-    activeWorkflowStep !== "fact_check" &&
-    activeWorkflowStep !== "spellcheck" &&
-    activeStepRunCount === 0 &&
-    activeStepItems.length === 0;
   const activeStepCardStats = useMemo(
     () => (activeEditorialStepId ? getStepCardStats(reviewItems, activeEditorialStepId) : { actionable: 0, applied: 0, dismissed: 0 }),
     [activeEditorialStepId, reviewItems]
@@ -2586,84 +2766,128 @@ export default function EditorPage() {
     [reviewComposer.changeLevel, document.blocks.length]
   );
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
+  const feedbackPresentation = presentRequestFeedback(feedback);
   const globalContextHelpText =
     "Глобальний контекст — це ваші загальні вимоги до всіх наступних етапів (тон, стиль, глибина правок). Він не змінює текст напряму, а впливає на те, які рекомендації пропонує ШІ.";
-  const runStepButton = activeWorkflowStep === "diagnostics"
-    ? (
-      <Button
-        variant="secondary"
-        className="step-review-head-action-button"
-        size="sm"
-        onClick={() => void requestWorkflowStep("diagnostics")}
-        loading={isReviewRequestInFlight}
-        disabled={!canRequestReview}
-        style={{ paddingInline: "10px" }}
-        aria-label={reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
-        title={reviewExpertise ? "Повторити аналіз" : "Запустити діагностику"}
-      >
-        <RefreshCcw size={14} aria-hidden="true" />
-      </Button>
-    )
-    : activeWorkflowStep === "fact_check"
-      ? (
-        <Button
-          variant="secondary"
-          className="step-review-head-action-button"
-          size="sm"
-          onClick={() => void requestWorkflowStep("fact_check")}
-          loading={isReviewRequestInFlight}
-          disabled={!canRunDownstreamStep}
-          style={{ paddingInline: "10px" }}
-          aria-label={factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
-          title={factCheckRows.length > 0 ? "Повторити аналіз" : "Запустити факт-чек"}
-        >
-          <RefreshCcw size={14} aria-hidden="true" />
-        </Button>
-      )
-    : activeWorkflowStep === "spellcheck"
-      ? (
-        <Button
-          variant="secondary"
-          className={`step-review-head-action-button ${hasSpellcheckRun ? "" : "step-review-head-action-button-primary"}`.trim()}
-          size="sm"
-          onClick={() => void requestSpellcheck(spellcheckDocumentBlockIds)}
-          loading={isSpellcheckRequestInFlight}
-          disabled={!canRunSpellcheck}
-          aria-label={hasSpellcheckRun ? "Оновити аналіз правопису" : "Проаналізувати правопис"}
-          title={hasSpellcheckRun ? "Оновити аналіз правопису" : "Проаналізувати правопис"}
-        >
-          <span className="button-content">
-            {hasSpellcheckRun ? <RefreshCcw size={14} aria-hidden="true" /> : <Languages size={14} aria-hidden="true" />}
-            <span>{hasSpellcheckRun ? "Оновити аналіз" : "Проаналізувати правопис"}</span>
-          </span>
-        </Button>
-      )
-    : (
-      <Button
-        variant="secondary"
-        className="step-review-head-action-button"
-          size="sm"
-          onClick={() => activeEditorialStepId ? void requestWorkflowStep(activeEditorialStepId) : undefined}
-          loading={isReviewRequestInFlight}
-          disabled={!canRunDownstreamStep}
-          style={{ paddingInline: "10px" }}
-          aria-label={activeStepRunCount > 0 || activeStepItems.length > 0 ? "Повторити аналіз" : "Згенерувати картки"}
-          title={activeStepRunCount > 0 || activeStepItems.length > 0 ? "Повторити аналіз" : "Згенерувати картки"}
-        >
-          {activeStepRunCount > 0 || activeStepItems.length > 0 ? (
-            <RefreshCcw size={14} aria-hidden="true" />
-          ) : (
-            <Sparkles size={14} aria-hidden="true" />
-          )}
-        </Button>
-      );
+  const activeStepHasExistingResult =
+    activeWorkflowStep === "diagnostics"
+      ? Boolean(reviewExpertise)
+      : activeWorkflowStep === "fact_check"
+        ? activeStepRunCount > 0 || factCheckRows.length > 0
+        : activeWorkflowStep === "spellcheck"
+          ? hasSpellcheckRun
+          : activeStepRunCount > 0 || activeStepItems.length > 0;
+  const activeStepCanRun =
+    activeWorkflowStep === "diagnostics"
+      ? canRequestReview
+      : activeWorkflowStep === "spellcheck"
+        ? canRunSpellcheck
+        : canRunDownstreamStep;
+  const activeStepHasPrerequisite =
+    activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" ? true : Boolean(reviewExpertise);
+  const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
+  const activeStepWorkspaceStatus =
+    activeWorkflowStep === "diagnostics"
+      ? getStepWorkspaceStatus("diagnostics", {
+          canRun: canRequestReview,
+          isInFlight: isReviewRequestInFlight,
+          hasExistingResult: Boolean(reviewExpertise),
+          activeMessage: "Аналізуємо рукопис і готуємо редакторський огляд.",
+          idleMessage: "Запустіть діагностику, щоб отримати редакторський огляд документа.",
+          waitingMessage: "Додайте текст рукопису, щоб запустити діагностику.",
+          successMessage: "Діагностику завершено. Можна перейти до факт-чеку або оновити контекст."
+        })
+      : activeWorkflowStep === "fact_check"
+        ? getStepWorkspaceStatus("fact_check", {
+            canRun: canRunDownstreamStep,
+            hasPrerequisite: Boolean(reviewExpertise),
+            isInFlight: isReviewRequestInFlight,
+            hasExistingResult: activeStepRunCount > 0 || factCheckRows.length > 0,
+            zeroResult: activeStepRunCount > 0 && factCheckRows.length === 0 && activeStepItems.length === 0,
+            activeMessage: "Перевіряємо твердження, пояснення і джерела для цього документа.",
+            idleMessage: "Запустіть факт-чек, щоб перевірити твердження і джерела.",
+            waitingMessage: "Спочатку запустіть діагностику, щоб дати факт-чеку контекст рукопису.",
+            successMessage: "Таблиця факт-чеку готова. Можна переглядати твердження і джерела.",
+            zeroResultMessage: "Факт-чек завершився без окремих рядків для перевірки."
+          })
+        : activeWorkflowStep === "spellcheck"
+          ? getStepWorkspaceStatus("spellcheck", {
+              canRun: canRunSpellcheck,
+              isInFlight: isSpellcheckRequestInFlight,
+              hasExistingResult: hasSpellcheckRun,
+              zeroResult: hasSpellcheckRun && (spellcheckMeta?.issueCount ?? 0) === 0 && spellcheckInvalidatedCount === 0,
+              activeMessage: "Аналізуємо правопис у всьому тексті.",
+              idleMessage: "Запустіть аналіз правопису для всього тексту.",
+              successMessage:
+                spellcheckSummary ??
+                "Аналіз правопису готовий. Можна переглядати проблемні абзаци та підказки.",
+              zeroResultMessage: "Помилки не знайдено."
+            })
+          : getStepWorkspaceStatus(activeWorkflowStep, {
+              canRun: canRunDownstreamStep,
+              hasPrerequisite: Boolean(reviewExpertise),
+              isInFlight: isReviewRequestInFlight,
+              hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
+              zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
+              activeMessage: "Готуємо рекомендації для поточного етапу.",
+              idleMessage: "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
+              waitingMessage: "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
+              successMessage: "Рекомендації готові. Можна переглядати та застосовувати картки.",
+              zeroResultMessage: "Етап завершено без нових карток."
+            });
+
+  function renderActiveStepActionIcon() {
+    if (activeStepHasExistingResult) {
+      return <RefreshCcw size={14} aria-hidden="true" />;
+    }
+
+    switch (activeWorkflowStep) {
+      case "diagnostics":
+        return <Stethoscope size={14} aria-hidden="true" />;
+      case "fact_check":
+        return <Search size={14} aria-hidden="true" />;
+      case "spellcheck":
+        return <Languages size={14} aria-hidden="true" />;
+      default:
+        return <Sparkles size={14} aria-hidden="true" />;
+    }
+  }
+
+  const runStepButton = (
+    <Button
+      variant={activeStepPrimaryAction.emphasis === "primary" ? "primary" : "secondary"}
+      className={`step-review-head-action-button ${activeStepPrimaryAction.emphasis === "primary" ? "step-review-head-action-button-primary" : ""}`.trim()}
+      size="sm"
+      onClick={() => {
+        if (activeWorkflowStep === "spellcheck") {
+          void requestSpellcheck(spellcheckDocumentBlockIds);
+          return;
+        }
+
+        if (activeWorkflowStep === "diagnostics" || activeWorkflowStep === "fact_check" || activeEditorialStepId) {
+          void requestWorkflowStep((activeWorkflowStep === "diagnostics" || activeWorkflowStep === "fact_check"
+            ? activeWorkflowStep
+            : activeEditorialStepId) as EditorialReviewStepId);
+        }
+      }}
+      loading={activeWorkflowStep === "spellcheck" ? isSpellcheckRequestInFlight : isReviewRequestInFlight}
+      loadingLabel={activeStepPrimaryAction.loadingLabel}
+      disabled={!activeStepCanRun}
+      aria-label={activeStepPrimaryAction.ariaLabel}
+    >
+      <span className="button-content">
+        {renderActiveStepActionIcon()}
+        <span>{activeStepPrimaryAction.label}</span>
+      </span>
+    </Button>
+  );
 
   return (
     <>
       <TopBar activePath="/editor" />
       <StepReviewWorkspaceShell
         manuscript={
-          <main className="editor-page-shell">
+          <main className={`editor-page-shell ${composerMode ? "editor-page-shell--composer-open" : ""}`.trim()}>
             <div className="editor-page-actions">
               <div className="editor-page-actions-group">
                 <EditorActionMenu
@@ -2698,25 +2922,63 @@ export default function EditorPage() {
                     { label: "TXT", icon: FileText, onClick: handleExportTxt }
                   ]}
                 />
-                <button
-                  type="button"
-                  className="editor-danger-icon-button"
+                <Button
+                  variant="danger"
+                  size="sm"
+                  className="editor-danger-button"
                   onClick={handleClearDocument}
-                  title="Очистити лише текст документа (без скидання історії запусків)"
-                  aria-label="Очистити лише текст документа"
                 >
-                  <Trash2 size={15} />
-                </button>
+                  <span className="button-content">
+                    <Trash2 size={14} aria-hidden="true" />
+                    <span>Очистити текст</span>
+                  </span>
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="editor-danger-button editor-danger-button-ghost"
                   onClick={handleResetDraft}
-                  title="Скинути локальну сесію: документ, картки, історію запусків і стан панелей"
                 >
-                  Скинути
+                  Скинути сесію
                 </Button>
               </div>
             </div>
+
+            {pendingDestructiveAction ? (
+              <div className="editor-danger-panel" role="alert" aria-live="polite">
+                <div className="editor-danger-panel-copy">
+                  <p className="editor-danger-panel-title">{pendingDestructiveAction.title}</p>
+                  <p className="editor-danger-panel-description">{pendingDestructiveAction.description}</p>
+                </div>
+                <div className="editor-danger-panel-actions">
+                  <Button variant="ghost" size="sm" onClick={() => setPendingDestructiveAction(null)}>
+                    Скасувати
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={confirmDestructiveAction}>
+                    {pendingDestructiveAction.confirmLabel}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {destructiveRecoveryState ? (
+              <div className="editor-danger-recovery" role="status" aria-live="polite">
+                <span>{destructiveRecoveryState.message}</span>
+                <div className="editor-danger-recovery-actions">
+                  <Button variant="ghost" size="sm" onClick={undoDestructiveAction}>
+                    Повернути
+                  </Button>
+                  <button
+                    type="button"
+                    className="editor-danger-recovery-dismiss"
+                    aria-label="Сховати повідомлення"
+                    onClick={() => setDestructiveRecoveryState(null)}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <BlockEditorSurface
               document={document}
@@ -2816,6 +3078,14 @@ export default function EditorPage() {
                 <p className="step-review-workspace-counter mono-ui">
                   Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
                 </p>
+                <div className="step-review-workspace-status-row">
+                  <span className="step-review-workspace-status-pill" data-tone={activeStepWorkspaceStatus.tone}>
+                    {activeStepWorkspaceStatus.label}
+                  </span>
+                  <p className="step-review-workspace-status-copy">
+                    {activeStepWorkspaceStatus.message}
+                  </p>
+                </div>
               </div>
               <div className="step-review-workspace-head-meta">
                 <div className="step-review-workspace-head-action">
@@ -2830,6 +3100,13 @@ export default function EditorPage() {
                 <Button size="sm" variant="ghost" onClick={undoDismissReviewItem}>
                   Повернути
                 </Button>
+              </div>
+            ) : null}
+
+            {feedbackPresentation ? (
+              <div className="step-review-feedback" data-tone={feedbackPresentation.tone} role="status" aria-live="polite">
+                <span className="step-review-feedback-label">{feedbackPresentation.label}</span>
+                <p className="step-review-feedback-copy">{feedbackPresentation.message}</p>
               </div>
             ) : null}
 
@@ -2999,17 +3276,7 @@ export default function EditorPage() {
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <div className="step-review-context-row">
                         <div className="step-review-context-copy">
-                          <span className="step-review-context-label">
-                            Глобальний контекст
-                            <button
-                              type="button"
-                              className="step-review-context-help"
-                              aria-label="Як це працює?"
-                              title={globalContextHelpText}
-                            >
-                              <span aria-hidden="true">i</span>
-                            </button>
-                          </span>
+                          <span className="step-review-context-label">Глобальний контекст</span>
                           <span className="step-review-context-value">
                             {hasGlobalReviewInstructions ? "задано" : "не задано"}
                           </span>
@@ -3022,6 +3289,7 @@ export default function EditorPage() {
                           Редагувати
                         </button>
                       </div>
+                      <p className="step-review-context-helper-copy">{globalContextHelpText}</p>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -3304,17 +3572,7 @@ export default function EditorPage() {
                       <p className="step-review-mode-summary">{reviewModeSummary}</p>
                       <div className="step-review-context-row">
                         <div className="step-review-context-copy">
-                          <span className="step-review-context-label">
-                            Глобальний контекст
-                            <button
-                              type="button"
-                              className="step-review-context-help"
-                              aria-label="Як це працює?"
-                              title={globalContextHelpText}
-                            >
-                              <span aria-hidden="true">i</span>
-                            </button>
-                          </span>
+                          <span className="step-review-context-label">Глобальний контекст</span>
                           <span className="step-review-context-value">
                             {hasGlobalReviewInstructions ? "задано" : "не задано"}
                           </span>
@@ -3327,6 +3585,7 @@ export default function EditorPage() {
                           Редагувати
                         </button>
                       </div>
+                      <p className="step-review-context-helper-copy">{globalContextHelpText}</p>
                       <textarea
                         className="step-review-inline-textarea"
                         rows={2}
@@ -3340,12 +3599,6 @@ export default function EditorPage() {
                       />
                     </div>
                   </details>
-
-                  {feedback?.message && feedback.tone === "error" ? (
-                    <p className="step-review-status-copy" data-tone={feedback.tone}>
-                      {feedback.message}
-                    </p>
-                  ) : null}
 
                   <section className="step-review-subsection">
                     <div className="step-review-subsection-head">
@@ -3390,30 +3643,11 @@ export default function EditorPage() {
                       ))}
                     </div>
                     {visibleActiveStepItems.length === 0 ? (
-                      isUnstartedRecommendationStep ? (
-                        <div className="step-review-empty-state">
-                          <p className="step-review-empty-copy">Для цього етапу ще немає карток.</p>
-                          <Button
-                            variant="secondary"
-                            className="step-review-empty-cta"
-                            size="sm"
-                            onClick={() => activeEditorialStepId ? void requestWorkflowStep(activeEditorialStepId) : undefined}
-                            loading={isReviewRequestInFlight}
-                            disabled={!canRunDownstreamStep}
-                          >
-                            <span className="button-content">
-                              <Sparkles size={14} aria-hidden="true" />
-                              <span>Згенерувати картки</span>
-                            </span>
-                          </Button>
-                        </div>
-                      ) : (
-                        <p className="step-review-empty-copy">
-                          {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                            ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                            : "Для цього етапу ще немає карток."}
-                        </p>
-                      )
+                      <p className="step-review-empty-copy">
+                        {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+                          ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
+                          : "Для цього етапу ще немає карток."}
+                      </p>
                     ) : null}
                   </section>
                 </div>

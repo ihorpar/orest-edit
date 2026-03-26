@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-03-25
+Date: 2026-03-26
 Status: Active handoff
 
 ## What exists now
@@ -48,7 +48,13 @@ Status: Active handoff
 - Recommendation-step drawers now show one recommendation queue only; the duplicate `Правки` section was removed
 - Recommendation-step drawers now hide completed cards by default and expose a `Показати завершені` toggle
 - Recommendation-step stats now use explicit labeled copy (`в роботі`, `погоджено`, `відхилено`) instead of compact numeric slash counters
-- Step drawer headers now place `Етап N / 8` under the title and use an icon-only rerun control with tooltip copy
+- Step drawer headers now place `Етап N / 8` under the title, show an explicit status pill + status copy, and use labeled primary CTA buttons (`Запустити…` / `Оновити…`) instead of mostly icon-only run controls
+- Shared workflow-UI presentation helpers now derive visible feedback banners, step CTA copy, and header status state from existing editor state instead of duplicating ad hoc header logic directly in `/editor`
+- Drawer-level action feedback now renders for both success and error states; prior `info` feedback is no longer silently hidden
+- Clear-document and reset-session actions no longer fire immediately: both now open inline consequence panels, execute only after confirmation, and expose a session-local undo/recovery banner after the action completes
+- Step config help no longer depends on compact hover-only info icons; the current context explanation is now inline copy inside the relevant drawer sections
+- The active review step label now stays visible in the mini-hub rail without requiring hover, reducing orientation loss on compact layouts
+- Critical icon-first manuscript controls now have explicit accessibility labels, and block delete affordances remain visible not only on hover but also for selected/focused rows
 - Step 2 (`Перевірка фактів`) now has a dedicated table view in the flyout drawer with columns `Твердження`, `Статус`, and `Пояснення та джерела` populated from structured provider output
 - Fact-check explanations now render trusted source chips separately from explanation text; when no acceptable grounded source is available, UI shows `Немає надійного джерела`
 - Step 2 (`Перевірка фактів`) now also auto-generates anchored follow-up cards for non-`ok` claims (local `rewrite` or `myths_vs_truth` `callout`), so fact-check findings can be acted on directly in the manuscript
@@ -60,10 +66,12 @@ Status: Active handoff
 - Execution cards no longer render duplicated rationale/excerpt context; focus stays on editable fields and CTA actions
 - Callout execution panels no longer render raw prompt text; only kind/title/body + regenerate/insert actions remain
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
+- Visual execution panels now also expose an icon-only focus action that opens a full-screen visual workspace with large prompt editing, preview, caption/style/intent controls, and the same generate/insert actions before or after image generation
 - Visual execution now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) in both manuscript-inline visual cards and manual visual launcher
 - Visual type selection is now intentionally simplified to two user-facing intents (`інфографіка`, `ілюстрація`); when `інфографіка` is selected, prompt assembly auto-picks a concrete composition subtype from the fragment context
 - The last selected visual style preset now persists in browser localStorage (`orest-visual-style-v1`) and is reused for subsequent visual prompt preparation
 - Visual proposal parsing now supports both JSON (`prompt` + optional `caption`/`alt`) and plain-text prompt fallback
+- Editing a visual prompt after an image has been generated now clears the stale generated preview until the editor runs generation again, so the UI never implies that an old image still matches a changed prompt
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
 - Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
@@ -94,6 +102,7 @@ Status: Active handoff
 - The floating local-action UI now renders as one compact single-surface composer instead of the older split `pill + card` shell
 - The local composer header now keeps all four local modes (`Правка`, `Правопис`, `Врізка`, `Візуал`) visible as direct tabs at all times; the extra `Режими` disclosure trigger was removed
 - The spellcheck local mode footer now keeps only the send action, and the floating local composer reserves a consistent default body height across local modes so the panel does not jump when switching tabs
+- Local composer textareas now recompute autosize when their tab becomes active and clamp to the intended two-row minimum, so `Врізка`/`Візуал` do not appear undersized until first focus
 - `Редактор` is now the default local mode: one prompt field plus explicit text intents (`Переписати`, `Скоротити`, `Список`, `Таблиця`) route into the existing local executors
 - Universal local-action routing now lives behind `POST /api/edit/local-action`, which returns a typed execution target (`patch`, `spellcheck`, `callout`, `visual`, or `clarify`) without replacing the underlying specialized backends
 - In the `Редактор` tab, explicit feature keywords such as `правопис`, `врізка`, and `візуал` can route the request into the corresponding existing executor while text-shape choices remain explicit segmented intents
@@ -165,11 +174,12 @@ Status: Active handoff
 - Pressing `Enter` on an empty list item now exits the list safely instead of wiping the whole block: multi-item lists keep their existing items and insert an empty paragraph after the list, while a single empty item converts in place to an empty paragraph
 - Manually inserted manuscript callouts now expose an in-block kind selector, and switching kind updates the default title only when the title still matches the previous kind default
 - Undo/redo applies only to manuscript mutations in the current session; compare history is persisted separately as accepted-change snapshots rather than as a full revision timeline
+- Visual prompt editing now has two surfaces by design: the inline execution card for quick edits and a full-screen workspace for focused prompt/result review. Both surfaces edit the same active proposal state.
 
 ## Highest-priority next work
-1. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions).
-2. Add CI wiring for `qa:inline-review` in an environment with Playwright browser dependencies preinstalled.
-3. Harden right-rail/manuscript visual polish further to match `sample4` interaction quality under dense recommendation sets.
+1. Finish the remaining editor UX remediation milestones: touch-target/mixed-input improvements, step-specific config copy, and fact-check/table scanability.
+2. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions, step-header CTA behavior, destructive recovery flows).
+3. Add CI wiring for `qa:inline-review` in an environment with Playwright browser dependencies preinstalled.
 
 ## Last validated state
 - `npm run typecheck -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
@@ -212,11 +222,16 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`
 - `npm run build -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`
 - `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` passed on 2026-03-22 after adding local-action router coverage
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after milestone 3/4 editor UX remediation updates (destructive confirmation/undo + hover/help accessibility cleanup)
+- `npm run test -w @orest/web` passed on 2026-03-26 after milestone 3/4 editor UX remediation updates (105/105 tests)
 - Runtime smoke check on 2026-03-22 succeeded against `next start` at `http://127.0.0.1:3100`: login gate, selected-block activation, and all four floating bridge tabs (`Редактор`, `Правопис`, `Врізка`, `Візуал`) rendered their expected controls
 - `npm run typecheck -w @orest/web` passed on 2026-03-24 after replacing the old split local-action bridge shell with the compact single-surface composer
 - Runtime smoke check on 2026-03-24 succeeded against local dev server `http://127.0.0.1:3102` after API login: selected-block activation, current-mode trigger collapse/expand, manual `Врізка` select, auto-routing from `Правка` into `Візуал` and `Правопис`, busy-state persistence, and viewport screenshot capture for the new local composer
 - `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` passed on 2026-03-25 after the editor/list/recovery pass
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the editor/list/recovery pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after the visual-workspace pass
+- `npm run build -w @orest/web` passed on 2026-03-26 after the visual-workspace pass
+- Runtime smoke check on 2026-03-26 succeeded against `next start` at `http://127.0.0.1:3004`: manual local `Візуал` preparation produced a visual card, the focus icon opened the full-screen workspace, prompt edits persisted back to the inline card, body scroll locked while the workspace was open, image generation succeeded inside the full-screen workspace, and prompt edits after generation cleared the stale preview state
 - Runtime QA on 2026-03-25 against local dev server `http://127.0.0.1:3000` after API login confirmed: toolbar bold preserves the selected range, manual toolbar callouts expose a kind selector, local list intent produces bullet-prefixed green diff output through `/api/edit/review/proposal`, and dismissed manual list cards can be reopened from `Показати завершені` and rerun
 - `npm run build -w @orest/web` passed on 2026-03-25 after the local composer follow-up pass
 - `node --import tsx --test apps/web/test/patch-service.test.ts apps/web/test/spellcheck-view-model.test.ts apps/web/test/spellcheck-route.test.ts` passed on 2026-03-25 after the local composer follow-up pass
@@ -229,5 +244,7 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
 - `node --import tsx --test apps/web/test/inline-markup.test.ts apps/web/test/patch-contract.test.ts apps/web/test/review-action-service.test.ts` passed on 2026-03-26 after the AI bold-formatting policy pass
 - `npm run typecheck -w @orest/web` passed on 2026-03-26 after the AI bold-formatting policy pass
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after workflow-UI milestone 1/2 (`workflow-ui` helper, explicit step CTA labels, visible success/error drawer feedback)
+- `npm run test -w @orest/web` passed on 2026-03-26 after workflow-UI milestone 1/2 (105 tests), including new coverage for feedback presentation, step CTA copy, and header status derivation
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)

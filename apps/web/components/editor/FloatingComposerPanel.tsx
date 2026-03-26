@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { ArrowUp, LoaderCircle, X } from "lucide-react";
 import {
   getLocalActionTextIntentOptions,
@@ -125,13 +125,6 @@ export function FloatingComposerPanel({
   const textIntentOptions = getLocalActionTextIntentOptions();
   const showAutoTextModes =
     localActionRoute.executor === "patch" || localActionRoute.executor === "review" || localActionRoute.executor === "clarify";
-  useAutosizeTextarea(primaryTextareaRef, customPrompt);
-  useAutosizeTextarea(autoCalloutTextareaRef, customPrompt);
-  useAutosizeTextarea(autoVisualTextareaRef, customPrompt);
-  useAutosizeTextarea(calloutTextareaRef, manualCalloutPrompt);
-  useAutosizeTextarea(visualTextareaRef, manualVisualPrompt);
-  useAutosizeTextarea(reviewTextareaRef, reviewAdditionalInstructions);
-
   const localSurfaceMode = useMemo<LocalSurfaceMode>(() => {
     if (localActionMode === "spellcheck") {
       return "proof";
@@ -159,6 +152,13 @@ export function FloatingComposerPanel({
 
     return "edit";
   }, [localActionMode, localActionRoute.executor]);
+
+  useAutosizeTextarea(primaryTextareaRef, customPrompt, !isReview && localSurfaceMode === "edit");
+  useAutosizeTextarea(autoCalloutTextareaRef, customPrompt, !isReview && localSurfaceMode === "callout" && localActionMode !== "callout");
+  useAutosizeTextarea(autoVisualTextareaRef, customPrompt, !isReview && localSurfaceMode === "visual" && localActionMode !== "visual");
+  useAutosizeTextarea(calloutTextareaRef, manualCalloutPrompt, !isReview && localSurfaceMode === "callout" && localActionMode === "callout");
+  useAutosizeTextarea(visualTextareaRef, manualVisualPrompt, !isReview && localSurfaceMode === "visual" && localActionMode === "visual");
+  useAutosizeTextarea(reviewTextareaRef, reviewAdditionalInstructions, isReview);
 
   const spellcheckStatusCopy =
     spellcheckSummary ??
@@ -535,18 +535,23 @@ export function FloatingComposerPanel({
   );
 }
 
-function useAutosizeTextarea(ref: React.RefObject<HTMLTextAreaElement | null>, value: string) {
-  useEffect(() => {
+function useAutosizeTextarea(ref: React.RefObject<HTMLTextAreaElement | null>, value: string, isActive: boolean) {
+  useLayoutEffect(() => {
     const node = ref.current;
 
-    if (!node) {
+    if (!node || !isActive) {
       return;
     }
 
     node.style.height = "auto";
-    const lineHeight = Number.parseFloat(window.getComputedStyle(node).lineHeight || "22");
-    const maxHeight = lineHeight * 5 + 24;
-    node.style.height = `${Math.min(node.scrollHeight, maxHeight)}px`;
+    const styles = window.getComputedStyle(node);
+    const lineHeight = Number.parseFloat(styles.lineHeight || "22");
+    const paddingTop = Number.parseFloat(styles.paddingTop || "0");
+    const paddingBottom = Number.parseFloat(styles.paddingBottom || "0");
+    const minHeight = lineHeight * Math.max(node.rows, 2) + paddingTop + paddingBottom;
+    const maxHeight = lineHeight * 5 + paddingTop + paddingBottom;
+    const nextHeight = Math.max(minHeight, Math.min(node.scrollHeight, maxHeight));
+    node.style.height = `${nextHeight}px`;
     node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
-  }, [ref, value]);
+  }, [isActive, ref, value]);
 }
