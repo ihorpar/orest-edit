@@ -6,6 +6,7 @@ import {
   buildPatchPromptForTextIntent,
   getLocalActionCalloutDescription,
   getLocalActionVisualDescription,
+  inferSuggestedLocalActionMode,
   inferLocalActionRoute
 } from "../lib/editor/local-action-router.ts";
 import { POST } from "../app/api/edit/local-action/route.ts";
@@ -30,6 +31,18 @@ test("local action router lets explicit feature keywords override text intent", 
   assert.equal(plan.executor, "visual");
   assert.equal(plan.visualIntent, "illustration");
   assert.equal(plan.visualStylePreset, "modern_glass");
+});
+
+test("explicit edit mode keeps feature keywords as a suggestion instead of forcing the mode", () => {
+  const plan = inferLocalActionRoute({
+    prompt: "Перевір правопис",
+    explicitMode: "edit",
+    preferredTextIntent: "rewrite"
+  });
+
+  assert.equal(plan.executor, "patch");
+  assert.equal(plan.textIntent, "rewrite");
+  assert.equal(inferSuggestedLocalActionMode("Перевір правопис"), "spellcheck");
 });
 
 test("local action router builds normalized patch prompts for structured text intents", () => {

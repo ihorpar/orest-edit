@@ -76,11 +76,19 @@ Status: Active handoff
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
 - Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
 - The floating local composer now adds a subtle animated baseline inside its main textarea shell while a local AI request is in flight, so the active text surface shows motion beyond the send-button spinner
+- The floating local composer is now viewport-bounded and draggable: it clamps to the visible viewport on tablet/mobile-like sizes, keeps internal overflow scrollable instead of clipping action rows, and remembers the last dropped position for the current browser session
+- The `Правка` tab in the floating local composer is now an explicit mode, not a thin alias for keyword auto-routing; feature keywords such as `правопис` surface by highlighting the matching top pill as a suggestion instead of force-switching tabs
+- The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Таблиця`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
 - When a local spellcheck run completes, the right drawer now auto-switches to the dedicated `Правопис` step so the result list is visible immediately
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
 - AI-generated replace/callout/subsection text now supports sparse editorial emphasis via `**...**` markers in proposal transport; those markers are parsed into real inline `bold` nodes on apply, while unsupported markdown is still stripped
+- The new `Акценти` step now runs as an inline manuscript inspection layer instead of a green-diff proposal flow: each actionable suggestion identifies one exact phrase, renders it directly in the manuscript as blue bold clickable text, and opens a small `Погодити / Відхилити` popover on click
+- `Акценти` suggestions are derived from step review items and do not use `/review/proposal`; accepting a suggestion applies real inline `bold` directly into the affected paragraph/heading and records a compare-history snapshot, while rejecting it dismisses only that inline suggestion
+- Emphasis-step prompt assembly now preserves existing manuscript bold via `**...**` markers, so the model sees what is already emphasized and can avoid duplicate highlight recommendations
+- The `Акценти` drawer uses its own review module rather than compact proposal cards: it lists the suggested phrases per paragraph, keeps completed-toggle behavior, and focuses the manuscript anchor without auto-preparing a diff lane
+- The `Акценти` step now runs as a standalone lightweight pass and no longer requires diagnostics context; its review request omits diagnostics/expertise prompt ballast (`basePrompt`, `cardsPrompt`, `expertise`, `stepContext`)
 - The manuscript now marks active replace-source blocks in red while the inline diff card renders only proposed replacement blocks in green (no nested old/new card frames)
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
@@ -152,6 +160,7 @@ Status: Active handoff
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
 - Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting; manual edits invalidate spellcheck only for the changed checked block instead of clearing the whole spellcheck session
+- There is still no full persistent-browser automation harness from the `playwright-interactive` skill in this session; runtime QA for new inline layers is currently done through ad hoc Playwright scripts against a local `next start` server
 
 ## Current product direction
 - User: book editor
@@ -170,6 +179,7 @@ Status: Active handoff
 - `image` is already a first-class block type
 - Toolbar inline formatting now preserves the selected range when bold/italic actions are triggered from the manuscript toolbar instead of dropping the caret to block start
 - AI formatting policy is intentionally narrow: generated editorial text may use only sparse `bold` emphasis on short key phrases, not arbitrary markdown or full-sentence highlighting
+- The document-wide `Акценти` pass is a separate inline-accept/reject workflow from generic AI formatting: it proposes one exact phrase per paragraph at most, shows it directly in the manuscript, and never opens a diff card
 - Toolbar list toggles can now convert existing bullet/ordered lists back to paragraphs instead of forcing editors to manually strip list structure
 - Pressing `Enter` on an empty list item now exits the list safely instead of wiping the whole block: multi-item lists keep their existing items and insert an empty paragraph after the list, while a single empty item converts in place to an empty paragraph
 - Manually inserted manuscript callouts now expose an in-block kind selector, and switching kind updates the default title only when the title still matches the previous kind default
@@ -180,6 +190,7 @@ Status: Active handoff
 1. Finish the remaining editor UX remediation milestones: touch-target/mixed-input improvements, step-specific config copy, and fact-check/table scanability.
 2. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions, step-header CTA behavior, destructive recovery flows).
 3. Add CI wiring for `qa:inline-review` in an environment with Playwright browser dependencies preinstalled.
+4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
 - `npm run typecheck -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
@@ -217,7 +228,15 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-19 after wiring `Правопис` into the floating local-action panel (90/90 tests)
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after moving spellcheck results into the right drawer and keeping underlines independent from floating-panel visibility
 - `npm run test -w @orest/web` passed on 2026-03-19 after moving spellcheck results into the right drawer and keeping underlines independent from floating-panel visibility (90/90 tests)
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after implementing the inline `Акценти` layer
+- `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/review-action-service.test.ts` passed on 2026-03-26 after implementing the inline `Акценти` layer
+- `npm run build -w @orest/web` passed on 2026-03-26 after implementing the inline `Акценти` layer
+- Runtime QA on 2026-03-26 against `http://127.0.0.1:3005` validated the staged `Акценти` flow: inline blue-bold highlight rendering, clickable popover, `Погодити`, `Відхилити`, and right-drawer list/focus behavior
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers
+- `npm run typecheck -w @orest/web` passed on 2026-03-26 after adding viewport-bounded + draggable floating local composer behavior
+- Authenticated runtime QA passed on 2026-03-26 against `http://127.0.0.1:3000/editor` after the floating-composer fix: iPad-like viewports (`1032x1376`, `1024x600`) kept the panel fully visible, allowed drag repositioning, clamped edge drops back into the viewport, and restored the last in-session dropped position after reload
+- Authenticated runtime QA passed on 2026-03-26 for local-composer mode precedence: typing `правопис` in `Правка` kept the active tab on `Правка`, marked the `Правопис` top pill as the suggestion state, and still allowed fully manual switching to `Правопис` and back to `Правка` without being forced by the existing text
+- Authenticated runtime QA passed on 2026-03-26 for local-composer compact layout at `460x900`: the drag-handle element was absent, the visible `Правка` footer labels were `Переписати`, `Скоротити`, `Список`, `Таблиця`, and the send button remained visible inside the panel bounds
 - `npm run test -w @orest/web` passed on 2026-03-19 after turning spellcheck into a dedicated right-rail step, batching selected blocks for LanguageTool, and wiring inline suggestion popovers (91/91 tests)
 - `npm run typecheck -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`
 - `npm run build -w @orest/web` passed on 2026-03-22 after replacing the floating local-action panel with the new local-action bridge and adding `/api/edit/local-action`

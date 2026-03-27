@@ -147,6 +147,31 @@ Decision: whenever the editor changes the active visual prompt text after genera
 
 Reason: keeping the old image visible after a prompt change falsely suggests that the preview still matches the current prompt. Clearing the asset is the simplest honest rule and matches editor expectations.
 
+### Document-wide `Акценти` is an inline apply/reject layer, not a diff workflow
+Decision: the new `Акценти` step does not prepare green diffs or use `/review/proposal`. Instead, step review returns one exact quoted phrase per paragraph at most, the manuscript renders those phrases directly as blue bold clickable overlays, and the editor accepts or rejects each suggestion in place.
+
+Reason: this feature is closer to spellcheck than to rewrite proposals. Editors want a fast scan-and-approve emphasis pass that preserves text content, not another diff card pipeline.
+
+### Emphasis prompts must include existing bold in the source document
+Decision: when generating `Акценти`, the backend serializes current inline bold as `**...**` in the prompt-visible document text.
+
+Reason: the model needs to see what is already emphasized so it can avoid duplicate or conflicting highlight suggestions.
+
+### `Акценти` does not depend on diagnostics context
+Decision: the `Акценти` step runs without `Діагностика` as a prerequisite and its request payload omits diagnostics/expertise-specific prompt context such as `basePrompt`, `cardsPrompt`, `expertise`, and `stepContext`.
+
+Reason: this feature is a lightweight formatting pass over the current manuscript, not a downstream editorial-analysis stage. Sending diagnostics ballast both confuses prompt intent and creates misleading UI states when the wrong step context leaks back into feedback.
+
+### The floating local composer is viewport-bounded and session-draggable
+Decision: the local floating composer now measures against the active viewport, clamps itself fully inside visible bounds, and can be dragged to a different screen location from its top strip. The dropped position persists only for the current browser session.
+
+Reason: tablet and mixed-input editing needs a recoverable floating surface that neither clips off-screen nor blocks the same manuscript area permanently. Session-only persistence preserves convenience without carrying stale coordinates across devices or orientations.
+
+### Explicit local tabs outrank keyword inference
+Decision: `Правка`, `Правопис`, `Врізка`, and `Візуал` are explicit user modes. Keyword detection inside `Правка` may suggest another mode, but it must not force-switch the active tab or block a manual return to `Правка`.
+
+Reason: a tab click is direct user intent and must remain stable. Keyword inference is useful for discovery, but when it overrides the selected tab the UI becomes non-reversible and feels broken.
+
 ## 2026-03-16
 
 ### Gemini fact-check sources come from grounding metadata, not free-text citations

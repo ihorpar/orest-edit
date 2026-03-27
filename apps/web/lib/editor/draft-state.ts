@@ -174,6 +174,7 @@ function isStepId(value: unknown): value is PersistedWorkflowStepId {
     value === "interest" ||
     value === "visuals" ||
     value === "formatting" ||
+    value === "emphasis" ||
     value === "spellcheck" ||
     value === "final_editing"
   );
@@ -193,6 +194,7 @@ function coerceStepRunHistory(value: unknown, fallback: EditorialStepRunHistory)
     interest: Array.isArray(record.interest) ? record.interest : fallback.interest,
     visuals: Array.isArray(record.visuals) ? record.visuals : fallback.visuals,
     formatting: Array.isArray(record.formatting) ? record.formatting : fallback.formatting,
+    emphasis: Array.isArray(record.emphasis) ? record.emphasis : fallback.emphasis,
     final_editing: Array.isArray(record.final_editing) ? record.final_editing : fallback.final_editing
   };
 }
@@ -211,6 +213,7 @@ function coerceStepFeedback(value: unknown, fallback: EditorialStepFeedbackMap):
     interest: typeof record.interest === "string" ? record.interest : fallback.interest,
     visuals: typeof record.visuals === "string" ? record.visuals : fallback.visuals,
     formatting: typeof record.formatting === "string" ? record.formatting : fallback.formatting,
+    emphasis: typeof record.emphasis === "string" ? record.emphasis : fallback.emphasis,
     final_editing: typeof record.final_editing === "string" ? record.final_editing : fallback.final_editing
   };
 }
@@ -232,6 +235,7 @@ function coerceStepRunModes(value: unknown, fallback: EditorialStepRunModeMap): 
     interest: normalize(record.interest, fallback.interest),
     visuals: normalize(record.visuals, fallback.visuals),
     formatting: normalize(record.formatting, fallback.formatting),
+    emphasis: normalize(record.emphasis, fallback.emphasis),
     final_editing: normalize(record.final_editing, fallback.final_editing)
   };
 }

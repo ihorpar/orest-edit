@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  BULLET_LIST_PUNCTUATION_RULE,
   DEFAULT_BASE_PROMPT,
   DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   DEFAULT_CARDS_PROMPT,
+  DEFAULT_EXPERTISE_PROMPT,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
   DEFAULT_EDITOR_SETTINGS,
   getVisualStylePresetGuide,
@@ -36,8 +38,12 @@ test("DEFAULT_IMAGE_PROMPT_TEMPLATE documents visualStyleGuide placeholder", () 
 
 test("default editorial prompts forbid generic disclaimer injection for clarity edits", () => {
   assert.match(DEFAULT_BASE_PROMPT, /не додавай шаблонних медичних застережень/i);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Пунктуація списків:/i);
   assert.match(DEFAULT_CARDS_PROMPT, /не використовуй картки ясності для шаблонних медичних попереджень/i);
   assert.match(DEFAULT_CARDS_PROMPT, /зберігай scan-friendly подачу/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /починається з малої літери/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /починається з великої літери/i);
+  assert.match(BULLET_LIST_PUNCTUATION_RULE, /крапкою з комою/i);
 });
 
 test("visual style preset helpers expose all supported presets and fallback safely", () => {

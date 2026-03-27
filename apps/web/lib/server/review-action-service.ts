@@ -17,7 +17,13 @@ import {
   getEditorialCalloutKindTitle,
   isReplaceReviewType
 } from "../editor/review-contract.ts";
-import { getVisualStylePresetGuide, getVisualStylePresetLabel, normalizeVisualStylePreset } from "../editor/settings.ts";
+import {
+  appendBulletListPunctuationRule,
+  BULLET_LIST_PUNCTUATION_RULE,
+  getVisualStylePresetGuide,
+  getVisualStylePresetLabel,
+  normalizeVisualStylePreset
+} from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { createFallbackOperations, resolveProviderApiKey } from "./patch-service.ts";
 
@@ -377,7 +383,7 @@ function buildTextProposalPrompt(request: ReviewActionRequest): string {
   const blockCount = request.item.anchor.blockIds.length;
 
   return [
-    buildReplacePromptByType(request.item.recommendationType, blockCount),
+    buildReplacePromptByType(request.item.recommendationType, blockCount, request.item.stepId),
     `Редакторська рекомендація: ${request.item.recommendation}`,
     `Причина: ${request.item.reason}`,
     request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null
@@ -391,6 +397,7 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
     .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
     .filter((block): block is Block => Boolean(block));
   const blockCount = selectedBlocks.length;
+  const emphasisStep = request.item.stepId === "emphasis";
 
   if (request.item.recommendationType === "list") {
     return [
@@ -410,13 +417,19 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
   }
 
   return [
-    getReplaceTextInstruction(request.item.recommendationType, blockCount),
+    getReplaceTextInstruction(request.item.recommendationType, blockCount, request.item.stepId),
     "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
     "Пріоритет: перепиши саме вибрані блоки. Якщо рекомендація ширша за локальний фрагмент, адаптуй лише локальне формулювання.",
     "Якщо вибраний блок є коротким вступом або lead-in фразою, редагуй саме цю lead-in фразу, не вигадуй відсутній сусідній текст.",
     "Не додавай загальних пересторог, медичних дисклеймерів, порад звернутися до лікаря, фраз про самодіагностику або консультацію, якщо цього немає в оригіналі і це не є прямою метою рекомендації.",
     "Якщо джерело є переліком, серією коротких тверджень або ритмічним списком, збережи цю scan-friendly структуру; не перетворюй кожен пункт на розлогий абзац.",
     "Якщо редактор просить форму вірша, 4 рядки, строфу або короткі рядки, дозволено повертати внутрішні переноси рядка через символ \\n всередині одного replacement string; сервер збереже їх у межах одного блока.",
+    emphasisStep
+      ? "Для кроку «Акценти» заборонено переписувати зміст. Поверни той самий текст, але за потреби додай лише 1-2 короткі **жирні** акценти на ключових фразах."
+      : null,
+    emphasisStep
+      ? "Не виділяй ціле речення, більшу частину абзацу, перший рядок заголовка або випадкові декоративні слова. Акцент має підсвічувати тезу, а не шуміти."
+      : null,
     "Поверни лише JSON без markdown.",
     `Схема: {"replacements":["..."]}. replacements має містити рівно ${blockCount} рядків plain text у тому самому порядку, що й вибрані блоки.`,
     `Редакторська рекомендація: ${request.item.recommendation}`,
@@ -429,7 +442,15 @@ function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
     .join("\n\n");
 }
 
-function getReplaceTextInstruction(type: EditorialReviewRecommendationType, blockCount: number): string {
+function getReplaceTextInstruction(
+  type: EditorialReviewRecommendationType,
+  blockCount: number,
+  stepId?: ReviewActionRequest["item"]["stepId"]
+): string {
+  if (stepId === "emphasis") {
+    return `Підготуй ${blockCount} вибраних блоків для режиму смислових акцентів: не змінюй зміст і формулювання без потреби, а лише точково додай 1-2 короткі **жирні** акценти там, де це справді допомагає скануванню.`;
+  }
+
   if (type === "simplify") {
     return `Спрости ${blockCount} вибраних блоків для широкого читача без втрати змісту і без нових фактів.`;
   }
@@ -443,10 +464,13 @@ function getReplaceTextInstruction(type: EditorialReviewRecommendationType, bloc
 
 function buildReplaceSystemPrompt(request: ReviewActionRequest): string {
   return [
-    request.basePrompt?.trim(),
+    appendBulletListPunctuationRule(request.basePrompt),
     request.reviewLevelGuide?.trim(),
     "Ти готуєш локальну block-first заміну вибраних блоків українського рукопису.",
     getReplaceModeGuardrail(request.item.recommendationType),
+    request.item.stepId === "emphasis"
+      ? "Єдиний дозволений формат акценту — рідкісне **жирне** виділення коротких фраз. Не використовуй інший markdown і не перетворюй завдання на повне переписування."
+      : null,
     "Відповідь має бути короткою, редакторською і строго в межах JSON-схеми."
   ]
     .filter(Boolean)
@@ -526,7 +550,12 @@ function buildReplaceOperation(
   }
 
   const normalizedOperation = normalizeReviewTextDiffOperation(constrainedOperation, request.item.recommendationType);
-  const qualityWarning = detectReplaceNoOpWarning(request.item.recommendationType, normalizedOperation.oldBlocks, normalizedOperation.newBlocks);
+  const qualityWarning = detectReplaceNoOpWarning(
+    request.item.recommendationType,
+    normalizedOperation.oldBlocks,
+    normalizedOperation.newBlocks,
+    request.item.stepId
+  );
 
   return {
     ...normalizedOperation,
@@ -764,11 +793,11 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
 
   if (mode === "callout") {
     const calloutKind = request.item.calloutKind ?? "mechanism";
-    const template = interpolatePromptTemplate(request.calloutPromptTemplate?.trim(), {
+    const template = appendBulletListPunctuationRule(interpolatePromptTemplate(request.calloutPromptTemplate?.trim(), {
       calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
       fragment: excerpt,
       recommendation: request.item.recommendation
-    });
+    }));
 
     return [
       template,
@@ -796,6 +825,7 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
   if (mode === "subsection") {
     return [
       "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
+      BULLET_LIST_PUNCTUATION_RULE,
       "Поверни лише JSON-об'єкт без markdown: {\"title\":\"...\",\"lead\":\"...\"}.",
       "title: короткий і точний підзаголовок (plain text, один рядок).",
       "lead: необов'язковий короткий вступний абзац; markdown не використовуй, крім рідкісного **жирного** для коротких акцентів, можна порожній рядок.",
@@ -928,7 +958,11 @@ function getInfographicLayoutGuidance(layout: InfographicLayout): string {
   }
 }
 
-function buildReplacePromptByType(type: EditorialReviewRecommendationType, blockCount: number): string {
+function buildReplacePromptByType(
+  type: EditorialReviewRecommendationType,
+  blockCount: number,
+  stepId?: ReviewActionRequest["item"]["stepId"]
+): string {
   const shared = [
     "Формат результату: лише повна заміна вибраних блоків у форматі block editor.",
     "Markdown не використовуй, крім рідкісного акценту через **жирний** на ключових словах або дуже коротких фразах.",
@@ -940,6 +974,19 @@ function buildReplacePromptByType(type: EditorialReviewRecommendationType, block
     "Не повторюй вихідний текст дослівно.",
     "Міняй синтаксис і лексику: перероби структуру речень, не обмежуйся дрібними підстановками слів."
   ];
+
+  if (stepId === "emphasis") {
+    return [
+      "Тип правки: emphasis.",
+      "Не переписуй абзац заново і не змінюй фактичний зміст.",
+      "Твоє завдання: залишити текст максимально близьким до оригіналу, але зробити 1-2 короткі смислові акценти через **жирний**.",
+      "Не виділяй цілі речення, початок абзацу без причини, більшу частину блока або випадкові прикметники.",
+      "Якщо сильного акценту немає, краще поверни майже той самий текст без декоративних змін.",
+      `Поверни рівно ${blockCount} replacement blocks.`
+    ]
+      .concat(shared)
+      .join("\n");
+  }
 
   if (type === "simplify") {
     return [
@@ -1250,8 +1297,13 @@ function protectBoldMarkdown(value: string): string {
 function detectReplaceNoOpWarning(
   recommendationType: EditorialReviewRecommendationType,
   oldBlocks: Block[],
-  newBlocks: Block[]
+  newBlocks: Block[],
+  stepId?: ReviewActionRequest["item"]["stepId"]
 ): { code: "no_op"; message: string; similarity: number } | null {
+  if (stepId === "emphasis") {
+    return null;
+  }
+
   if (recommendationType !== "rewrite" && recommendationType !== "simplify") {
     return null;
   }

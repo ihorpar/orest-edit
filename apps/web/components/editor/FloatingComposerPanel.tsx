@@ -1,12 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, LoaderCircle, X } from "lucide-react";
 import {
   getLocalActionTextIntentOptions,
   type LocalActionExecutor,
   type LocalActionMode,
   type LocalActionRouteResponse,
+  type SuggestedLocalActionMode,
   type LocalActionTextIntent
 } from "../../lib/editor/local-action-router";
 import {
@@ -37,6 +38,24 @@ const LOCAL_SURFACE_MODE_LABELS: Record<LocalSurfaceMode, string> = {
   visual: "Візуал"
 };
 
+interface FloatingBridgePosition {
+  x: number;
+  y: number;
+}
+
+interface FloatingBridgeDragState {
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+}
+
+const FLOATING_BRIDGE_VIEWPORT_MARGIN = 16;
+const FLOATING_BRIDGE_TOP_CLEARANCE = 76;
+const FLOATING_BRIDGE_POSITION_STORAGE_KEY = "orest-floating-bridge-position-v1";
+
 export function FloatingComposerPanel({
   mode,
   customPrompt,
@@ -66,6 +85,7 @@ export function FloatingComposerPanel({
   spellcheckLoading,
   spellcheckSummary,
   spellcheckSecondarySummary,
+  localModeSuggestion,
   onManualCalloutPromptChange,
   onManualVisualPromptChange,
   onRequestManualCallout,
@@ -102,6 +122,7 @@ export function FloatingComposerPanel({
   spellcheckLoading?: boolean;
   spellcheckSummary?: string | null;
   spellcheckSecondarySummary?: string | null;
+  localModeSuggestion?: { mode: SuggestedLocalActionMode; label: string } | null;
   onManualCalloutPromptChange: (value: string) => void;
   onManualVisualPromptChange: (value: string) => void;
   onRequestManualCallout: () => void;
@@ -122,10 +143,19 @@ export function FloatingComposerPanel({
   const calloutTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const visualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const reviewTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const floatingBridgeShellRef = useRef<HTMLElement | null>(null);
+  const floatingBridgeDragStateRef = useRef<FloatingBridgeDragState | null>(null);
+  const [floatingBridgePosition, setFloatingBridgePosition] = useState<FloatingBridgePosition | null>(null);
+  const [hasCustomFloatingBridgePosition, setHasCustomFloatingBridgePosition] = useState(false);
+  const [isDraggingFloatingBridge, setIsDraggingFloatingBridge] = useState(false);
   const textIntentOptions = getLocalActionTextIntentOptions();
   const showAutoTextModes =
     localActionRoute.executor === "patch" || localActionRoute.executor === "review" || localActionRoute.executor === "clarify";
   const localSurfaceMode = useMemo<LocalSurfaceMode>(() => {
+    if (localActionMode === "edit" || localActionMode === "auto") {
+      return "edit";
+    }
+
     if (localActionMode === "spellcheck") {
       return "proof";
     }
@@ -138,20 +168,8 @@ export function FloatingComposerPanel({
       return "visual";
     }
 
-    if (localActionRoute.executor === "spellcheck") {
-      return "proof";
-    }
-
-    if (localActionRoute.executor === "callout") {
-      return "callout";
-    }
-
-    if (localActionRoute.executor === "visual") {
-      return "visual";
-    }
-
     return "edit";
-  }, [localActionMode, localActionRoute.executor]);
+  }, [localActionMode]);
 
   useAutosizeTextarea(primaryTextareaRef, customPrompt, !isReview && localSurfaceMode === "edit");
   useAutosizeTextarea(autoCalloutTextareaRef, customPrompt, !isReview && localSurfaceMode === "callout" && localActionMode !== "callout");
@@ -159,6 +177,79 @@ export function FloatingComposerPanel({
   useAutosizeTextarea(calloutTextareaRef, manualCalloutPrompt, !isReview && localSurfaceMode === "callout" && localActionMode === "callout");
   useAutosizeTextarea(visualTextareaRef, manualVisualPrompt, !isReview && localSurfaceMode === "visual" && localActionMode === "visual");
   useAutosizeTextarea(reviewTextareaRef, reviewAdditionalInstructions, isReview);
+
+  useLayoutEffect(() => {
+    if (isReview) {
+      return;
+    }
+
+    const node = floatingBridgeShellRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const storedPosition = readStoredFloatingBridgePosition();
+    const rect = node.getBoundingClientRect();
+    const initialPosition = clampFloatingBridgePosition(
+      storedPosition ?? getDefaultFloatingBridgePosition(rect.width, rect.height),
+      rect.width,
+      rect.height
+    );
+
+    setFloatingBridgePosition(initialPosition);
+    setHasCustomFloatingBridgePosition(storedPosition !== null);
+  }, [isReview]);
+
+  useEffect(() => {
+    if (isReview || !floatingBridgePosition) {
+      return;
+    }
+
+    if (hasCustomFloatingBridgePosition) {
+      window.sessionStorage.setItem(FLOATING_BRIDGE_POSITION_STORAGE_KEY, JSON.stringify(floatingBridgePosition));
+      return;
+    }
+
+    window.sessionStorage.removeItem(FLOATING_BRIDGE_POSITION_STORAGE_KEY);
+  }, [floatingBridgePosition, hasCustomFloatingBridgePosition, isReview]);
+
+  useEffect(() => {
+    if (isReview) {
+      return;
+    }
+
+    function syncFloatingBridgeToViewport() {
+      const node = floatingBridgeShellRef.current;
+
+      if (!node) {
+        return;
+      }
+
+      const rect = node.getBoundingClientRect();
+
+      setFloatingBridgePosition((current) => {
+        const nextBase =
+          hasCustomFloatingBridgePosition && current
+            ? current
+            : getDefaultFloatingBridgePosition(rect.width, rect.height);
+
+        return clampFloatingBridgePosition(nextBase, rect.width, rect.height);
+      });
+    }
+
+    const visualViewport = window.visualViewport;
+
+    window.addEventListener("resize", syncFloatingBridgeToViewport);
+    visualViewport?.addEventListener("resize", syncFloatingBridgeToViewport);
+    visualViewport?.addEventListener("scroll", syncFloatingBridgeToViewport);
+
+    return () => {
+      window.removeEventListener("resize", syncFloatingBridgeToViewport);
+      visualViewport?.removeEventListener("resize", syncFloatingBridgeToViewport);
+      visualViewport?.removeEventListener("scroll", syncFloatingBridgeToViewport);
+    };
+  }, [hasCustomFloatingBridgePosition, isReview]);
 
   const spellcheckStatusCopy =
     spellcheckSummary ??
@@ -222,15 +313,110 @@ export function FloatingComposerPanel({
 
   function handleModeSelect(nextMode: LocalSurfaceMode) {
     onLocalActionModeChange(
-      nextMode === "edit" ? "auto" : nextMode === "proof" ? "spellcheck" : nextMode
+      nextMode === "edit" ? "edit" : nextMode === "proof" ? "spellcheck" : nextMode
     );
   }
 
+  function handleFloatingBridgePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement | null;
+
+    if (!target || target.closest("button, textarea, select, input, label")) {
+      return;
+    }
+
+    const node = floatingBridgeShellRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const rect = node.getBoundingClientRect();
+    floatingBridgeDragStateRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      moved: false
+    };
+    setIsDraggingFloatingBridge(true);
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleFloatingBridgePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = floatingBridgeDragStateRef.current;
+    const node = floatingBridgeShellRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId || !node) {
+      return;
+    }
+
+    const rect = node.getBoundingClientRect();
+    const nextPosition = clampFloatingBridgePosition(
+      {
+        x: event.clientX - dragState.offsetX,
+        y: event.clientY - dragState.offsetY
+      },
+      rect.width,
+      rect.height
+    );
+
+    if (
+      !dragState.moved &&
+      (Math.abs(event.clientX - dragState.startClientX) > 2 || Math.abs(event.clientY - dragState.startClientY) > 2)
+    ) {
+      dragState.moved = true;
+      setHasCustomFloatingBridgePosition(true);
+    }
+
+    setFloatingBridgePosition(nextPosition);
+  }
+
+  function handleFloatingBridgePointerRelease(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = floatingBridgeDragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    floatingBridgeDragStateRef.current = null;
+    setIsDraggingFloatingBridge(false);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
   if (!isReview) {
+    const floatingBridgeStyle =
+      floatingBridgePosition === null
+        ? undefined
+        : {
+            left: 0,
+            top: 0,
+            bottom: "auto",
+            transform: `translate3d(${Math.round(floatingBridgePosition.x)}px, ${Math.round(floatingBridgePosition.y)}px, 0)`
+          };
+
     return (
-      <section className="floating-bridge-shell" aria-label="Локальна правка">
+      <section
+        ref={floatingBridgeShellRef}
+        className="floating-bridge-shell"
+        data-positioned={floatingBridgePosition ? "true" : "false"}
+        aria-label="Локальна правка"
+        style={floatingBridgeStyle}
+      >
         <div className="floating-bridge-surface" data-mode={localSurfaceMode}>
-          <div className="floating-bridge-top">
+          <div
+            className="floating-bridge-top"
+            data-dragging={isDraggingFloatingBridge ? "true" : "false"}
+            onPointerDown={handleFloatingBridgePointerDown}
+            onPointerMove={handleFloatingBridgePointerMove}
+            onPointerUp={handleFloatingBridgePointerRelease}
+            onPointerCancel={handleFloatingBridgePointerRelease}
+            onLostPointerCapture={handleFloatingBridgePointerRelease}
+          >
             <div className="floating-bridge-mode-tabs" role="tablist" aria-label="Режими локальної дії">
               {(["edit", "proof", "callout", "visual"] as LocalSurfaceMode[]).map((surfaceMode) => (
                 <button
@@ -240,6 +426,12 @@ export function FloatingComposerPanel({
                   aria-selected={localSurfaceMode === surfaceMode}
                   className="floating-bridge-mode-tab"
                   data-active={localSurfaceMode === surfaceMode ? "true" : "false"}
+                  data-suggested={
+                    localModeSuggestion?.mode ===
+                    (surfaceMode === "proof" ? "spellcheck" : surfaceMode === "callout" ? "callout" : surfaceMode === "visual" ? "visual" : null)
+                      ? "true"
+                      : "false"
+                  }
                   onClick={() => handleModeSelect(surfaceMode)}
                   disabled={localBusy}
                 >
@@ -554,4 +746,63 @@ function useAutosizeTextarea(ref: React.RefObject<HTMLTextAreaElement | null>, v
     node.style.height = `${nextHeight}px`;
     node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [isActive, ref, value]);
+}
+
+function readStoredFloatingBridgePosition(): FloatingBridgePosition | null {
+  try {
+    const rawValue = window.sessionStorage.getItem(FLOATING_BRIDGE_POSITION_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue) as Partial<FloatingBridgePosition>;
+
+    if (typeof parsed.x !== "number" || typeof parsed.y !== "number") {
+      return null;
+    }
+
+    return parsed as FloatingBridgePosition;
+  } catch {
+    return null;
+  }
+}
+
+function getDefaultFloatingBridgePosition(panelWidth: number, panelHeight: number): FloatingBridgePosition {
+  const viewportBounds = getFloatingBridgeViewportBounds();
+
+  return clampFloatingBridgePosition(
+    {
+      x: viewportBounds.left + (viewportBounds.width - panelWidth) / 2,
+      y: viewportBounds.top + viewportBounds.height - panelHeight
+    },
+    panelWidth,
+    panelHeight
+  );
+}
+
+function clampFloatingBridgePosition(position: FloatingBridgePosition, panelWidth: number, panelHeight: number): FloatingBridgePosition {
+  const viewportBounds = getFloatingBridgeViewportBounds();
+  const maxX = viewportBounds.left + Math.max(0, viewportBounds.width - panelWidth);
+  const maxY = viewportBounds.top + Math.max(0, viewportBounds.height - panelHeight);
+
+  return {
+    x: Math.min(Math.max(position.x, viewportBounds.left), maxX),
+    y: Math.min(Math.max(position.y, viewportBounds.top), maxY)
+  };
+}
+
+function getFloatingBridgeViewportBounds() {
+  const visualViewport = window.visualViewport;
+  const left = (visualViewport?.offsetLeft ?? 0) + FLOATING_BRIDGE_VIEWPORT_MARGIN;
+  const top = (visualViewport?.offsetTop ?? 0) + FLOATING_BRIDGE_TOP_CLEARANCE;
+  const width = (visualViewport?.width ?? window.innerWidth) - FLOATING_BRIDGE_VIEWPORT_MARGIN * 2;
+  const height = (visualViewport?.height ?? window.innerHeight) - FLOATING_BRIDGE_TOP_CLEARANCE - FLOATING_BRIDGE_VIEWPORT_MARGIN;
+
+  return {
+    left,
+    top,
+    width: Math.max(width, 0),
+    height: Math.max(height, 0)
+  };
 }

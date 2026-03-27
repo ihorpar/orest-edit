@@ -36,6 +36,7 @@ export type EditorialReviewStepId =
   | "interest"
   | "visuals"
   | "formatting"
+  | "emphasis"
   | "final_editing";
 export type EditorialStepRunMode = "preserve" | "replace";
 export type FactCheckStatus = "ok" | "сумнівно" | "не підтверджено";
@@ -360,6 +361,7 @@ export const EDITORIAL_REVIEW_STEP_IDS: EditorialReviewStepId[] = [
   "interest",
   "visuals",
   "formatting",
+  "emphasis",
   "final_editing"
 ];
 const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
@@ -430,6 +432,7 @@ export function createEmptyStepRunHistory(): EditorialStepRunHistory {
     interest: [],
     visuals: [],
     formatting: [],
+    emphasis: [],
     final_editing: []
   };
 }
@@ -443,6 +446,7 @@ export function createDefaultStepFeedbackMap(): EditorialStepFeedbackMap {
     interest: "",
     visuals: "",
     formatting: "",
+    emphasis: "",
     final_editing: ""
   };
 }
@@ -456,6 +460,7 @@ export function createDefaultStepRunModeMap(defaultMode: EditorialStepRunMode = 
     interest: defaultMode,
     visuals: defaultMode,
     formatting: defaultMode,
+    emphasis: defaultMode,
     final_editing: defaultMode
   };
 }

@@ -13,6 +13,7 @@ export type WorkflowStepUiId =
   | "interest"
   | "visuals"
   | "formatting"
+  | "emphasis"
   | "spellcheck"
   | "final_editing";
 

@@ -169,6 +169,7 @@ function parseStepId(value: unknown): EditorialReviewStepId | undefined {
     value === "interest" ||
     value === "visuals" ||
     value === "formatting" ||
+    value === "emphasis" ||
     value === "final_editing"
   ) {
     return value;

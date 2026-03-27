@@ -200,6 +200,8 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
   );
   assert.ok(payload.generationConfig?.responseSchema?.properties?.operations?.items?.required?.includes("replacements"));
   assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /Не повертай rich-text blocks, newBlocks/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /пунктуація списків:/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /починається з малої літери/i);
 });
 
 test("generatePatchResponse preserves line breaks inside a single replacement block", async () => {

@@ -14,8 +14,9 @@ import {
   type FactCheckStatus
 } from "../editor/review-contract.ts";
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
+import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
-import { CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
+import { appendBulletListPunctuationRule, CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -296,6 +297,16 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
       "Фокус: де потрібні списки, таблиці, врізки і компактні формати подачі для швидкого сканування.",
     systemInstruction:
       "Переформатовуй подачу: шукай місця для списків, врізок, табличного або блочного оформлення без повного переписування розділу."
+  },
+  emphasis: {
+    id: "emphasis",
+    title: "Акценти",
+    outputKind: "recommendation_cards",
+    allowedRecommendationTypes: ["rewrite"],
+    cardGuidance:
+      "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
+    systemInstruction:
+      "Генеруй лише локальні рекомендації для смислових акцентів. Пропонуй картку лише там, де коротке жирне виділення реально підсилить сканування тексту. Не пропонуй повне переписування абзацу."
   },
   final_editing: {
     id: "final_editing",
@@ -849,8 +860,10 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.outputKind === "recommendation_cards" ? Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard)) : null;
 
   return [
-    request.basePrompt?.trim(),
-    step.outputKind === "analysis_markdown" ? request.expertisePrompt?.trim() : request.cardsPrompt?.trim() || request.reviewPrompt?.trim(),
+    appendBulletListPunctuationRule(request.basePrompt),
+    step.outputKind === "analysis_markdown"
+      ? appendBulletListPunctuationRule(request.expertisePrompt)
+      : appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim()),
     request.reviewLevelGuide?.trim(),
     `Крок workflow: ${step.title}.`,
     step.systemInstruction,
@@ -875,13 +888,22 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "clarity"
       ? "Не пропонуй шаблонних застережень про консультацію з лікарем, самодіагностику, «варто перевірити стан» або інших повторюваних пересторог, якщо цього прямо не просить редактор і цього немає у фрагменті."
       : null,
+    step.id === "emphasis"
+      ? "Для кроку «Акценти» recommendationType має бути лише rewrite, але rewrite тут означає не переписування змісту, а лише точкове виділення 1-2 коротких ключових фраз у вже наявному абзаці."
+      : null,
+    step.id === "emphasis"
+      ? "Не пропонуй картку, якщо абзац і так короткий, уже добре сканується або не має очевидної тези для підсвічування."
+      : null,
+    step.id === "emphasis"
+      ? "Заборонено виділяти цілі речення, більшу частину абзацу або заголовки. Мета — рідкісні смислові акценти, а не декоративне форматування."
+      : null,
     "IDs у квадратних дужках призначені лише для прив'язки і не мають з'являтися в user-facing тексті."
   ].filter(Boolean).join("\n\n");
 }
 
 function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
   const lines = request.document.blocks.map(
-    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getReviewPromptBlockText(block)}`
+    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getReviewPromptBlockText(block, step.id)}`
   );
   const historyLines = (request.history ?? []).map((msg) => `${msg.role === "user" ? "КОРИСТУВАЧ" : "АСИСТЕНТ"}: ${msg.content}`);
   const diagnosticsExpertise = request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim();
@@ -907,6 +929,12 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "clarity"
       ? "Якщо фрагмент уже подано як перелік або серію коротких пунктів, збережи короткі окремі пункти; не роздувай кожен рядок у довгий абзац."
       : null,
+    step.id === "emphasis"
+      ? "Шукай лише ті абзаци, де справді доречно виділити одну коротку ключову фразу жирним. Якщо акцент не додає цінності, не створюй картку."
+      : null,
+    step.id === "emphasis"
+      ? "Для кроку «Акценти» створюй не більше однієї картки на абзац. У recommendation повертай точний формат: Виділити жирним фразу: \"...\". Фраза в лапках має бути точним підрядком із документа, без перефразування, без нового змісту і без уже наявного жирного виділення."
+      : null,
     "Документ:",
     lines.join("\n")
   ]
@@ -914,12 +942,43 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     .join("\n\n");
 }
 
-function getReviewPromptBlockText(block: Block): string {
+function getReviewPromptBlockText(block: Block, stepId?: EditorialReviewStepId): string {
+  if (stepId === "emphasis") {
+    return blockToPromptTextWithInlineBold(block);
+  }
+
   if (block.type === "image") {
     return blockToPromptText(block);
   }
 
   return getBlockText(block);
+}
+
+function inlineNodesToPromptText(nodes: Array<{ text: string; bold?: true }>): string {
+  return serializeInlineNodesToBoldMarkdown(nodes).trim();
+}
+
+function blockToPromptTextWithInlineBold(block: Block): string {
+  switch (block.type) {
+    case "paragraph":
+      return inlineNodesToPromptText(block.content);
+    case "heading":
+      return `${"#".repeat(block.level)} ${inlineNodesToPromptText(block.content)}`.trim();
+    case "bullet_list":
+      return block.items.map((item) => `- ${inlineNodesToPromptText(item)}`).join("\n");
+    case "ordered_list":
+      return block.items.map((item, index) => `${index + 1}. ${inlineNodesToPromptText(item)}`).join("\n");
+    case "image":
+      return `[image] alt: ${block.alt}${block.caption ? `; caption: ${inlineNodesToPromptText(block.caption)}` : ""}`;
+    case "callout":
+      return [`[callout:${block.kind}] ${inlineNodesToPromptText(block.title)}`, ...block.body.map((paragraph) => inlineNodesToPromptText(paragraph))]
+        .filter(Boolean)
+        .join("\n");
+    case "divider":
+      return "---";
+    case "table":
+      return block.rows.map((row) => row.map((cell) => inlineNodesToPromptText(cell)).join(" | ")).join("\n");
+  }
 }
 
 function parseEditorialReviewItems(content: string): unknown {
@@ -1314,6 +1373,10 @@ export function createFallbackEditorialReviewItems(
   stepId: EditorialReviewStepId,
   stepRunId: string
 ): EditorialReviewItem[] {
+  if (stepId === "emphasis") {
+    return createFallbackEmphasisReviewItems(request, reviewSessionId, stepRunId);
+  }
+
   const items: Array<Record<string, unknown>> = [];
 
   request.document.blocks.forEach((block, index) => {
@@ -1404,6 +1467,115 @@ export function createFallbackEditorialReviewItems(
     stepRunId,
     items
   }).items;
+}
+
+function createFallbackEmphasisReviewItems(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string
+): EditorialReviewItem[] {
+  const items: Array<Record<string, unknown>> = [];
+
+  request.document.blocks.forEach((block, index) => {
+    if (items.length >= 8 || block.type !== "paragraph") {
+      return;
+    }
+
+    const text = getBlockText(block).replace(/\s+/g, " ").trim();
+    const phrase = pickFallbackEmphasisPhrase(block.content, text);
+
+    if (text.length < 90 || text.length > 520 || !phrase) {
+      return;
+    }
+
+    if (/[•·]/.test(text) || /:\s*$/.test(text)) {
+      return;
+    }
+
+    items.push({
+      title: "Виділити головну тезу",
+      reason: "У цьому абзаці є виразна ключова думка, яку варто зробити швидше помітною при скануванні.",
+      recommendation: `Виділити жирним фразу: "${phrase}".`,
+      recommendationType: "rewrite",
+      suggestedAction: "rewrite_text",
+      priority: "medium",
+      blockStart: index,
+      blockEnd: index,
+      excerpt: text.slice(0, 280),
+      insertionHint: "replace",
+      anchorBlockId: block.id,
+      calloutKind: null,
+      calloutTitle: null,
+      calloutPreviewText: null,
+      calloutSummary: null,
+      calloutPrompt: null,
+      visualIntent: null
+    });
+  });
+
+  return normalizeEditorialReviewItems({
+    document: request.document,
+    revision: request.revision,
+    reviewSessionId,
+    changeLevel: request.changeLevel,
+    stepId: "emphasis",
+    stepRunId,
+    items
+  }).items;
+}
+
+function pickFallbackEmphasisPhrase(
+  nodes: Array<{ text: string; bold?: true }>,
+  plainText: string
+): string | null {
+  const normalizedText = plainText.replace(/\s+/g, " ").trim();
+
+  if (!normalizedText) {
+    return null;
+  }
+
+  const existingBoldSegments = nodes
+    .filter((node) => node.bold)
+    .map((node) => node.text.replace(/\s+/g, " ").trim().toLowerCase())
+    .filter(Boolean);
+  const clauses = normalizedText
+    .split(/[.!?]\s+|:\s+|;\s+|,\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  for (const clause of clauses) {
+    const words = clause.split(/\s+/).filter(Boolean);
+
+    if (clause.length < 18 || clause.length > 110 || words.length < 3 || words.length > 10) {
+      continue;
+    }
+
+    const loweredClause = clause.toLowerCase();
+
+    if (existingBoldSegments.some((segment) => segment === loweredClause || segment.includes(loweredClause))) {
+      continue;
+    }
+
+    if (normalizedText.includes(clause)) {
+      return clause;
+    }
+  }
+
+  const fallbackWords = normalizedText.split(/\s+/).filter(Boolean).slice(0, 6);
+
+  if (fallbackWords.length >= 3) {
+    const fallbackClause = fallbackWords.join(" ").replace(/[,:;]+$/u, "").trim();
+    const loweredFallbackClause = fallbackClause.toLowerCase();
+
+    if (
+      fallbackClause.length >= 18 &&
+      !existingBoldSegments.some((segment) => segment === loweredFallbackClause || segment.includes(loweredFallbackClause))
+    ) {
+      return fallbackClause;
+    }
+  }
+
+  return null;
 }
 
 function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialReviewRequest): EditorialReviewItem[] {

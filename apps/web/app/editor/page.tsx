@@ -10,7 +10,7 @@ import { TopBar } from "../../components/layout/TopBar";
 import { type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
 import { Button } from "../../components/ui/Button";
-import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block } from "../../lib/editor/document-model";
+import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block, InlineNode } from "../../lib/editor/document-model";
 import {
   createBlockId,
   createEmptyParagraphBlock,
@@ -20,6 +20,7 @@ import {
   documentToPlainText,
   EMPTY_BLOCK_SELECTION,
   getBlockText,
+  getInlineText,
   insertBlocksAfter,
   normalizeBlockSelection,
   normalizeInlineNodes,
@@ -30,6 +31,7 @@ import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, typ
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
 import { parseBoldMarkdownToInlineNodes } from "../../lib/editor/inline-markup";
+import { getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 import {
   computeAnchorFingerprint,
   deriveManuscriptRevisionState,
@@ -49,8 +51,10 @@ import {
 } from "../../lib/editor/change-history";
 import {
   inferLocalActionRoute,
+  inferSuggestedLocalActionMode,
   type LocalActionMode,
   type LocalActionRouteResponse,
+  type SuggestedLocalActionMode,
   type LocalActionTextIntent
 } from "../../lib/editor/local-action-router";
 import { insertBlocksBefore } from "../../lib/editor/review-apply";
@@ -120,6 +124,7 @@ import {
   Download,
   FileText,
   FolderOpen,
+  Highlighter,
   Image as ImageIcon,
   LayoutGrid,
   LocateFixed,
@@ -159,6 +164,19 @@ interface CompareEntryDraft {
   blockIds: string[];
   beforeBlocks: Block[];
   afterBlocks: Block[];
+}
+
+interface EmphasisSuggestionViewModel {
+  itemId: string;
+  blockId: string;
+  paragraphLabel: string;
+  phrase: string;
+  reason: string;
+  status: EditorialReviewItem["status"];
+  range: {
+    start: number;
+    end: number;
+  };
 }
 
 interface CommitDocumentOptions {
@@ -224,7 +242,7 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
 const defaultManualVisualIntent: EditorialVisualIntent = "infographic";
 const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
-const defaultLocalActionMode = "auto" as const;
+const defaultLocalActionMode = "edit" as const;
 const defaultLocalTextIntent = "rewrite" as const;
 
 type ComposerMode = "local" | "review" | null;
@@ -241,6 +259,7 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
   { id: "visuals", label: "Візуали", icon: ImageIcon },
   { id: "formatting", label: "Форматування", icon: Table2 },
   { id: "spellcheck", label: "Правопис", icon: Languages },
+  { id: "emphasis", label: "Акценти", icon: Highlighter },
   { id: "final_editing", label: "Фінальна редактура", icon: SpellCheck }
 ];
 
@@ -309,6 +328,7 @@ export default function EditorPage() {
   const [destructiveRecoveryState, setDestructiveRecoveryState] = useState<DestructiveRecoveryState | null>(null);
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const dismissUndoTimeoutRef = useRef<number | null>(null);
+  const destructiveRecoveryTimeoutRef = useRef<number | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -331,6 +351,22 @@ export default function EditorPage() {
       }),
     [customPrompt, localActionMode, localTextIntent, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
   );
+  const localModeSuggestion = useMemo<{ mode: SuggestedLocalActionMode; label: string } | null>(() => {
+    if (localActionMode !== "edit" && localActionMode !== "auto") {
+      return null;
+    }
+
+    const suggestedMode = inferSuggestedLocalActionMode(customPrompt);
+
+    if (!suggestedMode) {
+      return null;
+    }
+
+    return {
+      mode: suggestedMode,
+      label: suggestedMode === "spellcheck" ? "Правопис" : suggestedMode === "callout" ? "Врізка" : "Візуал"
+    };
+  }, [customPrompt, localActionMode]);
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
@@ -731,35 +767,52 @@ export default function EditorPage() {
       if (dismissUndoTimeoutRef.current) {
         window.clearTimeout(dismissUndoTimeoutRef.current);
       }
+      if (destructiveRecoveryTimeoutRef.current) {
+        window.clearTimeout(destructiveRecoveryTimeoutRef.current);
+      }
     },
     []
   );
 
   useEffect(() => {
-    function handleUndoRedoHotkeys(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) {
-        return;
+    if (!destructiveRecoveryState) {
+      if (destructiveRecoveryTimeoutRef.current) {
+        window.clearTimeout(destructiveRecoveryTimeoutRef.current);
+        destructiveRecoveryTimeoutRef.current = null;
       }
+      return;
+    }
 
+    destructiveRecoveryTimeoutRef.current = window.setTimeout(() => {
+      setDestructiveRecoveryState(null);
+      destructiveRecoveryTimeoutRef.current = null;
+    }, 5000);
+
+    return () => {
+      if (destructiveRecoveryTimeoutRef.current) {
+        window.clearTimeout(destructiveRecoveryTimeoutRef.current);
+        destructiveRecoveryTimeoutRef.current = null;
+      }
+    };
+  }, [destructiveRecoveryState]);
+
+  useEffect(() => {
+    function handleUndoRedoHotkeys(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
 
       if (target && (target.closest("input, textarea, select") || target.closest('[contenteditable="true"]'))) {
         return;
       }
 
-      if (event.key.toLowerCase() === "z" && event.shiftKey) {
+      const action = getUndoRedoHotkeyAction(event);
+
+      if (action === "redo") {
         event.preventDefault();
         redoLastMutation();
         return;
       }
 
-      if (event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        redoLastMutation();
-        return;
-      }
-
-      if (event.key.toLowerCase() === "z") {
+      if (action === "undo") {
         event.preventDefault();
         undoLastMutation();
       }
@@ -861,7 +914,7 @@ export default function EditorPage() {
     setActiveWorkflowStep(snapshot.activeWorkflowStep);
     setManualCalloutKind(snapshot.manualCalloutKind);
     setManualVisualIntent(snapshot.manualVisualIntent);
-    setLocalActionMode(snapshot.localActionMode);
+    setLocalActionMode(snapshot.localActionMode === "auto" ? "edit" : snapshot.localActionMode);
     setLocalTextIntent(snapshot.localTextIntent);
     setManualCalloutPrompt(snapshot.manualCalloutPrompt);
     setManualVisualPrompt(snapshot.manualVisualPrompt);
@@ -1354,6 +1407,61 @@ export default function EditorPage() {
     setFeedback({ tone: "info", message: "Варіант залишено без змін." });
   }
 
+  function applyEmphasisSuggestion(input: { itemId: string }) {
+    const suggestion = deriveEmphasisSuggestions(reviewItems, document, revision).find((entry) => entry.itemId === input.itemId);
+
+    if (!suggestion) {
+      setFeedback({ tone: "error", message: "Акцент більше не прив'язується до поточного тексту." });
+      return;
+    }
+
+    const block = document.blocks.find((entry) => entry.id === suggestion.blockId);
+
+    if (!block || (block.type !== "paragraph" && block.type !== "heading")) {
+      setFeedback({ tone: "error", message: "Акцент можна застосувати лише до текстового абзацу." });
+      return;
+    }
+
+    const nextContent = applyBoldToInlineRange(block.content, suggestion.range.start, suggestion.range.end);
+    const nextDocument: EditorDocument = {
+      version: 2,
+      blocks: document.blocks.map((entry) =>
+        entry.id === suggestion.blockId
+          ? {
+              ...entry,
+              content: nextContent
+            }
+          : entry
+      )
+    };
+    const previousChangedBlock = document.blocks.find((entry) => entry.id === suggestion.blockId);
+    const nextChangedBlock = nextDocument.blocks.find((entry) => entry.id === suggestion.blockId);
+
+    commitDocument(nextDocument, {
+      history: {
+        kind: "ai_apply",
+        label: "Смисловий акцент",
+        blockIds: [suggestion.blockId],
+        compare:
+          previousChangedBlock && nextChangedBlock
+            ? {
+                kind: "ai_apply",
+                label: `Акцент: ${suggestion.phrase}`,
+                blockIds: [suggestion.blockId],
+                beforeBlocks: [previousChangedBlock],
+                afterBlocks: [nextChangedBlock]
+              }
+            : null
+      }
+    });
+    setReviewItems((current) =>
+      current.map((entry) => (entry.id === input.itemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
+    );
+    setActiveProposal((current) => (current?.reviewItemId === input.itemId ? null : current));
+    setActiveReviewItemId((current) => (current === input.itemId ? null : current));
+    setFeedback({ tone: "info", message: "Акцент застосовано." });
+  }
+
   function handleLocalActionModeChange(mode: LocalActionMode) {
     setLocalActionMode(mode);
   }
@@ -1438,7 +1546,9 @@ export default function EditorPage() {
   }
 
   async function requestWorkflowStep(stepId: EditorialReviewStepId) {
-    if (stepId !== "diagnostics" && !reviewExpertise?.trim()) {
+    const requiresDiagnosticsContext = stepId !== "diagnostics" && stepId !== "emphasis";
+
+    if (requiresDiagnosticsContext && !reviewExpertise?.trim()) {
       setFeedback({ tone: "error", message: "Спочатку запустіть діагностику, щоб дати контекст для наступних кроків." });
       return;
     }
@@ -1450,7 +1560,7 @@ export default function EditorPage() {
     const diagnosticsFeedback = stepFeedback.diagnostics?.trim();
     const historyMessages: ChatMessage[] = [];
 
-    if (diagnosticsFeedback) {
+    if (diagnosticsFeedback && stepId !== "emphasis") {
       historyMessages.push({
         id: createPatchId("chat"),
         role: "user",
@@ -1475,34 +1585,48 @@ export default function EditorPage() {
         // For step review we only need stable order and revision id; fingerprints are recomputed server-side when absent.
         blockFingerprints: {}
       };
+      const isEmphasisStep = stepId === "emphasis";
       const diagnosticsPrompt = settings.expertisePrompt.trim() || settings.reviewPrompt.trim() || undefined;
       const downstreamPrompt = settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined;
-      const requestBody: EditorialReviewRequest = {
-        document,
-        revision: compactReviewRevision,
-        provider: settings.provider,
-        modelId: settings.modelId,
-        apiKey: settings.apiKey || undefined,
-        basePrompt: settings.basePrompt,
-        expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
-        cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
-        reviewLevelGuide: settings.reviewLevelGuide,
-        changeLevel: reviewComposer.changeLevel,
-        additionalInstructions: reviewComposer.additionalInstructions,
-        stepId,
-        runMode,
-        history: historyMessages.length > 0 ? historyMessages : undefined,
-        stepFeedback: currentStepFeedback || undefined,
-        stepContext:
-          stepId === "diagnostics"
-            ? undefined
-            : {
-              diagnosticsExpertise: reviewExpertise ?? undefined,
-              diagnosticsFeedback: diagnosticsFeedback || undefined,
-              currentStepFeedback: currentStepFeedback || undefined
-            },
-        expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined
-      };
+      const requestBody: EditorialReviewRequest = isEmphasisStep
+        ? {
+            document,
+            revision: compactReviewRevision,
+            provider: settings.provider,
+            modelId: settings.modelId,
+            apiKey: settings.apiKey || undefined,
+            changeLevel: reviewComposer.changeLevel,
+            additionalInstructions: reviewComposer.additionalInstructions,
+            stepId,
+            runMode,
+            stepFeedback: currentStepFeedback || undefined
+          }
+        : {
+            document,
+            revision: compactReviewRevision,
+            provider: settings.provider,
+            modelId: settings.modelId,
+            apiKey: settings.apiKey || undefined,
+            basePrompt: settings.basePrompt,
+            expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
+            cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
+            reviewLevelGuide: settings.reviewLevelGuide,
+            changeLevel: reviewComposer.changeLevel,
+            additionalInstructions: reviewComposer.additionalInstructions,
+            stepId,
+            runMode,
+            history: historyMessages.length > 0 ? historyMessages : undefined,
+            stepFeedback: currentStepFeedback || undefined,
+            stepContext:
+              stepId === "diagnostics"
+                ? undefined
+                : {
+                  diagnosticsExpertise: reviewExpertise ?? undefined,
+                  diagnosticsFeedback: diagnosticsFeedback || undefined,
+                  currentStepFeedback: currentStepFeedback || undefined
+                },
+            expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined
+          };
 
       const response = await fetch("/api/edit/review", {
         method: "POST",
@@ -1511,6 +1635,11 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as EditorialReviewResponse;
+
+      if (payload.stepId !== stepId) {
+        throw new Error(`Очікували відповідь для кроку «${stepId}», але сервер повернув «${payload.stepId}».`);
+      }
+
       let sectionItemCount: number | undefined;
       let factCheckLinkedItems: EditorialReviewItem[] = [];
 
@@ -1647,6 +1776,10 @@ export default function EditorPage() {
         const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
         element?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
+    }
+
+    if (item.stepId === "emphasis") {
+      return;
     }
 
     // Automatically prepare the item (e.g., generate diff) when focused in compact mode
@@ -1884,6 +2017,11 @@ export default function EditorPage() {
     item: EditorialReviewItem,
     options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
   ) {
+    if (item.stepId === "emphasis") {
+      focusReviewItem(item);
+      return;
+    }
+
     const canRefreshStale =
       item.status === "stale" && item.anchor.blockIds.every((blockId) => revision.blockOrder.includes(blockId));
     const refreshFingerprint = canRefreshStale ? computeAnchorFingerprint(document, item.anchor.blockIds) : null;
@@ -2734,6 +2872,17 @@ export default function EditorPage() {
     () => spellcheckResults.filter((result) => result.error || result.issues.length > 0),
     [spellcheckResults]
   );
+  const emphasisSuggestions = useMemo(
+    () => deriveEmphasisSuggestions(reviewItems, document, revision),
+    [document, reviewItems, revision]
+  );
+  const visibleEmphasisSuggestions = useMemo(
+    () =>
+      emphasisSuggestions.filter((suggestion) =>
+        showCompletedCards ? true : suggestion.status !== "applied" && suggestion.status !== "dismissed"
+      ),
+    [emphasisSuggestions, showCompletedCards]
+  );
   const spellcheckDocumentBlockIds = useMemo(() => document.blocks.map((block) => block.id), [document.blocks]);
   const canRunSpellcheck = getSpellcheckableBlocks(document, revision, spellcheckDocumentBlockIds).length > 0;
   const hasSpellcheckRun = Boolean(spellcheckMeta || spellcheckSummary || spellcheckResults.length > 0);
@@ -2741,6 +2890,20 @@ export default function EditorPage() {
     () => spellcheckResults.filter((result) => result.issues.length > 0).length,
     [spellcheckResults]
   );
+  const emphasisStatusTone = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
+    ? "active"
+    : emphasisSuggestions.length === 0
+      ? "idle"
+      : emphasisSuggestions.some((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed")
+        ? "warning"
+        : "success";
+  const emphasisStatusLabel = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
+    ? "У процесі"
+    : emphasisSuggestions.length === 0
+      ? "Не запускалось"
+      : emphasisSuggestions.some((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed")
+        ? "Є акценти"
+        : "Завершено";
   const spellcheckStatusTone = isSpellcheckRequestInFlight
     ? "active"
     : !hasSpellcheckRun
@@ -2782,9 +2945,13 @@ export default function EditorPage() {
       ? canRequestReview
       : activeWorkflowStep === "spellcheck"
         ? canRunSpellcheck
+        : activeWorkflowStep === "emphasis"
+          ? canRequestReview
         : canRunDownstreamStep;
   const activeStepHasPrerequisite =
-    activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" ? true : Boolean(reviewExpertise);
+    activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" || activeWorkflowStep === "emphasis"
+      ? true
+      : Boolean(reviewExpertise);
   const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
   const activeStepWorkspaceStatus =
     activeWorkflowStep === "diagnostics"
@@ -2810,7 +2977,7 @@ export default function EditorPage() {
             successMessage: "Таблиця факт-чеку готова. Можна переглядати твердження і джерела.",
             zeroResultMessage: "Факт-чек завершився без окремих рядків для перевірки."
           })
-        : activeWorkflowStep === "spellcheck"
+      : activeWorkflowStep === "spellcheck"
           ? getStepWorkspaceStatus("spellcheck", {
               canRun: canRunSpellcheck,
               isInFlight: isSpellcheckRequestInFlight,
@@ -2823,6 +2990,19 @@ export default function EditorPage() {
                 "Аналіз правопису готовий. Можна переглядати проблемні абзаци та підказки.",
               zeroResultMessage: "Помилки не знайдено."
             })
+          : activeWorkflowStep === "emphasis"
+            ? getStepWorkspaceStatus("emphasis", {
+                canRun: canRequestReview,
+                hasPrerequisite: true,
+                isInFlight: isReviewRequestInFlight,
+                hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
+                zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
+                activeMessage: "Шукаємо доречні смислові акценти по всьому тексту.",
+                idleMessage: "Запустіть етап, щоб отримати inline-акценти без переписування тексту.",
+                waitingMessage: "Додайте текст рукопису, щоб запустити акценти.",
+                successMessage: "Акценти готові. Їх можна погоджувати або відхиляти прямо в рукописі.",
+                zeroResultMessage: "Етап завершено без нових акцентів."
+              })
           : getStepWorkspaceStatus(activeWorkflowStep, {
               canRun: canRunDownstreamStep,
               hasPrerequisite: Boolean(reviewExpertise),
@@ -2848,6 +3028,8 @@ export default function EditorPage() {
         return <Search size={14} aria-hidden="true" />;
       case "spellcheck":
         return <Languages size={14} aria-hidden="true" />;
+      case "emphasis":
+        return <Highlighter size={14} aria-hidden="true" />;
       default:
         return <Sparkles size={14} aria-hidden="true" />;
     }
@@ -2885,6 +3067,29 @@ export default function EditorPage() {
   return (
     <>
       <TopBar activePath="/editor" />
+      {destructiveRecoveryState ? (
+        <div className="editor-toast-stack" aria-live="polite">
+          <div className="editor-toast editor-toast-success" role="status">
+            <div className="editor-toast-copy">
+              <span className="editor-toast-label">Готово</span>
+              <p className="editor-toast-message">{destructiveRecoveryState.message}</p>
+            </div>
+            <div className="editor-toast-actions">
+              <Button variant="ghost" size="sm" onClick={undoDestructiveAction}>
+                Повернути
+              </Button>
+              <button
+                type="button"
+                className="editor-toast-dismiss"
+                aria-label="Сховати повідомлення"
+                onClick={() => setDestructiveRecoveryState(null)}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <StepReviewWorkspaceShell
         manuscript={
           <main className={`editor-page-shell ${composerMode ? "editor-page-shell--composer-open" : ""}`.trim()}>
@@ -2961,25 +3166,6 @@ export default function EditorPage() {
               </div>
             ) : null}
 
-            {destructiveRecoveryState ? (
-              <div className="editor-danger-recovery" role="status" aria-live="polite">
-                <span>{destructiveRecoveryState.message}</span>
-                <div className="editor-danger-recovery-actions">
-                  <Button variant="ghost" size="sm" onClick={undoDestructiveAction}>
-                    Повернути
-                  </Button>
-                  <button
-                    type="button"
-                    className="editor-danger-recovery-dismiss"
-                    aria-label="Сховати повідомлення"
-                    onClick={() => setDestructiveRecoveryState(null)}
-                  >
-                    <X size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
             <BlockEditorSurface
               document={document}
               revision={revision}
@@ -3018,6 +3204,17 @@ export default function EditorPage() {
               spellcheckResults={spellcheckResults}
               onApplySpellcheckSuggestion={applySpellcheckSuggestion}
               onDismissSpellcheckIssue={dismissSpellcheckIssue}
+              emphasisSuggestions={emphasisSuggestions
+                .filter((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed")
+                .map(({ itemId, blockId, phrase, reason, range }) => ({ itemId, blockId, phrase, reason, range }))}
+              onApplyEmphasisSuggestion={applyEmphasisSuggestion}
+              onDismissEmphasisSuggestion={({ itemId }) => {
+                const item = reviewItems.find((entry) => entry.id === itemId);
+
+                if (item) {
+                  dismissReviewItem(item);
+                }
+              }}
               canUndo={canUndo}
               canRedo={canRedo}
               canCompare={compareHistory.length > 0}
@@ -3056,6 +3253,7 @@ export default function EditorPage() {
                 spellcheckLoading={isSpellcheckRequestInFlight}
                 spellcheckSummary={spellcheckSummary}
                 spellcheckSecondarySummary={spellcheckSecondarySummary}
+                localModeSuggestion={localModeSuggestion}
                 onManualCalloutPromptChange={setManualCalloutPrompt}
                 onManualVisualPromptChange={setManualVisualPrompt}
                 onRequestManualCallout={() => void requestManualInsert("callout")}
@@ -3402,23 +3600,6 @@ export default function EditorPage() {
                 <div className="step-review-section-stack">
                   <section className="step-review-subsection step-review-spellcheck-module">
                     <div className="step-review-subsection-head">
-                      <div className="step-review-spellcheck-title-stack">
-                        <div className="step-review-spellcheck-status-row">
-                          <span className="step-review-spellcheck-status-pill" data-tone={spellcheckStatusTone}>
-                            {spellcheckStatusLabel}
-                          </span>
-                          {spellcheckSummary ? (
-                            <p className="step-review-status-copy">{spellcheckSummary}</p>
-                          ) : isSpellcheckRequestInFlight ? (
-                            <p className="step-review-status-copy">Аналізуємо правопис у всьому тексті…</p>
-                          ) : (
-                            <p className="step-review-empty-copy">Аналіз ще не запускали.</p>
-                          )}
-                        </div>
-                        {spellcheckSecondarySummary ? (
-                          <p className="step-review-status-copy step-review-spellcheck-secondary">{spellcheckSecondarySummary}</p>
-                        ) : null}
-                      </div>
                       {!isSpellcheckRequestInFlight && hasSpellcheckRun ? (
                         <div className="step-review-spellcheck-actions">
                           <button
@@ -3531,7 +3712,72 @@ export default function EditorPage() {
                 </div>
               ) : null}
 
-              {activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" && activeWorkflowStep !== "spellcheck" ? (
+              {activeWorkflowStep === "emphasis" ? (
+                <div className="step-review-section-stack">
+                  <section className="step-review-subsection step-review-emphasis-module">
+                    <div className="step-review-subsection-head">
+                      {emphasisSuggestions.length > 0 ? (
+                        <div className="step-review-subsection-meta">
+                          <p className="step-review-cards-counter" aria-label="Лічильник акцентів">
+                            {showCompletedCards
+                              ? `${emphasisSuggestions.length} акцентів`
+                              : `Залишилось ${visibleEmphasisSuggestions.length} акцентів`}
+                          </p>
+                          <button
+                            type="button"
+                            className="step-review-completed-toggle"
+                            data-active={showCompletedCards ? "true" : "false"}
+                            onClick={() => setShowCompletedCards((current) => !current)}
+                          >
+                            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {visibleEmphasisSuggestions.length > 0 ? (
+                      <div className="operations-stack operations-stack-compact step-review-emphasis-list">
+                        {visibleEmphasisSuggestions.map((suggestion) => {
+                          const item = reviewItems.find((entry) => entry.id === suggestion.itemId);
+
+                          if (!item) {
+                            return null;
+                          }
+
+                          return (
+                            <EditorialReviewCard
+                              key={suggestion.itemId}
+                              item={item}
+                              revision={revision}
+                              isActive={item.id === activeReviewItemId}
+                              onFocus={focusReviewItem}
+                              onPrepare={(entry) => void prepareReviewItem(entry)}
+                              onApplyCallout={applyReviewCallout}
+                              onDismiss={dismissReviewItem}
+                              isLoading={item.id === preparingReviewItemId}
+                              variant="emphasis"
+                              hideMeta
+                              rangeLabelOverride={`Абз. ${suggestion.paragraphLabel}`}
+                              title={<span className="emphasis-card-title">"{suggestion.phrase}"</span>}
+                              description={suggestion.reason}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : activeStepRunCount > 0 && !isReviewRequestInFlight ? (
+                      <div className="step-review-empty-state step-review-spellcheck-empty">
+                        <p className="step-review-empty-copy">Доречних акцентів не знайдено.</p>
+                      </div>
+                    ) : !isReviewRequestInFlight ? (
+                      <div className="step-review-empty-state step-review-spellcheck-empty">
+                        <p className="step-review-empty-copy">Запустіть етап, щоб побачити inline-акценти в рукописі.</p>
+                      </div>
+                    ) : null}
+                  </section>
+                </div>
+              ) : null}
+
+              {activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" && activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "emphasis" ? (
                 <div className="step-review-section-stack">
                   <details className="step-review-config-details">
                     <summary className="step-review-config-summary">
@@ -3845,6 +4091,74 @@ function invalidateSpellcheckResultsForChangedBlocks(
   });
 }
 
+function deriveEmphasisSuggestions(
+  reviewItems: EditorialReviewItem[],
+  document: EditorDocument,
+  revision: ManuscriptRevisionState
+): EmphasisSuggestionViewModel[] {
+  const suggestions: EmphasisSuggestionViewModel[] = [];
+
+  for (const item of reviewItems) {
+    if (item.stepId !== "emphasis" || item.anchor.blockIds.length !== 1) {
+      continue;
+    }
+
+    const phrase = extractEmphasisPhrase(item.recommendation);
+
+    if (!phrase) {
+      continue;
+    }
+
+    const blockId = item.anchor.blockIds[0];
+    const block = document.blocks.find((entry) => entry.id === blockId);
+
+    if (!block || (block.type !== "paragraph" && block.type !== "heading")) {
+      continue;
+    }
+
+    const blockText = getInlineText(block.content);
+    const start = blockText.indexOf(phrase);
+
+    if (start < 0) {
+      continue;
+    }
+
+    const end = start + phrase.length;
+
+    if (isInlineRangeBold(block.content, start, end)) {
+      continue;
+    }
+
+    suggestions.push({
+      itemId: item.id,
+      blockId,
+      paragraphLabel: getReviewParagraphRangeLabel(item, revision).replace(/^Абз\.\s*/u, ""),
+      phrase,
+      reason: item.reason,
+      status: item.status,
+      range: { start, end }
+    });
+  }
+
+  return suggestions;
+}
+
+function extractEmphasisPhrase(recommendation: string): string | null {
+  const quoteMatch = recommendation.match(/["«“](.+?)["»”]/u);
+
+  if (quoteMatch?.[1]?.trim()) {
+    return quoteMatch[1].trim();
+  }
+
+  const markdownMatch = recommendation.match(/\*\*(.+?)\*\*/u);
+
+  if (markdownMatch?.[1]?.trim()) {
+    return markdownMatch[1].trim();
+  }
+
+  return null;
+}
+
 function replaceInlineRangeWithText(nodes: Array<{ text: string; bold?: true; italic?: true; link?: string }>, start: number, end: number, replacement: string) {
   const nextNodes: Array<{ text: string; bold?: true; italic?: true; link?: string }> = [];
   const replacementMarks = getInlineMarksAtOffset(nodes, start);
@@ -3883,6 +4197,60 @@ function replaceInlineRangeWithText(nodes: Array<{ text: string; bold?: true; it
   }
 
   return normalizeInlineNodes(nextNodes);
+}
+
+function applyBoldToInlineRange(nodes: InlineNode[], start: number, end: number): InlineNode[] {
+  const nextNodes: InlineNode[] = [];
+  let consumed = 0;
+
+  for (const node of nodes) {
+    const nodeStart = consumed;
+    const nodeEnd = nodeStart + node.text.length;
+    consumed = nodeEnd;
+
+    if (nodeEnd <= start || nodeStart >= end) {
+      nextNodes.push({ ...node });
+      continue;
+    }
+
+    const beforeText = node.text.slice(0, Math.max(0, start - nodeStart));
+    const activeText = node.text.slice(Math.max(0, start - nodeStart), Math.max(0, end - nodeStart));
+    const afterText = node.text.slice(Math.max(0, end - nodeStart));
+
+    if (beforeText) {
+      nextNodes.push({ ...node, text: beforeText });
+    }
+
+    if (activeText) {
+      nextNodes.push({ ...node, text: activeText, bold: true });
+    }
+
+    if (afterText) {
+      nextNodes.push({ ...node, text: afterText });
+    }
+  }
+
+  return normalizeInlineNodes(nextNodes);
+}
+
+function isInlineRangeBold(nodes: InlineNode[], start: number, end: number): boolean {
+  let consumed = 0;
+
+  for (const node of nodes) {
+    const nodeStart = consumed;
+    const nodeEnd = nodeStart + node.text.length;
+    consumed = nodeEnd;
+
+    if (nodeEnd <= start || nodeStart >= end) {
+      continue;
+    }
+
+    if (!node.bold) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function getInlineMarksAtOffset(
@@ -4031,6 +4399,15 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     };
   }
 
+  if (payload.stepId === "emphasis") {
+    const count = sectionItemCount ?? payload.items.length;
+
+    return {
+      tone: "info",
+      message: count > 0 ? `Підготовлено ${count} акцент${count === 1 ? "" : count < 5 ? "и" : "ів"} для inline-погодження.` : "ШІ не знайшов доречних акцентів."
+    };
+  }
+
   if (payload.items.length === 0) {
     return {
       tone: "info",
@@ -4058,6 +4435,7 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<EditorialRev
     interest: [],
     visuals: [],
     formatting: [],
+    emphasis: [],
     final_editing: []
   };
 
@@ -4350,6 +4728,10 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
       item.recommendationType === "callout" ||
       item.recommendationType === "subsection"
     );
+  }
+
+  if (stepId === "emphasis") {
+    return item.recommendationType === "rewrite" && item.stepId === "emphasis";
   }
 
   if (stepId === "final_editing") {

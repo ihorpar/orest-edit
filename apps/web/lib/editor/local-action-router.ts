@@ -7,10 +7,11 @@ import {
   type VisualStylePreset
 } from "./review-contract";
 
-export type LocalActionMode = "auto" | "spellcheck" | "callout" | "visual";
+export type LocalActionMode = "auto" | "edit" | "spellcheck" | "callout" | "visual";
 export type LocalActionTextIntent = "rewrite" | "shorten" | "list" | "table";
 export type LocalActionExecutor = "patch" | "review" | "spellcheck" | "callout" | "visual" | "clarify";
 export type LocalActionClarifyChoice = "patch" | "spellcheck" | "callout" | "visual";
+export type SuggestedLocalActionMode = Exclude<LocalActionMode, "auto" | "edit">;
 
 export interface LocalActionRouteRequest {
   prompt: string;
@@ -61,8 +62,8 @@ export type LocalActionRouteResponse =
 const TEXT_INTENT_LABELS: Record<LocalActionTextIntent, string> = {
   rewrite: "Переписати",
   shorten: "Скоротити",
-  list: "Зробити списком",
-  table: "Зробити таблицею"
+  list: "Список",
+  table: "Таблиця"
 };
 
 const CLARIFY_PATTERNS = /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i;
@@ -80,6 +81,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
   const calloutKind = input.calloutKind ?? "mechanism";
   const visualIntent = input.visualIntent ?? "infographic";
   const visualStylePreset = input.visualStylePreset;
+  const suggestedMode = inferSuggestedLocalActionMode(trimmedPrompt);
 
   if (explicitMode === "spellcheck") {
     return { executor: "spellcheck", actionLabel: "Перевірити правопис" };
@@ -104,11 +106,11 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     };
   }
 
-  if (trimmedPrompt && SPELLCHECK_PATTERNS.test(trimmedPrompt)) {
+  if (explicitMode !== "edit" && suggestedMode === "spellcheck") {
     return { executor: "spellcheck", actionLabel: "Перевірити правопис" };
   }
 
-  if (trimmedPrompt && CALLOUT_PATTERNS.test(trimmedPrompt)) {
+  if (explicitMode !== "edit" && suggestedMode === "callout") {
     return {
       executor: "callout",
       calloutKind,
@@ -117,7 +119,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     };
   }
 
-  if (trimmedPrompt && VISUAL_PATTERNS.test(trimmedPrompt)) {
+  if (explicitMode !== "edit" && suggestedMode === "visual") {
     return {
       executor: "visual",
       visualIntent,
@@ -163,6 +165,28 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     prompt: normalizedPrompt ?? undefined,
     actionLabel: TEXT_INTENT_LABELS[inferredTextIntent]
   };
+}
+
+export function inferSuggestedLocalActionMode(prompt: string): SuggestedLocalActionMode | null {
+  const trimmedPrompt = prompt.trim();
+
+  if (!trimmedPrompt) {
+    return null;
+  }
+
+  if (SPELLCHECK_PATTERNS.test(trimmedPrompt)) {
+    return "spellcheck";
+  }
+
+  if (CALLOUT_PATTERNS.test(trimmedPrompt)) {
+    return "callout";
+  }
+
+  if (VISUAL_PATTERNS.test(trimmedPrompt)) {
+    return "visual";
+  }
+
+  return null;
 }
 
 export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, prompt: string): string | null {

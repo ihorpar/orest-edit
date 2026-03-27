@@ -145,6 +145,7 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Правда/i);
   assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
   assert.match(String(requestBody?.input ?? ""), /markdown не використовуй, крім рідкісного \*\*жирного\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
   assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
@@ -208,6 +209,8 @@ test("generateReviewAction forwards editorial refine instruction into replace pr
   );
 
   assert.equal(response.proposal.kind, "text_diff");
+  assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
+  assert.match(String(requestBody?.instructions ?? ""), /починається з великої літери/i);
   assert.match(String(requestBody?.input ?? ""), /Додаткова вказівка редактора: Зберігай формат короткого списку і прибери канцеляризми\./i);
 });
 
@@ -276,6 +279,69 @@ test("generateReviewAction preserves sparse **bold** accents in replace proposal
     { text: "Стисла рамка з " },
     { text: "ключовим терміном", bold: true },
     { text: " для читача." }
+  ]);
+});
+
+test("generateReviewAction treats emphasis-step bolding as a valid change without no-op warning", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Шкіра часто першою показує, як організм справляється зі стресом." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-emphasis-1",
+        reviewSessionId: "review-session-1",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Виділити головну тезу",
+        reason: "Абзац має одну сильну думку, яку варто зробити швидше помітною.",
+        recommendation: "Виділити жирним ключову тезу про зв'язок шкіри і стресу.",
+        recommendationType: "rewrite",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Шкіра часто першою показує, як організм справляється зі стресом.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        stepId: "emphasis",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              replacements: ["**Шкіра часто першою показує**, як організм справляється зі стресом."],
+              reason: "Підсвітив головну тезу."
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "text_diff");
+  assert.equal(response.proposal.textDiff?.warning, undefined);
+  const firstBlock = response.proposal.textDiff?.newBlocks[0];
+  assert.equal(firstBlock?.type, "paragraph");
+  assert.deepEqual(compact(firstBlock?.type === "paragraph" ? firstBlock.content : []), [
+    { text: "Шкіра часто першою показує", bold: true },
+    { text: ", як організм справляється зі стресом." }
   ]);
 });
 

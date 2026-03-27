@@ -47,6 +47,9 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - [x] (2026-03-25 00:00Z) Fixed the destructive empty-list-item `Enter` path so exiting a list no longer wipes the entire block, and normalized provider fetch failures to a user-facing fallback message instead of raw `fetch failed`.
 - [x] (2026-03-26 00:00Z) Added a narrow AI-formatting policy: proposals may carry sparse `**bold**` emphasis, the diff/apply path preserves those markers, and accepted content lands as real inline `bold` in the manuscript.
 - [x] (2026-03-26 00:00Z) Added a focused full-screen visual workspace for prompt/result review, kept it bound to the same active visual proposal state as the inline card, and invalidated stale generated previews whenever the prompt text changes.
+- [x] (2026-03-26 00:00Z) Hardened the floating local composer for tablet/mixed-input use: it now clamps itself inside the visible viewport, keeps its body scrollable instead of clipping, and supports draggable repositioning with session-local position persistence.
+- [x] (2026-03-26 00:00Z) Changed local-composer mode precedence so explicit `Правка` tab selection beats keyword inference; feature keywords now surface as a non-blocking suggested top pill inside `Правка` instead of force-switching tabs.
+- [x] (2026-03-26 00:00Z) Implemented the `Акценти` pass as an inline manuscript layer: exact quoted phrases render as blue bold clickable overlays, accept applies real inline `bold`, reject dismisses the suggestion, and the right drawer lists emphasis items without opening a diff flow.
 
 ## Surprises & Discoveries
 
@@ -98,8 +101,14 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
   Evidence: handling `Enter` on an empty list item by replacing the whole block with a paragraph caused the entire list content to disappear when the editor created a trailing empty bullet and pressed `Enter` again.
 - Observation: the request for “AI bold accents” is mostly a transport problem, not a rendering primitive problem.
   Evidence: the editor model already supports inline `bold`, but review/prompt contracts, sanitizers, and diff editors were flattening generated text to plain strings before apply.
+- Observation: the customer’s “highlight key theses” request maps much closer to spellcheck interaction than to rewrite proposal execution.
+  Evidence: once the requirement was narrowed to “inline blue bold + click accept/reject + no diff”, the existing step-card/proposal flow became the wrong abstraction; the manuscript already had one proven inline-inspection pattern through spellcheck popovers.
 - Observation: the visual workflow already had most of the data plumbing; Epic 7 was primarily a state-sharing and surface-layout problem.
   Evidence: `ReviewRecommendationDetail.tsx` already exposed editable prompt/caption/style/intent plus generate/apply handlers, so the new focused workspace could reuse the same proposal callbacks instead of introducing a second visual draft model.
+- Observation: the reported iPad panel failure was not reproducible as a total render loss in headless tablet emulation; the more credible root cause was viewport-relative placement without runtime clamping.
+  Evidence: authenticated Playwright checks at `1032x1376` and `1024x600` rendered the composer, but the old implementation still relied on one fixed bottom-center transform with no drag affordance, no resize clamping, and no internal overflow fallback.
+- Observation: the original `Правка` tab was not actually an explicit user mode.
+  Evidence: `handleModeSelect("edit")` mapped back to `localActionMode === "auto"`, and `localSurfaceMode` then re-derived the visible tab from `localActionRoute.executor`, so keywords like `правопис` could immediately pull the UI back out of `Правка` after a manual click.
 
 ## Decision Log
 
@@ -169,11 +178,20 @@ After this change, a Ukrainian-speaking book editor can run whole-text review, c
 - Decision: generated editorial text may use only sparse `**bold**` markers as the single supported formatting transport across proposal parsing and diff editing.
   Rationale: this keeps the AI-formatting feature useful but narrow. The manuscript receives real inline bold after apply, while the proposal editor can still remain text-based without becoming a general markdown surface.
   Date/Author: 2026-03-26 / Codex implementation
+- Decision: the new `Акценти` step is implemented as an inline suggestion layer rather than a proposal/diff flow, and it must receive current manuscript bold in the review prompt.
+  Rationale: editors are approving or rejecting emphasis-only changes on top of unchanged prose. Showing those suggestions directly in the manuscript is faster and more legible than generating another green diff card, and prompt-visible existing bold prevents duplicate recommendations.
+  Date/Author: 2026-03-26 / Codex implementation
 - Decision: visual prompt editing now has two synchronized surfaces: the inline manuscript card for quick edits and a full-screen workspace for focused review of prompt plus generated result.
   Rationale: editors asked for a larger dedicated place to inspect “what got generated” and to tune infographic prompts before or after generation, but duplicating proposal state would create drift between surfaces.
   Date/Author: 2026-03-26 / Codex implementation
 - Decision: changing the visual prompt text clears the current generated asset until the image is regenerated.
   Rationale: a previously generated image should never be presented as if it still corresponds to an edited prompt.
+  Date/Author: 2026-03-26 / Codex implementation
+- Decision: the local floating composer is now viewport-bounded and user-draggable, with position persisted only for the current browser session.
+  Rationale: touch/tablet editing needs a recoverable panel that never clips off-screen or blocks the same manuscript region forever, but persisting cross-session panel placement would create stale positions across different devices and orientations.
+  Date/Author: 2026-03-26 / Codex implementation
+- Decision: explicit local-tab selection now outranks keyword inference, and feature-keyword detection inside `Правка` is rendered as a suggestion rather than a forced mode switch.
+  Rationale: mode tabs are explicit user intent. A tab click must be reversible and stable, while keyword inference should help discovery without making the interface argue with the editor.
   Date/Author: 2026-03-26 / Codex implementation
 
 ## Outcomes & Retrospective
@@ -195,6 +213,12 @@ The latest stability pass closed two sharp edges from manual QA. Empty trailing 
 The Epic 6 pass added a narrow formatting layer for AI-generated editorial text without reopening markdown as an editing mode. Replace proposals, local patch loose-text normalization, callout drafts, subsection leads, and the inline diff editor now preserve sparse `**...**` emphasis markers end-to-end. Unsupported markdown is still stripped. In practice, this means the proposal/edit transport remains text-based, but once the editor applies a change, the manuscript renders true inline bold on the emphasized phrase.
 
 The Epic 7 pass turned visual prompt editing into a two-surface workflow instead of a cramped inline-only card. Visual recommendations still prepare and apply through the manuscript execution lane, but they now also expose a full-screen workspace with a large prompt editor, focused preview area, caption/intent/style controls, and the same generate/insert actions before or after image generation. The key behavioral rule is that prompt edits invalidate the current generated asset immediately, so the UI never claims that an old preview still matches a changed prompt. Runtime QA on 2026-03-26 validated the manual local `Візуал` path end-to-end: creating a visual card from selected blocks, opening the focused workspace, editing prompt text there, syncing it back to the inline card, generating an image in the focused workspace, and clearing the preview again after subsequent prompt edits.
+
+The latest 2026-03-26 UX fix tightened the floating local composer itself. The panel no longer depends on one fragile bottom-center fixed transform: it measures against the active viewport, clamps itself inside visible bounds on resize/orientation changes, keeps overflow inside the panel body instead of cutting off controls, and can now be dragged to a different screen position from its top strip. Session-scoped position persistence means the panel stays where the editor dropped it during the current editing session without leaking that placement across devices. Runtime QA validated the behavior at iPad-like viewports (`1032x1376` and `1024x600`): the panel stayed fully on-screen, clamped to the viewport edges when dragged aggressively, and restored its last in-session position after reload.
+
+The follow-up local-composer UX fix made `Правка` a real explicit mode instead of a thin alias for “auto”. Feature keywords like `правопис` still get recognized, but in `Правка` they now highlight the matching top pill as a suggestion instead of inserting a separate inline prompt row or hijacking the active tab. Runtime QA confirmed the expected sequence: typing `правопис` kept the composer in `Правка`, highlighted `Правопис` as the suggested pill, switching tabs stayed fully manual, and tapping `Правка` again remained stable even with the same text still present.
+
+The latest 2026-03-26 emphasis pass added a second inline-inspection layer alongside spellcheck. `Акценти` now works as a document-wide emphasis review step that keeps prose unchanged, asks the model for one exact quoted phrase per paragraph at most, and renders those phrases directly in the manuscript as blue bold clickable overlays. Clicking an overlay opens a compact `Погодити / Відхилити` popover; accept applies real inline `bold` and writes compare history, while reject dismisses only that suggestion. The right drawer uses its own emphasis list rather than compact proposal cards, and prompt assembly now serializes existing manuscript bold with `**...**` so the model can avoid duplicating current emphasis. Runtime QA on 2026-03-26 validated the staged inline flow against `http://127.0.0.1:3005`: highlight rendering, popover open, accept, reject, and right-drawer item listing/focus all worked.
 
 ## Context and Orientation
 

@@ -70,11 +70,23 @@ import {
   Trash2,
   Undo2
 } from "lucide-react";
+import { getInlineFormatHotkeyCommand, getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 
 type BlockFormatAction = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "divider" | "callout" | "table";
 type CaretPlacement = "start" | "end";
 type PendingFocusTarget = { key: string; placement: CaretPlacement } | { key: string; offset: number };
 type ActiveSpellcheckPopover = { blockId: string; issueId: string; top: number; left: number };
+type ActiveEmphasisPopover = { blockId: string; itemId: string; top: number; left: number };
+type EmphasisSuggestion = {
+  itemId: string;
+  blockId: string;
+  phrase: string;
+  reason: string;
+  range: {
+    start: number;
+    end: number;
+  };
+};
 
 type RichTextContext = {
   element: HTMLDivElement;
@@ -122,6 +134,9 @@ export function BlockEditorSurface({
   spellcheckResults = [],
   onApplySpellcheckSuggestion,
   onDismissSpellcheckIssue,
+  emphasisSuggestions = [],
+  onApplyEmphasisSuggestion,
+  onDismissEmphasisSuggestion,
   canUndo = false,
   canRedo = false,
   canCompare = false,
@@ -170,6 +185,9 @@ export function BlockEditorSurface({
   spellcheckResults?: SpellcheckBlockResult[];
   onApplySpellcheckSuggestion?: (input: { blockId: string; issueId: string; suggestion: string }) => void;
   onDismissSpellcheckIssue?: (input: { blockId: string; issueId: string }) => void;
+  emphasisSuggestions?: EmphasisSuggestion[];
+  onApplyEmphasisSuggestion?: (input: { itemId: string }) => void;
+  onDismissEmphasisSuggestion?: (input: { itemId: string }) => void;
   canUndo?: boolean;
   canRedo?: boolean;
   canCompare?: boolean;
@@ -183,6 +201,7 @@ export function BlockEditorSurface({
   const savedSelectionOffsets = useRef(new Map<string, { start: number; end: number }>());
   const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
   const [activeSpellcheckPopover, setActiveSpellcheckPopover] = useState<ActiveSpellcheckPopover | null>(null);
+  const [activeEmphasisPopover, setActiveEmphasisPopover] = useState<ActiveEmphasisPopover | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const spellcheckIssueMap = useMemo(() => {
     const map = new Map<string, SpellcheckIssue>();
@@ -195,6 +214,7 @@ export function BlockEditorSurface({
 
     return map;
   }, [spellcheckResults]);
+  const emphasisSuggestionMap = useMemo(() => new Map(emphasisSuggestions.map((suggestion) => [suggestion.itemId, suggestion])), [emphasisSuggestions]);
 
   useEffect(() => {
     function handlePointerRelease() {
@@ -299,6 +319,58 @@ export function BlockEditorSurface({
     }
   }, [activeSpellcheckPopover, spellcheckIssueMap]);
 
+  useEffect(() => {
+    if (!activeEmphasisPopover) {
+      return;
+    }
+
+    function handleDismiss(event: MouseEvent) {
+      const target = event.target;
+
+      if (target instanceof HTMLElement && target.closest(".emphasis-popover")) {
+        return;
+      }
+
+      if (target instanceof HTMLElement && target.closest(".emphasis-suggestion")) {
+        return;
+      }
+
+      setActiveEmphasisPopover(null);
+    }
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActiveEmphasisPopover(null);
+      }
+    }
+
+    function handleViewportChange() {
+      setActiveEmphasisPopover(null);
+    }
+
+    window.addEventListener("mousedown", handleDismiss);
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      window.removeEventListener("mousedown", handleDismiss);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [activeEmphasisPopover]);
+
+  useEffect(() => {
+    if (!activeEmphasisPopover) {
+      return;
+    }
+
+    if (!emphasisSuggestionMap.has(activeEmphasisPopover.itemId)) {
+      setActiveEmphasisPopover(null);
+    }
+  }, [activeEmphasisPopover, emphasisSuggestionMap]);
+
   useLayoutEffect(() => {
     const pending = pendingFocusTarget.current;
 
@@ -355,9 +427,20 @@ export function BlockEditorSurface({
   }
 
   function handleSpellcheckIssueClick(blockId: string, issueId: string, rect: DOMRect) {
+    setActiveEmphasisPopover(null);
     setActiveSpellcheckPopover({
       blockId,
       issueId,
+      top: rect.bottom + 10,
+      left: Math.min(rect.left, window.innerWidth - 340)
+    });
+  }
+
+  function handleEmphasisSuggestionClick(blockId: string, itemId: string, rect: DOMRect) {
+    setActiveSpellcheckPopover(null);
+    setActiveEmphasisPopover({
+      blockId,
+      itemId,
       top: rect.bottom + 10,
       left: Math.min(rect.left, window.innerWidth - 340)
     });
@@ -695,12 +778,23 @@ export function BlockEditorSurface({
   const recentChangeSet = useMemo(() => new Set(recentlyChangedBlockIds ?? []), [recentlyChangedBlockIds]);
   const highlightedStartBlockId = laneState.highlightedStartBlockId;
   const highlightedEndBlockId = laneState.highlightedEndBlockId;
-  const shouldShowInlineDetail = laneState.shouldShowInlineDetail;
-  const isReplaceDiffActive = laneState.isReplaceDiffActive;
+  const shouldShowInlineDetail = laneState.shouldShowInlineDetail && highlightedItem?.stepId !== "emphasis";
+  const isReplaceDiffActive = laneState.isReplaceDiffActive && highlightedItem?.stepId !== "emphasis";
   const spellcheckIssuesByBlockId = useMemo(
     () => new Map(spellcheckResults.map((result) => [result.blockId, result.issues])),
     [spellcheckResults]
   );
+  const emphasisSuggestionsByBlockId = useMemo(() => {
+    const map = new Map<string, EmphasisSuggestion[]>();
+
+    for (const suggestion of emphasisSuggestions) {
+      const current = map.get(suggestion.blockId) ?? [];
+      current.push(suggestion);
+      map.set(suggestion.blockId, current);
+    }
+
+    return map;
+  }, [emphasisSuggestions]);
 
   return (
     <div className="block-editor-shell">
@@ -954,7 +1048,9 @@ export function BlockEditorSurface({
                 <BlockRenderer
                   block={block}
                   spellcheckIssues={spellcheckIssuesByBlockId.get(block.id) ?? []}
+                  emphasisSuggestions={emphasisSuggestionsByBlockId.get(block.id) ?? []}
                   onSpellcheckIssueClick={handleSpellcheckIssueClick}
+                  onEmphasisSuggestionClick={handleEmphasisSuggestionClick}
                   disabled={disabled}
                   registerEditable={registerEditable}
                   onEditFocus={handleEditableFocus}
@@ -1120,6 +1216,63 @@ export function BlockEditorSurface({
           );
         })()
       ) : null}
+
+      {activeEmphasisPopover ? (
+        (() => {
+          const suggestion = emphasisSuggestionMap.get(activeEmphasisPopover.itemId);
+
+          if (!suggestion) {
+            return null;
+          }
+
+          return (
+            <div
+              className="emphasis-popover"
+              style={{
+                top: `${Math.max(16, activeEmphasisPopover.top)}px`,
+                left: `${Math.max(16, activeEmphasisPopover.left)}px`
+              }}
+            >
+              <div className="emphasis-popover-head">
+                <div className="emphasis-popover-title-stack">
+                  <strong>{suggestion.phrase}</strong>
+                  <p className="emphasis-popover-copy">{suggestion.reason}</p>
+                </div>
+                <button
+                  type="button"
+                  className="spellcheck-popover-close"
+                  aria-label="Закрити підказки"
+                  onClick={() => setActiveEmphasisPopover(null)}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="emphasis-popover-actions">
+                <button
+                  type="button"
+                  className="emphasis-popover-action"
+                  onClick={() => {
+                    onApplyEmphasisSuggestion?.({ itemId: suggestion.itemId });
+                    setActiveEmphasisPopover(null);
+                  }}
+                >
+                  Погодити
+                </button>
+                <button
+                  type="button"
+                  className="emphasis-popover-action emphasis-popover-action-muted"
+                  onClick={() => {
+                    onDismissEmphasisSuggestion?.({ itemId: suggestion.itemId });
+                    setActiveEmphasisPopover(null);
+                  }}
+                >
+                  Відхилити
+                </button>
+              </div>
+            </div>
+          );
+        })()
+      ) : null}
     </div>
   );
 }
@@ -1127,7 +1280,9 @@ export function BlockEditorSurface({
 function BlockRenderer({
   block,
   spellcheckIssues,
+  emphasisSuggestions,
   onSpellcheckIssueClick,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1144,7 +1299,9 @@ function BlockRenderer({
 }: {
   block: Block;
   spellcheckIssues?: SpellcheckIssue[];
+  emphasisSuggestions?: EmphasisSuggestion[];
   onSpellcheckIssueClick?: (blockId: string, issueId: string, rect: DOMRect) => void;
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1164,7 +1321,9 @@ function BlockRenderer({
       <EditableTextBlock
         block={block}
         spellcheckIssues={spellcheckIssues}
+        emphasisSuggestions={emphasisSuggestions}
         onSpellcheckIssueClick={onSpellcheckIssueClick}
+        onEmphasisSuggestionClick={onEmphasisSuggestionClick}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -1180,6 +1339,8 @@ function BlockRenderer({
     return (
       <EditableListBlock
         block={block}
+        emphasisSuggestions={emphasisSuggestions}
+        onEmphasisSuggestionClick={onEmphasisSuggestionClick}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -1195,6 +1356,8 @@ function BlockRenderer({
     return (
       <EditableCalloutBlock
         block={block}
+        emphasisSuggestions={emphasisSuggestions}
+        onEmphasisSuggestionClick={onEmphasisSuggestionClick}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -1208,6 +1371,8 @@ function BlockRenderer({
     return (
       <EditableTableBlock
         block={block}
+        emphasisSuggestions={emphasisSuggestions}
+        onEmphasisSuggestionClick={onEmphasisSuggestionClick}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
@@ -1222,7 +1387,7 @@ function BlockRenderer({
   }
 
   if (block.type === "image") {
-    return <EditableImageBlock block={block} disabled={disabled} onEditFocus={onEditFocus} onBlockChange={onBlockChange} registerEditable={registerEditable} onSoftBreak={onSoftBreak} />;
+    return <EditableImageBlock block={block} emphasisSuggestions={emphasisSuggestions} onEmphasisSuggestionClick={onEmphasisSuggestionClick} disabled={disabled} onEditFocus={onEditFocus} onBlockChange={onBlockChange} registerEditable={registerEditable} onSoftBreak={onSoftBreak} />;
   }
 
   return <div className="block-divider" aria-hidden="true" />;
@@ -1231,7 +1396,9 @@ function BlockRenderer({
 function EditableTextBlock({
   block,
   spellcheckIssues,
+  emphasisSuggestions,
   onSpellcheckIssueClick,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1242,7 +1409,9 @@ function EditableTextBlock({
 }: {
   block: ParagraphBlock | HeadingBlock;
   spellcheckIssues?: SpellcheckIssue[];
+  emphasisSuggestions?: EmphasisSuggestion[];
   onSpellcheckIssueClick?: (blockId: string, issueId: string, rect: DOMRect) => void;
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1264,7 +1433,7 @@ function EditableTextBlock({
     <EditableRichText
       focusKey={makeEditableKey(block.id)}
       className={className}
-      html={inlineNodesToHtml(block.id, block.content, spellcheckIssues)}
+      html={inlineNodesToHtml(block.id, block.content, spellcheckIssues, emphasisSuggestions)}
       disabled={disabled}
       registerEditable={registerEditable}
       onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1273,12 +1442,15 @@ function EditableTextBlock({
       onBackspace={(context) => onBackspace(block, context)}
       onSoftBreak={onSoftBreak}
       onSpellcheckIssueClick={(issueId, rect) => onSpellcheckIssueClick?.(block.id, issueId, rect)}
+      onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
     />
   );
 }
 
 function EditableListBlock({
   block,
+  emphasisSuggestions,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1288,6 +1460,8 @@ function EditableListBlock({
   onSoftBreak
 }: {
   block: BulletListBlock | OrderedListBlock;
+  emphasisSuggestions?: EmphasisSuggestion[];
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1306,7 +1480,7 @@ function EditableListBlock({
             <EditableRichText
               focusKey={makeEditableKey(block.id, `item-${index}`)}
               className="block-list-item"
-              html={inlineNodesToHtml(block.id, item)}
+              html={inlineNodesToHtml(block.id, item, [], emphasisSuggestions)}
               disabled={disabled}
               registerEditable={registerEditable}
               onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1318,6 +1492,7 @@ function EditableListBlock({
               onEnter={(context) => onEnter(block, index, context)}
               onBackspace={(context) => onBackspace(block, index, context)}
               onSoftBreak={onSoftBreak}
+              onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
             />
           </li>
         ))}
@@ -1328,6 +1503,8 @@ function EditableListBlock({
 
 function EditableCalloutBlock({
   block,
+  emphasisSuggestions,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1335,6 +1512,8 @@ function EditableCalloutBlock({
   onSoftBreak
 }: {
   block: CalloutBlock;
+  emphasisSuggestions?: EmphasisSuggestion[];
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1376,19 +1555,20 @@ function EditableCalloutBlock({
       <EditableRichText
         focusKey={makeEditableKey(block.id, "callout-title")}
         className="block-callout-title"
-        html={inlineNodesToHtml(block.id, block.title)}
+        html={inlineNodesToHtml(block.id, block.title, [], emphasisSuggestions)}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
         onChange={(title) => onBlockChange({ ...block, title })}
         onSoftBreak={onSoftBreak}
+        onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
       />
       {block.body.map((paragraph, index) => (
         <EditableRichText
           key={`${block.id}-${index}`}
           focusKey={makeEditableKey(block.id, `callout-body-${index}`)}
           className="block-callout-body"
-          html={inlineNodesToHtml(block.id, paragraph)}
+          html={inlineNodesToHtml(block.id, paragraph, [], emphasisSuggestions)}
           disabled={disabled}
           registerEditable={registerEditable}
           onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1398,6 +1578,7 @@ function EditableCalloutBlock({
             onBlockChange({ ...block, body: nextBody });
           }}
           onSoftBreak={onSoftBreak}
+          onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
         />
       ))}
     </div>
@@ -1406,6 +1587,8 @@ function EditableCalloutBlock({
 
 function EditableTableBlock({
   block,
+  emphasisSuggestions,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1417,6 +1600,8 @@ function EditableTableBlock({
   onRemoveColumn
 }: {
   block: TableBlock;
+  emphasisSuggestions?: EmphasisSuggestion[];
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1438,7 +1623,7 @@ function EditableTableBlock({
                   <EditableRichText
                     focusKey={makeEditableKey(block.id, `cell-${rowIndex}-${cellIndex}`)}
                     className="block-table-cell"
-                    html={inlineNodesToHtml(block.id, cell)}
+                    html={inlineNodesToHtml(block.id, cell, [], emphasisSuggestions)}
                     disabled={disabled}
                     registerEditable={registerEditable}
                     onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
@@ -1448,6 +1633,7 @@ function EditableTableBlock({
                       onBlockChange({ ...block, rows: nextRows });
                     }}
                     onSoftBreak={onSoftBreak}
+                    onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
                   />
                 </td>
               ))}
@@ -1468,6 +1654,8 @@ function EditableTableBlock({
 
 function EditableImageBlock({
   block,
+  emphasisSuggestions,
+  onEmphasisSuggestionClick,
   disabled,
   registerEditable,
   onEditFocus,
@@ -1475,6 +1663,8 @@ function EditableImageBlock({
   onSoftBreak
 }: {
   block: ImageBlock;
+  emphasisSuggestions?: EmphasisSuggestion[];
+  onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
@@ -1496,12 +1686,13 @@ function EditableImageBlock({
       <EditableRichText
         focusKey={makeEditableKey(block.id, "image-caption")}
         className="block-image-caption"
-        html={inlineNodesToHtml(block.id, block.caption ?? [createInlineText("")])}
+        html={inlineNodesToHtml(block.id, block.caption ?? [createInlineText("")], [], emphasisSuggestions)}
         disabled={disabled}
         registerEditable={registerEditable}
         onEditFocus={(editableKey) => onEditFocus(block.id, editableKey)}
         onChange={(caption) => onBlockChange({ ...block, caption })}
         onSoftBreak={onSoftBreak}
+        onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
       />
     </div>
   );
@@ -1518,7 +1709,8 @@ function EditableRichText({
   onEnter,
   onBackspace,
   onSoftBreak,
-  onSpellcheckIssueClick
+  onSpellcheckIssueClick,
+  onEmphasisSuggestionClick
 }: {
   focusKey: string;
   className: string;
@@ -1531,6 +1723,7 @@ function EditableRichText({
   onBackspace?: (context: RichTextContext) => boolean;
   onSoftBreak?: (context: RichTextContext) => void;
   onSpellcheckIssueClick?: (issueId: string, rect: DOMRect) => void;
+  onEmphasisSuggestionClick?: (itemId: string, rect: DOMRect) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
   const baselineContent = useMemo(() => htmlToInlineNodes(html), [html]);
@@ -1545,9 +1738,13 @@ function EditableRichText({
     if (element.innerHTML !== html) {
       const isActive = window.document.activeElement === element;
       const matchesCurrentContent = areInlineNodesEqual(htmlToInlineNodes(element.innerHTML), baselineContent);
-      const hasSpellcheckMarkup = html.includes("spellcheck-underline") || element.innerHTML.includes("spellcheck-underline");
+      const hasInteractiveMarkup =
+        html.includes("spellcheck-underline") ||
+        element.innerHTML.includes("spellcheck-underline") ||
+        html.includes("emphasis-suggestion") ||
+        element.innerHTML.includes("emphasis-suggestion");
 
-      if (isActive && matchesCurrentContent && !hasSpellcheckMarkup) {
+      if (isActive && matchesCurrentContent && !hasInteractiveMarkup) {
         return;
       }
 
@@ -1577,6 +1774,22 @@ function EditableRichText({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const inlineFormatCommand = getInlineFormatHotkeyCommand(event);
+
+    if (inlineFormatCommand) {
+      event.preventDefault();
+      applyEditingCommand(event.currentTarget, inlineFormatCommand);
+      return;
+    }
+
+    const undoRedoAction = getUndoRedoHotkeyAction(event);
+
+    if (undoRedoAction) {
+      event.preventDefault();
+      applyEditingCommand(event.currentTarget, undoRedoAction);
+      return;
+    }
+
     const context = buildContext(event.currentTarget);
 
     if (!context) {
@@ -1610,6 +1823,20 @@ function EditableRichText({
     onChange(nextContent);
   }
 
+  function applyEditingCommand(element: HTMLDivElement, command: "bold" | "italic" | "undo" | "redo") {
+    const selectionOffsets = getSelectionOffsets(element);
+
+    element.focus({ preventScroll: true });
+    restoreSelectionOffsets(selectionOffsets, element);
+    window.document.execCommand(command);
+    restoreSelectionOffsets(selectionOffsets, element);
+    emitChangeIfNeeded(element.innerHTML);
+
+    if (command === "bold" || command === "italic") {
+      scheduleSelectionRestore(selectionOffsets, element);
+    }
+  }
+
   function handleClick(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target;
 
@@ -1619,19 +1846,34 @@ function EditableRichText({
 
     const underline = target.closest<HTMLElement>(".spellcheck-underline[data-spellcheck-issue-id]");
 
-    if (!underline) {
+    if (underline) {
+      const issueId = underline.dataset.spellcheckIssueId;
+
+      if (!issueId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onSpellcheckIssueClick?.(issueId, underline.getBoundingClientRect());
       return;
     }
 
-    const issueId = underline.dataset.spellcheckIssueId;
+    const emphasis = target.closest<HTMLElement>(".emphasis-suggestion[data-emphasis-item-id]");
 
-    if (!issueId) {
+    if (!emphasis) {
+      return;
+    }
+
+    const itemId = emphasis.dataset.emphasisItemId;
+
+    if (!itemId) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    onSpellcheckIssueClick?.(issueId, underline.getBoundingClientRect());
+    onEmphasisSuggestionClick?.(itemId, emphasis.getBoundingClientRect());
   }
 
   return (
@@ -1780,7 +2022,12 @@ function isInlineContentEmpty(nodes: InlineNode[]): boolean {
   return nodes.every((node) => node.text.replace(/\n/g, "").trim().length === 0);
 }
 
-function inlineNodesToHtml(blockId: string, nodes: InlineNode[], spellcheckIssues: SpellcheckIssue[] = []): string {
+function inlineNodesToHtml(
+  blockId: string,
+  nodes: InlineNode[],
+  spellcheckIssues: SpellcheckIssue[] = [],
+  emphasisSuggestions: EmphasisSuggestion[] = []
+): string {
   const boundaries = new Set<number>([0]);
   const textLength = nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0);
   boundaries.add(textLength);
@@ -1788,6 +2035,11 @@ function inlineNodesToHtml(blockId: string, nodes: InlineNode[], spellcheckIssue
   for (const issue of spellcheckIssues) {
     boundaries.add(Math.max(0, Math.min(textLength, issue.range.start)));
     boundaries.add(Math.max(0, Math.min(textLength, issue.range.end)));
+  }
+
+  for (const suggestion of emphasisSuggestions) {
+    boundaries.add(Math.max(0, Math.min(textLength, suggestion.range.start)));
+    boundaries.add(Math.max(0, Math.min(textLength, suggestion.range.end)));
   }
 
   const sortedBoundaries = Array.from(boundaries).sort((left, right) => left - right);
@@ -1815,9 +2067,16 @@ function inlineNodesToHtml(blockId: string, nodes: InlineNode[], spellcheckIssue
       }
 
       const activeIssue = spellcheckIssues.find((issue) => issue.range.start <= start && issue.range.end >= end && start < end);
+      const activeEmphasis = emphasisSuggestions.find(
+        (suggestion) => suggestion.range.start <= start && suggestion.range.end >= end && start < end
+      );
 
       if (activeIssue) {
         content = `<span class="spellcheck-underline" data-spellcheck-block-id="${escapeAttribute(blockId)}" data-spellcheck-issue-id="${escapeAttribute(activeIssue.id)}" data-spellcheck-category="${escapeAttribute(activeIssue.category)}" title="${escapeAttribute(activeIssue.message)}">${content}</span>`;
+      }
+
+      if (activeEmphasis) {
+        content = `<span class="emphasis-suggestion" data-emphasis-block-id="${escapeAttribute(blockId)}" data-emphasis-item-id="${escapeAttribute(activeEmphasis.itemId)}" title="${escapeAttribute(activeEmphasis.reason)}">${content}</span>`;
       }
 
       return content;

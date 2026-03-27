@@ -64,7 +64,7 @@ function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionR
 }
 
 function parseExplicitMode(value: unknown): Exclude<LocalActionMode, "auto"> | null {
-  return value === "spellcheck" || value === "callout" || value === "visual" ? value : null;
+  return value === "edit" || value === "spellcheck" || value === "callout" || value === "visual" ? value : null;
 }
 
 function parseTextIntent(value: unknown): LocalActionTextIntent | null {

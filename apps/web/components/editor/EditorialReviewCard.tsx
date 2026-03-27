@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import {
@@ -15,7 +15,12 @@ export function EditorialReviewCard({
   onPrepare,
   onApplyCallout,
   onDismiss,
-  isLoading
+  isLoading,
+  variant = "default",
+  title,
+  description,
+  rangeLabelOverride,
+  hideMeta = false
 }: {
   item: EditorialReviewItem;
   revision: ManuscriptRevisionState;
@@ -25,13 +30,24 @@ export function EditorialReviewCard({
   onApplyCallout: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
   isLoading?: boolean;
+  variant?: "default" | "emphasis";
+  title?: ReactNode;
+  description?: ReactNode;
+  rangeLabelOverride?: string;
+  hideMeta?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status);
-  const rangeLabel = getReviewParagraphRangeLabel(item, revision);
+  const shouldShowStatus = item.status !== "pending";
+  const rangeLabel = rangeLabelOverride ?? getReviewParagraphRangeLabel(item, revision);
   const recommendationText = item.recommendation.trim();
   const titleText = item.title.trim() || recommendationText;
-  const canExpand = recommendationText.length > 0 && recommendationText !== titleText;
+  const titleContent = title ?? titleText;
+  const descriptionContent = description ?? recommendationText;
+  const canExpand =
+    typeof description === "undefined"
+      ? recommendationText.length > 0 && recommendationText !== titleText
+      : Boolean(descriptionContent);
 
   return (
     <article
@@ -39,6 +55,7 @@ export function EditorialReviewCard({
       data-status={item.status}
       data-active={isActive ? "true" : "false"}
       data-expanded={isExpanded ? "true" : "false"}
+      data-variant={variant}
       role="button"
       tabIndex={0}
       aria-expanded={canExpand ? isExpanded : undefined}
@@ -53,8 +70,8 @@ export function EditorialReviewCard({
     >
       <div className="err-compact-head">
         <div className="err-compact-copy">
-          <h3 className="err-compact-title">{titleText}</h3>
-          {canExpand && isExpanded ? <p className="err-compact-description">{recommendationText}</p> : null}
+          <h3 className="err-compact-title">{titleContent}</h3>
+          {canExpand && isExpanded ? <div className="err-compact-description">{descriptionContent}</div> : null}
         </div>
         <div className="err-compact-controls">
           {canExpand ? (
@@ -92,19 +109,25 @@ export function EditorialReviewCard({
       </div>
       <div className="err-compact-footer">
         <div className="err-compact-range">{rangeLabel}</div>
-        <div className="err-compact-meta">
-          {isLoading ? (
-            <span className="loading-inline-dots"><span></span><span></span><span></span></span>
-          ) : (
-            <>
-              <span className="err-compact-type">{getEditorialRecommendationTypeLabel(item.recommendationType)}</span>
-              <span className="err-compact-separator">•</span>
-              <span className="err-compact-status" data-tone={statusTone}>
-                {statusLabel}
-              </span>
-            </>
-          )}
-        </div>
+        {!hideMeta ? (
+          <div className="err-compact-meta">
+            {isLoading ? (
+              <span className="loading-inline-dots"><span></span><span></span><span></span></span>
+            ) : (
+              <>
+                <span className="err-compact-type">{getEditorialRecommendationTypeLabel(item.recommendationType)}</span>
+                {shouldShowStatus ? (
+                  <>
+                    <span className="err-compact-separator">•</span>
+                    <span className="err-compact-status" data-tone={statusTone}>
+                      {statusLabel}
+                    </span>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
       </div>
     </article>
   );

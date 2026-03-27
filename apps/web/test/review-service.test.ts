@@ -53,6 +53,80 @@ test("generateEditorialReview fallback enforces step-specific recommendation typ
   assert.ok(response.diagnostics.droppedItemCount >= 1);
 });
 
+test("generateEditorialReview builds fallback emphasis cards only as rewrite items", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [{ text: "Шкіра часто першою сигналізує про внутрішній стрес, тому читачеві важливо швидко побачити цю головну тезу без переписування всього абзацу." }]
+      }
+    ]
+  };
+  const response = await generateEditorialReview(createRequest({
+    document,
+    revision: deriveManuscriptRevisionState(document),
+    stepId: "emphasis"
+  }), {
+    readEnvValue: () => null,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, true);
+  assert.equal(response.stepId, "emphasis");
+  assert.ok(response.items.length >= 1);
+  assert.ok(response.items.every((item) => item.recommendationType === "rewrite"));
+  assert.ok(response.items.every((item) => item.stepId === "emphasis"));
+  assert.ok(response.items.every((item) => /"[^"]+"/.test(item.recommendation)));
+});
+
+test("generateEditorialReview includes existing bold markers in emphasis prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [
+          { text: "Шкіра " },
+          { text: "часто першою показує", bold: true },
+          { text: ", як організм реагує на стрес." }
+        ]
+      }
+    ]
+  };
+  let requestBody = "";
+
+  await generateEditorialReview(
+    {
+      ...createRequest({
+        document,
+        revision: deriveManuscriptRevisionState(document),
+        stepId: "emphasis",
+        apiKey: "test-key"
+      })
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /\*\*часто першою показує\*\*/);
+});
+
 test("generateEditorialReview normalizes provider items to block anchors", async () => {
   const response = await generateEditorialReview(createRequest({ apiKey: "test-key", currentStatus: "cards" }), {
     fetchImpl: async () =>
@@ -626,5 +700,7 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.ok(requestBody);
   assert.match(String(requestBody?.instructions ?? ""), /не пропонуй шаблонних застережень про консультацію з лікарем/i);
   assert.match(String(requestBody?.instructions ?? ""), /для кроку «ясність» пропонуй лише мовні й локально-структурні правки/i);
+  assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
+  assert.match(String(requestBody?.instructions ?? ""), /починається з малої літери/i);
   assert.match(String(requestBody?.input ?? ""), /збережи короткі окремі пункти/i);
 });

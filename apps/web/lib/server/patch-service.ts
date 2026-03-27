@@ -8,6 +8,7 @@ import {
   type PatchRequest,
   type PatchResponse
 } from "../editor/patch-contract.ts";
+import { appendBulletListPunctuationRule } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
@@ -679,7 +680,7 @@ function createTextNode(text: string): InlineNode {
 
 function buildSystemPrompt(basePrompt?: string): string {
   return [
-    basePrompt?.trim(),
+    appendBulletListPunctuationRule(basePrompt),
     "Ти редагуєш український науково-популярний рукопис.",
     "Працюй тільки в межах виділених блоків.",
     "Поверни JSON з однією операцією replace_blocks.",
@@ -695,7 +696,7 @@ function buildSystemPrompt(basePrompt?: string): string {
 
 function buildGeminiSystemPrompt(basePrompt?: string): string {
   return [
-    basePrompt?.trim(),
+    appendBulletListPunctuationRule(basePrompt),
     "Ти редагуєш український науково-популярний рукопис.",
     "Працюй тільки в межах виділених блоків.",
     "Поверни JSON з однією операцією replace_blocks у масиві operations.",
