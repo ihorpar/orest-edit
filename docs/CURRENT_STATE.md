@@ -18,6 +18,7 @@ Status: Active handoff
 - Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the sticky-toolbar `Порівняти` action
 - Sticky manuscript toolbar now starts with undo/redo/compare on the far left; compare uses a split-view icon instead of a history glyph
 - The compare dialog now keeps a short fixed title, clamps the verbose change summary into supporting copy, shows compact metadata chips, and uses concise history-picker labels so side-by-side content stays primary
+- The compare dialog `Стало` panel now supports direct block-level editing for live text/callout/list snapshots; changes sync straight back into the current draft through normal manual-edit history
 - Local AI patch requests are block-based and send `targetBlockIds`, not character offsets
 - Local patch apply semantics are whole-block replacement
 - Whole-text review exists through `/api/edit/review`
@@ -218,6 +219,7 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
 - `node --import tsx --test test/review-action-service.test.ts test/review-contract.test.ts test/review-execution-lane.test.ts` passed on 2026-03-16 after removing post-generation explanation UI and slimming review-action prompt schemas
 - `npm run typecheck -w @orest/web` passed on 2026-03-17 after linking `fact_check` rows to anchored `rewrite/callout` review cards in the step drawer
+- `npm run typecheck -w @orest/web` passed on 2026-04-02 after making compare-dialog `Стало` blocks directly editable and synced with the manuscript draft
 - `npm run typecheck -w @orest/web` passed on 2026-03-17 after adding dedicated fact-check action prompt instructions for `rewrite`/`callout` proposal generation
 - `npm run typecheck -w @orest/web` passed on 2026-03-19 after clarifying inline refine CTA states (`Уточнити` / `Перегенерувати` / `Застосувати|Вставити`)
 - `node --import tsx --test apps/web/test/review-action-service.test.ts apps/web/test/review-execution-lane.test.ts apps/web/test/review-contract.test.ts` passed on 2026-03-19 after clarifying inline refine CTA states and preserving backend `editorialInstruction` wiring

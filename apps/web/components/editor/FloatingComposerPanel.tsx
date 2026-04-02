@@ -244,10 +244,37 @@ export function FloatingComposerPanel({
     visualViewport?.addEventListener("resize", syncFloatingBridgeToViewport);
     visualViewport?.addEventListener("scroll", syncFloatingBridgeToViewport);
 
+    const node = floatingBridgeShellRef.current;
+    let resizeFrame: number | null = null;
+    const scheduleSyncFloatingBridgeToViewport = () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        syncFloatingBridgeToViewport();
+      });
+    };
+    const resizeObserver = typeof ResizeObserver === "undefined" || !node
+      ? null
+      : new ResizeObserver(() => {
+        scheduleSyncFloatingBridgeToViewport();
+      });
+
+    if (resizeObserver && node) {
+      resizeObserver.observe(node);
+    }
+
     return () => {
       window.removeEventListener("resize", syncFloatingBridgeToViewport);
       visualViewport?.removeEventListener("resize", syncFloatingBridgeToViewport);
       visualViewport?.removeEventListener("scroll", syncFloatingBridgeToViewport);
+      resizeObserver?.disconnect();
+
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
     };
   }, [hasCustomFloatingBridgePosition, isReview]);
 

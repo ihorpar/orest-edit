@@ -1513,6 +1513,48 @@ textarea:focus {
   color: #0f172a;
 }
 
+.change-compare-block-stack {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.change-compare-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(216, 226, 238, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.change-compare-block-label {
+  color: #64748b;
+}
+
+.change-compare-block-copy {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.change-compare-editor {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px 14px;
+  font: 400 16px/1.65 var(--font-manuscript, serif);
+  color: #0f172a;
+}
+
+.change-compare-editor:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
 @media (max-width: 900px) {
   .change-compare-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -30,7 +30,7 @@ import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, type PersistedWorkflowStepId } from "../../lib/editor/draft-state";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
-import { parseBoldMarkdownToInlineNodes } from "../../lib/editor/inline-markup";
+import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
 import { getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 import {
   computeAnchorFingerprint,
@@ -432,8 +432,43 @@ export default function EditorPage() {
     () => (activeCompareEntryId ? compareHistory.find((entry) => entry.id === activeCompareEntryId) ?? null : null),
     [activeCompareEntryId, compareHistory]
   );
+  const activeCompareLiveBlocks = useMemo(() => {
+    if (!activeCompareEntry) {
+      return [];
+    }
+
+    const blockMap = new Map(document.blocks.map((block) => [block.id, block]));
+    return activeCompareEntry.blockIds.map((blockId) => blockMap.get(blockId) ?? null);
+  }, [activeCompareEntry, document]);
+  const canEditActiveCompare =
+    activeCompareEntry != null &&
+    activeCompareLiveBlocks.length === activeCompareEntry.blockIds.length &&
+    activeCompareLiveBlocks.every((block): block is Block => {
+      if (!block) {
+        return false;
+      }
+
+      return isCompareBlockTextEditable(block);
+    });
+  const activeCompareEditableBlocks = useMemo(
+    () =>
+      canEditActiveCompare
+        ? (activeCompareLiveBlocks.filter((block): block is Block => Boolean(block)) as Block[])
+        : (activeCompareEntry?.afterBlocks ?? []),
+    [activeCompareEntry?.afterBlocks, activeCompareLiveBlocks, canEditActiveCompare]
+  );
+  const [compareDraftTexts, setCompareDraftTexts] = useState<string[]>([]);
   const canUndo = mutationHistoryPast.length > 0;
   const canRedo = mutationHistoryFuture.length > 0;
+
+  useEffect(() => {
+    if (!activeCompareEntry) {
+      setCompareDraftTexts([]);
+      return;
+    }
+
+    setCompareDraftTexts(activeCompareEditableBlocks.map((block) => formatCompareBlockText(block)));
+  }, [activeCompareEntry?.id, canEditActiveCompare]);
 
   function registerMutation(
     nextDocument: EditorDocument,
@@ -1035,6 +1070,31 @@ export default function EditorPage() {
 
     const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
     anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function handleCompareDraftChange(index: number, value: string) {
+    if (!activeCompareEntry || !canEditActiveCompare) {
+      return;
+    }
+
+    const nextDraftTexts = activeCompareEditableBlocks.map((block, blockIndex) =>
+      blockIndex === index ? value : (compareDraftTexts[blockIndex] ?? formatCompareBlockText(block))
+    );
+    setCompareDraftTexts(nextDraftTexts);
+
+    const nextBlocks = activeCompareEditableBlocks.map((block, blockIndex) =>
+      withEditedCompareBlockText(block, nextDraftTexts[blockIndex] ?? formatCompareBlockText(block))
+    );
+    const nextDocument = replaceBlocksByIds(document, activeCompareEntry.blockIds, nextBlocks);
+
+    commitDocument(nextDocument, {
+      history: {
+        kind: "manual_edit",
+        label: "Ручне редагування з порівняння",
+        blockIds: activeCompareEntry.blockIds,
+        mergeKey: `compare-edit:${activeCompareEntry.blockIds.join("|")}`
+      }
+    });
   }
 
   function pushHistoryEntry(entry: RequestHistoryItem) {
@@ -3959,11 +4019,34 @@ export default function EditorPage() {
             <div className="change-compare-grid">
               <section className="change-compare-panel">
                 <p className="mono-ui change-compare-panel-title">Було</p>
-                <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.beforeBlocks)}</pre>
+                <div className="change-compare-text change-compare-block-stack">
+                  {activeCompareEntry.beforeBlocks.map((block, index) => (
+                    <article key={`${activeCompareEntry.id}:before:${block.id}:${index}`} className="change-compare-block">
+                      <p className="mono-ui change-compare-block-label">Абз. {index + 1}</p>
+                      <p className="change-compare-block-copy">{formatCompareBlockText(block) || " "}</p>
+                    </article>
+                  ))}
+                </div>
               </section>
               <section className="change-compare-panel">
                 <p className="mono-ui change-compare-panel-title">Стало</p>
-                <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.afterBlocks)}</pre>
+                {canEditActiveCompare ? (
+                  <div className="change-compare-text change-compare-block-stack">
+                    {activeCompareEditableBlocks.map((block, index) => (
+                      <label key={`${activeCompareEntry.id}:after:${block.id}:${index}`} className="change-compare-block">
+                        <span className="mono-ui change-compare-block-label">Абз. {index + 1}</span>
+                        <textarea
+                          className="change-compare-editor"
+                          value={compareDraftTexts[index] ?? formatCompareBlockText(block)}
+                          onChange={(event) => handleCompareDraftChange(index, event.target.value)}
+                          aria-label={`Абзац ${index + 1} після правки`}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.afterBlocks)}</pre>
+                )}
               </section>
             </div>
           </section>
@@ -3995,43 +4078,98 @@ function deriveChangedBlockIds(previousDocument: EditorDocument, nextDocument: E
 }
 
 function formatCompareBlocks(blocks: Block[]): string {
-  return blocks
-    .map((block) => {
-      if (block.type === "bullet_list") {
-        return block.items
-          .map((item) => `• ${item.map((node) => node.text).join("")}`)
-          .join("\n");
-      }
+  return blocks.map((block) => formatCompareBlockText(block)).join("\n\n");
+}
 
-      if (block.type === "ordered_list") {
-        return block.items
-          .map((item, index) => `${index + 1}. ${item.map((node) => node.text).join("")}`)
-          .join("\n");
-      }
+function formatCompareBlockText(block: Block): string {
+  if (block.type === "paragraph" || block.type === "heading") {
+    return serializeInlineNodesToBoldMarkdown(block.content);
+  }
 
-      if (block.type === "callout") {
-        return [block.title.map((node) => node.text).join(""), ...block.body.map((paragraph) => paragraph.map((node) => node.text).join(""))]
-          .filter(Boolean)
-          .join("\n\n");
-      }
+  if (block.type === "bullet_list") {
+    return block.items.map((item) => `• ${serializeInlineNodesToBoldMarkdown(item)}`).join("\n");
+  }
 
-      if (block.type === "image") {
-        return [block.alt, block.caption?.map((node) => node.text).join("")].filter(Boolean).join("\n");
-      }
+  if (block.type === "ordered_list") {
+    return block.items.map((item, index) => `${index + 1}. ${serializeInlineNodesToBoldMarkdown(item)}`).join("\n");
+  }
 
-      if (block.type === "table") {
-        return block.rows
-          .map((row) => row.map((cell) => cell.map((node) => node.text).join("")).join(" | "))
-          .join("\n");
-      }
+  if (block.type === "callout") {
+    return [serializeInlineNodesToBoldMarkdown(block.title), ...block.body.map((part) => serializeInlineNodesToBoldMarkdown(part))]
+      .filter(Boolean)
+      .join("\n\n");
+  }
 
-      if (block.type === "divider") {
-        return "────────";
-      }
+  if (block.type === "image") {
+    return [block.alt, serializeInlineNodesToBoldMarkdown(block.caption)].filter(Boolean).join("\n");
+  }
 
-      return getBlockText(block);
-    })
-    .join("\n\n");
+  if (block.type === "table") {
+    return block.rows.map((row) => row.map((cell) => serializeInlineNodesToBoldMarkdown(cell)).join(" | ")).join("\n");
+  }
+
+  if (block.type === "divider") {
+    return "────────";
+  }
+
+  return getBlockText(block);
+}
+
+function isCompareBlockTextEditable(block: Block): boolean {
+  return (
+    block.type === "paragraph" ||
+    block.type === "heading" ||
+    block.type === "bullet_list" ||
+    block.type === "ordered_list" ||
+    block.type === "callout"
+  );
+}
+
+function withEditedCompareBlockText(block: Block, editedText: string): Block {
+  const text = editedText.replace(/\r\n?/g, "\n");
+
+  if (block.type === "paragraph") {
+    return { ...block, content: parseBoldMarkdownToInlineNodes(text) };
+  }
+
+  if (block.type === "heading") {
+    return { ...block, content: parseBoldMarkdownToInlineNodes(text) };
+  }
+
+  if (block.type === "bullet_list") {
+    return {
+      ...block,
+      items: splitCompareListItems(text).map((item) => parseBoldMarkdownToInlineNodes(item))
+    };
+  }
+
+  if (block.type === "ordered_list") {
+    return {
+      ...block,
+      items: splitCompareListItems(text).map((item) => parseBoldMarkdownToInlineNodes(item))
+    };
+  }
+
+  if (block.type === "callout") {
+    const [title, ...body] = text.split(/\n\s*\n+/).map((part) => part.trim());
+
+    return {
+      ...block,
+      title: parseBoldMarkdownToInlineNodes(title ?? ""),
+      body: (body.length > 0 ? body : [""]).map((part) => parseBoldMarkdownToInlineNodes(part))
+    };
+  }
+
+  return block;
+}
+
+function splitCompareListItems(text: string): string[] {
+  const items = text
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+
+  return items.length > 0 ? items : [""];
 }
 
 function getCompareEntryKindLabel(kind: EditorMutationKind): string {
@@ -4125,7 +4263,7 @@ function deriveEmphasisSuggestions(
 
     const end = start + phrase.length;
 
-    if (isInlineRangeBold(block.content, start, end)) {
+    if (item.status !== "applied" && isInlineRangeBold(block.content, start, end)) {
       continue;
     }
 
