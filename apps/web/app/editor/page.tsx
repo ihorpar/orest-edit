@@ -458,6 +458,7 @@ export default function EditorPage() {
     [activeCompareEntry?.afterBlocks, activeCompareLiveBlocks, canEditActiveCompare]
   );
   const [compareDraftTexts, setCompareDraftTexts] = useState<string[]>([]);
+  const compareTextareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const canUndo = mutationHistoryPast.length > 0;
   const canRedo = mutationHistoryFuture.length > 0;
 
@@ -469,6 +470,16 @@ export default function EditorPage() {
 
     setCompareDraftTexts(activeCompareEditableBlocks.map((block) => formatCompareBlockText(block)));
   }, [activeCompareEntry?.id, canEditActiveCompare]);
+
+  useEffect(() => {
+    for (const block of activeCompareEditableBlocks) {
+      const textarea = compareTextareaRefs.current.get(block.id);
+
+      if (textarea) {
+        autosizeCompareTextarea(textarea);
+      }
+    }
+  }, [activeCompareEditableBlocks, compareDraftTexts]);
 
   function registerMutation(
     nextDocument: EditorDocument,
@@ -4038,7 +4049,16 @@ export default function EditorPage() {
                         <textarea
                           className="change-compare-editor"
                           value={compareDraftTexts[index] ?? formatCompareBlockText(block)}
+                          ref={(element) => {
+                            if (!element) {
+                              compareTextareaRefs.current.delete(block.id);
+                              return;
+                            }
+
+                            compareTextareaRefs.current.set(block.id, element);
+                          }}
                           onChange={(event) => handleCompareDraftChange(index, event.target.value)}
+                          onInput={(event) => autosizeCompareTextarea(event.currentTarget)}
                           aria-label={`Абзац ${index + 1} після правки`}
                         />
                       </label>
@@ -4170,6 +4190,11 @@ function splitCompareListItems(text: string): string[] {
     .filter(Boolean);
 
   return items.length > 0 ? items : [""];
+}
+
+function autosizeCompareTextarea(textarea: HTMLTextAreaElement) {
+  textarea.style.height = "0px";
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 56)}px`;
 }
 
 function getCompareEntryKindLabel(kind: EditorMutationKind): string {

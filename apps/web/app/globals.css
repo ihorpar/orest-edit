@@ -1526,6 +1526,7 @@ textarea:focus {
   border: 1px solid rgba(216, 226, 238, 0.9);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
+  align-content: start;
 }
 
 .change-compare-block-label {
@@ -1539,20 +1540,20 @@ textarea:focus {
 
 .change-compare-editor {
   width: 100%;
-  min-height: 160px;
-  resize: vertical;
-  border: 1px solid #d8e2ee;
-  border-radius: 12px;
-  background: #ffffff;
-  padding: 12px 14px;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   font: 400 16px/1.65 var(--font-manuscript, serif);
   color: #0f172a;
+  overflow: hidden;
 }
 
 .change-compare-editor:focus {
   outline: none;
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+  box-shadow: none;
 }
 
 @media (max-width: 900px) {
