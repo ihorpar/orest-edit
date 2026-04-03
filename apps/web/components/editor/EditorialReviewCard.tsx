@@ -59,6 +59,12 @@ export function EditorialReviewCard({
     }
   }, [isActive]);
 
+  useEffect(() => {
+    if (isHidden) {
+      setIsExpanded(false);
+    }
+  }, [isHidden]);
+
   return (
     <article
       className="editorial-review-card-compact"
@@ -67,12 +73,13 @@ export function EditorialReviewCard({
       data-expanded={isExpanded ? "true" : "false"}
       data-variant={variant}
       data-hidden={isHidden ? "true" : "false"}
-      role="button"
-      tabIndex={0}
-      aria-expanded={canExpand ? isExpanded : undefined}
+      role={isHidden ? undefined : "button"}
+      tabIndex={isHidden ? -1 : 0}
+      aria-expanded={!isHidden && canExpand ? isExpanded : undefined}
+      aria-hidden={isHidden || undefined}
       aria-label={`Рекомендація: ${rangeLabel}`}
-      onClick={() => onFocus(item)}
-      onKeyDown={(event) => {
+      onClick={isHidden ? undefined : () => onFocus(item)}
+      onKeyDown={isHidden ? undefined : (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onFocus(item);
@@ -92,6 +99,7 @@ export function EditorialReviewCard({
                 event.stopPropagation();
                 setIsExpanded((current) => !current);
               }}
+              disabled={isHidden}
               aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
               title={isExpanded ? "Згорнути деталі" : "Показати деталі"}
             >
@@ -141,6 +149,7 @@ export function EditorialReviewCard({
                         event.stopPropagation();
                         onPrepare(item);
                       }}
+                      disabled={isHidden}
                     >
                       {primaryActionLabel}
                     </button>
@@ -151,6 +160,7 @@ export function EditorialReviewCard({
                         event.stopPropagation();
                         onFocus(item);
                       }}
+                      disabled={isHidden}
                     >
                       Перейти до абзацу
                     </button>
@@ -161,6 +171,7 @@ export function EditorialReviewCard({
                         event.stopPropagation();
                         onDismiss(item);
                       }}
+                      disabled={isHidden}
                     >
                       Відхилити
                     </button>
@@ -173,6 +184,7 @@ export function EditorialReviewCard({
                       event.stopPropagation();
                       onFocus(item);
                     }}
+                    disabled={isHidden}
                   >
                     Перейти до абзацу
                   </button>

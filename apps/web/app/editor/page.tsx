@@ -3395,6 +3395,23 @@ export default function EditorPage() {
                 onClick={() => {
                   setReviewExpertise(null);
                   setFactCheckRows([]);
+                  setReviewItems((current) => current.filter((item) => item.stepId !== "fact_check"));
+                  setActiveReviewItemId((current) => {
+                    if (!current) {
+                      return current;
+                    }
+
+                    const activeItem = reviewItems.find((item) => item.id === current);
+                    return activeItem?.stepId === "fact_check" ? null : current;
+                  });
+                  setPreparingReviewItemId((current) => {
+                    if (!current) {
+                      return current;
+                    }
+
+                    const preparingItem = reviewItems.find((item) => item.id === current);
+                    return preparingItem?.stepId === "fact_check" ? null : current;
+                  });
                   setStepRunHistory((current) => ({
                     ...current,
                     diagnostics: [],
