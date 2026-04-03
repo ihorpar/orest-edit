@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import {
@@ -20,7 +20,8 @@ export function EditorialReviewCard({
   title,
   description,
   rangeLabelOverride,
-  hideMeta = false
+  hideMeta = false,
+  isHidden = false
 }: {
   item: EditorialReviewItem;
   revision: ManuscriptRevisionState;
@@ -35,6 +36,7 @@ export function EditorialReviewCard({
   description?: ReactNode;
   rangeLabelOverride?: string;
   hideMeta?: boolean;
+  isHidden?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status);
@@ -48,6 +50,14 @@ export function EditorialReviewCard({
     typeof description === "undefined"
       ? recommendationText.length > 0 && recommendationText !== titleText
       : Boolean(descriptionContent);
+  const isCompleted = item.status === "applied" || item.status === "dismissed";
+  const primaryActionLabel = item.status === "ready" ? "Відкрити деталі" : "Підготувати";
+
+  useEffect(() => {
+    if (isActive) {
+      setIsExpanded(true);
+    }
+  }, [isActive]);
 
   return (
     <article
@@ -56,6 +66,7 @@ export function EditorialReviewCard({
       data-active={isActive ? "true" : "false"}
       data-expanded={isExpanded ? "true" : "false"}
       data-variant={variant}
+      data-hidden={isHidden ? "true" : "false"}
       role="button"
       tabIndex={0}
       aria-expanded={canExpand ? isExpanded : undefined}
@@ -71,7 +82,6 @@ export function EditorialReviewCard({
       <div className="err-compact-head">
         <div className="err-compact-copy">
           <h3 className="err-compact-title">{titleContent}</h3>
-          {canExpand && isExpanded ? <div className="err-compact-description">{descriptionContent}</div> : null}
         </div>
         <div className="err-compact-controls">
           {canExpand ? (
@@ -92,19 +102,6 @@ export function EditorialReviewCard({
               )}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="editorial-review-card-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDismiss(item);
-            }}
-            aria-label="Відхилити рекомендацію"
-          >
-            <svg viewBox="0 0 12 12" aria-hidden="true" width="12" height="12">
-              <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" fill="none" strokeWidth="1.5" />
-            </svg>
-          </button>
         </div>
       </div>
       <div className="err-compact-footer">
@@ -129,6 +126,62 @@ export function EditorialReviewCard({
           </div>
         ) : null}
       </div>
+      {canExpand ? (
+        <div className="err-compact-body">
+          {isExpanded ? (
+            <>
+              <div className="err-compact-description">{descriptionContent}</div>
+              <div className="err-compact-actions">
+                {!isCompleted ? (
+                  <>
+                    <button
+                      type="button"
+                      className="err-compact-action-button err-compact-action-button-primary"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onPrepare(item);
+                      }}
+                    >
+                      {primaryActionLabel}
+                    </button>
+                    <button
+                      type="button"
+                      className="err-compact-action-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onFocus(item);
+                      }}
+                    >
+                      Перейти до абзацу
+                    </button>
+                    <button
+                      type="button"
+                      className="err-compact-text-action"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDismiss(item);
+                      }}
+                    >
+                      Відхилити
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="err-compact-action-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onFocus(item);
+                    }}
+                  >
+                    Перейти до абзацу
+                  </button>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
