@@ -605,7 +605,7 @@ test("generateReviewAction strips editorial wrappers from generated image prompt
   assert.match(prompt, /Ліворуч: капсула або корисні бактерії/i);
   assert.match(prompt, /Послідовність має зчитуватися зліва направо/i);
   assert.doesNotMatch(prompt, /Ось детально розроблений prompt|###|Інструкція для ілюстратора|Пояснення visualIntent|\*\*/i);
-  assert.equal(response.proposal.imageDraft?.caption, "Покажи послідовність впливу від кишківника до шкіри.");
+  assert.equal(response.proposal.imageDraft?.caption, "");
 });
 
 test("generateReviewAction parses structured callout draft output and strips markdown syntax", async () => {

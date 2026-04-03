@@ -107,6 +107,33 @@ export function cloneEditorDocument(document: EditorDocument): EditorDocument {
   };
 }
 
+export function sliceDocumentForBlockRange(
+  document: EditorDocument,
+  targetBlockIds: string[],
+  options?: { before?: number; after?: number }
+): EditorDocument {
+  if (targetBlockIds.length === 0) {
+    return cloneEditorDocument(document);
+  }
+
+  const startIndex = getBlockIndex(document, targetBlockIds[0]);
+  const endIndex = getBlockIndex(document, targetBlockIds[targetBlockIds.length - 1]);
+
+  if (startIndex < 0 || endIndex < 0) {
+    return cloneEditorDocument(document);
+  }
+
+  const before = Math.max(0, options?.before ?? 0);
+  const after = Math.max(0, options?.after ?? 0);
+  const from = Math.max(0, Math.min(startIndex, endIndex) - before);
+  const to = Math.min(document.blocks.length, Math.max(startIndex, endIndex) + after + 1);
+
+  return {
+    version: 2,
+    blocks: document.blocks.slice(from, to).map((block) => cloneBlock(block))
+  };
+}
+
 export function normalizeInlineNodes(nodes: InlineNode[]): InlineNode[] {
   const normalized: InlineNode[] = [];
 

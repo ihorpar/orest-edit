@@ -664,7 +664,7 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
       visualStylePreset,
       prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
       alt: request.item.title,
-      caption: request.item.recommendation,
+      caption: "",
       targetModel: "gemini-3.1-flash-image-preview"
     }
   };
@@ -761,7 +761,7 @@ async function createImagePromptProposal(
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const parsed = parseImageDraftOutput(result, {
     prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
-    caption: request.item.recommendation,
+    caption: "",
     alt: request.item.title
   });
 

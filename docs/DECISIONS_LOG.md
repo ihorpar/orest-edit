@@ -147,6 +147,11 @@ Decision: whenever the editor changes the active visual prompt text after genera
 
 Reason: keeping the old image visible after a prompt change falsely suggests that the preview still matches the current prompt. Clearing the asset is the simplest honest rule and matches editor expectations.
 
+### Visual captions are opt-in, not copied from recommendation prose
+Decision: visual recommendation text must not be copied into the image caption by default; caption remains empty unless the model explicitly returns a caption or the editor types one.
+
+Reason: recommendation prose is workflow guidance, not manuscript-ready figcaption copy, and auto-inserting it makes the manuscript look like the instruction itself was pasted into the document.
+
 ### Document-wide `Акценти` is an inline apply/reject layer, not a diff workflow
 Decision: the new `Акценти` step does not prepare green diffs or use `/review/proposal`. Instead, step review returns one exact quoted phrase per paragraph at most, the manuscript renders those phrases directly as blue bold clickable overlays, and the editor accepts or rejects each suggestion in place.
 

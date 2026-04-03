@@ -24,6 +24,7 @@ import {
   insertBlocksAfter,
   normalizeBlockSelection,
   normalizeInlineNodes,
+  sliceDocumentForBlockRange,
   replaceBlocksByIds
 } from "../../lib/editor/document-model";
 import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
@@ -308,6 +309,9 @@ export default function EditorPage() {
   const [activeProposal, setActiveProposal] = useState<ReviewActionProposal | null>(null);
   const [reviewComposer, setReviewComposer] = useState(defaultReviewComposer);
   const [composerMode, setComposerMode] = useState<ComposerMode>(null);
+  const [isComposerClosing, setIsComposerClosing] = useState(false);
+  const [selectionChangeNonce, setSelectionChangeNonce] = useState(0);
+  const [suppressedLocalComposerSelectionNonce, setSuppressedLocalComposerSelectionNonce] = useState<number | null>(null);
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
@@ -347,6 +351,8 @@ export default function EditorPage() {
   const recentChangeTimeoutRef = useRef<number | null>(null);
   const dismissUndoTimeoutRef = useRef<number | null>(null);
   const destructiveRecoveryTimeoutRef = useRef<number | null>(null);
+  const composerCloseTimeoutRef = useRef<number | null>(null);
+  const selectionChangeNonceRef = useRef(0);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -825,14 +831,74 @@ export default function EditorPage() {
     stepRunModeByStep
   ]);
 
-  useEffect(() => {
-    if (normalizedSelection.blockIds.length > 0) {
-      setComposerMode((current) => (current === "review" ? current : "local"));
+  function openComposer(nextMode: ComposerMode) {
+    if (composerCloseTimeoutRef.current) {
+      window.clearTimeout(composerCloseTimeoutRef.current);
+      composerCloseTimeoutRef.current = null;
+    }
+
+    setIsComposerClosing(false);
+    if (nextMode === "local") {
+      setSuppressedLocalComposerSelectionNonce(null);
+    }
+    setComposerMode(nextMode);
+  }
+
+  function closeComposer(options?: { immediate?: boolean; suppressAutoOpenForSelection?: number | null }) {
+    if (composerCloseTimeoutRef.current) {
+      window.clearTimeout(composerCloseTimeoutRef.current);
+      composerCloseTimeoutRef.current = null;
+    }
+
+    if (typeof options?.suppressAutoOpenForSelection !== "undefined") {
+      setSuppressedLocalComposerSelectionNonce(options.suppressAutoOpenForSelection);
+    }
+
+    if (options?.immediate || !composerMode) {
+      setIsComposerClosing(false);
+      setComposerMode(null);
       return;
     }
 
-    setComposerMode((current) => (current === "local" ? null : current));
-  }, [normalizedSelection.blockIds]);
+    setIsComposerClosing(true);
+    composerCloseTimeoutRef.current = window.setTimeout(() => {
+      composerCloseTimeoutRef.current = null;
+      setComposerMode(null);
+      setIsComposerClosing(false);
+    }, 170);
+  }
+
+  function closeComposerForCurrentSelection(options?: { immediate?: boolean }) {
+    closeComposer({
+      immediate: options?.immediate,
+      suppressAutoOpenForSelection: selectionChangeNonceRef.current
+    });
+  }
+
+  useEffect(() => {
+    setSelectionChangeNonce((current) => current + 1);
+  }, [selection]);
+
+  useEffect(() => {
+    selectionChangeNonceRef.current = selectionChangeNonce;
+  }, [selectionChangeNonce]);
+
+  useEffect(() => {
+    if (normalizedSelection.blockIds.length > 0) {
+      if (composerMode !== "review" && suppressedLocalComposerSelectionNonce !== selectionChangeNonce) {
+        openComposer("local");
+      }
+      return;
+    }
+
+    if (suppressedLocalComposerSelectionNonce !== null) {
+      setSuppressedLocalComposerSelectionNonce(null);
+    }
+
+    if (composerMode === "local") {
+      closeComposer();
+    }
+  }, [composerMode, normalizedSelection.blockIds, selectionChangeNonce, suppressedLocalComposerSelectionNonce]);
 
   useEffect(
     () => () => {
@@ -844,6 +910,9 @@ export default function EditorPage() {
       }
       if (destructiveRecoveryTimeoutRef.current) {
         window.clearTimeout(destructiveRecoveryTimeoutRef.current);
+      }
+      if (composerCloseTimeoutRef.current) {
+        window.clearTimeout(composerCloseTimeoutRef.current);
       }
     },
     []
@@ -1041,7 +1110,7 @@ export default function EditorPage() {
     setActiveReviewItemId(null);
     setActiveProposal(null);
     setReviewComposer(defaultReviewComposer);
-    setComposerMode(null);
+    closeComposer({ immediate: true });
     setCustomPrompt("");
     setManualCalloutKind(defaultManualCalloutKind);
     setManualVisualIntent(defaultManualVisualIntent);
@@ -1196,8 +1265,12 @@ export default function EditorPage() {
     setActiveReviewItemId(null);
 
     try {
+      const patchRequestDocument = sliceDocumentForBlockRange(document, targetBlockIds, {
+        before: 1,
+        after: 1
+      });
       const requestBody = {
-        document,
+        document: patchRequestDocument,
         targetBlockIds,
         mode,
         prompt: mode === "custom" ? (promptOverride ?? customPrompt).trim() : undefined,
@@ -1882,7 +1955,7 @@ export default function EditorPage() {
       );
 
       if (payload.stepId === "diagnostics" && !payload.error) {
-        setComposerMode(null); // Keep sidebar open if it's already open by other means
+        closeComposer(); // Keep sidebar open if it's already open by other means
       }
     } catch (error) {
       setFeedback({
@@ -3821,7 +3894,7 @@ export default function EditorPage() {
                     const didCreate = await requestResolvedLocalAction();
 
                     if (didCreate) {
-                      setComposerMode(null);
+                      closeComposerForCurrentSelection();
                     }
                   })();
                 }}
@@ -3854,7 +3927,7 @@ export default function EditorPage() {
                     const didCreate = await requestManualInsert("callout");
 
                     if (didCreate) {
-                      setComposerMode(null);
+                      closeComposerForCurrentSelection();
                     }
                   })();
                 }}
@@ -3863,7 +3936,7 @@ export default function EditorPage() {
                     const didCreate = await requestManualInsert("visual");
 
                     if (didCreate) {
-                      setComposerMode(null);
+                      closeComposerForCurrentSelection();
                     }
                   })();
                 }}
@@ -3872,12 +3945,13 @@ export default function EditorPage() {
                     const didCreate = await requestSpellcheck(resolveTargetBlockIds());
 
                     if (didCreate) {
-                      setComposerMode(null);
+                      closeComposerForCurrentSelection();
                     }
                   })();
                 }}
                 manualLoadingKind={manualGenerationInFlight?.kind ?? null}
-                onClose={() => setComposerMode(null)}
+                isClosing={isComposerClosing}
+                onClose={() => closeComposerForCurrentSelection()}
               />
             ) : null}
           </main>

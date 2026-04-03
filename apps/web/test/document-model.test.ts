@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeTextBlockIntoPrevious, type EditorDocument } from "../lib/editor/document-model.ts";
+import { mergeTextBlockIntoPrevious, sliceDocumentForBlockRange, type EditorDocument } from "../lib/editor/document-model.ts";
 
 test("mergeTextBlockIntoPrevious merges paragraph text into the previous text block and returns the join offset", () => {
   const document: EditorDocument = {
@@ -85,4 +85,28 @@ test("mergeTextBlockIntoPrevious returns null for the first block or when the pr
   };
 
   assert.equal(mergeTextBlockIntoPrevious(nonTextPreviousDocument, "p-2"), null);
+});
+
+test("sliceDocumentForBlockRange keeps selected blocks with one-block neighbor context", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p-1", type: "paragraph", content: [{ text: "one" }] },
+      { id: "p-2", type: "paragraph", content: [{ text: "two" }] },
+      { id: "p-3", type: "paragraph", content: [{ text: "three" }] },
+      { id: "p-4", type: "paragraph", content: [{ text: "four" }] },
+      { id: "p-5", type: "paragraph", content: [{ text: "five" }] }
+    ]
+  };
+
+  const sliced = sliceDocumentForBlockRange(document, ["p-2", "p-3", "p-4"], {
+    before: 1,
+    after: 1
+  });
+
+  assert.deepEqual(
+    sliced.blocks.map((block) => block.id),
+    ["p-1", "p-2", "p-3", "p-4", "p-5"]
+  );
+  assert.notEqual(sliced.blocks[1], document.blocks[1]);
 });

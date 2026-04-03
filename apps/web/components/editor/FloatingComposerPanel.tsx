@@ -92,6 +92,7 @@ export function FloatingComposerPanel({
   onRequestManualVisual,
   onRequestSpellcheck,
   manualLoadingKind,
+  isClosing = false,
   onClose
 }: {
   mode: "local" | "review";
@@ -129,6 +130,7 @@ export function FloatingComposerPanel({
   onRequestManualVisual: () => void;
   onRequestSpellcheck: () => void;
   manualLoadingKind?: "callout" | "visual" | "list" | null;
+  isClosing?: boolean;
   onClose: () => void;
 }) {
   const isReview = mode === "review";
@@ -430,6 +432,7 @@ export function FloatingComposerPanel({
       <section
         ref={floatingBridgeShellRef}
         className="floating-bridge-shell"
+        data-state={isClosing ? "closing" : "open"}
         data-positioned={floatingBridgePosition ? "true" : "false"}
         aria-label="Локальна правка"
         style={floatingBridgeStyle}
@@ -539,7 +542,9 @@ export function FloatingComposerPanel({
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  {renderSendIcon(editSendLoading)}
+                  <span className="floating-bridge-send-content">
+                    {renderSendIcon(editSendLoading)}
+                  </span>
                 </button>
               </div>
             </section>
@@ -564,7 +569,9 @@ export function FloatingComposerPanel({
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  {renderSendIcon(proofSendLoading)}
+                  <span className="floating-bridge-send-content">
+                    {renderSendIcon(proofSendLoading)}
+                  </span>
                 </button>
               </div>
             </section>
@@ -614,7 +621,9 @@ export function FloatingComposerPanel({
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  {renderSendIcon(calloutSendLoading)}
+                  <span className="floating-bridge-send-content">
+                    {renderSendIcon(calloutSendLoading)}
+                  </span>
                 </button>
               </div>
             </section>
@@ -678,7 +687,9 @@ export function FloatingComposerPanel({
                   aria-label={sendLabel}
                   title={sendLabel}
                 >
-                  {renderSendIcon(visualSendLoading)}
+                  <span className="floating-bridge-send-content">
+                    {renderSendIcon(visualSendLoading)}
+                  </span>
                 </button>
               </div>
             </section>
@@ -689,7 +700,13 @@ export function FloatingComposerPanel({
   }
 
   return (
-    <section className="floating-panel" data-mode={mode} data-collapsed="false" aria-label={isReview ? "Огляд документа" : "Локальна правка"}>
+    <section
+      className="floating-panel"
+      data-mode={mode}
+      data-state={isClosing ? "closing" : "open"}
+      data-collapsed="false"
+      aria-label={isReview ? "Огляд документа" : "Локальна правка"}
+    >
       <header className="floating-panel-header">
         <div className="floating-panel-title-stack">
           <p className="mono-ui">{isReview ? "Огляд документа" : "Локальні дії"}</p>
