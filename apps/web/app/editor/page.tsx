@@ -265,6 +265,19 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
   { id: "final_editing", label: "Фінальна редактура", icon: SpellCheck }
 ];
 
+const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
+  diagnostics: "Редакторський огляд логіки, щільності й ризикових місць.",
+  fact_check: "Перевірка тверджень за доказовою наукою й джерелами.",
+  structure: "Архітектура розділу, послідовність думки й дроблення матеріалу.",
+  clarity: "Спрощення складних формулювань без втрати точності.",
+  interest: "Практична цінність, життєві приклади й читабельність.",
+  visuals: "Місця для ілюстрацій, схем та інфографіки.",
+  formatting: "Списки, врізки й таблиці для швидкого сканування.",
+  spellcheck: "Орфографія, пунктуація, граматика й типографічна чистота.",
+  emphasis: "Смислові акценти для швидкого сканування ключових тез.",
+  final_editing: "Остаточне шліфування мови, стилю й послідовності."
+};
+
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
   return stepId !== "spellcheck";
 }
@@ -2997,6 +3010,7 @@ export default function EditorPage() {
   const canRequestReview = document.blocks.length > 0;
   const activeStepMeta = WORKFLOW_STEPS.find((step) => step.id === activeWorkflowStep) ?? WORKFLOW_STEPS[0];
   const ActiveStepIcon = activeStepMeta.icon;
+  const activeStepSummary = WORKFLOW_STEP_SUMMARIES[activeWorkflowStep];
   const activeEditorialStepId = isEditorialReviewStepId(activeWorkflowStep) ? activeWorkflowStep : null;
   const activeStepIndex = Math.max(
     1,
@@ -3101,6 +3115,8 @@ export default function EditorPage() {
       ? true
       : Boolean(reviewExpertise);
   const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
+  const activeStepRunButtonLabel = activeStepHasExistingResult ? "Перезапуск" : "Запустити";
+  const activeStepRunButtonLoadingLabel = activeStepHasExistingResult ? "Перезапускаємо…" : "Запускаємо…";
   const activeStepWorkspaceStatus =
     activeWorkflowStep === "diagnostics"
       ? getStepWorkspaceStatus("diagnostics", {
@@ -3872,7 +3888,6 @@ export default function EditorPage() {
               <div className="step-review-prototype-shell">
                 <header className="step-review-prototype-head">
                   <div className="step-review-prototype-head-copy">
-                    <div className="mono-ui step-review-prototype-kicker">Редакторська панель</div>
                     <h1 className="step-review-prototype-title">{activeStepMeta.label}</h1>
                   </div>
                   <div className="step-review-prototype-head-actions">
@@ -3882,11 +3897,13 @@ export default function EditorPage() {
                       className="step-review-prototype-run-button"
                       onClick={handleRunActiveStep}
                       loading={isReviewRequestInFlight}
-                      loadingLabel={activeStepPrimaryAction.loadingLabel}
+                      loadingLabel={activeStepRunButtonLoadingLabel}
                       disabled={!activeStepCanRun}
-                      aria-label={activeStepPrimaryAction.ariaLabel}
+                      aria-label={activeStepHasExistingResult ? "Перезапустити етап" : "Запустити етап"}
                     >
-                      Оновити
+                      <span className="button-content">
+                        <span>{activeStepRunButtonLabel}</span>
+                      </span>
                     </Button>
                   </div>
                 </header>
@@ -3896,7 +3913,7 @@ export default function EditorPage() {
                     <div className="step-review-prototype-stage-row">
                       <div className="step-review-prototype-stage-label">
                         <LayoutGrid className="step-review-prototype-stage-icon" aria-hidden="true" />
-                        <p className="step-review-prototype-stage-name">Етап {activeStepIndex} / {WORKFLOW_STEPS.length}</p>
+                        <p className="step-review-prototype-stage-name">{activeStepSummary}</p>
                       </div>
                       <button
                         type="button"
@@ -3939,8 +3956,8 @@ export default function EditorPage() {
                   <ActiveStepIcon className="step-review-workspace-title-icon" aria-hidden="true" />
                   <span>{activeStepMeta.label}</span>
                 </h3>
-                <p className="step-review-workspace-counter mono-ui">
-                  Етап {activeStepIndex} / {WORKFLOW_STEPS.length}
+                <p className="step-review-workspace-stage-copy">
+                  {activeStepSummary}
                 </p>
                 <div className="step-review-workspace-status-row">
                   <span className="step-review-workspace-status-pill" data-tone={activeStepWorkspaceStatus.tone}>

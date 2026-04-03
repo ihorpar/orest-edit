@@ -9164,6 +9164,9 @@ textarea:focus {
 .step-review-prototype-run-button {
   min-height: 38px;
   border: 0 !important;
+  position: relative !important;
+  overflow: hidden;
+  isolation: isolate;
   background: #111827 !important;
   color: #fff !important;
   padding: 0 14px !important;
@@ -9173,11 +9176,32 @@ textarea:focus {
   box-shadow: none !important;
 }
 
+.step-review-prototype-run-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 52%, #2563eb 100%);
+  transform: translateX(-101%);
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+  will-change: transform;
+  z-index: 0;
+}
+
 .step-review-prototype-run-button:hover:not(:disabled),
 .step-review-prototype-run-button:focus-visible {
-  opacity: 0.82;
   background: #111827 !important;
-  color: #fff !important;
+}
+
+.step-review-prototype-run-button:hover:not(:disabled)::before,
+.step-review-prototype-run-button:focus-visible:not(:disabled)::before {
+  transform: translateX(0);
+}
+
+.step-review-prototype-run-button > .button-content,
+.step-review-prototype-run-button > span {
+  position: relative;
+  z-index: 1;
 }
 
 .step-review-prototype-body {
@@ -9220,9 +9244,17 @@ textarea:focus {
 .step-review-prototype-stage-name {
   margin: 0;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 300;
   letter-spacing: -0.02em;
   color: #17202a;
+}
+
+.step-review-workspace-stage-copy {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 48ch;
 }
 
 .step-review-prototype-settings-button {
