@@ -1,0 +1,685 @@
+<html lang="uk"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Right Panel Prototype1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;family=Source+Serif+4:wght@400;500&amp;display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #ffffff;
+      --panel: #f5f6f7;
+      --panel-2: #eff1f3;
+      --line: #d8dde3;
+      --line-2: #e6e9ed;
+      --text: #17202a;
+      --muted: #6b7280;
+      --muted-2: #8b95a3;
+      --accent: #111827;
+      --good: #2f6c4f;
+      --good-bg: #e8f1eb;
+      --shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background:
+        radial-gradient(circle at top, rgba(214, 220, 227, 0.7), transparent 28%),
+        linear-gradient(180deg, #fbfcfd 0%, #f4f7fa 100%);
+      color: var(--text);
+      font-family: "Geist", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      padding: 40px 28px;
+    }
+
+    .mono {
+      font-family: "Geist Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .prototype-shell {
+      width: min(460px, 100%);
+      margin-left: auto;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(216, 221, 227, 0.9);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      min-height: calc(100vh - 80px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid var(--line-2);
+    }
+
+    .panel-head-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 31px;
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+      font-weight: 700;
+    }
+
+    .panel-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+
+    .quiet-button {
+      min-height: 38px;
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      padding: 0 14px;
+      font: 500 13px/1 "Geist", sans-serif;
+      cursor: pointer;
+    }
+
+    .panel-body {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+    }
+
+    .stage-strip {
+      display: grid;
+      gap: 8px;
+      padding: 18px 24px 14px;
+      border-bottom: 1px solid var(--line-2);
+    }
+
+    .stage-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .stage-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .stage-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--muted);
+      flex: 0 0 auto;
+    }
+
+    .stage-name {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .stage-index {
+      color: var(--muted);
+    }
+
+    .stage-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-size: 13px;
+      color: #44505f;
+    }
+
+    .stage-state-mark {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--good);
+      flex: 0 0 auto;
+    }
+
+    .settings-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      padding: 14px 24px;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+      border-bottom: 1px solid var(--line-2);
+    }
+
+    .settings-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
+    }
+
+    .settings-toggle-title {
+      color: #364152;
+      font: 500 14px/1.2 "Geist", sans-serif;
+    }
+
+    .settings-toggle-meta {
+      color: var(--muted-2);
+      white-space: nowrap;
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 24px;
+      background: var(--good-bg);
+      color: #294b39;
+      border-bottom: 1px solid rgba(47, 108, 79, 0.12);
+    }
+
+    .status-strip p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .status-number {
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 700;
+      white-space: nowrap;
+      letter-spacing: -0.05em;
+    }
+
+    .utility-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--line-2);
+    }
+
+    .utility-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .utility-toggle {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      color: var(--muted);
+      font: 500 12px/1 "Geist", sans-serif;
+      cursor: pointer;
+    }
+
+    .settings-toggle:hover,
+    .utility-toggle:hover,
+    .quiet-button:hover,
+    .suggestion-toggle:hover {
+      opacity: 0.82;
+    }
+
+    .settings-panel {
+      display: none;
+      padding: 0 24px 18px;
+      border-bottom: 1px solid var(--line-2);
+      color: #364152;
+    }
+
+    .settings-panel[data-open="true"] {
+      display: grid;
+      gap: 14px;
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .settings-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .settings-field label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .settings-field select,
+    .settings-field textarea {
+      width: 100%;
+      border: 0;
+      background: var(--panel);
+      color: var(--text);
+      padding: 12px 14px;
+      font: 400 14px/1.45 "Geist", sans-serif;
+      resize: vertical;
+    }
+
+    .suggestions-list {
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .suggestion {
+      border-bottom: 1px solid var(--line-2);
+      background: transparent;
+      transition: background-color 160ms ease;
+    }
+
+    .suggestion[data-state="applied"] {
+      opacity: 0.55;
+    }
+
+    .suggestion[data-open="true"] {
+      background: rgba(239, 241, 243, 0.58);
+    }
+
+    .suggestion-toggle {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 18px 24px 16px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      cursor: pointer;
+    }
+
+    .suggestion-copy {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .suggestion-title {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.38;
+      letter-spacing: -0.02em;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .suggestion-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .suggestion-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--muted);
+      flex: 0 0 auto;
+      margin-top: 2px;
+      transition: transform 180ms ease;
+    }
+
+    .suggestion[data-open="true"] .suggestion-chevron {
+      transform: rotate(180deg);
+    }
+
+    .suggestion-body {
+      display: none;
+      padding: 0 24px 20px;
+    }
+
+    .suggestion[data-open="true"] .suggestion-body {
+      display: grid;
+      gap: 14px;
+    }
+
+    .suggestion[data-open="true"] .suggestion-title {
+      color: #0f1720;
+    }
+
+    .suggestion-reason {
+      margin: 0;
+      color: #3d4754;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .suggestion-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .ghost-button,
+    .text-button {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      font: 500 13px/1 "Geist", sans-serif;
+    }
+
+    .ghost-button {
+      min-height: 34px;
+      padding: 0 12px;
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .text-button {
+      color: var(--muted);
+    }
+
+    .ghost-button.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .prototype-note {
+      padding: 18px 24px;
+      border-top: 1px solid var(--line-2);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      background: rgba(245, 246, 247, 0.7);
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 12px;
+      }
+
+      .prototype-shell {
+        width: 100%;
+        min-height: calc(100vh - 24px);
+      }
+
+      .panel-head,
+      .stage-strip,
+      .settings-toggle,
+      .status-strip,
+      .utility-bar,
+      .suggestion-toggle,
+      .suggestion-body,
+      .prototype-note {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .panel-title {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="prototype-shell" aria-label="Прототип правої панелі етапу">
+    <header class="panel-head">
+      <div class="panel-head-copy">
+        <div class="mono" style="color: var(--muted-2);">Редакторська панель</div>
+        <h1 class="panel-title">Структура</h1>
+      </div>
+      <div class="panel-head-actions">
+        <button class="quiet-button">Оновити</button>
+      </div>
+    </header>
+
+    <div class="panel-body">
+      <section class="stage-strip">
+        <div class="stage-row">
+          <div class="stage-label">
+            <svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="4" y="4" width="6" height="6"></rect>
+              <rect x="14" y="4" width="6" height="6"></rect>
+              <rect x="4" y="14" width="6" height="6"></rect>
+              <rect x="14" y="14" width="6" height="6"></rect>
+            </svg>
+            <p class="stage-name">Етап 3 / 10</p>
+          </div>
+          <div class="mono stage-index">Структурне редагування</div>
+        </div>
+        <div class="stage-state">
+          <span class="stage-state-mark" aria-hidden="true"></span>
+          <span>Рекомендації готові до перегляду.</span>
+        </div>
+      </section>
+
+      <button type="button" class="settings-toggle" id="settingsToggle" aria-expanded="false" aria-controls="settingsPanel">
+        <span class="settings-toggle-row">
+          <span class="settings-toggle-title">Налаштування етапу</span>
+          <span class="mono settings-toggle-meta">Розгорнути</span>
+        </span>
+      </button>
+
+      <section class="settings-panel" id="settingsPanel" data-open="false">
+        <div class="settings-grid">
+          <div class="settings-field">
+            <label for="mode">Режим оновлення</label>
+            <select id="mode">
+              <option>Замінити попередній запуск</option>
+              <option>Зберегти окремим запуском</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label for="notes">Фокус для наступного запуску</label>
+            <textarea id="notes" rows="3" placeholder="Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="status-strip" aria-live="polite">
+        <p>Підготовлено рекомендації для поточного етапу</p>
+        <span class="status-number">8</span>
+      </section>
+
+      <div class="utility-bar">
+        <div class="utility-meta">
+          <span>6 активних</span>
+          <span>1 погоджено</span>
+          <span>1 відхилено</span>
+        </div>
+        <button type="button" class="utility-toggle" id="completedToggle">Показати завершені</button>
+      </div>
+
+      <section class="suggestions-list" id="suggestionsList" aria-label="Список рекомендацій">
+        <article class="suggestion" data-open="true" data-state="active">
+          <button type="button" class="suggestion-toggle" aria-expanded="true">
+            <div class="suggestion-copy">
+              <h2 class="suggestion-title">Стислий вступ до діагностичного переліку</h2>
+              <div class="suggestion-meta">
+                <span>Абз. 016</span>
+                <span>підрозділ</span>
+              </div>
+            </div>
+            <svg class="suggestion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="suggestion-body">
+            <p class="suggestion-reason">Додати короткий підзаголовок перед переліком, щоб читач зрозумів логіку переходу і не входив у список без контексту.</p>
+            <div class="suggestion-actions">
+              <button class="ghost-button primary">Підготувати</button>
+              <button class="ghost-button">Перейти до абзацу</button>
+              <button class="text-button">Відхилити</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="suggestion" data-open="false" data-state="active">
+          <button type="button" class="suggestion-toggle" aria-expanded="false">
+            <div class="suggestion-copy">
+              <h2 class="suggestion-title">Етичне перефразування симптомів свербежу</h2>
+              <div class="suggestion-meta">
+                <span>Абз. 033</span>
+                <span>переписати</span>
+              </div>
+            </div>
+            <svg class="suggestion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="suggestion-body">
+            <p class="suggestion-reason">Прибрати грубуваті формулювання та повернути нейтральний науково-популярний тон, не втрачаючи конкретики про симптоми, печінку та супутні ризики.</p>
+            <div class="suggestion-actions">
+              <button class="ghost-button primary">Підготувати</button>
+              <button class="ghost-button">Перейти до абзацу</button>
+              <button class="text-button">Відхилити</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="suggestion" data-open="false" data-state="active">
+          <button type="button" class="suggestion-toggle" aria-expanded="false">
+            <div class="suggestion-copy">
+              <h2 class="suggestion-title">Об'єднання блоку антиоксидантів</h2>
+              <div class="suggestion-meta">
+                <span>Абз. 052-054</span>
+                <span>список</span>
+              </div>
+            </div>
+            <svg class="suggestion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="suggestion-body">
+            <p class="suggestion-reason">Свести три коротких соседних абзаца в один сканируемый список, чтобы раздел про антиоксиданты читался как один смысловой блок, а не как россыпь однотипных реплик.</p>
+            <div class="suggestion-actions">
+              <button class="ghost-button primary">Підготувати</button>
+              <button class="ghost-button">Перейти до абзацу</button>
+              <button class="text-button">Відхилити</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="suggestion" data-open="false" data-state="active">
+          <button type="button" class="suggestion-toggle" aria-expanded="false">
+            <div class="suggestion-copy">
+              <h2 class="suggestion-title">Пояснення терміна сенолітики</h2>
+              <div class="suggestion-meta">
+                <span>Абз. 059</span>
+                <span>врізка</span>
+              </div>
+            </div>
+            <svg class="suggestion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="suggestion-body">
+            <p class="suggestion-reason">Вынести короткое пояснение в отдельную врезку, чтобы не перегружать основной поток текста дефиницией и сохранить ритм раздела.</p>
+            <div class="suggestion-actions">
+              <button class="ghost-button primary">Підготувати</button>
+              <button class="ghost-button">Перейти до абзацу</button>
+              <button class="text-button">Відхилити</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="suggestion" data-open="false" data-state="applied">
+          <button type="button" class="suggestion-toggle" aria-expanded="false">
+            <div class="suggestion-copy">
+              <h2 class="suggestion-title">Стилистичне коригування вступу</h2>
+              <div class="suggestion-meta">
+                <span>Абз. 002</span>
+                <span>переписати</span>
+                <span>погоджено</span>
+              </div>
+            </div>
+            <svg class="suggestion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="suggestion-body">
+            <p class="suggestion-reason">Эта рекомендация уже применена. В этой концепции завершенные элементы не конкурируют с активными и остаются приглушенными.</p>
+            <div class="suggestion-actions">
+              <button class="ghost-button">Перейти до абзацу</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="prototype-note">
+        Прототип показывает направление: одна спокойная колонка, один статусный слой, скрытые настройки запуска и единый список editorial recommendations без карточек внутри карточек.
+      </footer>
+    </div>
+  </aside>
+
+  <script>
+    const suggestionItems = Array.from(document.querySelectorAll(".suggestion"));
+    const completedToggle = document.getElementById("completedToggle");
+    const settingsToggle = document.getElementById("settingsToggle");
+    const settingsPanel = document.getElementById("settingsPanel");
+
+    suggestionItems.forEach((item) => {
+      const button = item.querySelector(".suggestion-toggle");
+      if (!button) return;
+
+      button.addEventListener("click", () => {
+        const isOpen = item.getAttribute("data-open") === "true";
+        item.setAttribute("data-open", isOpen ? "false" : "true");
+        button.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      });
+    });
+
+    completedToggle.addEventListener("click", () => {
+      const hidden = completedToggle.getAttribute("data-hide-completed") === "true";
+      completedToggle.setAttribute("data-hide-completed", hidden ? "false" : "true");
+      completedToggle.textContent = hidden ? "Показати завершені" : "Сховати завершені";
+
+      suggestionItems.forEach((item) => {
+        if (item.getAttribute("data-state") === "applied") {
+          item.style.display = hidden ? "" : "none";
+        }
+      });
+    });
+
+    settingsToggle.addEventListener("click", () => {
+      const open = settingsPanel.getAttribute("data-open") === "true";
+      settingsPanel.setAttribute("data-open", open ? "false" : "true");
+      settingsToggle.setAttribute("aria-expanded", open ? "false" : "true");
+      settingsToggle.querySelector(".settings-toggle-meta").textContent = open ? "Розгорнути" : "Згорнути";
+    });
+  </script>
+
+
+</body></html>
