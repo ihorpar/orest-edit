@@ -324,6 +324,7 @@ export default function EditorPage() {
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const [dismissUndoState, setDismissUndoState] = useState<DismissUndoState | null>(null);
   const [showCompletedCards, setShowCompletedCards] = useState(false);
+  const [showRecommendationStatusStrip, setShowRecommendationStatusStrip] = useState(false);
   const [stepSettingsOpen, setStepSettingsOpen] = useState(false);
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
@@ -1155,6 +1156,7 @@ export default function EditorPage() {
   function selectWorkflowStep(stepId: WorkflowStepId) {
     setActiveWorkflowStep(stepId);
     setShowCompletedCards(false);
+    setShowRecommendationStatusStrip(false);
     setFeedback(null);
     setPendingDestructiveAction(null);
   }
@@ -1793,6 +1795,16 @@ export default function EditorPage() {
 
       const nextFeedback = buildReviewFeedbackMessage(payload, response.ok, sectionItemCount);
 
+      if (
+        !payload.error
+        && response.ok
+        && payload.stepId !== "diagnostics"
+        && payload.stepId !== "fact_check"
+        && payload.stepId !== "emphasis"
+      ) {
+        setShowRecommendationStatusStrip(true);
+      }
+
       const runSnapshot = {
         id: payload.stepRunId,
         stepId: payload.stepId,
@@ -1870,6 +1882,14 @@ export default function EditorPage() {
   }
 
   function focusReviewItem(item: EditorialReviewItem) {
+    if (
+      item.stepId !== "diagnostics"
+      && item.stepId !== "fact_check"
+      && item.stepId !== "emphasis"
+    ) {
+      setShowRecommendationStatusStrip(false);
+    }
+
     const nextSelection = resolveReviewItemSelection(document, revision, item);
     // User requested to not select the paragraph to avoid triggering the local patch toolbar
     setSelection(EMPTY_BLOCK_SELECTION);
@@ -2124,6 +2144,14 @@ export default function EditorPage() {
     item: EditorialReviewItem,
     options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
   ): Promise<boolean> {
+    if (
+      item.stepId !== "diagnostics"
+      && item.stepId !== "fact_check"
+      && item.stepId !== "emphasis"
+    ) {
+      setShowRecommendationStatusStrip(false);
+    }
+
     if (item.stepId === "emphasis") {
       focusReviewItem(item);
       return true;
@@ -3137,6 +3165,8 @@ export default function EditorPage() {
   }, [activeWorkflowStep]);
 
   function handleRunActiveStep() {
+    setShowRecommendationStatusStrip(false);
+
     if (activeWorkflowStep === "spellcheck") {
       void requestSpellcheck(spellcheckDocumentBlockIds);
       return;
@@ -3472,46 +3502,71 @@ export default function EditorPage() {
                       className="step-review-prototype-settings-panel"
                       data-open={stepSettingsOpen ? "true" : "false"}
                     >
-                      <div className="step-review-prototype-settings-grid">
-                        <div className="step-review-prototype-settings-field">
-                          <label htmlFor="prototype-step-run-mode">Режим оновлення</label>
-                          <select
-                            id="prototype-step-run-mode"
-                            className="step-review-prototype-input"
-                            value={activeEditorialStepId ? stepRunModeByStep[activeEditorialStepId] : "replace"}
-                            onChange={(event) => {
-                              if (activeEditorialStepId) {
-                                updateStepRunMode(activeEditorialStepId, event.target.value as EditorialStepRunMode);
-                              }
-                            }}
-                          >
-                            <option value="replace">Замінити попередній запуск</option>
-                            <option value="preserve">Зберегти окремим запуском</option>
-                          </select>
-                        </div>
-                        <div className="step-review-prototype-settings-field">
-                          <label htmlFor="prototype-step-focus">Фокус для наступного запуску</label>
-                          <textarea
-                            id="prototype-step-focus"
-                            className="step-review-prototype-input"
-                            rows={3}
-                            placeholder="Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
-                            value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
-                            onChange={(event) => {
-                              if (activeEditorialStepId) {
-                                updateStepFeedbackValue(activeEditorialStepId, event.target.value);
-                              }
-                            }}
-                          />
+                      <div className="step-review-prototype-settings-panel-inner">
+                        <div className="step-review-prototype-settings-grid">
+                          <div className="step-review-prototype-settings-field">
+                            <label htmlFor="prototype-step-run-mode">Режим оновлення</label>
+                            <select
+                              id="prototype-step-run-mode"
+                              className="step-review-prototype-input"
+                              value={activeEditorialStepId ? stepRunModeByStep[activeEditorialStepId] : "replace"}
+                              onChange={(event) => {
+                                if (activeEditorialStepId) {
+                                  updateStepRunMode(activeEditorialStepId, event.target.value as EditorialStepRunMode);
+                                }
+                              }}
+                            >
+                              <option value="replace">Замінити попередній запуск</option>
+                              <option value="preserve">Зберегти окремим запуском</option>
+                            </select>
+                          </div>
+                          <div className="step-review-prototype-settings-field">
+                            <label htmlFor="prototype-step-focus">Фокус для наступного запуску</label>
+                            <textarea
+                              id="prototype-step-focus"
+                              className="step-review-prototype-input"
+                              rows={3}
+                              placeholder="Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
+                              value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
+                              onChange={(event) => {
+                                if (activeEditorialStepId) {
+                                  updateStepFeedbackValue(activeEditorialStepId, event.target.value);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="step-review-prototype-settings-field">
+                            <label>Глибина змін</label>
+                            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
+                              {[1, 2, 3, 4, 5].map((level) => (
+                                <button
+                                  key={level}
+                                  type="button"
+                                  className="step-review-prototype-level-button"
+                                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                                  onClick={() =>
+                                    setReviewComposer((current) => ({
+                                      ...current,
+                                      changeLevel: level as WholeTextChangeLevel
+                                    }))
+                                  }
+                                >
+                                  {level}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </section>
                   </section>
 
-                  <section className="step-review-prototype-status-strip" aria-live="polite">
-                    <p>Підготовлено рекомендації для поточного етапу</p>
-                    <span className="step-review-prototype-status-number">{activeStepItems.length}</span>
-                  </section>
+                  {showRecommendationStatusStrip ? (
+                    <section className="step-review-prototype-status-strip" aria-live="polite">
+                      <p>Підготовлено рекомендації для поточного етапу</p>
+                      <span className="step-review-prototype-status-number">{activeStepItems.length}</span>
+                    </section>
+                  ) : null}
 
                   <div className="step-review-prototype-meta-line">
                     <div className="step-review-prototype-utility-meta">

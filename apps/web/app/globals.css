@@ -9246,26 +9246,30 @@ textarea:focus {
 
 .step-review-prototype-settings-panel {
   display: grid;
-  max-height: 0;
+  grid-template-rows: 0fr;
   opacity: 0;
   transform: translateY(-4px);
-  overflow: hidden;
   padding: 0;
   color: #364152;
   transition:
-    max-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    grid-template-rows 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 180ms ease,
     transform 180ms ease,
     padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: max-height, opacity, transform;
+  will-change: opacity, transform;
 }
 
 .step-review-prototype-settings-panel[data-open="true"] {
-  max-height: 240px;
+  grid-template-rows: 1fr;
   opacity: 1;
   transform: translateY(0);
   gap: 14px;
   padding: 12px 0 16px;
+}
+
+.step-review-prototype-settings-panel-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .step-review-prototype-settings-grid {
@@ -9291,6 +9295,36 @@ textarea:focus {
   padding: 12px 14px;
   font: 400 14px/1.45 var(--font-ui, sans-serif);
   resize: vertical;
+}
+
+.step-review-prototype-levels {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.step-review-prototype-level-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: #f5f6f7;
+  color: #6b7280;
+  font: 500 14px/1 var(--font-ui, sans-serif);
+  -webkit-text-fill-color: currentColor;
+  cursor: pointer;
+  transition: opacity 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.step-review-prototype-level-button:hover,
+.step-review-prototype-level-button:focus-visible {
+  opacity: 0.82;
+}
+
+.step-review-prototype-level-button[data-active="true"] {
+  background: #17202a;
+  color: #fff;
 }
 
 .step-review-prototype-status-strip {
