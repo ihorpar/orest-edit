@@ -1135,12 +1135,12 @@ export default function EditorPage() {
     return focusedBlockId ? [focusedBlockId] : [];
   }
 
-  async function requestPatch(mode: RequestMode, promptOverride?: string) {
+  async function requestPatch(mode: RequestMode, promptOverride?: string): Promise<boolean> {
     const targetBlockIds = resolveTargetBlockIds();
 
     if (targetBlockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть блоки для локальної правки." });
-      return;
+      return false;
     }
 
     setIsPatchRequestInFlight(true);
@@ -1219,21 +1219,23 @@ export default function EditorPage() {
       pushHistoryEntry(
         createHistoryEntry(mode, payload.providerUsed, settings.provider, settings.modelId, payload.operations.length, payload.diagnostics.droppedOperationCount, payload.usedFallback, nextFeedback)
       );
+      return response.ok && !payload.error && payload.operations.length > 0;
     } catch (error) {
       setFeedback({
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося виконати локальну правку."
       });
+      return false;
     } finally {
       setIsPatchRequestInFlight(false);
     }
   }
 
-  async function requestSpellcheck(targetBlockIds = document.blocks.map((block) => block.id)) {
+  async function requestSpellcheck(targetBlockIds = document.blocks.map((block) => block.id)): Promise<boolean> {
 
     if (targetBlockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для перевірки правопису." });
-      return;
+      return false;
     }
 
     const spellcheckTargets = getSpellcheckableBlocks(document, revision, targetBlockIds);
@@ -1242,7 +1244,7 @@ export default function EditorPage() {
     if (spellcheckTargets.length === 0) {
       setFeedback({ tone: "error", message: "Для перевірки правопису наразі доступні лише текстові абзаци та заголовки." });
       clearSpellcheckResults();
-      return;
+      return false;
     }
 
     setIsSpellcheckRequestInFlight(true);
@@ -1352,12 +1354,14 @@ export default function EditorPage() {
           }
         )
       );
+      return true;
     } catch (error) {
       clearSpellcheckResults();
       setFeedback({
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося перевірити правопис."
       });
+      return false;
     } finally {
       setIsSpellcheckRequestInFlight(false);
     }
@@ -1537,12 +1541,12 @@ export default function EditorPage() {
     setLocalActionMode(mode);
   }
 
-  async function requestResolvedLocalAction() {
+  async function requestResolvedLocalAction(): Promise<boolean> {
     const targetBlockIds = resolveTargetBlockIds();
 
     if (targetBlockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть блоки для локальної дії." });
-      return;
+      return false;
     }
 
     try {
@@ -1572,47 +1576,47 @@ export default function EditorPage() {
           tone: "error",
           message: "error" in payload && payload.error ? payload.error : "Не вдалося визначити локальну дію."
         });
-        return;
+        return false;
       }
 
       if (payload.executor === "clarify") {
         setFeedback({ tone: "info", message: "Уточніть, що саме зробити: правка, врізка чи візуал." });
-        return;
+        return false;
       }
 
       if (payload.executor === "spellcheck") {
         setActiveWorkflowStep("spellcheck");
-        await requestSpellcheck(targetBlockIds);
-        return;
+        return await requestSpellcheck(targetBlockIds);
       }
 
       if (payload.executor === "patch") {
-        await requestPatch(payload.requestMode, payload.prompt);
-        return;
+        return await requestPatch(payload.requestMode, payload.prompt);
       }
 
       if (payload.executor === "review") {
-        await requestManualInsert("list", {
+        return await requestManualInsert("list", {
           editorialInstruction: payload.prompt
         });
-        return;
       }
 
       if (payload.executor === "callout") {
-        await requestManualInsert("callout", {
+        return await requestManualInsert("callout", {
           calloutKind: payload.calloutKind,
           editorialInstruction: payload.prompt
         });
-        return;
       }
 
-      await requestManualInsert("visual", {
+      return await requestManualInsert("visual", {
         visualIntent: payload.visualIntent,
         visualStylePreset: payload.visualStylePreset,
         editorialInstruction: payload.prompt
       });
-    } finally {
-      // Keep the floating bridge visible while the resolved local action is running.
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Не вдалося виконати локальну дію."
+      });
+      return false;
     }
   }
 
@@ -1899,12 +1903,12 @@ export default function EditorPage() {
       visualStylePreset?: VisualStylePreset;
       editorialInstruction?: string;
     }
-  ) {
+  ): Promise<boolean> {
     const blockIds = resolveTargetBlockIds();
 
     if (blockIds.length === 0) {
       setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для ручної генерації." });
-      return;
+      return false;
     }
 
     resetActiveExecutionLane();
@@ -1933,7 +1937,7 @@ export default function EditorPage() {
     setManualGenerationInFlight({ kind, key: upserted.dedupeKey });
 
     try {
-      await prepareReviewItem(upserted.item, {
+      return await prepareReviewItem(upserted.item, {
         visualStylePreset: overrides?.visualStylePreset,
         editorialInstruction: overrides?.editorialInstruction
       });
@@ -2087,10 +2091,10 @@ export default function EditorPage() {
   async function prepareReviewItem(
     item: EditorialReviewItem,
     options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
-  ) {
+  ): Promise<boolean> {
     if (item.stepId === "emphasis") {
       focusReviewItem(item);
-      return;
+      return true;
     }
 
     const canRefreshStale =
@@ -2110,7 +2114,7 @@ export default function EditorPage() {
 
     if (item.status === "stale" && !canRefreshStale) {
       setFeedback({ tone: "error", message: "Ця рекомендація застаріла після змін структури. Запустіть аналіз кроку повторно." });
-      return;
+      return false;
     }
 
     setReviewItems((current) => {
@@ -2178,7 +2182,7 @@ export default function EditorPage() {
         );
         setReviewRefineInstruction("");
         setFeedback(null);
-        return;
+        return true;
       }
 
       reviewNoOpStreakRef.current[item.id] = 0;
@@ -2202,7 +2206,7 @@ export default function EditorPage() {
         );
         setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Підзаголовок підготовлено." });
-        return;
+        return true;
       }
 
       if (payload.proposal.kind === "callout_prompt" && payload.proposal.calloutDraft) {
@@ -2224,7 +2228,7 @@ export default function EditorPage() {
         );
         setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Врізку підготовлено." });
-        return;
+        return true;
       }
 
       if (payload.proposal.kind === "image_prompt" && payload.proposal.imageDraft) {
@@ -2238,7 +2242,7 @@ export default function EditorPage() {
         );
         setReviewRefineInstruction("");
         setFeedback({ tone: "info", message: "Промпт для візуалу підготовлено." });
-        return;
+        return true;
       }
 
       if (payload.error) {
@@ -2246,12 +2250,16 @@ export default function EditorPage() {
           current.map((entry) => (entry.id === item.id ? { ...entry, status: response.ok ? entry.status : "stale" } : entry))
         );
         setFeedback({ tone: response.ok ? "info" : "error", message: payload.error });
+        return false;
       }
+
+      return false;
     } catch (error) {
       setFeedback({
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося підготувати рекомендацію."
       });
+      return false;
     } finally {
       setPreparingReviewItemId(null);
     }
@@ -3302,7 +3310,15 @@ export default function EditorPage() {
                 localTextIntent={localTextIntent}
                 localActionRoute={localActionRoute}
                 onLocalTextIntentChange={setLocalTextIntent}
-                onRequestAutoAction={() => void requestResolvedLocalAction()}
+                onRequestAutoAction={() => {
+                  void (async () => {
+                    const didCreate = await requestResolvedLocalAction();
+
+                    if (didCreate) {
+                      setComposerMode(null);
+                    }
+                  })();
+                }}
                 reviewChangeLevel={reviewComposer.changeLevel}
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
                 onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
@@ -3327,9 +3343,33 @@ export default function EditorPage() {
                 localModeSuggestion={localModeSuggestion}
                 onManualCalloutPromptChange={setManualCalloutPrompt}
                 onManualVisualPromptChange={setManualVisualPrompt}
-                onRequestManualCallout={() => void requestManualInsert("callout")}
-                onRequestManualVisual={() => void requestManualInsert("visual")}
-                onRequestSpellcheck={() => void requestSpellcheck(resolveTargetBlockIds())}
+                onRequestManualCallout={() => {
+                  void (async () => {
+                    const didCreate = await requestManualInsert("callout");
+
+                    if (didCreate) {
+                      setComposerMode(null);
+                    }
+                  })();
+                }}
+                onRequestManualVisual={() => {
+                  void (async () => {
+                    const didCreate = await requestManualInsert("visual");
+
+                    if (didCreate) {
+                      setComposerMode(null);
+                    }
+                  })();
+                }}
+                onRequestSpellcheck={() => {
+                  void (async () => {
+                    const didCreate = await requestSpellcheck(resolveTargetBlockIds());
+
+                    if (didCreate) {
+                      setComposerMode(null);
+                    }
+                  })();
+                }}
                 manualLoadingKind={manualGenerationInFlight?.kind ?? null}
                 onClose={() => setComposerMode(null)}
               />

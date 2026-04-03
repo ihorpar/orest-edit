@@ -319,7 +319,7 @@ export function FloatingComposerPanel({
     return false;
   }
 
-  const editSendLoading = !isReview && localActionMode === "auto" ? isExecutorLoading(localActionRoute.executor) : false;
+  const editSendLoading = !isReview && localSurfaceMode === "edit" ? isExecutorLoading(localActionRoute.executor) : false;
   const proofSendLoading = Boolean(spellcheckLoading);
   const calloutSendLoading =
     localActionMode === "callout"

@@ -1522,10 +1522,10 @@ textarea:focus {
 .change-compare-block {
   display: grid;
   gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid rgba(216, 226, 238, 0.9);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   align-content: start;
 }
 
