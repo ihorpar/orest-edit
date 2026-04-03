@@ -9338,6 +9338,30 @@ textarea:focus {
   border-bottom: 1px solid rgba(47, 108, 79, 0.12);
 }
 
+.step-review-prototype-status-strip[data-tone="idle"] {
+  background: #f5f6f7;
+  color: #4b5563;
+  border-bottom-color: #e6e9ed;
+}
+
+.step-review-prototype-status-strip[data-tone="active"] {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-bottom-color: rgba(59, 130, 246, 0.14);
+}
+
+.step-review-prototype-status-strip[data-tone="warning"] {
+  background: #f9f3e8;
+  color: #92400e;
+  border-bottom-color: rgba(180, 83, 9, 0.12);
+}
+
+.step-review-prototype-status-strip[data-tone="error"] {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-bottom-color: rgba(220, 38, 38, 0.12);
+}
+
 .step-review-prototype-status-strip p {
   margin: 0;
   font-size: 14px;
@@ -9400,6 +9424,16 @@ textarea:focus {
 
 .step-review-prototype-empty-copy {
   padding: 18px 24px;
+}
+
+.step-review-prototype-content {
+  display: grid;
+  gap: 18px;
+  padding: 18px 24px 24px;
+}
+
+.step-review-prototype-meta-line-inline {
+  padding: 0 0 8px;
 }
 
 /* Compact Editorial Cards in Sidebar

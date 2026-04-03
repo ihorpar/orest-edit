@@ -3068,6 +3068,10 @@ export default function EditorPage() {
     && activeWorkflowStep !== "fact_check"
     && activeWorkflowStep !== "spellcheck"
     && activeWorkflowStep !== "emphasis";
+  const usesPrototypeShell =
+    activeWorkflowStep === "diagnostics"
+    || activeWorkflowStep === "fact_check"
+    || isRecommendationStep;
   const reviewModeSummary = useMemo(
     () => buildReviewModeSummary(reviewComposer.changeLevel, document.blocks.length),
     [reviewComposer.changeLevel, document.blocks.length]
@@ -3106,7 +3110,7 @@ export default function EditorPage() {
           activeMessage: "Аналізуємо рукопис і готуємо редакторський огляд.",
           idleMessage: "Запустіть діагностику, щоб отримати редакторський огляд документа.",
           waitingMessage: "Додайте текст рукопису, щоб запустити діагностику.",
-          successMessage: "Діагностику завершено. Можна перейти до факт-чеку або оновити контекст."
+          successMessage: "Діагностику завершено"
         })
       : activeWorkflowStep === "fact_check"
         ? getStepWorkspaceStatus("fact_check", {
@@ -3118,7 +3122,7 @@ export default function EditorPage() {
             activeMessage: "Перевіряємо твердження, пояснення і джерела для цього документа.",
             idleMessage: "Запустіть факт-чек, щоб перевірити твердження і джерела.",
             waitingMessage: "Спочатку запустіть діагностику, щоб дати факт-чеку контекст рукопису.",
-            successMessage: "Таблиця факт-чеку готова. Можна переглядати твердження і джерела.",
+            successMessage: "Таблиця факт-чеку готова",
             zeroResultMessage: "Факт-чек завершився без окремих рядків для перевірки."
           })
       : activeWorkflowStep === "spellcheck"
@@ -3159,6 +3163,20 @@ export default function EditorPage() {
               successMessage: "Рекомендації готові. Можна переглядати та застосовувати картки.",
               zeroResultMessage: "Етап завершено без нових карток."
             });
+  const shouldShowPrototypeStatusStrip =
+    activeWorkflowStep === "diagnostics"
+    || activeWorkflowStep === "fact_check"
+    || showRecommendationStatusStrip;
+  const prototypeStatusMessage =
+    isRecommendationStep
+      ? "Підготовлено рекомендації для поточного етапу"
+      : activeStepWorkspaceStatus.message;
+  const prototypeStatusCount =
+    activeWorkflowStep === "diagnostics"
+      ? (reviewExpertise ? 1 : 0)
+      : activeWorkflowStep === "fact_check"
+        ? factCheckRows.length
+        : activeStepItems.length;
 
   useEffect(() => {
     setStepSettingsOpen(false);
@@ -3196,6 +3214,384 @@ export default function EditorPage() {
       default:
         return <Sparkles size={14} aria-hidden="true" />;
     }
+  }
+
+  function renderPrototypeSettingsContent() {
+    if (activeWorkflowStep === "diagnostics") {
+      return (
+        <div className="step-review-prototype-settings-grid">
+          <div className="step-review-prototype-settings-field">
+            <label htmlFor="prototype-diagnostics-run-mode">Режим оновлення</label>
+            <select
+              id="prototype-diagnostics-run-mode"
+              className="step-review-prototype-input"
+              value={stepRunModeByStep.diagnostics}
+              onChange={(event) => updateStepRunMode("diagnostics", event.target.value as EditorialStepRunMode)}
+            >
+              <option value="replace">Замінити попередній запуск</option>
+              <option value="preserve">Зберегти окремим запуском</option>
+            </select>
+          </div>
+          <div className="step-review-prototype-settings-field">
+            <label htmlFor="prototype-diagnostics-focus">Контекст для наступного запуску</label>
+            <textarea
+              id="prototype-diagnostics-focus"
+              className="step-review-prototype-input"
+              rows={3}
+              placeholder="Наприклад: більше уваги до структури аргументації й логіки переходів."
+              value={reviewComposer.additionalInstructions}
+              onChange={(event) =>
+                setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
+              }
+            />
+          </div>
+          <div className="step-review-prototype-settings-field">
+            <label>Глибина змін</label>
+            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  className="step-review-prototype-level-button"
+                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                  onClick={() =>
+                    setReviewComposer((current) => ({
+                      ...current,
+                      changeLevel: level as WholeTextChangeLevel
+                    }))
+                  }
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeWorkflowStep === "fact_check") {
+      return (
+        <div className="step-review-prototype-settings-grid">
+          <div className="step-review-prototype-settings-field">
+            <label htmlFor="prototype-factcheck-run-mode">Режим оновлення</label>
+            <select
+              id="prototype-factcheck-run-mode"
+              className="step-review-prototype-input"
+              value={stepRunModeByStep.fact_check}
+              onChange={(event) => updateStepRunMode("fact_check", event.target.value as EditorialStepRunMode)}
+            >
+              <option value="replace">Замінити попередній запуск</option>
+              <option value="preserve">Зберегти окремим запуском</option>
+            </select>
+          </div>
+          <div className="step-review-prototype-settings-field">
+            <label htmlFor="prototype-factcheck-focus">Фокус для наступного запуску</label>
+            <textarea
+              id="prototype-factcheck-focus"
+              className="step-review-prototype-input"
+              rows={3}
+              placeholder="Наприклад: перевірити сумнівні твердження про біомаркери, гормони та клінічні рекомендації."
+              value={stepFeedback.fact_check}
+              onChange={(event) => updateStepFeedbackValue("fact_check", event.target.value)}
+            />
+          </div>
+          <div className="step-review-prototype-settings-field">
+            <label>Глибина змін</label>
+            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  className="step-review-prototype-level-button"
+                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                  onClick={() =>
+                    setReviewComposer((current) => ({
+                      ...current,
+                      changeLevel: level as WholeTextChangeLevel
+                    }))
+                  }
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="step-review-prototype-settings-grid">
+        <div className="step-review-prototype-settings-field">
+          <label htmlFor="prototype-step-run-mode">Режим оновлення</label>
+          <select
+            id="prototype-step-run-mode"
+            className="step-review-prototype-input"
+            value={activeEditorialStepId ? stepRunModeByStep[activeEditorialStepId] : "replace"}
+            onChange={(event) => {
+              if (activeEditorialStepId) {
+                updateStepRunMode(activeEditorialStepId, event.target.value as EditorialStepRunMode);
+              }
+            }}
+          >
+            <option value="replace">Замінити попередній запуск</option>
+            <option value="preserve">Зберегти окремим запуском</option>
+          </select>
+        </div>
+        <div className="step-review-prototype-settings-field">
+          <label htmlFor="prototype-step-focus">Фокус для наступного запуску</label>
+          <textarea
+            id="prototype-step-focus"
+            className="step-review-prototype-input"
+            rows={3}
+            placeholder="Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
+            value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
+            onChange={(event) => {
+              if (activeEditorialStepId) {
+                updateStepFeedbackValue(activeEditorialStepId, event.target.value);
+              }
+            }}
+          />
+        </div>
+        <div className="step-review-prototype-settings-field">
+          <label>Глибина змін</label>
+          <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
+            {[1, 2, 3, 4, 5].map((level) => (
+              <button
+                key={level}
+                type="button"
+                className="step-review-prototype-level-button"
+                data-active={reviewComposer.changeLevel === level ? "true" : "false"}
+                onClick={() =>
+                  setReviewComposer((current) => ({
+                    ...current,
+                    changeLevel: level as WholeTextChangeLevel
+                  }))
+                }
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderPrototypeStepContent() {
+    if (activeWorkflowStep === "diagnostics") {
+      return (
+        <div className="step-review-prototype-content">
+          {reviewExpertise ? (
+            <div className="button-row">
+              <Button variant="secondary" size="sm" onClick={() => selectWorkflowStep("fact_check")}>
+                До факт-чеку
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                title="Скинути результат діагностики і таблицю факт-чеку для повторного старту"
+                onClick={() => {
+                  setReviewExpertise(null);
+                  setFactCheckRows([]);
+                  setStepRunHistory((current) => ({
+                    ...current,
+                    diagnostics: [],
+                    fact_check: []
+                  }));
+                }}
+              >
+                Скинути
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="step-review-analysis-card">
+            {expertiseForDisplay ? (
+              <ReactMarkdown
+                components={{
+                  a: ({ href, children }) => {
+                    if (href?.startsWith("#block-")) {
+                      const index = Number.parseInt(href.replace("#block-", ""), 10);
+                      return (
+                        <button
+                          type="button"
+                          className="step-review-analysis-link"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (!Number.isNaN(index)) {
+                              handleScrollToBlockIndex(index);
+                            }
+                          }}
+                        >
+                          {children}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    );
+                  }
+                }}
+              >
+                {expertiseForDisplay}
+              </ReactMarkdown>
+            ) : (
+              <p className="step-review-empty-copy">
+                Запустіть діагностику, щоб отримати детальний огляд.
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeWorkflowStep === "fact_check") {
+      return (
+        <div className="step-review-prototype-content">
+          <div className="step-review-fact-table-wrapper">
+            <table className="step-review-fact-table">
+              <thead>
+                <tr>
+                  <th>Твердження</th>
+                  <th>Статус</th>
+                  <th>Пояснення та джерела</th>
+                </tr>
+              </thead>
+              <tbody>
+                {factCheckRows.map((row, index) => (
+                  <tr key={`${row.claim}-${index}`}>
+                    <td>{row.claim}</td>
+                    <td>
+                      <span className={`step-review-fact-status step-review-fact-status-${toFactStatusClassName(row.status)}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="step-review-fact-evidence">
+                        <p className="step-review-fact-explanation">{row.explanation}</p>
+                        {row.sources.length > 0 ? (
+                          <div className="step-review-fact-sources">
+                            {row.sources.map((source) => (
+                              <a
+                                key={`${source.url}-${source.title}`}
+                                className="step-review-fact-source-link"
+                                href={source.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={source.title}
+                              >
+                                {source.domain}
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="step-review-fact-source-empty">Немає надійного джерела</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {activeStepItems.length > 0 ? (
+            <>
+              <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
+                <div className="step-review-prototype-utility-meta">
+                  <span>{activeStepCardStats.actionable} активних</span>
+                  <span>{activeStepCardStats.applied} погоджено</span>
+                  <span>{activeStepCardStats.dismissed} відхилено</span>
+                </div>
+                <button
+                  type="button"
+                  className="step-review-prototype-utility-toggle"
+                  onClick={() => setShowCompletedCards((current) => !current)}
+                >
+                  {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                </button>
+              </div>
+              <section className="step-review-prototype-suggestions-list" aria-label="Картки за факт-чеком">
+                {activeStepItems.map((item) => {
+                  const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
+                  return (
+                    <EditorialReviewCard
+                      key={item.id}
+                      item={item}
+                      revision={revision}
+                      isActive={item.id === activeReviewItemId}
+                      isHidden={isHidden}
+                      onFocus={focusReviewItem}
+                      onPrepare={(entry) => void prepareReviewItem(entry)}
+                      onApplyCallout={applyReviewCallout}
+                      onDismiss={dismissReviewItem}
+                      isLoading={item.id === preparingReviewItemId}
+                    />
+                  );
+                })}
+              </section>
+            </>
+          ) : null}
+
+          {factCheckRows.length === 0 ? (
+            <p className="step-review-empty-copy">
+              Після діагностики тут з’явиться таблиця перевірки фактів.
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="step-review-prototype-meta-line">
+          <div className="step-review-prototype-utility-meta">
+            <span>{activeStepCardStats.actionable} активних</span>
+            <span>{activeStepCardStats.applied} погоджено</span>
+            <span>{activeStepCardStats.dismissed} відхилено</span>
+          </div>
+          <button
+            type="button"
+            className="step-review-prototype-utility-toggle"
+            onClick={() => setShowCompletedCards((current) => !current)}
+          >
+            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+          </button>
+        </div>
+
+        <section className="step-review-prototype-suggestions-list" aria-label="Список рекомендацій">
+          {activeStepItems.map((item) => {
+            const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
+            return (
+              <EditorialReviewCard
+                key={item.id}
+                item={item}
+                revision={revision}
+                isActive={item.id === activeReviewItemId}
+                isHidden={isHidden}
+                onFocus={focusReviewItem}
+                onPrepare={(entry) => void prepareReviewItem(entry)}
+                onApplyCallout={applyReviewCallout}
+                onDismiss={dismissReviewItem}
+                isLoading={item.id === preparingReviewItemId}
+              />
+            );
+          })}
+          {visibleActiveStepItems.length === 0 ? (
+            <p className="step-review-empty-copy step-review-prototype-empty-copy">
+              {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+                ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
+                : "Для цього етапу ще немає карток."}
+            </p>
+          ) : null}
+        </section>
+      </>
+    );
   }
 
   const runStepButton = (
@@ -3455,7 +3851,7 @@ export default function EditorPage() {
         }
         drawer={
           <section className="step-review-workspace">
-            {isRecommendationStep ? (
+            {usesPrototypeShell ? (
               <div className="step-review-prototype-shell">
                 <header className="step-review-prototype-head">
                   <div className="step-review-prototype-head-copy">
@@ -3503,112 +3899,19 @@ export default function EditorPage() {
                       data-open={stepSettingsOpen ? "true" : "false"}
                     >
                       <div className="step-review-prototype-settings-panel-inner">
-                        <div className="step-review-prototype-settings-grid">
-                          <div className="step-review-prototype-settings-field">
-                            <label htmlFor="prototype-step-run-mode">Режим оновлення</label>
-                            <select
-                              id="prototype-step-run-mode"
-                              className="step-review-prototype-input"
-                              value={activeEditorialStepId ? stepRunModeByStep[activeEditorialStepId] : "replace"}
-                              onChange={(event) => {
-                                if (activeEditorialStepId) {
-                                  updateStepRunMode(activeEditorialStepId, event.target.value as EditorialStepRunMode);
-                                }
-                              }}
-                            >
-                              <option value="replace">Замінити попередній запуск</option>
-                              <option value="preserve">Зберегти окремим запуском</option>
-                            </select>
-                          </div>
-                          <div className="step-review-prototype-settings-field">
-                            <label htmlFor="prototype-step-focus">Фокус для наступного запуску</label>
-                            <textarea
-                              id="prototype-step-focus"
-                              className="step-review-prototype-input"
-                              rows={3}
-                              placeholder="Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
-                              value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
-                              onChange={(event) => {
-                                if (activeEditorialStepId) {
-                                  updateStepFeedbackValue(activeEditorialStepId, event.target.value);
-                                }
-                              }}
-                            />
-                          </div>
-                          <div className="step-review-prototype-settings-field">
-                            <label>Глибина змін</label>
-                            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
-                              {[1, 2, 3, 4, 5].map((level) => (
-                                <button
-                                  key={level}
-                                  type="button"
-                                  className="step-review-prototype-level-button"
-                                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                                  onClick={() =>
-                                    setReviewComposer((current) => ({
-                                      ...current,
-                                      changeLevel: level as WholeTextChangeLevel
-                                    }))
-                                  }
-                                >
-                                  {level}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
+                        {renderPrototypeSettingsContent()}
                       </div>
                     </section>
                   </section>
 
-                  {showRecommendationStatusStrip ? (
-                    <section className="step-review-prototype-status-strip" aria-live="polite">
-                      <p>Підготовлено рекомендації для поточного етапу</p>
-                      <span className="step-review-prototype-status-number">{activeStepItems.length}</span>
+                  {shouldShowPrototypeStatusStrip ? (
+                    <section className="step-review-prototype-status-strip" data-tone={activeStepWorkspaceStatus.tone} aria-live="polite">
+                      <p>{prototypeStatusMessage}</p>
+                      <span className="step-review-prototype-status-number">{prototypeStatusCount}</span>
                     </section>
                   ) : null}
 
-                  <div className="step-review-prototype-meta-line">
-                    <div className="step-review-prototype-utility-meta">
-                      <span>{activeStepCardStats.actionable} активних</span>
-                      <span>{activeStepCardStats.applied} погоджено</span>
-                      <span>{activeStepCardStats.dismissed} відхилено</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="step-review-prototype-utility-toggle"
-                      onClick={() => setShowCompletedCards((current) => !current)}
-                    >
-                      {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
-                    </button>
-                  </div>
-
-                  <section className="step-review-prototype-suggestions-list" aria-label="Список рекомендацій">
-                    {activeStepItems.map((item) => {
-                      const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
-                      return (
-                        <EditorialReviewCard
-                          key={item.id}
-                          item={item}
-                          revision={revision}
-                          isActive={item.id === activeReviewItemId}
-                          isHidden={isHidden}
-                          onFocus={focusReviewItem}
-                          onPrepare={(entry) => void prepareReviewItem(entry)}
-                          onApplyCallout={applyReviewCallout}
-                          onDismiss={dismissReviewItem}
-                          isLoading={item.id === preparingReviewItemId}
-                        />
-                      );
-                    })}
-                    {visibleActiveStepItems.length === 0 ? (
-                      <p className="step-review-empty-copy step-review-prototype-empty-copy">
-                        {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                          ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                          : "Для цього етапу ще немає карток."}
-                      </p>
-                    ) : null}
-                  </section>
+                  {renderPrototypeStepContent()}
                 </div>
               </div>
             ) : (
@@ -3655,293 +3958,6 @@ export default function EditorPage() {
             ) : null}
 
             <div className="step-review-workspace-scroll">
-              {activeWorkflowStep === "diagnostics" ? (
-                <div className="step-review-section-stack">
-                  <details className="step-review-config-details">
-                    <summary className="step-review-config-summary">
-                      <div className="step-review-config-summary-left">
-                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        <span>Налаштування запуску</span>
-                      </div>
-                      <span className="step-review-config-badge">{stepRunHistory.diagnostics.length}</span>
-                    </summary>
-                    <div className="step-review-config-body">
-                      <select
-                        id="diagnostics-run-mode"
-                        className="step-review-inline-select"
-                        value={stepRunModeByStep.diagnostics}
-                        onChange={(event) => updateStepRunMode("diagnostics", event.target.value as EditorialStepRunMode)}
-                        title="Замінити попередній — перезапише результати цього кроку. Зберегти окремим запуском — додасть новий запуск у історію."
-                      >
-                        <option value="replace">Замінити попередній</option>
-                        <option value="preserve">Зберегти окремим запуском</option>
-                      </select>
-                      <div className="step-review-inline-levels">
-                        {[1, 2, 3, 4, 5].map((level) => (
-                          <button
-                            key={level}
-                            type="button"
-                            className="step-review-inline-level-button"
-                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
-                          >
-                            {level}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={2}
-                        placeholder="Додаткові інструкції (опціонально)"
-                        value={reviewComposer.additionalInstructions}
-                        onChange={(event) =>
-                          setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
-                        }
-                      />
-                    </div>
-                  </details>
-                  {reviewExpertise ? (
-                    <div className="button-row">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => selectWorkflowStep("fact_check")}
-                      >
-                        До факт-чеку
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Скинути результат діагностики і таблицю факт-чеку для повторного старту"
-                        onClick={() => {
-                          setReviewExpertise(null);
-                          setFactCheckRows([]);
-                          setStepRunHistory((current) => ({
-                            ...current,
-                            diagnostics: [],
-                            fact_check: []
-                          }));
-                        }}
-                      >
-                        Скинути
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  <div className="step-review-analysis-card">
-                    {expertiseForDisplay ? (
-                      <ReactMarkdown
-                        components={{
-                          a: ({ href, children }) => {
-                            if (href?.startsWith("#block-")) {
-                              const index = Number.parseInt(href.replace("#block-", ""), 10);
-                              return (
-                                <button
-                                  type="button"
-                                  className="step-review-analysis-link"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    if (!Number.isNaN(index)) {
-                                      handleScrollToBlockIndex(index);
-                                    }
-                                  }}
-                                >
-                                  {children}
-                                </button>
-                              );
-                            }
-
-                            return (
-                              <a href={href} target="_blank" rel="noopener noreferrer">
-                                {children}
-                              </a>
-                            );
-                          }
-                        }}
-                      >
-                        {expertiseForDisplay}
-                      </ReactMarkdown>
-                    ) : (
-                      <p className="step-review-empty-copy">
-                        Запустіть діагностику, щоб отримати детальний огляд.
-                      </p>
-                    )}
-                  </div>
-
-                  {reviewExpertise ? (
-                    <>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={3}
-                        placeholder="Ваш фідбек до діагностики (збережеться для наступних кроків)"
-                        value={stepFeedback.diagnostics}
-                        onChange={(event) => updateStepFeedbackValue("diagnostics", event.target.value)}
-                      />
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {activeWorkflowStep === "fact_check" ? (
-                <div className="step-review-section-stack">
-                  <details className="step-review-config-details">
-                    <summary className="step-review-config-summary">
-                      <div className="step-review-config-summary-left">
-                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        <span>Налаштування запуску</span>
-                      </div>
-                      <span className="step-review-config-badge">{stepRunHistory.fact_check.length}</span>
-                    </summary>
-                    <div className="step-review-config-body">
-                      <select
-                        id="factcheck-run-mode"
-                        className="step-review-inline-select"
-                        value={stepRunModeByStep.fact_check}
-                        onChange={(event) => updateStepRunMode("fact_check", event.target.value as EditorialStepRunMode)}
-                        title="Замінити попередній — перезапише результати цього кроку. Зберегти окремим запуском — додасть новий запуск у історію."
-                      >
-                        <option value="replace">Замінити попередній</option>
-                        <option value="preserve">Зберегти окремим запуском</option>
-                      </select>
-                      <div className="step-review-inline-levels">
-                        {[1, 2, 3, 4, 5].map((level) => (
-                          <button
-                            key={level}
-                            type="button"
-                            className="step-review-inline-level-button"
-                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
-                          >
-                            {level}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
-                      <div className="step-review-context-row">
-                        <div className="step-review-context-copy">
-                          <span className="step-review-context-label">Глобальний контекст</span>
-                          <span className="step-review-context-value">
-                            {hasGlobalReviewInstructions ? "задано" : "не задано"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          className="step-review-context-action"
-                          onClick={() => selectWorkflowStep("diagnostics")}
-                        >
-                          Редагувати
-                        </button>
-                      </div>
-                      <p className="step-review-context-helper-copy">{globalContextHelpText}</p>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={2}
-                        placeholder="Фокус факт-чеку (опціонально)"
-                        value={stepFeedback.fact_check}
-                        onChange={(event) => updateStepFeedbackValue("fact_check", event.target.value)}
-                      />
-                    </div>
-                  </details>
-                  <div className="step-review-fact-table-wrapper">
-                    <table className="step-review-fact-table">
-                      <thead>
-                        <tr>
-                          <th>Твердження</th>
-                          <th>Статус</th>
-                          <th>Пояснення та джерела</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {factCheckRows.map((row, index) => (
-                          <tr key={`${row.claim}-${index}`}>
-                            <td>{row.claim}</td>
-                            <td>
-                              <span className={`step-review-fact-status step-review-fact-status-${toFactStatusClassName(row.status)}`}>
-                                {row.status}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="step-review-fact-evidence">
-                                <p className="step-review-fact-explanation">{row.explanation}</p>
-                                {row.sources.length > 0 ? (
-                                  <div className="step-review-fact-sources">
-                                    {row.sources.map((source) => (
-                                      <a
-                                        key={`${source.url}-${source.title}`}
-                                        className="step-review-fact-source-link"
-                                        href={source.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        title={source.title}
-                                      >
-                                        {source.domain}
-                                      </a>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="step-review-fact-source-empty">Немає надійного джерела</span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {activeStepItems.length > 0 ? (
-                    <section className="step-review-subsection">
-                      <div className="step-review-subsection-head">
-                        <p className="mono-ui operations-title">Картки за факт-чеком</p>
-                        <div className="step-review-subsection-meta">
-                          <p className="step-review-cards-counter" aria-label="Лічильник карток">
-                            <span className="step-review-cards-counter-value step-review-cards-counter-total">
-                              {activeStepCardStats.actionable} в роботі
-                            </span>
-                            <span className="step-review-cards-counter-separator">·</span>
-                            <span className="step-review-cards-counter-value step-review-cards-counter-applied">
-                              {activeStepCardStats.applied} погоджено
-                            </span>
-                            <span className="step-review-cards-counter-separator">·</span>
-                            <span className="step-review-cards-counter-value step-review-cards-counter-dismissed">
-                              {activeStepCardStats.dismissed} відхилено
-                            </span>
-                          </p>
-                          <button
-                            type="button"
-                            className="step-review-completed-toggle"
-                            data-active={showCompletedCards ? "true" : "false"}
-                            onClick={() => setShowCompletedCards((current) => !current)}
-                          >
-                            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="operations-stack operations-stack-compact">
-                        {visibleActiveStepItems.map((item) => (
-                          <EditorialReviewCard
-                            key={item.id}
-                            item={item}
-                            revision={revision}
-                            isActive={item.id === activeReviewItemId}
-                            onFocus={focusReviewItem}
-                            onPrepare={(entry) => void prepareReviewItem(entry)}
-                            onApplyCallout={applyReviewCallout}
-                            onDismiss={dismissReviewItem}
-                            isLoading={item.id === preparingReviewItemId}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-                  {factCheckRows.length === 0 ? (
-                    <p className="step-review-empty-copy">
-                      Після діагностики тут з’явиться таблиця перевірки фактів.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
               {activeWorkflowStep === "spellcheck" ? (
                 <div className="step-review-section-stack">
                   <section className="step-review-subsection step-review-spellcheck-module">
@@ -4123,127 +4139,6 @@ export default function EditorPage() {
                 </div>
               ) : null}
 
-              {activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" && activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "emphasis" ? (
-                <div className="step-review-section-stack">
-                  <details className="step-review-config-details">
-                    <summary className="step-review-config-summary">
-                      <div className="step-review-config-summary-left">
-                        <svg className="step-review-config-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        <span>Налаштування запуску</span>
-                      </div>
-                      <span className="step-review-config-badge">{activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0}</span>
-                    </summary>
-                    <div className="step-review-config-body">
-                      <select
-                        id="generic-step-run-mode"
-                        className="step-review-inline-select"
-                        value={activeEditorialStepId ? stepRunModeByStep[activeEditorialStepId] : "replace"}
-                        onChange={(event) => {
-                          if (activeEditorialStepId) {
-                            updateStepRunMode(activeEditorialStepId, event.target.value as EditorialStepRunMode);
-                          }
-                        }}
-                        title="Замінити попередній — перезапише картки цього кроку. Зберегти окремим запуском — додасть нову партію карток у історію."
-                      >
-                        <option value="replace">Замінити попередній</option>
-                        <option value="preserve">Зберегти окремим запуском</option>
-                      </select>
-                      <div className="step-review-inline-levels">
-                        {[1, 2, 3, 4, 5].map((level) => (
-                          <button
-                            key={level}
-                            type="button"
-                            className="step-review-inline-level-button"
-                            data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                            onClick={() => setReviewComposer((current) => ({ ...current, changeLevel: level as WholeTextChangeLevel }))}
-                          >
-                            {level}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="step-review-mode-summary">{reviewModeSummary}</p>
-                      <div className="step-review-context-row">
-                        <div className="step-review-context-copy">
-                          <span className="step-review-context-label">Глобальний контекст</span>
-                          <span className="step-review-context-value">
-                            {hasGlobalReviewInstructions ? "задано" : "не задано"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          className="step-review-context-action"
-                          onClick={() => selectWorkflowStep("diagnostics")}
-                        >
-                          Редагувати
-                        </button>
-                      </div>
-                      <p className="step-review-context-helper-copy">{globalContextHelpText}</p>
-                      <textarea
-                        className="step-review-inline-textarea"
-                        rows={2}
-                        placeholder="Ваш фідбек для цього кроку (опціонально)"
-                        value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
-                        onChange={(event) => {
-                          if (activeEditorialStepId) {
-                            updateStepFeedbackValue(activeEditorialStepId, event.target.value);
-                          }
-                        }}
-                      />
-                    </div>
-                  </details>
-
-                  <section className="step-review-subsection">
-                    <div className="step-review-subsection-head">
-                      <p className="mono-ui operations-title">Рекомендації</p>
-                      <div className="step-review-subsection-meta">
-                        <p className="step-review-cards-counter" aria-label="Лічильник карток">
-                          <span className="step-review-cards-counter-value step-review-cards-counter-total">
-                            {activeStepCardStats.actionable} в роботі
-                          </span>
-                          <span className="step-review-cards-counter-separator">·</span>
-                          <span className="step-review-cards-counter-value step-review-cards-counter-applied">
-                            {activeStepCardStats.applied} погоджено
-                          </span>
-                          <span className="step-review-cards-counter-separator">·</span>
-                          <span className="step-review-cards-counter-value step-review-cards-counter-dismissed">
-                            {activeStepCardStats.dismissed} відхилено
-                          </span>
-                        </p>
-                        <button
-                          type="button"
-                          className="step-review-completed-toggle"
-                          data-active={showCompletedCards ? "true" : "false"}
-                          onClick={() => setShowCompletedCards((current) => !current)}
-                        >
-                          {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="operations-stack operations-stack-compact">
-                      {visibleActiveStepItems.map((item) => (
-                        <EditorialReviewCard
-                          key={item.id}
-                          item={item}
-                          revision={revision}
-                          isActive={item.id === activeReviewItemId}
-                          onFocus={focusReviewItem}
-                          onPrepare={(entry) => void prepareReviewItem(entry)}
-                          onApplyCallout={applyReviewCallout}
-                          onDismiss={dismissReviewItem}
-                          isLoading={item.id === preparingReviewItemId}
-                        />
-                      ))}
-                    </div>
-                    {visibleActiveStepItems.length === 0 ? (
-                      <p className="step-review-empty-copy">
-                        {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                          ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                          : "Для цього етапу ще немає карток."}
-                      </p>
-                    ) : null}
-                  </section>
-                </div>
-              ) : null}
             </div>
             </>
             )}
