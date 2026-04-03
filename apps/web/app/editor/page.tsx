@@ -35,6 +35,7 @@ import { getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 import {
   computeAnchorFingerprint,
   deriveManuscriptRevisionState,
+  formatParagraphLabel,
   resolveReviewItemSelection,
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
@@ -287,6 +288,7 @@ export default function EditorPage() {
   const [mutationHistoryFuture, setMutationHistoryFuture] = useState<EditorMutationEntry[]>([]);
   const [compareHistory, setCompareHistory] = useState<CompareHistoryEntry[]>([]);
   const [activeCompareEntryId, setActiveCompareEntryId] = useState<string | null>(null);
+  const [expandedCompareEntryId, setExpandedCompareEntryId] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState("");
   const [activeReviewItemId, setActiveReviewItemId] = useState<string | null>(null);
   const [activeProposal, setActiveProposal] = useState<ReviewActionProposal | null>(null);
@@ -427,6 +429,17 @@ export default function EditorPage() {
   useEffect(() => {
     setReviewRefineInstruction("");
   }, [activeReviewItemId]);
+
+  useEffect(() => {
+    if (activeCompareEntryId && compareHistory.some((entry) => entry.id === activeCompareEntryId)) {
+      setExpandedCompareEntryId(activeCompareEntryId);
+      return;
+    }
+
+    if (compareHistory.length === 0) {
+      setExpandedCompareEntryId(null);
+    }
+  }, [activeCompareEntryId, compareHistory]);
 
   const activeCompareEntry = useMemo(
     () => (activeCompareEntryId ? compareHistory.find((entry) => entry.id === activeCompareEntryId) ?? null : null),
@@ -952,6 +965,7 @@ export default function EditorPage() {
     setMutationHistoryFuture(snapshot.mutationHistoryFuture);
     setCompareHistory(snapshot.compareHistory);
     setActiveCompareEntryId(snapshot.activeCompareEntryId);
+    setExpandedCompareEntryId(snapshot.activeCompareEntryId);
     setCustomPrompt(snapshot.customPrompt);
     setActiveReviewItemId(snapshot.activeReviewItemId);
     setActiveProposal(snapshot.activeProposal);
@@ -1007,6 +1021,7 @@ export default function EditorPage() {
     setMutationHistoryFuture([]);
     setCompareHistory([]);
     setActiveCompareEntryId(null);
+    setExpandedCompareEntryId(null);
     setActiveReviewItemId(null);
     setActiveProposal(null);
     setReviewComposer(defaultReviewComposer);
@@ -1081,6 +1096,21 @@ export default function EditorPage() {
 
     const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
     anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function handleCompareParagraphFocus(entry: CompareHistoryEntry) {
+    const targetBlockId = entry.blockIds.find((blockId) => revision.blockOrder.includes(blockId));
+
+    if (!targetBlockId) {
+      return;
+    }
+
+    setActiveCompareEntryId(null);
+    setExpandedCompareEntryId(null);
+
+    window.requestAnimationFrame(() => {
+      focusBlockById(targetBlockId);
+    });
   }
 
   function handleCompareDraftChange(index: number, value: string) {
@@ -3299,7 +3329,11 @@ export default function EditorPage() {
               canCompare={compareHistory.length > 0}
               onUndo={undoLastMutation}
               onRedo={redoLastMutation}
-              onCompare={() => setActiveCompareEntryId(compareHistory[0]?.id ?? null)}
+              onCompare={() => {
+                const nextId = compareHistory[0]?.id ?? null;
+                setActiveCompareEntryId(nextId);
+                setExpandedCompareEntryId(nextId);
+              }}
             />
 
             {composerMode ? (
@@ -4023,6 +4057,7 @@ export default function EditorPage() {
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               setActiveCompareEntryId(null);
+              setExpandedCompareEntryId(null);
             }
           }}
         >
@@ -4031,83 +4066,124 @@ export default function EditorPage() {
               <div className="change-compare-head-copy">
                 <p className="change-compare-kicker mono-ui">Порівняння правки</p>
                 <h3 className="change-compare-title">Було / Стало</h3>
-                <p className="change-compare-summary" title={activeCompareEntry.label}>
-                  {activeCompareEntry.label}
-                </p>
-                <div className="change-compare-meta-row" aria-label="Деталі правки">
-                  <span className="change-compare-meta-chip mono-ui">{activeCompareEntry.timestampLabel}</span>
-                  <span className="change-compare-meta-chip mono-ui">{getCompareEntryKindLabel(activeCompareEntry.kind)}</span>
-                  <span className="change-compare-meta-chip mono-ui">{formatCompareEntryBlockCount(activeCompareEntry)} абз.</span>
-                </div>
               </div>
               <button
                 type="button"
                 className="draft-reset-dialog-close"
-                onClick={() => setActiveCompareEntryId(null)}
+                onClick={() => {
+                  setActiveCompareEntryId(null);
+                  setExpandedCompareEntryId(null);
+                }}
                 aria-label="Закрити порівняння"
               >
                 <X className="draft-reset-dialog-close-icon" aria-hidden="true" />
               </button>
             </header>
-            {compareHistory.length > 1 ? (
-              <div className="change-compare-toolbar">
-                <label className="change-compare-select-shell">
-                  <span className="change-compare-select-label mono-ui">Історія правок</span>
-                  <select
-                    value={activeCompareEntry.id}
-                    onChange={(event) => setActiveCompareEntryId(event.target.value)}
-                    aria-label="Вибрати правку для порівняння"
-                  >
-                    {compareHistory.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {formatCompareEntryOptionLabel(entry)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ) : null}
-            <div className="change-compare-grid">
-              <section className="change-compare-panel">
-                <p className="mono-ui change-compare-panel-title">Було</p>
-                <div className="change-compare-text change-compare-block-stack">
-                  {activeCompareEntry.beforeBlocks.map((block, index) => (
-                    <article key={`${activeCompareEntry.id}:before:${block.id}:${index}`} className="change-compare-block">
-                      <p className="mono-ui change-compare-block-label">Абз. {index + 1}</p>
-                      <p className="change-compare-block-copy">{formatCompareBlockText(block) || " "}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-              <section className="change-compare-panel">
-                <p className="mono-ui change-compare-panel-title">Стало</p>
-                {canEditActiveCompare ? (
-                  <div className="change-compare-text change-compare-block-stack">
-                    {activeCompareEditableBlocks.map((block, index) => (
-                      <label key={`${activeCompareEntry.id}:after:${block.id}:${index}`} className="change-compare-block">
-                        <span className="mono-ui change-compare-block-label">Абз. {index + 1}</span>
-                        <textarea
-                          className="change-compare-editor"
-                          value={compareDraftTexts[index] ?? formatCompareBlockText(block)}
-                          ref={(element) => {
-                            if (!element) {
-                              compareTextareaRefs.current.delete(block.id);
-                              return;
-                            }
+            <div className="change-compare-accordion" role="list" aria-label="Історія правок">
+              {compareHistory.map((entry) => {
+                const isExpanded = entry.id === expandedCompareEntryId;
 
-                            compareTextareaRefs.current.set(block.id, element);
-                          }}
-                          onChange={(event) => handleCompareDraftChange(index, event.target.value)}
-                          onInput={(event) => autosizeCompareTextarea(event.currentTarget)}
-                          aria-label={`Абзац ${index + 1} після правки`}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <pre className="change-compare-text">{formatCompareBlocks(activeCompareEntry.afterBlocks)}</pre>
-                )}
-              </section>
+                return (
+                  <section
+                    key={entry.id}
+                    className="change-compare-item"
+                    data-expanded={isExpanded ? "true" : "false"}
+                    role="listitem"
+                  >
+                    <button
+                      type="button"
+                      className="change-compare-item-toggle"
+                      aria-expanded={isExpanded}
+                      onClick={() => {
+                        if (isExpanded) {
+                          setExpandedCompareEntryId(null);
+                          return;
+                        }
+
+                        setActiveCompareEntryId(entry.id);
+                        setExpandedCompareEntryId(entry.id);
+                      }}
+                    >
+                      <span className="change-compare-item-copy">
+                        <span className="mono-ui change-compare-item-kicker">Правка</span>
+                        <span className="change-compare-item-title">{entry.label}</span>
+                      </span>
+                      <ChevronDown className="change-compare-item-chevron" aria-hidden="true" />
+                    </button>
+
+                    {isExpanded ? (
+                      <div className="change-compare-item-body">
+                        <div className="change-compare-item-summary">
+                          <p className="mono-ui change-compare-item-summary-label">Що зроблено</p>
+                          <p className="change-compare-item-summary-copy">{entry.label}</p>
+                        </div>
+                        <div className="change-compare-grid">
+                          <section className="change-compare-panel">
+                            <div className="change-compare-panel-title-row">
+                              <p className="mono-ui change-compare-panel-title">Було</p>
+                              <button
+                                type="button"
+                                className="change-compare-panel-anchor mono-ui"
+                                onClick={() => handleCompareParagraphFocus(entry)}
+                                title={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                                aria-label={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                              >
+                                {getCompareEntryParagraphRangeLabel(entry, revision)}
+                              </button>
+                            </div>
+                            <div className="change-compare-text change-compare-block-stack">
+                              {entry.beforeBlocks.map((block, index) => (
+                                <article key={`${entry.id}:before:${block.id}:${index}`} className="change-compare-block">
+                                  <p className="change-compare-block-copy">{formatCompareBlockText(block) || " "}</p>
+                                </article>
+                              ))}
+                            </div>
+                          </section>
+                          <section className="change-compare-panel">
+                            <div className="change-compare-panel-title-row">
+                              <p className="mono-ui change-compare-panel-title">Стало</p>
+                              <button
+                                type="button"
+                                className="change-compare-panel-anchor mono-ui"
+                                onClick={() => handleCompareParagraphFocus(entry)}
+                                title={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                                aria-label={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                              >
+                                {getCompareEntryParagraphRangeLabel(entry, revision)}
+                              </button>
+                            </div>
+                            {activeCompareEntry?.id === entry.id && canEditActiveCompare ? (
+                              <div className="change-compare-text change-compare-block-stack">
+                                {activeCompareEditableBlocks.map((block, index) => (
+                                  <label key={`${entry.id}:after:${block.id}:${index}`} className="change-compare-block">
+                                    <textarea
+                                      className="change-compare-editor"
+                                      value={compareDraftTexts[index] ?? formatCompareBlockText(block)}
+                                      ref={(element) => {
+                                        if (!element) {
+                                          compareTextareaRefs.current.delete(block.id);
+                                          return;
+                                        }
+
+                                        compareTextareaRefs.current.set(block.id, element);
+                                      }}
+                                      onChange={(event) => handleCompareDraftChange(index, event.target.value)}
+                                      onInput={(event) => autosizeCompareTextarea(event.currentTarget)}
+                                      aria-label={`Абзац ${index + 1} після правки`}
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              <pre className="change-compare-text">{formatCompareBlocks(entry.afterBlocks)}</pre>
+                            )}
+                          </section>
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
             </div>
           </section>
         </div>
@@ -4256,8 +4332,19 @@ function formatCompareEntryBlockCount(entry: CompareHistoryEntry): number {
   return Math.max(entry.blockIds.length, entry.beforeBlocks.length, entry.afterBlocks.length, 1);
 }
 
-function formatCompareEntryOptionLabel(entry: CompareHistoryEntry): string {
-  return `${entry.timestampLabel} · ${getCompareEntryKindLabel(entry.kind)} · ${formatCompareEntryBlockCount(entry)} абз.`;
+function getCompareEntryParagraphRangeLabel(entry: CompareHistoryEntry, revision: ManuscriptRevisionState): string {
+  const indexes = entry.blockIds
+    .map((blockId) => revision.blockOrder.indexOf(blockId))
+    .filter((index) => index >= 0);
+
+  if (indexes.length === 0) {
+    return "Абз. ?";
+  }
+
+  const start = formatParagraphLabel(Math.min(...indexes));
+  const end = formatParagraphLabel(Math.max(...indexes));
+
+  return start === end ? `Абз. ${start}` : `Абз. ${start}-${end}`;
 }
 
 function shouldShowSpellcheckMessage(message: string): boolean {

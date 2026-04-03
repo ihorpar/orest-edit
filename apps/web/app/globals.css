@@ -1385,9 +1385,9 @@ textarea:focus {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 18px 12px;
-  border-bottom: 1px solid #eef2f7;
-  background: #fbfcfe;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid #d9dfe7;
+  background: #f8f9fb;
 }
 
 .change-compare-head-copy {
@@ -1399,7 +1399,7 @@ textarea:focus {
 
 .change-compare-kicker {
   margin: 0;
-  color: #475569;
+  color: #5b6573;
 }
 
 .change-compare-title {
@@ -1413,70 +1413,81 @@ textarea:focus {
   text-wrap: balance;
 }
 
-.change-compare-summary {
-  margin: 0;
-  max-width: 88ch;
-  color: #475569;
-  font: 500 14px/1.55 var(--font-ui, sans-serif);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.change-compare-accordion {
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+  background: #ffffff;
 }
 
-.change-compare-meta-row {
+.change-compare-item + .change-compare-item {
+  border-top: 1px solid #dde3ea;
+}
+
+.change-compare-item-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  cursor: pointer;
 }
 
-.change-compare-meta-chip {
-  min-height: 24px;
-  padding: 0 10px;
-  border: 1px solid #d8e2ee;
-  border-radius: 999px;
-  background: #f8fafc;
-  color: #475569;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.change-compare-item-toggle:hover,
+.change-compare-item-toggle:focus-visible {
+  outline: none;
+  background: #f4f6f8;
 }
 
-.change-compare-toolbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 12px 18px;
-  border-bottom: 1px solid #eef2f7;
-  background: #fbfcfe;
-}
-
-.change-compare-timestamp {
-  color: #64748b;
-}
-
-.change-compare-select-shell {
+.change-compare-item-copy {
+  min-width: 0;
   display: grid;
   gap: 6px;
-  min-width: min(360px, 100%);
 }
 
-.change-compare-select-label {
-  color: #64748b;
+.change-compare-item-kicker {
+  color: #5b6573;
 }
 
-.change-compare-select-shell select {
-  min-width: 0;
-  max-width: 100%;
-  width: 100%;
-  border: 1px solid #d8e2ee;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #0f172a;
-  padding: 9px 12px;
-  font: 600 11px/1.3 var(--font-ui, sans-serif);
+.change-compare-item-title {
+  color: #18202b;
+  font: 500 16px/1.45 var(--font-ui, sans-serif);
+}
+
+.change-compare-item-chevron {
+  width: 16px;
+  height: 16px;
+  color: #5b6573;
+  flex: 0 0 auto;
+  transition: transform 180ms ease;
+}
+
+.change-compare-item[data-expanded="true"] .change-compare-item-chevron {
+  transform: rotate(180deg);
+}
+
+.change-compare-item-body {
+  display: grid;
+  gap: 14px;
+  padding: 0 18px 18px;
+}
+
+.change-compare-item-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.change-compare-item-summary-label {
+  color: #5b6573;
+}
+
+.change-compare-item-summary-copy {
+  margin: 0;
+  color: #3a4452;
+  font: 500 14px/1.55 var(--font-ui, sans-serif);
 }
 
 .change-compare-grid {
@@ -1489,18 +1500,43 @@ textarea:focus {
 .change-compare-panel {
   min-height: 320px;
   min-width: 0;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 0;
+  background: #f2f4f7;
   border-radius: 18px;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.05);
+}
+
+.change-compare-panel-title-row {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .change-compare-panel-title {
   margin: 0;
-  padding: 10px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  color: #475569;
-  background: rgba(255, 255, 255, 0.8);
+  color: #566171;
+  white-space: nowrap;
+}
+
+.change-compare-panel-anchor {
+  border: 0;
+  background: transparent;
+  color: #445264;
+  padding: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.change-compare-panel-anchor:hover,
+.change-compare-panel-anchor:focus-visible {
+  color: #1f2937;
+  outline: none;
 }
 
 .change-compare-text {
@@ -1510,7 +1546,7 @@ textarea:focus {
   overflow: auto;
   white-space: pre-wrap;
   font: 400 16px/1.65 var(--font-manuscript, serif);
-  color: #0f172a;
+  color: #17202a;
 }
 
 .change-compare-block-stack {
@@ -1521,16 +1557,12 @@ textarea:focus {
 
 .change-compare-block {
   display: grid;
-  gap: 8px;
+  gap: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   align-content: start;
-}
-
-.change-compare-block-label {
-  color: #64748b;
 }
 
 .change-compare-block-copy {
@@ -1547,7 +1579,7 @@ textarea:focus {
   background: transparent;
   padding: 0;
   font: 400 16px/1.65 var(--font-manuscript, serif);
-  color: #0f172a;
+  color: #17202a;
   overflow: hidden;
 }
 
@@ -1559,14 +1591,6 @@ textarea:focus {
 @media (max-width: 900px) {
   .change-compare-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .change-compare-toolbar {
-    justify-content: stretch;
-  }
-
-  .change-compare-select-shell {
-    width: 100%;
   }
 }
 
