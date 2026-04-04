@@ -113,6 +113,17 @@ export function ReviewRecommendationDetail({
   const prepareButtonLabel = currentItem.status === "dismissed" ? "Підготувати знову" : "Підготувати";
   const textDiffRegenerateLabel = hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати";
 
+  const calloutInsertDisabledReason = !canInsertCallout
+    ? "Спочатку підготуйте чернетку врізки."
+    : pendingRefineTitle;
+  const subsectionInsertDisabledReason = !canInsertSubsection
+    ? "Спочатку додайте підзаголовок."
+    : pendingRefineTitle;
+  const imageGenerateDisabledReason = hasPendingRefineInstruction ? pendingRefineTitle : undefined;
+  const imageApplyDisabledReason = !hasGeneratedAsset
+    ? "Спочатку згенеруйте зображення."
+    : pendingRefineTitle;
+
   useEffect(() => {
     if (isRefineOpen) {
       refineTextareaRef.current?.focus();
@@ -318,6 +329,7 @@ export function ReviewRecommendationDetail({
               variant="primary"
               onClick={() => onApplyCallout(currentItem)}
               disabled={!canInsertCallout || hasPendingRefineInstruction}
+              disabledReason={calloutInsertDisabledReason}
               title={!canInsertCallout ? undefined : pendingRefineTitle}
             >
               Вставити
@@ -360,6 +372,7 @@ export function ReviewRecommendationDetail({
               variant="primary"
               onClick={() => onApplySubsection(currentItem)}
               disabled={!canInsertSubsection || hasPendingRefineInstruction}
+              disabledReason={subsectionInsertDisabledReason}
               title={!canInsertSubsection ? undefined : pendingRefineTitle}
             >
               Вставити
@@ -430,6 +443,7 @@ export function ReviewRecommendationDetail({
               onClick={onGenerateActiveReviewImage}
               loading={reviewImageLoading}
               disabled={hasPendingRefineInstruction}
+              disabledReason={imageGenerateDisabledReason}
               title={pendingRefineTitle}
             >
               <span className="button-content">
@@ -446,6 +460,7 @@ export function ReviewRecommendationDetail({
               variant={hasGeneratedAsset ? "primary" : "secondary"}
               onClick={onApplyActiveReviewImage}
               disabled={!hasGeneratedAsset || hasPendingRefineInstruction}
+              disabledReason={imageApplyDisabledReason}
               title={!hasGeneratedAsset ? undefined : pendingRefineTitle}
             >
               <span className="button-content">
@@ -554,6 +569,7 @@ export function ReviewRecommendationDetail({
                     onClick={onGenerateActiveReviewImage}
                     loading={reviewImageLoading}
                     disabled={hasPendingRefineInstruction}
+                    disabledReason={imageGenerateDisabledReason}
                     title={pendingRefineTitle}
                   >
                     <span className="button-content">
@@ -570,6 +586,7 @@ export function ReviewRecommendationDetail({
                     variant={hasGeneratedAsset ? "primary" : "secondary"}
                     onClick={onApplyActiveReviewImage}
                     disabled={!hasGeneratedAsset || hasPendingRefineInstruction}
+                    disabledReason={imageApplyDisabledReason}
                     title={!hasGeneratedAsset ? undefined : pendingRefineTitle}
                   >
                     <span className="button-content">

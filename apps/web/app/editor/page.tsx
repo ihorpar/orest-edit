@@ -3183,6 +3183,15 @@ export default function EditorPage() {
         : activeWorkflowStep === "emphasis"
           ? canRequestReview
         : canRunDownstreamStep;
+  const activeStepRunDisabledReason = getActiveStepRunDisabledReason({
+    stepId: activeWorkflowStep,
+    canRun: activeStepCanRun,
+    canRequestReview,
+    canRunSpellcheck,
+    reviewExpertise,
+    isReviewRequestInFlight,
+    isSpellcheckRequestInFlight
+  });
   const activeStepHasPrerequisite =
     activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" || activeWorkflowStep === "emphasis"
       ? true
@@ -3973,6 +3982,7 @@ export default function EditorPage() {
                       loading={isReviewRequestInFlight}
                       loadingLabel={activeStepRunButtonLoadingLabel}
                       disabled={!activeStepCanRun}
+                      disabledReason={activeStepRunDisabledReason}
                       aria-label={activeStepHasExistingResult ? "Перезапустити етап" : "Запустити етап"}
                     >
                       <span className="button-content">
@@ -5276,6 +5286,50 @@ function buildReviewModeSummary(level: WholeTextChangeLevel, blockCount: number)
   const maxCards = Math.max(minCards, Math.ceil(targetCards * 1.25));
 
   return `Орієнтовно: ${minCards}–${maxCards} карток · Фокус: ${focusSummary}`;
+}
+
+function getActiveStepRunDisabledReason(input: {
+  stepId: WorkflowStepId;
+  canRun: boolean;
+  canRequestReview: boolean;
+  canRunSpellcheck: boolean;
+  reviewExpertise: string | null;
+  isReviewRequestInFlight: boolean;
+  isSpellcheckRequestInFlight: boolean;
+}): string | undefined {
+  if (input.canRun) {
+    return undefined;
+  }
+
+  if (input.stepId === "diagnostics" || input.stepId === "emphasis") {
+    if (input.isReviewRequestInFlight) {
+      return "Дочекайтеся завершення поточного запуску.";
+    }
+
+    if (!input.canRequestReview) {
+      return "Додайте текст рукопису, щоб запустити етап.";
+    }
+  }
+
+  if (input.stepId === "spellcheck") {
+    if (input.isSpellcheckRequestInFlight) {
+      return "Дочекайтеся завершення перевірки правопису.";
+    }
+
+    if (!input.canRunSpellcheck) {
+      return "Додайте текстові абзаци або заголовки, щоб запустити перевірку.";
+    }
+  }
+
+  if (!input.reviewExpertise?.trim()) {
+    return "Спочатку запустіть діагностику, щоб дати етапу контекст.";
+  }
+
+  if (input.isReviewRequestInFlight) {
+    return "Дочекайтеся завершення поточного запуску.";
+  }
+
+  return "Ця дія тимчасово недоступна.";
 }
 
 function getReviewModeFocusSummary(level: WholeTextChangeLevel): string {

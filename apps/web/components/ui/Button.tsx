@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, CSSProperties } from "react";
+import { useId, type ButtonHTMLAttributes, type CSSProperties } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
@@ -20,6 +20,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: ButtonSize;
   loading?: boolean;
   loadingLabel?: string;
+  disabledReason?: string;
 }
 
 export function Button({
@@ -27,35 +28,50 @@ export function Button({
   size = "md",
   loading,
   loadingLabel,
+  disabledReason,
   disabled,
   style,
   className,
   children,
   ...rest
 }: ButtonProps) {
+  const disabledReasonId = useId();
+  const isDisabled = Boolean(disabled || loading);
+  const visibleDisabledReason = isDisabled ? disabledReason?.trim() ?? "" : "";
+  const describedBy = [rest["aria-describedby"], visibleDisabledReason ? disabledReasonId : null].filter(Boolean).join(" ") || undefined;
+  const wrapperStyle = style?.width ? { width: style.width } : undefined;
+
   return (
-    <button
-      {...rest}
-      disabled={disabled || loading}
-      className={className ? `mono-ui ${className}` : "mono-ui"}
-      style={{
-        border: "1px solid #e2e8f0",
-        borderRadius: 0,
-        cursor: disabled || loading ? "not-allowed" : "pointer",
-        opacity: disabled || loading ? 0.6 : 1,
-        ...sizeStyle[size],
-        ...variantStyle[variant],
-        ...style
-      }}
-    >
-      {loading ? (
-        <span className="button-content">
-          <span className="button-spinner" aria-hidden="true" />
-          <span>{loadingLabel ?? "Зачекайте…"}</span>
+    <span className="button-stack" style={wrapperStyle}>
+      <button
+        {...rest}
+        disabled={isDisabled}
+        aria-describedby={describedBy}
+        className={className ? `mono-ui ${className}` : "mono-ui"}
+        style={{
+          border: "1px solid #e2e8f0",
+          borderRadius: 0,
+          cursor: isDisabled ? "not-allowed" : "pointer",
+          opacity: isDisabled ? 0.6 : 1,
+          ...sizeStyle[size],
+          ...variantStyle[variant],
+          ...style
+        }}
+      >
+        {loading ? (
+          <span className="button-content">
+            <span className="button-spinner" aria-hidden="true" />
+            <span>{loadingLabel ?? "Зачекайте…"}</span>
+          </span>
+        ) : (
+          children
+        )}
+      </button>
+      {visibleDisabledReason ? (
+        <span id={disabledReasonId} className="button-disabled-reason">
+          {visibleDisabledReason}
         </span>
-      ) : (
-        children
-      )}
-    </button>
+      ) : null}
+    </span>
   );
 }
