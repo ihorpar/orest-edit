@@ -17,9 +17,13 @@ After this refactor, the app should still look and behave the same in runtime, b
 - [x] (2026-04-04 00:00Z) Extracted `TopBar` styling into `apps/web/app/styles/layout.css`, including the later responsive topbar override block, while keeping the rest of the responsive shell in `globals.css`.
 - [x] (2026-04-04 00:00Z) Consolidated base primitives into `apps/web/app/styles/foundation.css`, including tokens, reset rules, button helpers, accessibility helpers, and shared form/select/toggle styles.
 - [x] (2026-04-04 00:00Z) Externalized sidebar and review-chat families into `apps/web/app/styles/sidebar.css` and `apps/web/app/styles/review-chat.css`, then removed duplicated late-stage sidebar/review-chat blocks from `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Moved the legacy review drawer, review-analysis, and `step-review-prototype-*` families into `apps/web/app/styles/overlays.css`, then removed the duplicated block from `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/review.css`, imported it from `apps/web/app/layout.tsx`, and moved the main review-card, detail, proposal, visual-style, and compact-card families out of `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/floating.css`, imported it from `apps/web/app/layout.tsx`, and moved the full floating composer family out of `apps/web/app/globals.css`, including panel shell, bridge/local surfaces, spellcheck results, review-mode theming, and feature-owned responsive overrides.
 - [x] (2026-04-04 00:00Z) Validated the extraction state with `npm run build -w @orest/web` and `npm run typecheck -w @orest/web`.
+- [x] (2026-04-04 00:00Z) Manually verified extracted auth, settings, topbar, overlay, review, and sidebar slices in runtime on `/login`, `/settings`, and `/editor` between extraction passes.
 - [ ] Continue the zero-visual-change extraction pass for higher-coupling global regions while preserving cascade behavior.
-- [ ] Validate that the extracted styles render identically in `/editor`, `/settings`, and `/login` in runtime, not just static build checks.
+- [ ] Validate the newly extracted floating slice in runtime on `/editor`, with emphasis on desktop/mobile composer states and review-mode variants.
 - [ ] Remove or isolate obvious legacy/prototype style regions only after extraction and runtime verification prove they are unused or superseded.
 - [ ] Define and begin the first CSS Module migration wave for isolated surfaces such as top bar, login, and settings.
 
@@ -48,6 +52,15 @@ After this refactor, the app should still look and behave the same in runtime, b
 - Observation: `npm run typecheck -w @orest/web` can fail transiently when `.next/types` has not been freshly regenerated in the current environment.
   Evidence: TypeScript reported missing `.next/types/...` files until `npm run build -w @orest/web` completed; rerunning typecheck immediately after the successful build passed cleanly.
 
+- Observation: some partials initially inherited selectors that were also still declared in other extracted files, so ownership cleanup had to follow immediately after extraction.
+  Evidence: `.review-sidebar-body` existed in both `apps/web/app/styles/review-chat.css` and the moved review-drawer block; consolidation left that selector owned by `apps/web/app/styles/overlays.css` only.
+
+- Observation: review ownership is now mostly centralized, but a few review-specific responsive tweaks still live inside broader shell media-query blocks in `globals.css`.
+  Evidence: selectors such as `.manuscript-review-detail-anchor`, `.editorial-review-head`, `.editorial-review-detail-head`, and `.suggestion-card-top` still appear inside existing responsive shell queries even after the main `review.css` extraction.
+
+- Observation: the floating composer is one coherent feature owner in React, but some of its low-level primitives are still shared with the review drawer.
+  Evidence: `FloatingComposerPanel.tsx` owns the `floating-panel*`, `floating-review*`, and `floating-bridge-*` families, while selectors such as `.panel-toggle`, `.floating-textarea`, and `.floating-textarea-shell` are also reused by `EditorialReviewDrawer.tsx`, so they can be extracted only as root-imported global CSS rather than as bridge-only ownership.
+
 ## Decision Log
 - Decision: the first refactor phase will split `apps/web/app/globals.css` into ordered global partials rather than convert the app directly to CSS Modules.
   Rationale: the current stylesheet contains source-order-dependent overrides. A direct module migration would add too much risk before ownership and cascade order are stabilized.
@@ -69,9 +82,13 @@ After this refactor, the app should still look and behave the same in runtime, b
   Rationale: consolidation reduces ambiguity faster than continuing to add parallel owners for the same selector family.
   Date/Author: 2026-04-04 / Codex
 
+- Decision: the legacy review drawer and `step-review-prototype-*` families should live in `apps/web/app/styles/overlays.css` until runtime proves they can be deleted entirely.
+  Rationale: they behave like cross-feature overlay surfaces today, and isolating them there removes confusion from `globals.css` without prematurely deleting potentially active UI.
+  Date/Author: 2026-04-04 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation has started with a real partial-style scaffold under `apps/web/app/styles/`. The validated owners now include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review-chat.css`, and `sidebar.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, and review-chat blocks while preserving editor-heavy regions in place. The app still passes production build and typecheck once `.next/types` has been regenerated by the build. Remaining gaps include runtime verification after the larger extraction pass, consolidation of overlay ownership, extraction of the more coupled layout/editor/review core, and confirming whether legacy review overlay and prototype styles near the bottom of `apps/web/app/globals.css` are still active.
+Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, and the full floating composer family while preserving editor-heavy and step-review-heavy regions in place. The app still passes production build and typecheck once `.next/types` has been regenerated by the build. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled editor and step-review workspace regions.
 
 ## Context and Orientation
 

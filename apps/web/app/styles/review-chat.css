@@ -1,11 +1,3 @@
-.review-sidebar-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-  height: calc(100vh - 120px);
-}
-
 .review-chat-flow {
   display: flex;
   flex-direction: column;
