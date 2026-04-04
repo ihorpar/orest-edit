@@ -20,9 +20,18 @@ After this refactor, the app should still look and behave the same in runtime, b
 - [x] (2026-04-04 00:00Z) Moved the legacy review drawer, review-analysis, and `step-review-prototype-*` families into `apps/web/app/styles/overlays.css`, then removed the duplicated block from `apps/web/app/globals.css`.
 - [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/review.css`, imported it from `apps/web/app/layout.tsx`, and moved the main review-card, detail, proposal, visual-style, and compact-card families out of `apps/web/app/globals.css`.
 - [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/floating.css`, imported it from `apps/web/app/layout.tsx`, and moved the full floating composer family out of `apps/web/app/globals.css`, including panel shell, bridge/local surfaces, spellcheck results, review-mode theming, and feature-owned responsive overrides.
+- [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/step-review.css`, imported it from `apps/web/app/layout.tsx`, and moved the step-review workspace, drawer, spellcheck, fact-check, context/config, and emphasis-module families out of `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Added `apps/web/app/styles/editor.css`, imported it from `apps/web/app/layout.tsx`, and moved the editor control, block-editor surface, spellcheck/emphasis, and inline-diff editor families out of `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Extended `apps/web/app/styles/editor.css` with the manuscript support and runtime/editor layer, including the manuscript toolbar helpers, selection/request-status surfaces, `cm-orest-*` runtime styles, and the inline manuscript diff/editing surface.
+- [x] (2026-04-04 00:00Z) Moved the rail prompt stack/input pair into `apps/web/app/styles/sidebar.css` so the right-rail content owner now owns that small prompt surface.
+- [x] (2026-04-04 00:00Z) Corrected the accidental shell/editor ownership drift from the rail extraction by moving the page shell layout rules into `apps/web/app/styles/layout.css` and the manuscript preview surfaces into `apps/web/app/styles/editor.css`, leaving `apps/web/app/styles/sidebar.css` focused on rail content.
 - [x] (2026-04-04 00:00Z) Validated the extraction state with `npm run build -w @orest/web` and `npm run typecheck -w @orest/web`.
 - [x] (2026-04-04 00:00Z) Manually verified extracted auth, settings, topbar, overlay, review, and sidebar slices in runtime on `/login`, `/settings`, and `/editor` between extraction passes.
-- [ ] Continue the zero-visual-change extraction pass for higher-coupling global regions while preserving cascade behavior.
+- [x] (2026-04-04 00:00Z) Continued the zero-visual-change extraction pass by isolating the full step-review surface into `apps/web/app/styles/step-review.css` and removing the matching selectors from `apps/web/app/globals.css` without changing the runtime cascade.
+- [x] (2026-04-04 00:00Z) Continued the zero-visual-change extraction pass by isolating the editor control, manuscript runtime, and block-editor surfaces into `apps/web/app/styles/editor.css` while keeping shared shell and overlay primitives in their current owners.
+- [x] (2026-04-04 00:00Z) Continued the zero-visual-change extraction pass by moving the rail prompt stack/input pair into `apps/web/app/styles/sidebar.css`.
+- [x] (2026-04-04 00:00Z) Continued the zero-visual-change extraction pass by moving the page shell layout rules into `apps/web/app/styles/layout.css` and the manuscript preview surfaces into `apps/web/app/styles/editor.css`, preserving the runtime cascade while correcting the accidental sidebar overlap from the prior pass.
+- [ ] Continue the zero-visual-change extraction pass for the remaining shell-responsive and manuscript-bridge regions in `apps/web/app/globals.css` while preserving cascade behavior.
 - [ ] Validate the newly extracted floating slice in runtime on `/editor`, with emphasis on desktop/mobile composer states and review-mode variants.
 - [ ] Remove or isolate obvious legacy/prototype style regions only after extraction and runtime verification prove they are unused or superseded.
 - [ ] Define and begin the first CSS Module migration wave for isolated surfaces such as top bar, login, and settings.
@@ -55,11 +64,23 @@ After this refactor, the app should still look and behave the same in runtime, b
 - Observation: some partials initially inherited selectors that were also still declared in other extracted files, so ownership cleanup had to follow immediately after extraction.
   Evidence: `.review-sidebar-body` existed in both `apps/web/app/styles/review-chat.css` and the moved review-drawer block; consolidation left that selector owned by `apps/web/app/styles/overlays.css` only.
 
+- Observation: a broad rail extraction can accidentally pull shell/editor chrome into the wrong partial, so the next pass may need to redistribute selectors across sibling owners before the globals file is reduced.
+  Evidence: the rail extraction temporarily moved `editor-layout`, `left-pane`, `right-pane`, `center-pane`, and manuscript preview selectors into `apps/web/app/styles/sidebar.css`; those selectors were then corrected into `apps/web/app/styles/layout.css` and `apps/web/app/styles/editor.css`.
+
 - Observation: review ownership is now mostly centralized, but a few review-specific responsive tweaks still live inside broader shell media-query blocks in `globals.css`.
   Evidence: selectors such as `.manuscript-review-detail-anchor`, `.editorial-review-head`, `.editorial-review-detail-head`, and `.suggestion-card-top` still appear inside existing responsive shell queries even after the main `review.css` extraction.
 
 - Observation: the floating composer is one coherent feature owner in React, but some of its low-level primitives are still shared with the review drawer.
   Evidence: `FloatingComposerPanel.tsx` owns the `floating-panel*`, `floating-review*`, and `floating-bridge-*` families, while selectors such as `.panel-toggle`, `.floating-textarea`, and `.floating-textarea-shell` are also reused by `EditorialReviewDrawer.tsx`, so they can be extracted only as root-imported global CSS rather than as bridge-only ownership.
+
+- Observation: the step-review workspace has a clean feature boundary, but its mobile overrides were mixed into a shared shell media query.
+  Evidence: the `step-review-*` family could move together into `apps/web/app/styles/step-review.css`, while the `@media (max-width: 900px)` block in `apps/web/app/globals.css` originally mixed step-review rules with `.editor-page-shell` and `.block-editor-row`.
+
+- Observation: the editor interaction layer is cohesive enough for its own partial, but the compare/visual modal family still fits better under overlays.
+  Evidence: editor controls, spellcheck/emphasis popovers, the block editor surface, and inline diff editors now live in `apps/web/app/styles/editor.css`, while `global-replace`, `change-compare`, and `visual-workspace` selectors remain owned by `apps/web/app/styles/overlays.css`.
+
+- Observation: the manuscript runtime/editor layer is now split from the shell while leaving the layout bridge selectors in `globals.css`.
+  Evidence: the manuscript toolbar helpers, selection/request-status surfaces, `cm-orest-*` runtime rules, and inline manuscript diff editor now live in `apps/web/app/styles/editor.css`, while shell-coupled selectors such as `.manuscript-page` and mixed `editor-layout` media queries remain global.
 
 ## Decision Log
 - Decision: the first refactor phase will split `apps/web/app/globals.css` into ordered global partials rather than convert the app directly to CSS Modules.
@@ -88,13 +109,24 @@ After this refactor, the app should still look and behave the same in runtime, b
 
 ## Outcomes & Retrospective
 
-Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, and the full floating composer family while preserving editor-heavy and step-review-heavy regions in place. The app still passes production build and typecheck once `.next/types` has been regenerated by the build. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled editor and step-review workspace regions.
+Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `step-review.css`, `editor.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, the full floating composer family, the entire step-review workspace/drawer/fact/spellcheck/emphasis cluster, the editor control/block-editor/inline-diff slices, and the rail prompt stack/input pair while preserving shell and remaining manuscript-facing regions in place. The app now passes production build and typecheck after the extraction. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled manuscript/rendering and sidebar/rail regions.
+Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `step-review.css`, `editor.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, the full floating composer family, the entire step-review workspace/drawer/fact/spellcheck/emphasis cluster, the editor control/block-editor/inline-diff slices, and the rail prompt stack/input pair while preserving shell and remaining manuscript-facing regions in place. The app now passes production build and typecheck after the extraction, including the later correction that moved the shell layout rules into `layout.css` and the manuscript preview surfaces into `editor.css`. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled manuscript/rendering and sidebar/rail regions.
 
 ## Context and Orientation
 
-The relevant application is the Next.js web app under `C:\Projects\oboz-ai\orest-edit\apps\web`. The root layout imports one stylesheet from `C:\Projects\oboz-ai\orest-edit\apps\web\app\layout.tsx`. That import is currently:
+The relevant application is the Next.js web app under `C:\Projects\oboz-ai\orest-edit\apps\web`. The root layout imports the shared stylesheet set from `C:\Projects\oboz-ai\orest-edit\apps\web\app\layout.tsx`. The current import sequence is:
 
+    import "./styles/foundation.css";
     import "./globals.css";
+    import "./styles/auth.css";
+    import "./styles/layout.css";
+    import "./styles/review.css";
+    import "./styles/floating.css";
+    import "./styles/step-review.css";
+    import "./styles/overlays.css";
+    import "./styles/review-chat.css";
+    import "./styles/sidebar.css";
+    import "./styles/settings.css";
 
 The stylesheet being refactored is:
 
@@ -197,8 +229,8 @@ Update the root layout imports so the order is explicit. The exact list may evol
     ./styles/settings.css
     ./styles/review.css
     ./styles/floating.css
-    ./styles/editor.css
     ./styles/step-review.css
+    ./styles/editor.css
     ./styles/sidebar.css
     ./styles/overlays.css
     ./styles/utilities.css

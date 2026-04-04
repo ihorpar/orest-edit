@@ -5,6 +5,7 @@ Status: Active handoff
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
+- The global stylesheet is being decomposed into ordered partials under `apps/web/app/styles/`, with ownership already split across foundation, layout, editor, review, floating, step-review, sidebar, overlays, auth, settings, and review-chat slices
 - Main working screen at `/editor`
 - `/editor` uses a block-first rich editor surface
 - Canonical editor state is `EditorDocument { version: 2, blocks[] }` with stable block IDs

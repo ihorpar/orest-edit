@@ -8,6 +8,8 @@ import "./styles/auth.css";
 import "./styles/layout.css";
 import "./styles/review.css";
 import "./styles/floating.css";
+import "./styles/step-review.css";
+import "./styles/editor.css";
 import "./styles/overlays.css";
 import "./styles/review-chat.css";
 import "./styles/sidebar.css";

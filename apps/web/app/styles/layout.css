@@ -61,3 +61,63 @@
   color: var(--surgical-blue);
   border-bottom: 1px solid var(--surgical-blue);
 }
+
+.editor-layout {
+  grid-template-columns: 216px minmax(0, 1fr) 320px;
+}
+
+.editor-layout[data-right-collapsed="true"] {
+  grid-template-columns: 216px minmax(0, 1fr);
+}
+
+.left-pane {
+  padding: 30px 18px 24px;
+}
+
+.right-pane {
+  padding: 24px 22px 32px;
+}
+
+.right-pane[data-collapsed="true"] {
+  display: none;
+}
+
+.center-pane {
+  padding: 48px 56px 72px;
+}
+
+@media (max-width: 1220px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .left-pane,
+  .right-pane {
+    display: none;
+  }
+
+  .center-pane {
+    padding: 24px 16px 160px;
+  }
+}
+
+@media (max-width: 1220px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .left-pane {
+    display: none;
+  }
+
+  .right-pane {
+    display: block;
+    border-left: 0;
+    border-top: 1px solid #eef2f7;
+    padding: 24px 16px 32px;
+  }
+
+  .center-pane {
+    padding: 24px 16px 24px;
+  }
+}
