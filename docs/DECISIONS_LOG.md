@@ -411,3 +411,10 @@ Reason: the editor is block-first internally, but manuscript handoff still needs
 Decision: `callout` and `image` remain first-class block types in the canonical document model.
 
 Reason: these content types need explicit structure, styling, insertion rules, and export behavior rather than paragraph-level hacks.
+
+## 2026-04-04
+
+### Global CSS refactoring should start with ordered partial extraction, not a full styling rewrite
+Decision: the web app should move away from one monolithic `apps/web/app/globals.css` by first splitting it into ordered global partials under `apps/web/app/styles/`, preserving selector names and cascade order. CSS Modules should be introduced later only for low-coupling islands such as top bar, login, and settings.
+
+Reason: the current stylesheet mixes multiple generations of layout and feature overrides. A direct rewrite into CSS Modules or a new styling system would create unnecessary regression risk before ownership boundaries and cascade order are stabilized.

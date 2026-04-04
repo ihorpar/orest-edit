@@ -1,0 +1,103 @@
+.review-sidebar-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  height: calc(100vh - 120px);
+}
+
+.review-chat-flow {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.review-chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.review-chat-bubble {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--porcelain);
+}
+
+.review-chat-bubble p {
+  margin-bottom: 8px;
+}
+
+.review-chat-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.review-chat-bubble h1,
+.review-chat-bubble h2,
+.review-chat-bubble h3 {
+  font-size: 14px;
+  margin: 12px 0 6px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.review-chat-expert {
+  border-bottom: 1px solid var(--porcelain);
+  padding-bottom: 16px;
+}
+
+.review-chat-expert .review-chat-bubble {
+  background: var(--porcelain);
+  color: var(--ink);
+}
+
+.review-chat-msg-user {
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.review-chat-msg-user .review-chat-bubble {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.review-chat-msg-assistant {
+  align-self: flex-start;
+  max-width: 85%;
+}
+
+.review-chat-msg-assistant .review-chat-bubble {
+  background: #fff;
+  border-left: 3px solid var(--surgical-blue);
+}
+
+.review-chat-input {
+  padding: 16px;
+  border-top: 1px solid var(--porcelain);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-chat-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--porcelain);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  background: #fcfcfc;
+}
+
+.review-chat-textarea:focus {
+  outline: none;
+  border-color: var(--surgical-blue);
+  background: #fff;
+}
