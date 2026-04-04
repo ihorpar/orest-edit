@@ -347,7 +347,7 @@ export function ReviewRecommendationDetail({
               value={subsectionDraft?.title ?? ""}
               onChange={(event) => onUpdateActiveSubsectionTitle(currentItem, event.target.value)}
             />
-            <p className="editorial-review-detail-label">Lead (опційно)</p>
+            <p className="editorial-review-detail-label">Вступ (опційно)</p>
             <textarea
               className="editorial-review-callout-body-input"
               value={subsectionDraft?.lead ?? ""}
@@ -384,7 +384,7 @@ export function ReviewRecommendationDetail({
       {!isPreparing && imageDraft ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-image-prompt-head">
-            <p className="editorial-review-detail-label">Prompt для візуалу</p>
+            <p className="editorial-review-detail-label">Опис для візуалу</p>
             <button
               type="button"
               className="editorial-review-focus-button"
@@ -504,7 +504,7 @@ export function ReviewRecommendationDetail({
             <header className="visual-workspace-head">
               <div className="visual-workspace-head-copy">
                 <p className="mono-ui visual-workspace-kicker">Фокусний режим</p>
-                <h3 className="visual-workspace-title">Візуал: prompt і результат</h3>
+                <h3 className="visual-workspace-title">Візуал: опис і результат</h3>
               </div>
               <button
                 type="button"
@@ -520,7 +520,7 @@ export function ReviewRecommendationDetail({
             <div className="visual-workspace-grid">
               <section className="visual-workspace-panel visual-workspace-panel-form">
                 <div className="visual-workspace-panel-head">
-                  <p className="mono-ui visual-workspace-panel-title">Prompt</p>
+                  <p className="mono-ui visual-workspace-panel-title">Опис</p>
                 </div>
                 <textarea
                   ref={visualWorkspacePromptRef}
@@ -559,9 +559,9 @@ export function ReviewRecommendationDetail({
                     size="sm"
                     variant={hasPendingRefineInstruction ? "primary" : "secondary"}
                     onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
-                    title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати prompt для візуалу."}
+                    title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати опис для візуалу."}
                   >
-                    {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати prompt"}
+                    {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати опис"}
                   </Button>
                   <Button
                     size="sm"
@@ -601,7 +601,7 @@ export function ReviewRecommendationDetail({
                 <div className="visual-workspace-panel-head">
                   <p className="mono-ui visual-workspace-panel-title">Результат</p>
                   <p className="visual-workspace-status">
-                    {hasGeneratedAsset ? "Згенеровано за поточним prompt." : "Ще не згенеровано."}
+                    {hasGeneratedAsset ? "Згенеровано за поточним описом." : "Ще не згенеровано."}
                   </p>
                 </div>
                 {hasGeneratedAsset && imageUrl ? (
@@ -610,12 +610,12 @@ export function ReviewRecommendationDetail({
                   </div>
                 ) : (
                   <div className="visual-workspace-preview-empty">
-                    <p>Підготуйте або відредагуйте prompt і запустіть генерацію.</p>
+                    <p>Підготуйте або відредагуйте опис і запустіть генерацію.</p>
                   </div>
                 )}
                 <div className="visual-workspace-meta">
                   <div className="visual-workspace-meta-row">
-                    <span className="mono-ui visual-workspace-meta-label">Alt</span>
+                    <span className="mono-ui visual-workspace-meta-label">Alt-текст</span>
                     <span className="visual-workspace-meta-value">{imageDraft.alt}</span>
                   </div>
                   {imageDraft.caption ? (

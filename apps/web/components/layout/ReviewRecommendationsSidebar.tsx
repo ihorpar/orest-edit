@@ -36,13 +36,13 @@ export function ReviewRecommendationsSidebar({
             <span />
             <span />
           </span>
-          <span className="mono-ui">Готую редакторський review…</span>
+          <span className="mono-ui">Готую редакторський огляд…</span>
         </div>
       ) : null}
 
       {!reviewLoading && reviewItems.length === 0 ? (
         <div className="operations-empty">
-          <p className="editor-note-copy">Після whole-text review тут з'являться компактні картки рекомендацій.</p>
+          <p className="editor-note-copy">Після огляду всього тексту тут з’являться компактні картки рекомендацій.</p>
         </div>
       ) : null}
 

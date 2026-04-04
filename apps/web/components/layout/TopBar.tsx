@@ -36,7 +36,7 @@ export function TopBar({
             OrestGPT <span className="brand-version">V1</span>
           </span>
         </div>
-        <nav className="nav-links" aria-label="main navigation">
+        <nav className="nav-links" aria-label="Основна навігація">
           <Link href="/editor" className="mono-ui nav-link" data-active={activePath === "/editor"}>
             {"\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440"}
           </Link>
