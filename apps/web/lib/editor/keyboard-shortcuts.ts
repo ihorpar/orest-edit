@@ -1,5 +1,6 @@
 export type UndoRedoHotkeyAction = "undo" | "redo";
 export type InlineFormatHotkeyCommand = "bold" | "italic";
+export type EditorHotkeyAction = "open_global_replace";
 
 type UndoRedoKeyboardEventLike = {
   metaKey: boolean;
@@ -65,6 +66,24 @@ export function getInlineFormatHotkeyCommand(event: UndoRedoKeyboardEventLike): 
 
   if (normalizedKey === "i") {
     return "italic";
+  }
+
+  return null;
+}
+
+export function getEditorHotkeyAction(event: UndoRedoKeyboardEventLike): EditorHotkeyAction | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+    return null;
+  }
+
+  if (event.code === "KeyH") {
+    return "open_global_replace";
+  }
+
+  const normalizedKey = event.key?.toLowerCase();
+
+  if (normalizedKey === "h") {
+    return "open_global_replace";
   }
 
   return null;

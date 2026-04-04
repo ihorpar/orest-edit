@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeTextBlockIntoPrevious, sliceDocumentForBlockRange, type EditorDocument } from "../lib/editor/document-model.ts";
+import { mergeTextBlockIntoPrevious, replaceTextInDocument, sliceDocumentForBlockRange, type EditorDocument } from "../lib/editor/document-model.ts";
 
 test("mergeTextBlockIntoPrevious merges paragraph text into the previous text block and returns the join offset", () => {
   const document: EditorDocument = {
@@ -109,4 +109,37 @@ test("sliceDocumentForBlockRange keeps selected blocks with one-block neighbor c
     ["p-1", "p-2", "p-3", "p-4", "p-5"]
   );
   assert.notEqual(sliced.blocks[1], document.blocks[1]);
+});
+
+test("replaceTextInDocument replaces repeated literal matches across text-bearing blocks", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p-1", type: "paragraph", content: [{ text: "skin skin", bold: true }] },
+      { id: "h-1", type: "heading", level: 2, content: [{ text: "skin heading" }] },
+      { id: "l-1", type: "bullet_list", items: [[{ text: "skin list" }]] },
+      { id: "i-1", type: "image", assetId: "asset-1", alt: "skin alt", caption: [{ text: "skin caption" }] }
+    ]
+  };
+
+  const result = replaceTextInDocument(document, "skin", "barrier");
+
+  assert.equal(result.replacementCount, 6);
+  assert.deepEqual(result.changedBlockIds, ["p-1", "h-1", "l-1", "i-1"]);
+
+  const paragraph = result.document.blocks[0];
+  const heading = result.document.blocks[1];
+  const list = result.document.blocks[2];
+  const image = result.document.blocks[3];
+
+  if (paragraph?.type !== "paragraph" || heading?.type !== "heading" || list?.type !== "bullet_list" || image?.type !== "image") {
+    assert.fail("Expected all updated block types to stay stable.");
+  }
+
+  assert.equal(paragraph.content[0]?.text, "barrier barrier");
+  assert.equal(paragraph.content[0]?.bold, true);
+  assert.equal(heading.content[0]?.text, "barrier heading");
+  assert.equal(list.items[0]?.[0]?.text, "barrier list");
+  assert.equal(image.alt, "barrier alt");
+  assert.equal(image.caption?.[0]?.text, "barrier caption");
 });

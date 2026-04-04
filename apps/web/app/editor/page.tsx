@@ -12,6 +12,7 @@ import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWork
 import { Button } from "../../components/ui/Button";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block, InlineNode } from "../../lib/editor/document-model";
 import {
+  countTextOccurrencesInDocument,
   createBlockId,
   createEmptyParagraphBlock,
   createInlineText,
@@ -24,6 +25,7 @@ import {
   insertBlocksAfter,
   normalizeBlockSelection,
   normalizeInlineNodes,
+  replaceTextInDocument,
   sliceDocumentForBlockRange,
   replaceBlocksByIds
 } from "../../lib/editor/document-model";
@@ -32,7 +34,7 @@ import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, typ
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
-import { getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
+import { getEditorHotkeyAction, getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 import {
   computeAnchorFingerprint,
   deriveManuscriptRevisionState,
@@ -141,6 +143,7 @@ import {
   Target,
   Trash2,
   X,
+  Replace,
   Upload
 } from "lucide-react";
 
@@ -345,6 +348,9 @@ export default function EditorPage() {
   const [stepSettingsOpen, setStepSettingsOpen] = useState(false);
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
+  const [isGlobalReplaceOpen, setIsGlobalReplaceOpen] = useState(false);
+  const [globalReplaceSearch, setGlobalReplaceSearch] = useState("");
+  const [globalReplaceReplacement, setGlobalReplaceReplacement] = useState("");
   const [reviewRefineInstruction, setReviewRefineInstruction] = useState("");
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<PendingDestructiveAction | null>(null);
   const [destructiveRecoveryState, setDestructiveRecoveryState] = useState<DestructiveRecoveryState | null>(null);
@@ -353,11 +359,16 @@ export default function EditorPage() {
   const destructiveRecoveryTimeoutRef = useRef<number | null>(null);
   const composerCloseTimeoutRef = useRef<number | null>(null);
   const selectionChangeNonceRef = useRef(0);
+  const globalReplaceSearchInputRef = useRef<HTMLInputElement | null>(null);
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
+  const globalReplaceMatchCount = useMemo(
+    () => countTextOccurrencesInDocument(document, globalReplaceSearch),
+    [document, globalReplaceSearch]
+  );
   const localActionRoute = useMemo<LocalActionRouteResponse>(
     () =>
       inferLocalActionRoute({
@@ -965,6 +976,88 @@ export default function EditorPage() {
     window.addEventListener("keydown", handleUndoRedoHotkeys);
     return () => window.removeEventListener("keydown", handleUndoRedoHotkeys);
   }, [mutationHistoryFuture.length, mutationHistoryPast.length]);
+
+  useEffect(() => {
+    function handleEditorHotkeys(event: KeyboardEvent) {
+      const action = getEditorHotkeyAction(event);
+
+      if (action !== "open_global_replace") {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+
+      if (target && target.closest("input, textarea, select") && !target.closest(".global-replace-dialog")) {
+        return;
+      }
+
+      event.preventDefault();
+      setIsGlobalReplaceOpen(true);
+    }
+
+    window.addEventListener("keydown", handleEditorHotkeys);
+    return () => window.removeEventListener("keydown", handleEditorHotkeys);
+  }, []);
+
+  useEffect(() => {
+    if (!isGlobalReplaceOpen) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      globalReplaceSearchInputRef.current?.focus();
+      globalReplaceSearchInputRef.current?.select();
+    });
+  }, [isGlobalReplaceOpen]);
+
+  useEffect(() => {
+    if (!isGlobalReplaceOpen) {
+      return;
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeGlobalReplace();
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isGlobalReplaceOpen]);
+
+  function closeGlobalReplace() {
+    setIsGlobalReplaceOpen(false);
+  }
+
+  function applyGlobalReplace() {
+    const searchText = globalReplaceSearch;
+
+    if (!searchText) {
+      setFeedback({ tone: "error", message: "Вкажіть текст для заміни." });
+      return;
+    }
+
+    const result = replaceTextInDocument(document, searchText, globalReplaceReplacement);
+
+    if (result.replacementCount === 0) {
+      setFeedback({ tone: "info", message: "Збігів не знайдено." });
+      return;
+    }
+
+    commitDocument(result.document, {
+      history: {
+        kind: "manual_edit",
+        label: "Глобальна заміна",
+        blockIds: result.changedBlockIds
+      }
+    });
+    focusAndHighlightChangedBlocks(result.changedBlockIds);
+    setFeedback({
+      tone: "info",
+      message: `Замінено: ${result.replacementCount} · Абз. зі змінами: ${result.changedBlockIds.length}.`
+    });
+    setIsGlobalReplaceOpen(false);
+  }
 
   function commitDocument(nextDocument: EditorDocument, options?: CommitDocumentOptions) {
     const nextRevision = deriveManuscriptRevisionState(nextDocument);
@@ -4267,6 +4360,79 @@ export default function EditorPage() {
         onStepSelect={(stepId) => selectWorkflowStep(stepId as WorkflowStepId)}
         initialDrawerWidth={560}
       />
+      {isGlobalReplaceOpen ? (
+        <div
+          className="global-replace-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeGlobalReplace();
+            }
+          }}
+        >
+          <section className="global-replace-dialog" role="dialog" aria-modal="true" aria-label="Глобальна заміна">
+            <header className="global-replace-head">
+              <div className="global-replace-head-copy">
+                <p className="global-replace-kicker mono-ui">Ctrl/Cmd+H</p>
+                <h3 className="global-replace-title">Глобальна заміна</h3>
+              </div>
+              <button
+                type="button"
+                className="draft-reset-dialog-close"
+                onClick={closeGlobalReplace}
+                aria-label="Закрити глобальну заміну"
+              >
+                <X className="draft-reset-dialog-close-icon" aria-hidden="true" />
+              </button>
+            </header>
+            <form
+              className="global-replace-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyGlobalReplace();
+              }}
+            >
+              <label className="global-replace-field">
+                <span className="mono-ui global-replace-label">Знайти</span>
+                <input
+                  ref={globalReplaceSearchInputRef}
+                  className="global-replace-input"
+                  value={globalReplaceSearch}
+                  onChange={(event) => setGlobalReplaceSearch(event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="global-replace-field">
+                <span className="mono-ui global-replace-label">Замінити на</span>
+                <input
+                  className="global-replace-input"
+                  value={globalReplaceReplacement}
+                  onChange={(event) => setGlobalReplaceReplacement(event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <div className="global-replace-foot">
+                <p className="global-replace-meta mono-ui">
+                  <Replace aria-hidden="true" />
+                  <span>Збігів: {globalReplaceMatchCount}</span>
+                </p>
+                <div className="global-replace-actions">
+                  <Button type="button" variant="ghost" size="sm" onClick={closeGlobalReplace}>
+                    Скасувати
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    disabled={!globalReplaceSearch || globalReplaceMatchCount === 0}
+                  >
+                    Замінити всюди
+                  </Button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
       {activeCompareEntry ? (
         <div
           className="change-compare-backdrop"

@@ -1110,6 +1110,115 @@ textarea:focus {
   overscroll-behavior: contain;
 }
 
+.global-replace-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(241, 245, 249, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.global-replace-dialog {
+  width: min(520px, calc(100vw - 32px));
+  border: 1px solid #dbe5f0;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+
+.global-replace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid #d9dfe7;
+  background: #f8f9fb;
+}
+
+.global-replace-head-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.global-replace-kicker {
+  margin: 0;
+  color: #5b6573;
+}
+
+.global-replace-title {
+  margin: 0;
+  color: #0f172a;
+  font: 700 26px/1.05 var(--font-ui, sans-serif);
+  letter-spacing: -0.04em;
+}
+
+.global-replace-form {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.global-replace-field {
+  display: grid;
+  gap: 8px;
+}
+
+.global-replace-label {
+  color: #5b6573;
+}
+
+.global-replace-input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #d5deea;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0 14px;
+  color: #0f172a;
+  font: 500 16px/1.4 var(--font-ui, sans-serif);
+}
+
+.global-replace-input:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.global-replace-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.global-replace-meta {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #5b6573;
+}
+
+.global-replace-meta svg {
+  width: 14px;
+  height: 14px;
+}
+
+.global-replace-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .change-compare-dialog {
   width: min(1040px, calc(100vw - 40px));
   max-height: calc(100vh - 48px);

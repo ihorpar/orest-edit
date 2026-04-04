@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getInlineFormatHotkeyCommand, getUndoRedoHotkeyAction } from "../lib/editor/keyboard-shortcuts.ts";
+import { getEditorHotkeyAction, getInlineFormatHotkeyCommand, getUndoRedoHotkeyAction } from "../lib/editor/keyboard-shortcuts.ts";
 
 test("getUndoRedoHotkeyAction matches undo and redo by physical key code", () => {
   assert.equal(
@@ -77,6 +77,32 @@ test("getInlineFormatHotkeyCommand ignores shifted or unrelated shortcuts", () =
   );
   assert.equal(
     getInlineFormatHotkeyCommand({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, code: "KeyU", key: "г" }),
+    null
+  );
+});
+
+test("getEditorHotkeyAction matches global replace by physical key code and latin fallback", () => {
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, code: "KeyH", key: "р" }),
+    "open_global_replace"
+  );
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: false, metaKey: true, altKey: false, shiftKey: false, key: "h" }),
+    "open_global_replace"
+  );
+});
+
+test("getEditorHotkeyAction ignores shifted, alt-modified, and unrelated shortcuts", () => {
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, code: "KeyH", key: "H" }),
+    null
+  );
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: true, shiftKey: false, code: "KeyH", key: "р" }),
+    null
+  );
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, code: "KeyJ", key: "о" }),
     null
   );
 });

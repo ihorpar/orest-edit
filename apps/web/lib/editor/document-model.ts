@@ -134,6 +134,50 @@ export function sliceDocumentForBlockRange(
   };
 }
 
+export function countTextOccurrencesInDocument(document: EditorDocument, searchText: string): number {
+  if (!searchText) {
+    return 0;
+  }
+
+  return document.blocks.reduce((total, block) => total + countTextOccurrencesInBlock(block, searchText), 0);
+}
+
+export function replaceTextInDocument(
+  document: EditorDocument,
+  searchText: string,
+  replacementText: string
+): { document: EditorDocument; replacementCount: number; changedBlockIds: string[] } {
+  if (!searchText) {
+    return {
+      document: cloneEditorDocument(document),
+      replacementCount: 0,
+      changedBlockIds: []
+    };
+  }
+
+  const changedBlockIds: string[] = [];
+  let replacementCount = 0;
+  const nextBlocks = document.blocks.map((block) => {
+    const result = replaceTextInBlock(block, searchText, replacementText);
+    replacementCount += result.replacementCount;
+
+    if (result.replacementCount > 0) {
+      changedBlockIds.push(block.id);
+    }
+
+    return result.block;
+  });
+
+  return {
+    document: {
+      version: 2,
+      blocks: nextBlocks
+    },
+    replacementCount,
+    changedBlockIds
+  };
+}
+
 export function normalizeInlineNodes(nodes: InlineNode[]): InlineNode[] {
   const normalized: InlineNode[] = [];
 
@@ -192,6 +236,166 @@ export function getBlockText(block: Block): string {
     case "table":
       return block.rows.map((row) => row.map((cell) => getInlineText(cell)).join(" | ")).join("\n");
   }
+}
+
+function countTextOccurrencesInBlock(block: Block, searchText: string): number {
+  switch (block.type) {
+    case "paragraph":
+    case "heading":
+      return countTextOccurrencesInInlineNodes(block.content, searchText);
+    case "bullet_list":
+    case "ordered_list":
+      return block.items.reduce((total, item) => total + countTextOccurrencesInInlineNodes(item, searchText), 0);
+    case "image":
+      return countLiteralOccurrences(block.alt, searchText) + countTextOccurrencesInInlineNodes(block.caption ?? [], searchText);
+    case "callout":
+      return countTextOccurrencesInInlineNodes(block.title, searchText)
+        + block.body.reduce((total, paragraph) => total + countTextOccurrencesInInlineNodes(paragraph, searchText), 0);
+    case "divider":
+      return 0;
+    case "table":
+      return block.rows.reduce(
+        (rowTotal, row) => rowTotal + row.reduce((cellTotal, cell) => cellTotal + countTextOccurrencesInInlineNodes(cell, searchText), 0),
+        0
+      );
+  }
+}
+
+function replaceTextInBlock(block: Block, searchText: string, replacementText: string): { block: Block; replacementCount: number } {
+  switch (block.type) {
+    case "paragraph": {
+      const result = replaceTextInInlineNodes(block.content, searchText, replacementText);
+      return { block: result.replacementCount > 0 ? { ...block, content: result.nodes } : block, replacementCount: result.replacementCount };
+    }
+    case "heading": {
+      const result = replaceTextInInlineNodes(block.content, searchText, replacementText);
+      return { block: result.replacementCount > 0 ? { ...block, content: result.nodes } : block, replacementCount: result.replacementCount };
+    }
+    case "bullet_list": {
+      let replacementCount = 0;
+      const nextItems = block.items.map((item) => {
+        const result = replaceTextInInlineNodes(item, searchText, replacementText);
+        replacementCount += result.replacementCount;
+        return result.nodes;
+      });
+      return { block: replacementCount > 0 ? { ...block, items: nextItems } : block, replacementCount };
+    }
+    case "ordered_list": {
+      let replacementCount = 0;
+      const nextItems = block.items.map((item) => {
+        const result = replaceTextInInlineNodes(item, searchText, replacementText);
+        replacementCount += result.replacementCount;
+        return result.nodes;
+      });
+      return { block: replacementCount > 0 ? { ...block, items: nextItems } : block, replacementCount };
+    }
+    case "image": {
+      const altResult = replaceLiteralText(block.alt, searchText, replacementText);
+      const captionResult = replaceTextInInlineNodes(block.caption ?? [], searchText, replacementText);
+      const replacementCount = altResult.replacementCount + captionResult.replacementCount;
+
+      if (replacementCount === 0) {
+        return { block, replacementCount: 0 };
+      }
+
+      return {
+        block: {
+          ...block,
+          alt: altResult.text,
+          caption: block.caption ? captionResult.nodes : block.caption
+        },
+        replacementCount
+      };
+    }
+    case "callout": {
+      const titleResult = replaceTextInInlineNodes(block.title, searchText, replacementText);
+      let replacementCount = titleResult.replacementCount;
+      const nextBody = block.body.map((paragraph) => {
+        const result = replaceTextInInlineNodes(paragraph, searchText, replacementText);
+        replacementCount += result.replacementCount;
+        return result.nodes;
+      });
+
+      return {
+        block: replacementCount > 0 ? { ...block, title: titleResult.nodes, body: nextBody } : block,
+        replacementCount
+      };
+    }
+    case "divider":
+      return { block, replacementCount: 0 };
+    case "table": {
+      let replacementCount = 0;
+      const nextRows = block.rows.map((row) =>
+        row.map((cell) => {
+          const result = replaceTextInInlineNodes(cell, searchText, replacementText);
+          replacementCount += result.replacementCount;
+          return result.nodes;
+        })
+      );
+
+      return {
+        block: replacementCount > 0 ? { ...block, rows: nextRows } : block,
+        replacementCount
+      };
+    }
+  }
+}
+
+function countTextOccurrencesInInlineNodes(nodes: InlineNode[], searchText: string): number {
+  return nodes.reduce((total, node) => total + countLiteralOccurrences(node.text, searchText), 0);
+}
+
+function replaceTextInInlineNodes(
+  nodes: InlineNode[],
+  searchText: string,
+  replacementText: string
+): { nodes: InlineNode[]; replacementCount: number } {
+  let replacementCount = 0;
+  const nextNodes = nodes.map((node) => {
+    const result = replaceLiteralText(node.text, searchText, replacementText);
+    replacementCount += result.replacementCount;
+    return result.replacementCount > 0 ? { ...node, text: result.text } : node;
+  });
+
+  return {
+    nodes: replacementCount > 0 ? normalizeInlineNodes(nextNodes) : cloneInlineNodes(nodes),
+    replacementCount
+  };
+}
+
+function replaceLiteralText(text: string, searchText: string, replacementText: string): { text: string; replacementCount: number } {
+  const replacementCount = countLiteralOccurrences(text, searchText);
+
+  if (replacementCount === 0) {
+    return { text, replacementCount: 0 };
+  }
+
+  return {
+    text: text.split(searchText).join(replacementText),
+    replacementCount
+  };
+}
+
+function countLiteralOccurrences(text: string, searchText: string): number {
+  if (!searchText) {
+    return 0;
+  }
+
+  let count = 0;
+  let index = 0;
+
+  while (index <= text.length - searchText.length) {
+    const nextIndex = text.indexOf(searchText, index);
+
+    if (nextIndex < 0) {
+      break;
+    }
+
+    count += 1;
+    index = nextIndex + searchText.length;
+  }
+
+  return count;
 }
 
 export function isTextBlock(block: Block): block is ParagraphBlock | HeadingBlock {
