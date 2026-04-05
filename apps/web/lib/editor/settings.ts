@@ -269,12 +269,18 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   ]
 };
 
+const DEFAULT_PROVIDER_MODEL_IDS: Record<ProviderId, string> = {
+  openai: "gpt-5.4",
+  anthropic: "claude-opus-4-6",
+  gemini: "gemini-3.1-flash-lite-preview"
+};
+
 export function getProviderModelPresets(provider: ProviderId): ProviderModelPreset[] {
   return PROVIDER_MODEL_PRESETS[provider];
 }
 
 export function getDefaultProviderModelId(provider: ProviderId): string {
-  return PROVIDER_MODEL_PRESETS[provider][0]?.id ?? "";
+  return DEFAULT_PROVIDER_MODEL_IDS[provider] ?? "";
 }
 
 export function findProviderModelPreset(provider: ProviderId, modelId: string): ProviderModelPreset | null {

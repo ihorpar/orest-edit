@@ -9,6 +9,7 @@ import {
   DEFAULT_EXPERTISE_PROMPT,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
   DEFAULT_EDITOR_SETTINGS,
+  getDefaultProviderModelId,
   getVisualStylePresetGuide,
   getVisualStylePresetOptions,
   normalizeVisualStylePreset,
@@ -53,6 +54,11 @@ test("visual style preset helpers expose all supported presets and fallback safe
   assert.match(getVisualStylePresetGuide("modern_glass"), /liquid-glass/i);
   assert.equal(normalizeVisualStylePreset("neo_brutal"), "neo_brutal");
   assert.equal(normalizeVisualStylePreset("unknown-style"), "calm_gradient");
+});
+
+test("Gemini defaults to the flash-lite preset", () => {
+  assert.equal(getDefaultProviderModelId("gemini"), "gemini-3.1-flash-lite-preview");
+  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gemini-3.1-flash-lite-preview");
 });
 
 test("writeEditorSettings persists selected Gemini connection to localStorage", () => {
