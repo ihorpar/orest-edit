@@ -1490,9 +1490,13 @@
 }
 
 .editorial-review-card-compact:focus-visible {
-  outline: none;
+  outline: 2px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
 }
 
 .editorial-review-card-compact:focus-within {
-  outline: none;
+  outline: 2px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
 }

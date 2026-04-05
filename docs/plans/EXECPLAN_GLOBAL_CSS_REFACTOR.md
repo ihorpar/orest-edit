@@ -25,6 +25,10 @@ After this refactor, the app should still look and behave the same in runtime, b
 - [x] (2026-04-04 00:00Z) Extended `apps/web/app/styles/editor.css` with the manuscript support and runtime/editor layer, including the manuscript toolbar helpers, selection/request-status surfaces, `cm-orest-*` runtime styles, and the inline manuscript diff/editing surface.
 - [x] (2026-04-04 00:00Z) Moved the rail prompt stack/input pair into `apps/web/app/styles/sidebar.css` so the right-rail content owner now owns that small prompt surface.
 - [x] (2026-04-04 00:00Z) Corrected the accidental shell/editor ownership drift from the rail extraction by moving the page shell layout rules into `apps/web/app/styles/layout.css` and the manuscript preview surfaces into `apps/web/app/styles/editor.css`, leaving `apps/web/app/styles/sidebar.css` focused on rail content.
+- [x] (2026-04-04 00:00Z) Addressed the review findings from the partial extraction pass by constraining the late shell breakpoint so the mobile stack wins at narrow widths, restoring click-away behavior for the review drawer backdrop, and adding a visible keyboard focus ring to compact review cards.
+- [x] (2026-04-04 00:00Z) Continued the extraction pass by moving the remaining shell base rules into `apps/web/app/styles/layout.css` and the manuscript runtime/editor block into `apps/web/app/styles/editor.css`, then deleting the duplicated copies from `apps/web/app/globals.css`.
+- [x] (2026-04-04 00:00Z) Audited the remaining mixed layer in `apps/web/app/globals.css` and defined the final shell/manuscript-bridge cleanup subsection based on the current selector clusters.
+- [x] (2026-04-04 00:00Z) Expanded the remaining cleanup subsection into a dedicated final mixed-responsive layer plan, separating shell/mobile chrome, manuscript bridge, and the shared responsive tail.
 - [x] (2026-04-04 00:00Z) Validated the extraction state with `npm run build -w @orest/web` and `npm run typecheck -w @orest/web`.
 - [x] (2026-04-04 00:00Z) Manually verified extracted auth, settings, topbar, overlay, review, and sidebar slices in runtime on `/login`, `/settings`, and `/editor` between extraction passes.
 - [x] (2026-04-04 00:00Z) Continued the zero-visual-change extraction pass by isolating the full step-review surface into `apps/web/app/styles/step-review.css` and removing the matching selectors from `apps/web/app/globals.css` without changing the runtime cascade.
@@ -49,6 +53,9 @@ After this refactor, the app should still look and behave the same in runtime, b
 - Observation: responsive behavior is fragmented by repeated breakpoint clusters rather than being owned cleanly by feature files.
   Evidence: the audit found the `1220px` breakpoint repeated several times in different parts of `apps/web/app/globals.css`, often affecting overlapping selectors.
 
+- Observation: the remaining spillover is concentrated in three breakpoint clusters rather than one flat tail, so the final split needs to preserve breakpoint ownership as well as selector ownership.
+  Evidence: the remaining `1220px`, `1024px`, and `720px` blocks each mix shell, manuscript, and review selectors differently, which makes a straight file-by-file move risky.
+
 - Observation: a staged extraction can work safely even before the full style directory exists, as long as the moved slice has low overlap with later selectors.
   Evidence: moving `auth` and the late `settings redesign` region into `apps/web/app/styles/auth.css` and `apps/web/app/styles/settings.css` kept `npm run typecheck -w @orest/web` and `npm run build -w @orest/web` green.
 
@@ -66,6 +73,15 @@ After this refactor, the app should still look and behave the same in runtime, b
 
 - Observation: a broad rail extraction can accidentally pull shell/editor chrome into the wrong partial, so the next pass may need to redistribute selectors across sibling owners before the globals file is reduced.
   Evidence: the rail extraction temporarily moved `editor-layout`, `left-pane`, `right-pane`, `center-pane`, and manuscript preview selectors into `apps/web/app/styles/sidebar.css`; those selectors were then corrected into `apps/web/app/styles/layout.css` and `apps/web/app/styles/editor.css`.
+
+- Observation: moving shell and overlay selectors into partials can surface regressions that were previously masked by globals ordering, especially around narrow-width breakpoints and backdrop click targets.
+  Evidence: the review pass found a late `@media (max-width: 1220px)` override in `apps/web/app/styles/layout.css`, a non-interactive `review-drawer-overlay`, and an unfocused `editorial-review-card-compact` state that needed explicit fixes.
+
+- Observation: large global CSS deletions are safer when we remove one ownership block at a time and immediately validate the file parse.
+  Evidence: a scripted `globals.css` cleanup left stray `@media (max-width: 1220px)` wrappers at the top of the file; deleting the wrappers directly restored a valid stylesheet before the build/typecheck gate.
+
+- Observation: the remaining `globals.css` selectors are no longer a monolith; they cluster into shell/mobile chrome, manuscript bridge rules, and a few still-mixed responsive blocks.
+  Evidence: current audit shows one group centered on `.editor-layout`/`.mobile-pane`, another around `.manuscript-*` bridge rules and review footers, and a smaller set of shared responsive selectors such as `.rail-section-head`, `.editorial-review-head`, `.editorial-review-detail-head`, and `.settings-sheet`.
 
 - Observation: review ownership is now mostly centralized, but a few review-specific responsive tweaks still live inside broader shell media-query blocks in `globals.css`.
   Evidence: selectors such as `.manuscript-review-detail-anchor`, `.editorial-review-head`, `.editorial-review-detail-head`, and `.suggestion-card-top` still appear inside existing responsive shell queries even after the main `review.css` extraction.
@@ -110,7 +126,7 @@ After this refactor, the app should still look and behave the same in runtime, b
 ## Outcomes & Retrospective
 
 Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `step-review.css`, `editor.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, the full floating composer family, the entire step-review workspace/drawer/fact/spellcheck/emphasis cluster, the editor control/block-editor/inline-diff slices, and the rail prompt stack/input pair while preserving shell and remaining manuscript-facing regions in place. The app now passes production build and typecheck after the extraction. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled manuscript/rendering and sidebar/rail regions.
-Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `step-review.css`, `editor.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, the full floating composer family, the entire step-review workspace/drawer/fact/spellcheck/emphasis cluster, the editor control/block-editor/inline-diff slices, and the rail prompt stack/input pair while preserving shell and remaining manuscript-facing regions in place. The app now passes production build and typecheck after the extraction, including the later correction that moved the shell layout rules into `layout.css` and the manuscript preview surfaces into `editor.css`. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the more coupled manuscript/rendering and sidebar/rail regions.
+Implementation now has a real partial-style scaffold under `apps/web/app/styles/`. The validated owners include `foundation.css`, `auth.css`, `layout.css`, `settings.css`, `review.css`, `floating.css`, `step-review.css`, `editor.css`, `review-chat.css`, `sidebar.css`, and `overlays.css`, all imported from `apps/web/app/layout.tsx`. `apps/web/app/globals.css` has been materially reduced by removing extracted auth, settings, topbar, sidebar, review-chat, review-drawer, review-analysis, `step-review-prototype-*`, the main review-card/detail/proposal/compact-card blocks, the full floating composer family, the entire step-review workspace/drawer/fact/spellcheck/emphasis cluster, the editor control/block-editor/inline-diff slices, the rail prompt stack/input pair, the shell base rules, and the manuscript runtime/editor block while preserving the remaining responsive shell and some manuscript bridge overrides in place. The app now passes production build and typecheck after the extraction, including the later corrections for breakpoint behavior, backdrop click-away, keyboard focus visibility, and the parse cleanup after the scripted `globals.css` delete. Remaining gaps include runtime verification for the newly extracted floating slice, cleanup of the remaining review-specific responsive tweaks still embedded in shell media queries, and extraction of the remaining shell/responsive and manuscript-bridge regions.
 
 ## Context and Orientation
 
@@ -195,6 +211,31 @@ The following style families should remain global until after the extraction pas
     floating composer
     step review workspace
     review recommendation detail and proposal surfaces
+
+## Residual Mixed Layer
+
+The last cleanup phase should treat `apps/web/app/globals.css` as one shell-owned responsive block, one manuscript-owned bridge block, and one genuinely shared tail.
+
+`layout.css` should own the shell/mobile chrome that still lives in `globals.css`: `.editor-layout` variants, `.left-pane`, `.right-pane`, `.center-pane`, `.mobile-pane`, `.mobile-pane-left`, `.mobile-pane-right`, `.mobile-pane-card`, `.button-row`, the remaining `topbar` responsive rules, `.sidebar-stack`, `.sidebar-section`, `.chapter-*`, `.status-*`, `.source-*`, and `.pending-*`, along with the pure shell portions of the `1024px` and `720px` responsive blocks.
+
+`editor.css` should own the manuscript bridge and editor-runtime leftovers: `.manuscript-image-loading`, `.manuscript-image-missing`, `.manuscript-image-dropzone`, `.manuscript-persistent-selection`, `.manuscript-applied-diff`, `.manuscript-review-inline-anchor`, `.manuscript-review-detail-anchor`, `.manuscript-review-footer`, `.manuscript-review-actions`, `.manuscript-review-secondary`, `.manuscript-review-toggle`, `.manuscript-meta-row`, `.manuscript-editor-frame`, `.manuscript-editor-copy`, `.manuscript-page`, `.manuscript-paragraph`, `.manuscript-callout`, `.manuscript-textarea`, `.manuscript-markdown-flow`, `.manuscript-paragraph-number`, `.cm-orest-side-panel`, `.cm-orest-diff-review-head`, `.cm-orest-diff-review-meta`, `.cm-orest-editor-host .cm-editor`, `.cm-orest-editor-host .cm-gutters`, `.cm-orest-paragraph-gutter`, and `.cm-orest-paragraph-gutter-marker`.
+
+The genuinely shared tail should stay in `globals.css` until the two owners above are isolated: `rail-section-head`, `suggestion-card-top`, `editorial-review-head`, `editorial-review-detail-head`, `settings-sheet`, and any remaining shared responsive lines that combine shell, manuscript, and review selectors in the same media query.
+
+### Final Mixed Responsive Layer
+
+This is the last high-coupling cleanup pass before the stylesheet can be considered structurally split. The goal is to remove the remaining responsive spillover without changing visual behavior.
+
+Audit findings that define this pass:
+- `@media (max-width: 1220px)` is still mixed: it contains manuscript frame/page/callout rules, review footer and button layout, side-panel positioning, and review-head alignment in one block.
+- `@media (max-width: 1024px)` still mixes shell collapse rules with manuscript page sizing, toolbar alignment, review/footer rows, `rail-section-head`, `suggestion-card-top`, and `settings-sheet`.
+- `@media (max-width: 720px)` still mixes `topbar` chrome, manuscript text scaling, review-sidebar layout, `settings-sheet`, and `cm-orest-side-panel` tweaks.
+
+Recommended extraction order:
+1. Move the pure shell/mobile chrome lines into `layout.css`.
+2. Move the manuscript-specific responsive overrides into `editor.css`.
+3. Leave the cross-feature head and settings tail in `globals.css` only until both major owners are clean.
+4. Re-run `npm run build -w @orest/web` and `npm run typecheck -w @orest/web` after each split if the moved selectors touch a shared breakpoint.
 
 ## Plan of Work
 

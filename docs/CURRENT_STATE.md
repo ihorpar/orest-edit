@@ -1,11 +1,13 @@
 # CURRENT_STATE
 
-Date: 2026-03-26
+Date: 2026-04-04
 Status: Active handoff
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
 - The global stylesheet is being decomposed into ordered partials under `apps/web/app/styles/`, with ownership already split across foundation, layout, editor, review, floating, step-review, sidebar, overlays, auth, settings, and review-chat slices
+- The latest extraction pass moved the shell base rules into `apps/web/app/styles/layout.css` and the manuscript runtime/editor block into `apps/web/app/styles/editor.css`, while leaving the remaining responsive shell and manuscript-bridge overrides in `apps/web/app/globals.css`
+- The remaining `globals.css` tail is now understood as a breakpoint-coordination layer plus a small shared responsive tail, with shell/mobile chrome slated for `layout.css`, manuscript bridge rules for `editor.css`, and the mixed head/settings selectors left global until the last split
 - Main working screen at `/editor`
 - `/editor` uses a block-first rich editor surface
 - Canonical editor state is `EditorDocument { version: 2, blocks[] }` with stable block IDs

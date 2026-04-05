@@ -734,7 +734,7 @@
   position: fixed;
   inset: 0;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 1000;
   display: flex;
   justify-content: flex-end;
