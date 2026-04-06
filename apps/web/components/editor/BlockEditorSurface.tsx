@@ -88,6 +88,8 @@ type EmphasisSuggestion = {
   };
 };
 
+type ExternalEditorCommand = "toggle-bullet-list";
+
 type RichTextContext = {
   element: HTMLDivElement;
   html: string;
@@ -134,6 +136,7 @@ export function BlockEditorSurface({
   spellcheckResults = [],
   onApplySpellcheckSuggestion,
   onDismissSpellcheckIssue,
+  onAddSpellcheckWordToDictionary,
   emphasisSuggestions = [],
   onApplyEmphasisSuggestion,
   onDismissEmphasisSuggestion,
@@ -142,7 +145,9 @@ export function BlockEditorSurface({
   canCompare = false,
   onUndo,
   onRedo,
-  onCompare
+  onCompare,
+  editorHotkeyCommand,
+  editorHotkeyCommandNonce = 0
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -185,6 +190,7 @@ export function BlockEditorSurface({
   spellcheckResults?: SpellcheckBlockResult[];
   onApplySpellcheckSuggestion?: (input: { blockId: string; issueId: string; suggestion: string }) => void;
   onDismissSpellcheckIssue?: (input: { blockId: string; issueId: string }) => void;
+  onAddSpellcheckWordToDictionary?: (input: { blockId: string; issueId: string; word: string }) => void | Promise<void>;
   emphasisSuggestions?: EmphasisSuggestion[];
   onApplyEmphasisSuggestion?: (input: { itemId: string }) => void;
   onDismissEmphasisSuggestion?: (input: { itemId: string }) => void;
@@ -194,6 +200,8 @@ export function BlockEditorSurface({
   onUndo?: () => void;
   onRedo?: () => void;
   onCompare?: () => void;
+  editorHotkeyCommand?: ExternalEditorCommand | null;
+  editorHotkeyCommandNonce?: number;
 }) {
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
@@ -627,24 +635,29 @@ export function BlockEditorSurface({
   }
 
   function insertLineBreak(context: RichTextContext) {
-    const selection = window.getSelection();
+    const canUseExecCommand = typeof window.document.execCommand === "function";
+    const didInsert = canUseExecCommand ? window.document.execCommand("insertLineBreak") : false;
 
-    if (!selection || selection.rangeCount === 0) {
-      return;
+    if (!didInsert) {
+      const selection = window.getSelection();
+
+      if (!selection || selection.rangeCount === 0) {
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      const br = window.document.createElement("br");
+      range.insertNode(br);
+      range.setStartAfter(br);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      queueMicrotask(() => {
+        context.element.dispatchEvent(new Event("input", { bubbles: true }));
+      });
     }
-
-    const range = selection.getRangeAt(0);
-    range.deleteContents();
-    const br = window.document.createElement("br");
-    range.insertNode(br);
-    range.setStartAfter(br);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    queueMicrotask(() => {
-      context.element.dispatchEvent(new Event("input", { bubbles: true }));
-    });
   }
 
   function handleTextBlockBackspace(block: ParagraphBlock | HeadingBlock, context: RichTextContext): boolean {
@@ -795,6 +808,26 @@ export function BlockEditorSurface({
 
     return map;
   }, [emphasisSuggestions]);
+
+  useEffect(() => {
+    if (!editorHotkeyCommand || editorHotkeyCommandNonce <= 0 || disabled) {
+      return;
+    }
+
+    if (editorHotkeyCommand === "toggle-bullet-list") {
+      handleBlockFormat("bullet-list");
+    }
+  }, [disabled, editorHotkeyCommand, editorHotkeyCommandNonce]);
+
+  function dismissSpellcheckPopoverIssue(blockId: string, issueId: string) {
+    onDismissSpellcheckIssue?.({ blockId, issueId });
+    setActiveSpellcheckPopover(null);
+  }
+
+  function addSpellcheckPopoverWordToDictionary(blockId: string, issueId: string, word: string) {
+    void onAddSpellcheckWordToDictionary?.({ blockId, issueId, word });
+    setActiveSpellcheckPopover(null);
+  }
 
   return (
     <div className="block-editor-shell">
@@ -1156,8 +1189,8 @@ export function BlockEditorSurface({
                 <button
                   type="button"
                   className="spellcheck-popover-close"
-                  aria-label="Закрити підказки"
-                  onClick={() => setActiveSpellcheckPopover(null)}
+                  aria-label="Залишити слово без змін і закрити"
+                  onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
                 >
                   <X size={14} aria-hidden="true" />
                 </button>
@@ -1184,15 +1217,16 @@ export function BlockEditorSurface({
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
-                    onClick={() => {
-                      onDismissSpellcheckIssue?.({
-                        blockId: activeSpellcheckPopover.blockId,
-                        issueId: issue.id
-                      });
-                      setActiveSpellcheckPopover(null);
-                    }}
+                    onClick={() => addSpellcheckPopoverWordToDictionary(activeSpellcheckPopover.blockId, issue.id, issue.badText)}
                   >
-                    × Залишити як є
+                    Додати у словник
+                  </button>
+                  <button
+                    type="button"
+                    className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                    onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
+                  >
+                    Залишити як є
                   </button>
                 </div>
               ) : (
@@ -1200,15 +1234,16 @@ export function BlockEditorSurface({
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
-                    onClick={() => {
-                      onDismissSpellcheckIssue?.({
-                        blockId: activeSpellcheckPopover.blockId,
-                        issueId: issue.id
-                      });
-                      setActiveSpellcheckPopover(null);
-                    }}
+                    onClick={() => addSpellcheckPopoverWordToDictionary(activeSpellcheckPopover.blockId, issue.id, issue.badText)}
                   >
-                    × Залишити як є
+                    Додати у словник
+                  </button>
+                  <button
+                    type="button"
+                    className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                    onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
+                  >
+                    Залишити як є
                   </button>
                 </div>
               )}

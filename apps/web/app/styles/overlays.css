@@ -1379,3 +1379,239 @@
 .step-review-prototype-meta-line-inline {
   padding: 0 0 8px;
 }
+
+.step-review-prototype-content-spellcheck,
+.step-review-prototype-content-emphasis {
+  gap: 14px;
+}
+
+.step-review-prototype-content-spellcheck {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-bottom: 0;
+}
+
+.step-review-prototype-spellcheck-list {
+  display: grid;
+  gap: 0;
+  min-height: 0;
+  padding-bottom: 24px;
+}
+
+.step-review-prototype-spellcheck-card {
+  border: 0;
+  border-bottom: 1px solid #e6e9ed;
+  background: transparent;
+  display: grid;
+  gap: 0;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    opacity 220ms ease,
+    transform 220ms ease,
+    border-color 220ms ease;
+}
+
+.step-review-prototype-spellcheck-card:hover {
+  background: transparent;
+  border-color: #e6e9ed;
+}
+
+.step-review-prototype-spellcheck-card[data-active="true"] {
+  background: rgba(239, 241, 243, 0.42);
+  transform: translateY(-1px);
+}
+
+.step-review-prototype-spellcheck-card[data-tone="error"] {
+  border-bottom-color: rgba(220, 38, 38, 0.12);
+}
+
+.step-review-prototype-spellcheck-card:focus-visible,
+.step-review-prototype-spellcheck-card:focus-within {
+  outline: none;
+  background: rgba(239, 241, 243, 0.42);
+}
+
+.step-review-prototype-spellcheck-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 24px 8px;
+}
+
+.step-review-prototype-spellcheck-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.step-review-prototype-spellcheck-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.38;
+  letter-spacing: -0.02em;
+  color: #17202a;
+  font-family: var(--font-ui, sans-serif);
+}
+
+.step-review-prototype-spellcheck-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #6b7280;
+  font: 500 13px/1.2 var(--font-ui, sans-serif);
+}
+
+.step-review-prototype-spellcheck-card-count {
+  color: #6b7280;
+}
+
+.step-review-prototype-spellcheck-card-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.step-review-prototype-spellcheck-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #e9f0ff;
+  color: #2455d6;
+  font: 600 11px/1 var(--font-ui, sans-serif);
+}
+
+.step-review-prototype-spellcheck-expand {
+  flex-shrink: 0;
+}
+
+.step-review-prototype-spellcheck-card-body {
+  display: grid;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  overflow: hidden;
+  padding: 0 24px;
+  transition:
+    max-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 180ms ease,
+    padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: max-height, opacity, transform;
+}
+
+.step-review-prototype-spellcheck-card[data-expanded="true"] .step-review-prototype-spellcheck-card-body {
+  max-height: 720px;
+  opacity: 1;
+  transform: translateY(0);
+  padding-bottom: 20px;
+}
+
+.step-review-prototype-spellcheck-card-body-inner {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+}
+
+.step-review-prototype-spellcheck-error-copy {
+  margin: 0;
+  color: #b91c1c;
+}
+
+.step-review-prototype-spellcheck-issues {
+  display: grid;
+  gap: 0;
+}
+
+.step-review-prototype-spellcheck-issue {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0 0;
+  border-top: 1px solid #eef2f7;
+}
+
+.step-review-prototype-spellcheck-issue:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.step-review-prototype-spellcheck-issue-head,
+.step-review-prototype-spellcheck-actions,
+.step-review-prototype-spellcheck-chips {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.step-review-prototype-spellcheck-issue-head code {
+  padding: 2px 0;
+  background: transparent;
+  color: #0f172a;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+
+.step-review-prototype-spellcheck-issue-meta {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.step-review-prototype-spellcheck-issue-copy {
+  margin: 0;
+  color: #3d4754;
+  font: 400 15px/1.6 var(--font-ui, sans-serif);
+}
+
+.step-review-prototype-spellcheck-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #bfdbfe;
+  background: #f8fbff;
+  color: #1d4ed8;
+  font: 600 12px/1 var(--font-ui, sans-serif);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 180ms ease;
+}
+
+.step-review-prototype-spellcheck-chip:hover,
+.step-review-prototype-spellcheck-chip:focus-visible {
+  border-color: #93c5fd;
+  background: #eef4ff;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.step-review-prototype-spellcheck-chip-muted {
+  border-color: #e2e8f0;
+  background: #fff;
+  color: #475569;
+}
+
+.step-review-prototype-spellcheck-chip-muted:hover,
+.step-review-prototype-spellcheck-chip-muted:focus-visible {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.step-review-prototype-spellcheck-actions {
+  padding-top: 2px;
+}
+.step-review-prototype-spellcheck-actions {
+  padding-top: 2px;
+}

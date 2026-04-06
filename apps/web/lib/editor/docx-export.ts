@@ -278,25 +278,37 @@ function renderInlineNodes(nodes: InlineNode[]): ParagraphChild[] {
   const children: ParagraphChild[] = [];
 
   for (const node of nodes) {
-    const run = new TextRun({
-      text: node.text,
-      bold: node.bold,
-      italics: node.italic,
-      color: node.link ? "1D4ED8" : undefined,
-      underline: node.link ? {} : undefined
-    });
+    const segments = node.text.split("\n");
 
-    if (!node.link) {
-      children.push(run);
-      continue;
+    for (const [segmentIndex, segment] of segments.entries()) {
+      if (segmentIndex > 0) {
+        children.push(new TextRun({ break: 1 }));
+      }
+
+      if (!segment) {
+        continue;
+      }
+
+      const run = new TextRun({
+        text: segment,
+        bold: node.bold,
+        italics: node.italic,
+        color: node.link ? "1D4ED8" : undefined,
+        underline: node.link ? {} : undefined
+      });
+
+      if (!node.link) {
+        children.push(run);
+        continue;
+      }
+
+      children.push(
+        new ExternalHyperlink({
+          link: node.link,
+          children: [run]
+        })
+      );
     }
-
-    children.push(
-      new ExternalHyperlink({
-        link: node.link,
-        children: [run]
-      })
-    );
   }
 
   return children;

@@ -1,7 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Keyboard } from "lucide-react";
+
+const HOTKEY_SECTIONS = [
+  { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
+  { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
+  { shortcut: "Shift+Enter", label: "Новий рядок в абзаці" },
+  { shortcut: "Ctrl/Cmd+Shift+8", label: "Маркований список" },
+  { shortcut: "Ctrl/Cmd+H", label: "Глобальна заміна" },
+  { shortcut: "Ctrl/Cmd+Z", label: "Скасувати" },
+  { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
+  { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
+];
 
 export function TopBar({
   activePath = "/editor"
@@ -9,6 +21,38 @@ export function TopBar({
   activePath?: "/editor" | "/settings";
 }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isHotkeysOpen, setIsHotkeysOpen] = useState(false);
+  const hotkeysRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isHotkeysOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+
+      if (target instanceof Node && hotkeysRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsHotkeysOpen(false);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsHotkeysOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isHotkeysOpen]);
 
   async function handleLogout() {
     if (isLoggingOut) {
@@ -38,17 +82,44 @@ export function TopBar({
         </div>
         <nav className="nav-links" aria-label="Основна навігація">
           <Link href="/editor" className="mono-ui nav-link" data-active={activePath === "/editor"}>
-            {"\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440"}
+            Редактор
           </Link>
           <Link href="/settings" className="mono-ui nav-link" data-active={activePath === "/settings"}>
-            {"\u041d\u0430\u043b\u0430\u0448\u0442\u0443\u0432\u0430\u043d\u043d\u044f"}
+            Налаштування
           </Link>
         </nav>
       </div>
 
       <div className="topbar-right">
+        <div className="topbar-hotkeys" ref={hotkeysRef}>
+          <button
+            type="button"
+            className="mono-ui nav-link button-reset topbar-hotkeys-button"
+            aria-expanded={isHotkeysOpen}
+            aria-haspopup="dialog"
+            onClick={() => setIsHotkeysOpen((current) => !current)}
+          >
+            <Keyboard size={14} aria-hidden="true" />
+            <span>Гарячі клавіші</span>
+          </button>
+          {isHotkeysOpen ? (
+            <div className="topbar-hotkeys-popover" role="dialog" aria-label="Гарячі клавіші">
+              <div className="topbar-hotkeys-popover-head">
+                <p className="topbar-hotkeys-title">Гарячі клавіші</p>
+              </div>
+              <div className="topbar-hotkeys-list">
+                {HOTKEY_SECTIONS.map((item) => (
+                  <div key={item.shortcut} className="topbar-hotkeys-row">
+                    <kbd>{item.shortcut}</kbd>
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button type="button" className="mono-ui nav-link button-reset" onClick={handleLogout} disabled={isLoggingOut}>
-          {"\u0412\u0438\u0439\u0442\u0438"}
+          Вийти
         </button>
       </div>
     </header>

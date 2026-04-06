@@ -2,8 +2,7 @@
 
 This document defines the default UI and interaction standards for Oboz CMS. It is meant to guide product design, implementation, and review across editor, retrieval, SEO, translation, export, and admin surfaces.
 
-Use this document for broad product decisions and UI reviews. Keep product-specific architecture decisions in focused documents such as [wizard-default-ux-architecture.md](/C:/Projects/oboz-ai/oboz-cms/docs/wizard-default-ux-architecture.md).
-
+Use this document for broad product decisions and UI reviews. Keep product-specific architecture decisions as is.
 ## How To Use This Document
 
 Treat the sections in `Non-Negotiables` as default rules unless there is a clear local reason to break them. Treat the sections in `Strong Defaults` as the expected baseline for most screens. Treat the sections in `Context-Dependent Patterns` as tools to apply when the interface needs them, not as mandatory decoration.
@@ -99,6 +98,15 @@ When a screen feels confusing, optimize in this order:
 - Buttons should provide tactile feedback without visual noise.
 - Do not reflow or auto-format in ways that steal focus or move the cursor while the user is typing.
 
+### Visual Hierarchy And Framing
+
+- Use spacing, typography, alignment, and contrast before adding more borders or containers.
+- Add a border, card, or panel only when it creates a meaningful level of separation.
+- Avoid nested cards unless each layer has a distinct job.
+- If everything is framed, nothing feels important.
+- Prefer one strong selection cue over several weaker ones that repeat the same state.
+- Final review, export, and publish screens should feel calmer and more conclusive than setup screens.
+
 ### Copy And Cognitive Load
 
 - Use copy to reduce decision cost, not to sound clever.
@@ -106,6 +114,18 @@ When a screen feels confusing, optimize in this order:
 - Keep terminology consistent across states and views.
 - Show constraints, dependencies, and selections instead of forcing recall.
 - Labels should carry the meaning. Placeholders and helper text should only support them.
+- Remove helper text that only repeats visible context.
+- If an interaction can be made self-evident, prefer that over teaching it with microcopy.
+- Use one empty state per empty section instead of repeating the same empty message per field.
+
+### Icons And Labels
+
+- Use text-only labels for primary, high-stakes, or unfamiliar actions where clarity matters more than compactness.
+- Use icon-plus-text for navigation, utilities, and medium-importance actions that benefit from both scan speed and clarity.
+- Use icon-only controls for common secondary actions when space is tight and the meaning is widely recognized.
+- Icon-only controls must still have accessible names and touch-safe discoverability.
+- In dense repeated layouts, prefer a lightweight icon affordance over repeating instructional text like `Click to copy`.
+- If the whole row or surface is the interaction target, the visible affordance can be lighter because the structure already explains the action.
 
 ## Context-Dependent Patterns
 
@@ -153,6 +173,9 @@ When a screen feels confusing, optimize in this order:
 - Hidden business logic in labels
 - Visual emphasis that relies on color alone
 - Abrupt drawers, modals, and panels with no exit motion
+- Cards inside cards inside cards without distinct meaning
+- Repeated state labels, subtitles, or badges that all say the same thing
+- Instructional badges that explain interactions the layout itself should make obvious
 
 ## UI Review Checklist
 

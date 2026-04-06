@@ -79,10 +79,14 @@ Status: Active handoff
 - Editing a visual prompt after an image has been generated now clears the stale generated preview until the editor runs generation again, so the UI never implies that an old image still matches a changed prompt
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
+- DOCX export now preserves in-paragraph soft line breaks from `Shift+Enter` instead of flattening them out during `.docx` handoff
+- `Shift+Enter` now inserts a soft line break on the first keypress even when the caret is at the end of the last line in a paragraph-like block
 - Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
+- Spellcheck popover `X` now counts as `Залишити як є`, and the popover also offers `Додати у словник`; accepted words are stored in IndexedDB and matching issues are auto-filtered from the current run and future runs
 - The floating local composer now adds a subtle animated baseline inside its main textarea shell while a local AI request is in flight, so the active text surface shows motion beyond the send-button spinner
 - Local patch requests from the floating composer now send a sliced manuscript payload (selected range plus one neighboring block on each side) instead of the full document, while provider prompt assembly still stays limited to that same local context
 - `/editor` now supports a document-wide global replace flow via `Ctrl/Cmd+H`; it opens a compact Ukrainian dialog and applies one undoable manuscript-wide replacement across text-bearing blocks
+- The editor hotkey map now includes `Ctrl/Cmd+Shift+8` for bullet-list toggle, and the top navbar exposes a `Гарячі клавіші` popup with the common shortcuts
 - The floating local composer is now viewport-bounded and draggable: it clamps to the visible viewport on tablet/mobile-like sizes, keeps internal overflow scrollable instead of clipping action rows, and remembers the last dropped position for the current browser session
 - The `Правка` tab in the floating local composer is now an explicit mode, not a thin alias for keyword auto-routing; feature keywords such as `правопис` surface by highlighting the matching top pill as a suggestion instead of force-switching tabs
 - The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Таблиця`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
@@ -96,6 +100,7 @@ Status: Active handoff
 - Emphasis-step prompt assembly now preserves existing manuscript bold via `**...**` markers, so the model sees what is already emphasized and can avoid duplicate highlight recommendations
 - The `Акценти` drawer uses its own review module rather than compact proposal cards: it lists the suggested phrases per paragraph, keeps completed-toggle behavior, and focuses the manuscript anchor without auto-preparing a diff lane
 - The `Акценти` step now runs as a standalone lightweight pass and no longer requires diagnostics context; its review request omits diagnostics/expertise prompt ballast (`basePrompt`, `cardsPrompt`, `expertise`, `stepContext`)
+- `Правопис` and `Акценти` now share the modern prototype stage shell, and `Акценти` exposes stage settings wired through run mode, feedback, and change-level request settings
 - The manuscript now marks active replace-source blocks in red while the inline diff card renders only proposed replacement blocks in green (no nested old/new card frames)
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds

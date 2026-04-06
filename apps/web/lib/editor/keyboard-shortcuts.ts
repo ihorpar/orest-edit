@@ -1,6 +1,6 @@
 export type UndoRedoHotkeyAction = "undo" | "redo";
 export type InlineFormatHotkeyCommand = "bold" | "italic";
-export type EditorHotkeyAction = "open_global_replace";
+export type EditorHotkeyAction = "open_global_replace" | "toggle_bullet_list";
 
 type UndoRedoKeyboardEventLike = {
   metaKey: boolean;
@@ -72,18 +72,26 @@ export function getInlineFormatHotkeyCommand(event: UndoRedoKeyboardEventLike): 
 }
 
 export function getEditorHotkeyAction(event: UndoRedoKeyboardEventLike): EditorHotkeyAction | null {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
     return null;
   }
 
-  if (event.code === "KeyH") {
+  if (!event.shiftKey && event.code === "KeyH") {
     return "open_global_replace";
+  }
+
+  if (event.shiftKey && (event.code === "Digit8" || event.code === "NumpadMultiply")) {
+    return "toggle_bullet_list";
   }
 
   const normalizedKey = event.key?.toLowerCase();
 
-  if (normalizedKey === "h") {
+  if (!event.shiftKey && normalizedKey === "h") {
     return "open_global_replace";
+  }
+
+  if (event.shiftKey && (normalizedKey === "*" || normalizedKey === "8")) {
+    return "toggle_bullet_list";
   }
 
   return null;

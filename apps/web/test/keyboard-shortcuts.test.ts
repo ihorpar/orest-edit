@@ -92,6 +92,17 @@ test("getEditorHotkeyAction matches global replace by physical key code and lati
   );
 });
 
+test("getEditorHotkeyAction matches bullet list toggle by physical key code and fallback", () => {
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, code: "Digit8", key: "*" }),
+    "toggle_bullet_list"
+  );
+  assert.equal(
+    getEditorHotkeyAction({ ctrlKey: false, metaKey: true, altKey: false, shiftKey: true, key: "8" }),
+    "toggle_bullet_list"
+  );
+});
+
 test("getEditorHotkeyAction ignores shifted, alt-modified, and unrelated shortcuts", () => {
   assert.equal(
     getEditorHotkeyAction({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, code: "KeyH", key: "H" }),
