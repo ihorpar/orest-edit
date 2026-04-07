@@ -53,7 +53,7 @@ test("generateEditorialReview fallback enforces step-specific recommendation typ
   assert.ok(response.diagnostics.droppedItemCount >= 1);
 });
 
-test("generateEditorialReview builds fallback emphasis cards only as rewrite items", async () => {
+test("generateEditorialReview builds fallback emphasis targets as exact inline spans", async () => {
   const document: EditorDocument = {
     version: 2,
     blocks: [
@@ -78,7 +78,7 @@ test("generateEditorialReview builds fallback emphasis cards only as rewrite ite
   assert.ok(response.items.length >= 1);
   assert.ok(response.items.every((item) => item.recommendationType === "rewrite"));
   assert.ok(response.items.every((item) => item.stepId === "emphasis"));
-  assert.ok(response.items.every((item) => /"[^"]+"/.test(item.recommendation)));
+  assert.ok(response.items.every((item) => Boolean(item.emphasisTarget?.text)));
 });
 
 test("generateEditorialReview includes existing bold markers in emphasis prompt", async () => {
@@ -166,6 +166,53 @@ test("generateEditorialReview normalizes provider items to block anchors", async
   assert.equal(response.items.length, 1);
   assert.deepEqual(response.items[0]?.anchor.blockIds, ["p1"]);
   assert.equal(response.items[0]?.anchor.generationBlockRange.start, 1);
+});
+
+test("generateEditorialReview normalizes provider emphasis items to exact targets", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [{ text: "Шкіра часто першою показує, як організм реагує на стрес." }]
+      }
+    ]
+  };
+
+  const response = await generateEditorialReview(createRequest({
+    document,
+    revision: deriveManuscriptRevisionState(document),
+    apiKey: "test-key",
+    stepId: "emphasis"
+  }), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            items: [
+              {
+                blockStart: 0,
+                blockEnd: 0,
+                excerpt: "Шкіра часто першою показує, як організм реагує на стрес.",
+                priority: "medium",
+                emphasisText: "першою показує",
+                occurrence: 1
+              }
+            ]
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "emphasis");
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0]?.emphasisTarget?.text, "першою показує");
+  assert.equal(response.items[0]?.emphasisTarget?.occurrence, undefined);
+  assert.deepEqual(response.items[0]?.anchor.blockIds, ["p1"]);
 });
 
 test("generateEditorialReview returns provider-native structured fact-check rows", async () => {

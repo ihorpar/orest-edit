@@ -117,6 +117,75 @@ test("normalizeEditorialReviewItems enforces subsection insert semantics", () =>
   assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1", "p2"]);
 });
 
+test("normalizeEditorialReviewItems accepts emphasis targets without prose recommendation text", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-emphasis",
+    changeLevel: 3,
+    stepId: "emphasis",
+    items: [
+      {
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Перший абзац із щільним поясненням.",
+        priority: "medium",
+        emphasisText: "щільним поясненням",
+        occurrence: 1
+      }
+    ]
+  });
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.items.length, 1);
+  assert.equal(normalized.items[0]?.stepId, "emphasis");
+  assert.equal(normalized.items[0]?.emphasisTarget?.text, "щільним поясненням");
+  assert.equal(normalized.items[0]?.emphasisTarget?.occurrence, undefined);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1"]);
+});
+
+test("normalizeEditorialReviewItems keeps repeated emphasis phrases on different anchors", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Ключова теза звучить переконливо." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "І тут теж Ключова теза працює як висновок." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-emphasis-repeat",
+    changeLevel: 3,
+    stepId: "emphasis",
+    items: [
+      {
+        blockStart: 0,
+        blockEnd: 0,
+        excerpt: "Ключова теза звучить переконливо.",
+        priority: "medium",
+        emphasisText: "Ключова теза"
+      },
+      {
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "І тут теж Ключова теза працює як висновок.",
+        priority: "medium",
+        emphasisText: "Ключова теза"
+      }
+    ]
+  });
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.items.length, 2);
+  assert.deepEqual(normalized.items.map((item) => item.anchor.blockIds), [["p1"], ["p2"]]);
+});
+
 test("review helpers expose dynamic Ukrainian paragraph ranges and type labels", () => {
   const document = createDocument();
   const revision = deriveManuscriptRevisionState(document);

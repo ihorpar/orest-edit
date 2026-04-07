@@ -81,7 +81,7 @@ type EmphasisSuggestion = {
   itemId: string;
   blockId: string;
   phrase: string;
-  reason: string;
+  reason?: string;
   range: {
     start: number;
     end: number;
@@ -1266,7 +1266,7 @@ export function BlockEditorSurface({
               <div className="emphasis-popover-head">
                 <div className="emphasis-popover-title-stack">
                   <strong>{suggestion.phrase}</strong>
-                  <p className="emphasis-popover-copy">{suggestion.reason}</p>
+                  {suggestion.reason ? <p className="emphasis-popover-copy">{suggestion.reason}</p> : null}
                 </div>
                 <button
                   type="button"
@@ -2112,7 +2112,8 @@ function inlineNodesToHtml(
       }
 
       if (activeEmphasis) {
-        content = `<span class="emphasis-suggestion" data-emphasis-block-id="${escapeAttribute(blockId)}" data-emphasis-item-id="${escapeAttribute(activeEmphasis.itemId)}" title="${escapeAttribute(activeEmphasis.reason)}">${content}</span>`;
+        const titleAttribute = activeEmphasis.reason ? ` title="${escapeAttribute(activeEmphasis.reason)}"` : "";
+        content = `<span class="emphasis-suggestion" data-emphasis-block-id="${escapeAttribute(blockId)}" data-emphasis-item-id="${escapeAttribute(activeEmphasis.itemId)}"${titleAttribute}>${content}</span>`;
       }
 
       return content;

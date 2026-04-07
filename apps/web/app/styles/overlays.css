@@ -74,6 +74,81 @@
   padding: 0 18px 18px;
 }
 
+.editor-toast-stack {
+  position: fixed;
+  top: calc(60px + 16px);
+  left: 50%;
+  z-index: 42;
+  width: min(640px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.editor-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid #dbe5f0;
+  border-top: 3px solid var(--scrubs-green);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(10px);
+}
+
+.editor-toast-success {
+  background: linear-gradient(180deg, rgba(248, 255, 251, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.editor-toast-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.editor-toast-label {
+  margin: 0;
+  color: var(--scrubs-green);
+}
+
+.editor-toast-message {
+  margin: 0;
+  color: #0f172a;
+  font: 500 14px/1.55 var(--font-ui, sans-serif);
+}
+
+.editor-toast-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.editor-toast-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.editor-toast-dismiss:hover,
+.editor-toast-dismiss:focus-visible {
+  outline: none;
+  border-color: #bfd0e3;
+  color: #0f172a;
+  box-shadow: 0 8px 24px rgba(148, 163, 184, 0.18);
+}
+
 .change-compare-backdrop {
   position: fixed;
   inset: 0;
@@ -1383,6 +1458,15 @@
 .step-review-prototype-content-spellcheck,
 .step-review-prototype-content-emphasis {
   gap: 14px;
+}
+
+.step-review-prototype-content-factcheck {
+  align-content: start;
+  grid-auto-rows: max-content;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-bottom: 0;
 }
 
 .step-review-prototype-content-spellcheck {

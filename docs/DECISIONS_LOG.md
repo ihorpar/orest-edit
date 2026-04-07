@@ -153,7 +153,7 @@ Decision: visual recommendation text must not be copied into the image caption b
 Reason: recommendation prose is workflow guidance, not manuscript-ready figcaption copy, and auto-inserting it makes the manuscript look like the instruction itself was pasted into the document.
 
 ### Document-wide `Акценти` is an inline apply/reject layer, not a diff workflow
-Decision: the new `Акценти` step does not prepare green diffs or use `/review/proposal`. Instead, step review returns one exact quoted phrase per paragraph at most, the manuscript renders those phrases directly as blue bold clickable overlays, and the editor accepts or rejects each suggestion in place.
+Decision: the new `Акценти` step does not prepare green diffs or use `/review/proposal`. Instead, step review returns one exact emphasis target per paragraph at most (`emphasisText` plus optional `occurrence`), the manuscript renders those targets directly as blue bold clickable overlays, and the editor accepts or rejects each suggestion in place. Model-generated justifications are not part of the contract.
 
 Reason: this feature is closer to spellcheck than to rewrite proposals. Editors want a fast scan-and-approve emphasis pass that preserves text content, not another diff card pipeline.
 

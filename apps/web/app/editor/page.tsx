@@ -184,7 +184,7 @@ interface EmphasisSuggestionViewModel {
   blockId: string;
   paragraphLabel: string;
   phrase: string;
-  reason: string;
+  reason?: string;
   status: EditorialReviewItem["status"];
   range: {
     start: number;
@@ -3796,7 +3796,7 @@ export default function EditorPage() {
 
     if (activeWorkflowStep === "fact_check") {
       return (
-        <div className="step-review-prototype-content">
+        <div className="step-review-prototype-content step-review-prototype-content-factcheck">
           <div className="step-review-fact-table-wrapper">
             <table className="step-review-fact-table">
               <thead>
@@ -4092,7 +4092,7 @@ export default function EditorPage() {
                     hideMeta
                     rangeLabelOverride={rangeLabel}
                     title={<span className="emphasis-card-title">"{phrase}"</span>}
-                    description={suggestion?.reason ?? item.reason}
+                    description={undefined}
                   />
                 );
               })}
@@ -4692,7 +4692,7 @@ export default function EditorPage() {
                               hideMeta
                               rangeLabelOverride={rangeLabel}
                               title={<span className="emphasis-card-title">"{phrase}"</span>}
-                              description={suggestion?.reason ?? item.reason}
+                              description={undefined}
                             />
                           );
                         })}
@@ -5145,7 +5145,14 @@ function deriveEmphasisSuggestions(
       continue;
     }
 
-    const phrase = extractEmphasisPhrase(item.recommendation);
+    const phrase = trimWrappedQuotes(
+      (
+        item.emphasisTarget?.text ??
+        extractEmphasisPhrase(item.recommendation) ??
+        extractEmphasisPhrase(item.title) ??
+        ""
+      ).trim()
+    );
 
     if (!phrase) {
       continue;
@@ -5159,15 +5166,14 @@ function deriveEmphasisSuggestions(
     }
 
     const blockText = getInlineText(block.content);
-    const start = blockText.indexOf(phrase);
+    const occurrence = Math.max(1, item.emphasisTarget?.occurrence ?? 1);
+    const range = findInlineOccurrenceRange(blockText, phrase, occurrence);
 
-    if (start < 0) {
+    if (!range) {
       continue;
     }
 
-    const end = start + phrase.length;
-
-    if (item.status !== "applied" && isInlineRangeBold(block.content, start, end)) {
+    if (item.status !== "applied" && isInlineRangeBold(block.content, range.start, range.end)) {
       continue;
     }
 
@@ -5176,13 +5182,41 @@ function deriveEmphasisSuggestions(
       blockId,
       paragraphLabel: getReviewParagraphRangeLabel(item, revision).replace(/^Абз\.\s*/u, ""),
       phrase,
-      reason: item.reason,
+      reason: item.reason || undefined,
       status: item.status,
-      range: { start, end }
+      range
     });
   }
 
   return suggestions;
+}
+
+function findInlineOccurrenceRange(
+  blockText: string,
+  phrase: string,
+  occurrence: number
+): { start: number; end: number } | null {
+  if (!phrase) {
+    return null;
+  }
+
+  let searchFrom = 0;
+
+  for (let current = 1; current <= occurrence; current += 1) {
+    const start = blockText.indexOf(phrase, searchFrom);
+
+    if (start < 0) {
+      return null;
+    }
+
+    if (current === occurrence) {
+      return { start, end: start + phrase.length };
+    }
+
+    searchFrom = start + 1;
+  }
+
+  return null;
 }
 
 function extractEmphasisPhrase(recommendation: string): string | null {
@@ -5206,6 +5240,12 @@ function getEmphasisCardPhrase(item: EditorialReviewItem, resolvedPhrase?: strin
 
   if (directPhrase) {
     return directPhrase;
+  }
+
+  const targetPhrase = trimWrappedQuotes(item.emphasisTarget?.text?.trim() ?? "");
+
+  if (targetPhrase) {
+    return targetPhrase;
   }
 
   const extractedPhrase = trimWrappedQuotes(extractEmphasisPhrase(item.recommendation) ?? extractEmphasisPhrase(item.title) ?? "");

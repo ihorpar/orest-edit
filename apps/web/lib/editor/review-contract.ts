@@ -60,6 +60,11 @@ export interface EditorialStepContext {
   currentStepFeedback?: string;
 }
 
+export interface EditorialEmphasisTarget {
+  text: string;
+  occurrence?: number;
+}
+
 export interface EditorialStepRunSnapshot {
   id: string;
   stepId: EditorialReviewStepId;
@@ -153,6 +158,7 @@ export interface EditorialReviewItem {
     prompt: string;
   };
   visualIntent?: EditorialVisualIntent;
+  emphasisTarget?: EditorialEmphasisTarget;
   origin?: EditorialReviewItemOrigin;
   manualRequest?: {
     source: "floating_local_bar";
@@ -573,14 +579,25 @@ export function normalizeEditorialReviewItems(input: {
     }
 
     const record = candidate as Record<string, unknown>;
-    const blockStart = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
-    const blockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
-    const title = normalizeCopy(record.title, 90);
-    const reason = normalizeCopy(record.reason, 420);
-    const recommendation = normalizeCopy(record.recommendation, 420);
+    const isEmphasisStep = input.stepId === "emphasis";
+    const emphasisTarget = isEmphasisStep ? normalizeEmphasisTarget(record) : undefined;
+    const rawBlockStart = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
+    const rawBlockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
+    const blockStart = rawBlockStart;
+    const blockEnd = isEmphasisStep ? rawBlockStart : rawBlockEnd;
+    const title = isEmphasisStep ? buildEmphasisTitle(emphasisTarget?.text) : normalizeCopy(record.title, 90);
+    const reason = isEmphasisStep ? "" : normalizeCopy(record.reason, 420);
+    const recommendation = isEmphasisStep ? buildEmphasisRecommendation(emphasisTarget?.text) : normalizeCopy(record.recommendation, 420);
     const recommendationType = normalizeRecommendationType(record.recommendationType);
 
-    if (blockStart === null || blockEnd === null || !title || !reason || !recommendation) {
+    if (
+      blockStart === null ||
+      blockEnd === null ||
+      !title ||
+      !recommendation ||
+      (!isEmphasisStep && !reason) ||
+      (isEmphasisStep && !emphasisTarget)
+    ) {
       droppedCount += 1;
       continue;
     }
@@ -614,7 +631,7 @@ export function normalizeEditorialReviewItems(input: {
       documentRevisionId: input.revision.documentRevisionId,
       changeLevel: input.changeLevel,
       title,
-      reason: guardedRange.clipped ? appendRangeClipNote(reason) : reason,
+      reason: guardedRange.clipped ? appendRangeClipNote(reason ?? "") : (reason ?? ""),
       recommendation,
       recommendationType,
       suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
@@ -632,6 +649,7 @@ export function normalizeEditorialReviewItems(input: {
       calloutKind: normalizeCalloutKind(record.calloutKind),
       calloutDraft: normalizeCalloutDraft(record),
       visualIntent: normalizeVisualIntent(record.visualIntent),
+      emphasisTarget,
       origin: "review",
       stepId: input.stepId,
       stepRunId: input.stepRunId,
@@ -645,7 +663,7 @@ export function normalizeEditorialReviewItems(input: {
     if (
       deduped.some(
         (existing) =>
-          existing.title === item.title ||
+          (existing.stepId !== "emphasis" && item.stepId !== "emphasis" && existing.title === item.title) ||
           (existing.anchor.blockIds.join("|") === item.anchor.blockIds.join("|") && existing.recommendationType === item.recommendationType)
       )
     ) {
@@ -773,6 +791,61 @@ function normalizeVisualIntent(value: unknown): EditorialVisualIntent | undefine
   }
 
   return LEGACY_VISUAL_INTENT_MAP[normalized];
+}
+
+function normalizeEmphasisTarget(record: Record<string, unknown>): EditorialEmphasisTarget | undefined {
+  const rawText =
+    normalizeCopy(record.emphasisText, 180)
+    ?? normalizeCopy(record.phrase, 180)
+    ?? extractEmphasisTargetFromCopy(record.recommendation)
+    ?? extractEmphasisTargetFromCopy(record.title);
+
+  if (!rawText) {
+    return undefined;
+  }
+
+  const occurrenceValue = record.occurrence ?? record.emphasisOccurrence;
+  const occurrence =
+    typeof occurrenceValue === "number" && Number.isInteger(occurrenceValue) && occurrenceValue > 1
+      ? occurrenceValue
+      : typeof occurrenceValue === "string" && /^\d+$/.test(occurrenceValue) && Number.parseInt(occurrenceValue, 10) > 1
+        ? Number.parseInt(occurrenceValue, 10)
+        : undefined;
+
+  return occurrence ? { text: rawText, occurrence } : { text: rawText };
+}
+
+function extractEmphasisTargetFromCopy(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const quoteMatch = value.match(/["'`«“](.+?)["'`»”]/u);
+  const markdownMatch = value.match(/\*\*(.+?)\*\*/u);
+  const candidate = quoteMatch?.[1] ?? markdownMatch?.[1] ?? value;
+  const normalized = trimWrappedQuotes(candidate.replace(/\s+/g, " ").trim());
+  return normalized || undefined;
+}
+
+function buildEmphasisTitle(value?: string): string {
+  const text = trimToLength((value ?? "").trim(), 72);
+  return text ? `Акцент: «${text}»` : "";
+}
+
+function buildEmphasisRecommendation(value?: string): string {
+  const text = trimWrappedQuotes((value ?? "").trim());
+  return text ? `Виділити жирним: «${text}».` : "";
+}
+
+function trimWrappedQuotes(value: string): string {
+  return value
+    .replace(/^["'`«“”„]+/u, "")
+    .replace(/["'`»“”„]+$/u, "")
+    .trim();
+}
+
+function trimToLength(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReviewItem["calloutDraft"] | undefined {

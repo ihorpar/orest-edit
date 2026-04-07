@@ -1,4 +1,4 @@
-import { createPatchId } from "../editor/patch-contract.ts";
+﻿import { createPatchId } from "../editor/patch-contract.ts";
 import {
   getEditorialCalloutKindLabel,
   normalizeEditorialReviewItems,
@@ -151,6 +151,52 @@ const geminiSchema = {
           "excerpt",
           "insertionHint"
         ]
+      }
+    }
+  },
+  required: ["items"]
+} as const;
+
+const openAiEmphasisSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          blockStart: { type: "integer" },
+          blockEnd: { type: "integer" },
+          excerpt: { type: "string" },
+          priority: { type: "string", enum: ["high", "medium", "low"] },
+          emphasisText: { type: "string" },
+          occurrence: { type: "integer" }
+        },
+        required: ["blockStart", "blockEnd", "excerpt", "priority", "emphasisText"]
+      }
+    }
+  },
+  required: ["items"]
+} as const;
+
+const geminiEmphasisSchema = {
+  type: "OBJECT",
+  properties: {
+    items: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          blockStart: { type: "INTEGER" },
+          blockEnd: { type: "INTEGER" },
+          excerpt: { type: "STRING" },
+          priority: { type: "STRING" },
+          emphasisText: { type: "STRING" },
+          occurrence: { type: "INTEGER" }
+        },
+        required: ["blockStart", "blockEnd", "excerpt", "priority", "emphasisText"]
       }
     }
   },
@@ -562,7 +608,12 @@ async function createOpenAiEditorialReview(
           type: "json_schema",
           name: stepSpec.outputKind === "fact_check_rows" ? "fact_check_rows" : "editorial_review",
           strict: true,
-          schema: stepSpec.outputKind === "fact_check_rows" ? openAiFactCheckSchema : openAiSchema
+          schema:
+            stepSpec.outputKind === "fact_check_rows"
+              ? openAiFactCheckSchema
+              : stepSpec.id === "emphasis"
+                ? openAiEmphasisSchema
+                : openAiSchema
         }
       };
     }
@@ -649,7 +700,7 @@ async function createGeminiEditorialReview(
 
     if (expectsJson) {
       body.generationConfig.responseMimeType = "application/json";
-      body.generationConfig.responseSchema = geminiSchema;
+      body.generationConfig.responseSchema = stepSpec.id === "emphasis" ? geminiEmphasisSchema : geminiSchema;
     }
 
     const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
@@ -745,7 +796,9 @@ async function createAnthropicEditorialReview(
     const systemPrompt =
       stepSpec.outputKind === "analysis_markdown"
         ? `${buildStepSystemPrompt(request, stepSpec)} Дай розлогий критичний аналіз тексту.`
-        : `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown і без пояснень поза JSON.`;
+        : stepSpec.id === "emphasis"
+          ? `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown, без reason/title/recommendation і без будь-яких пояснень поза JSON.`
+          : `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown і без пояснень поза JSON.`;
 
     const response = await fetchImpl(anthropicEndpoint, {
       method: "POST",
@@ -876,10 +929,13 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.outputKind === "fact_check_rows"
       ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
       : null,
-    step.outputKind === "recommendation_cards"
+    step.id === "emphasis"
+      ? "Формат відповіді: JSON {\"items\":[{\"blockStart\":N,\"blockEnd\":N,\"excerpt\":\"...\",\"priority\":\"high|medium|low\",\"emphasisText\":\"точний підрядок із документа\",\"occurrence\":1}]}. Не повертай title, reason, recommendation або будь-які пояснення."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Формат відповіді: JSON {\"items\":[...]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON."
       : null,
-    step.outputKind === "recommendation_cards"
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation."
       : null,
     step.id === "clarity"
@@ -889,13 +945,13 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Не пропонуй шаблонних застережень про консультацію з лікарем, самодіагностику, «варто перевірити стан» або інших повторюваних пересторог, якщо цього прямо не просить редактор і цього немає у фрагменті."
       : null,
     step.id === "emphasis"
-      ? "Для кроку «Акценти» recommendationType має бути лише rewrite, але rewrite тут означає не переписування змісту, а лише точкове виділення 1-2 коротких ключових фраз у вже наявному абзаці."
+      ? "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним."
       : null,
     step.id === "emphasis"
-      ? "Не пропонуй картку, якщо абзац і так короткий, уже добре сканується або не має очевидної тези для підсвічування."
+      ? "Не пропонуй item, якщо абзац і так короткий, уже добре сканується або не має очевидної тези для підсвічування."
       : null,
     step.id === "emphasis"
-      ? "Заборонено виділяти цілі речення, більшу частину абзацу або заголовки. Мета — рідкісні смислові акценти, а не декоративне форматування."
+      ? "Заборонено виділяти цілі речення, більшу частину абзацу, перші слова абзацу без смислової ваги або декоративні фрази. Мета - короткі смислові вузли, а не форматувальний шум."
       : null,
     "IDs у квадратних дужках призначені лише для прив'язки і не мають з'являтися в user-facing тексті."
   ].filter(Boolean).join("\n\n");
@@ -930,10 +986,16 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? "Якщо фрагмент уже подано як перелік або серію коротких пунктів, збережи короткі окремі пункти; не роздувай кожен рядок у довгий абзац."
       : null,
     step.id === "emphasis"
-      ? "Шукай лише ті абзаци, де справді доречно виділити одну коротку ключову фразу жирним. Якщо акцент не додає цінності, не створюй картку."
+      ? "Перевір кожен абзац документа по черзі. Якщо акцент справді покращує діагональне читання, повертай item; якщо ні - просто пропускай абзац."
       : null,
     step.id === "emphasis"
-      ? "Для кроку «Акценти» створюй не більше однієї картки на абзац. У recommendation повертай точний формат: Виділити жирним фразу: \"...\". Фраза в лапках має бути точним підрядком із документа, без перефразування, без нового змісту і без уже наявного жирного виділення."
+      ? "Для кроку «Акценти» створюй не більше одного item на абзац. У emphasisText повертай точний підрядок із документа без перефразування, без нового змісту і без уже наявного жирного виділення."
+      : null,
+    step.id === "emphasis"
+      ? "Якщо той самий exact substring трапляється в абзаці кілька разів, додай occurrence: 1, 2, 3... щоб позначити потрібний збіг."
+      : null,
+    step.id === "emphasis"
+      ? "Не будь надто скупим: якщо в абзаці є чітка теза або ключовий висновок, який справді варто зчитати за 10-15 секунд, повертай item."
       : null,
     "Документ:",
     lines.join("\n")
@@ -1493,23 +1555,12 @@ function createFallbackEmphasisReviewItems(
     }
 
     items.push({
-      title: "Виділити головну тезу",
-      reason: "У цьому абзаці є виразна ключова думка, яку варто зробити швидше помітною при скануванні.",
-      recommendation: `Виділити жирним фразу: "${phrase}".`,
-      recommendationType: "rewrite",
-      suggestedAction: "rewrite_text",
-      priority: "medium",
       blockStart: index,
       blockEnd: index,
       excerpt: text.slice(0, 280),
-      insertionHint: "replace",
-      anchorBlockId: block.id,
-      calloutKind: null,
-      calloutTitle: null,
-      calloutPreviewText: null,
-      calloutSummary: null,
-      calloutPrompt: null,
-      visualIntent: null
+      priority: "medium",
+      emphasisText: phrase,
+      occurrence: 1
     });
   });
 
