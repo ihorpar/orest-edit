@@ -1812,41 +1812,26 @@ export default function EditorPage() {
       return;
     }
 
-    const block = document.blocks.find((entry) => entry.id === suggestion.blockId);
+    const result = applyEmphasisSuggestionsToDocument(document, [suggestion]);
 
-    if (!block || (block.type !== "paragraph" && block.type !== "heading")) {
-      setFeedback({ tone: "error", message: "Акцент можна застосувати лише до текстового абзацу." });
+    if (result.changedBlockIds.length === 0) {
+      setFeedback({ tone: "error", message: "Акцент не вдалося застосувати." });
       return;
     }
 
-    const nextContent = applyBoldToInlineRange(block.content, suggestion.range.start, suggestion.range.end);
-    const nextDocument: EditorDocument = {
-      version: 2,
-      blocks: document.blocks.map((entry) =>
-        entry.id === suggestion.blockId
-          ? {
-              ...entry,
-              content: nextContent
-            }
-          : entry
-      )
-    };
-    const previousChangedBlock = document.blocks.find((entry) => entry.id === suggestion.blockId);
-    const nextChangedBlock = nextDocument.blocks.find((entry) => entry.id === suggestion.blockId);
-
-    commitDocument(nextDocument, {
+    commitDocument(result.document, {
       history: {
         kind: "ai_apply",
         label: "Смисловий акцент",
-        blockIds: [suggestion.blockId],
+        blockIds: result.changedBlockIds,
         compare:
-          previousChangedBlock && nextChangedBlock
+          result.beforeBlocks.length > 0 && result.afterBlocks.length > 0
             ? {
                 kind: "ai_apply",
                 label: `Акцент: ${suggestion.phrase}`,
-                blockIds: [suggestion.blockId],
-                beforeBlocks: [previousChangedBlock],
-                afterBlocks: [nextChangedBlock]
+                blockIds: result.changedBlockIds,
+                beforeBlocks: result.beforeBlocks,
+                afterBlocks: result.afterBlocks
               }
             : null
       }
@@ -1856,7 +1841,60 @@ export default function EditorPage() {
     );
     setActiveProposal((current) => (current?.reviewItemId === input.itemId ? null : current));
     setActiveReviewItemId((current) => (current === input.itemId ? null : current));
+    focusAndHighlightChangedBlocks(result.changedBlockIds);
     setFeedback({ tone: "info", message: "Акцент застосовано." });
+  }
+
+  function applyAllEmphasisSuggestions() {
+    const actionableSuggestions = deriveEmphasisSuggestions(reviewItems, document, revision).filter(
+      (entry) => entry.status !== "applied" && entry.status !== "dismissed"
+    );
+
+    if (actionableSuggestions.length === 0) {
+      setFeedback({ tone: "info", message: "Немає активних акцентів для застосування." });
+      return;
+    }
+
+    const result = applyEmphasisSuggestionsToDocument(document, actionableSuggestions);
+
+    if (result.changedBlockIds.length === 0) {
+      setFeedback({ tone: "error", message: "Акценти не вдалося застосувати." });
+      return;
+    }
+
+    const appliedItemIds = new Set(result.appliedItemIds);
+
+    commitDocument(result.document, {
+      history: {
+        kind: "ai_apply",
+        label: "Прийняти всі акценти",
+        blockIds: result.changedBlockIds,
+        compare:
+          result.beforeBlocks.length > 0 && result.afterBlocks.length > 0
+            ? {
+                kind: "ai_apply",
+                label: `Акценти: ${appliedItemIds.size}`,
+                blockIds: result.changedBlockIds,
+                beforeBlocks: result.beforeBlocks,
+                afterBlocks: result.afterBlocks
+              }
+            : null
+      }
+    });
+    focusAndHighlightChangedBlocks(result.changedBlockIds);
+    setReviewItems((current) =>
+      current.map((entry) =>
+        appliedItemIds.has(entry.id)
+          ? { ...entry, status: "applied", activeProposalId: undefined }
+          : entry
+      )
+    );
+    setActiveProposal((current) => (current && appliedItemIds.has(current.reviewItemId) ? null : current));
+    setActiveReviewItemId((current) => (current && appliedItemIds.has(current) ? null : current));
+    setFeedback({
+      tone: "info",
+      message: `Застосовано ${appliedItemIds.size} акцентів у ${result.changedBlockIds.length} абз.`
+    });
   }
 
   function handleLocalActionModeChange(mode: LocalActionMode) {
@@ -3333,6 +3371,10 @@ export default function EditorPage() {
       ),
     [emphasisStepItems, showCompletedCards]
   );
+  const actionableEmphasisSuggestionCount = useMemo(
+    () => emphasisSuggestions.filter((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed").length,
+    [emphasisSuggestions]
+  );
   const spellcheckDocumentBlockIds = useMemo(() => document.blocks.map((block) => block.id), [document.blocks]);
   const canRunSpellcheck = getSpellcheckableBlocks(document, revision, spellcheckDocumentBlockIds).length > 0;
   const hasSpellcheckRun = Boolean(spellcheckMeta || spellcheckSummary || spellcheckResults.length > 0);
@@ -3709,7 +3751,7 @@ export default function EditorPage() {
   function renderPrototypeStepContent() {
     if (activeWorkflowStep === "diagnostics") {
       return (
-        <div className="step-review-prototype-content">
+        <div className="step-review-prototype-content step-review-prototype-content-diagnostics">
           {reviewExpertise ? (
             <div className="button-row">
               <Button variant="secondary" size="sm" onClick={() => selectWorkflowStep("fact_check")}>
@@ -4058,13 +4100,24 @@ export default function EditorPage() {
               <div className="step-review-prototype-utility-meta">
                 <span>{showCompletedCards ? `${emphasisStepItems.length} акцентів` : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}</span>
               </div>
-              <button
-                type="button"
-                className="step-review-prototype-utility-toggle"
-                onClick={() => setShowCompletedCards((current) => !current)}
-              >
-                {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
-              </button>
+              <div className="step-review-prototype-utility-actions">
+                {actionableEmphasisSuggestionCount > 0 ? (
+                  <button
+                    type="button"
+                    className="step-review-prototype-utility-toggle"
+                    onClick={applyAllEmphasisSuggestions}
+                  >
+                    Прийняти всі
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="step-review-prototype-utility-toggle"
+                  onClick={() => setShowCompletedCards((current) => !current)}
+                >
+                  {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -4656,14 +4709,26 @@ export default function EditorPage() {
                               ? `${emphasisStepItems.length} акцентів`
                               : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}
                           </p>
-                          <button
-                            type="button"
-                            className="step-review-completed-toggle"
-                            data-active={showCompletedCards ? "true" : "false"}
-                            onClick={() => setShowCompletedCards((current) => !current)}
-                          >
-                            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
-                          </button>
+                          <div className="step-review-prototype-utility-actions">
+                            {actionableEmphasisSuggestionCount > 0 ? (
+                              <button
+                                type="button"
+                                className="step-review-completed-toggle"
+                                data-active="true"
+                                onClick={applyAllEmphasisSuggestions}
+                              >
+                                Прийняти всі
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="step-review-completed-toggle"
+                              data-active={showCompletedCards ? "true" : "false"}
+                              onClick={() => setShowCompletedCards((current) => !current)}
+                            >
+                              {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -5302,6 +5367,75 @@ function replaceInlineRangeWithText(nodes: Array<{ text: string; bold?: true; it
   }
 
   return normalizeInlineNodes(nextNodes);
+}
+
+function applyEmphasisSuggestionsToDocument(
+  document: EditorDocument,
+  suggestions: EmphasisSuggestionViewModel[]
+): {
+  document: EditorDocument;
+  changedBlockIds: string[];
+  beforeBlocks: Block[];
+  afterBlocks: Block[];
+  appliedItemIds: string[];
+} {
+  const suggestionsByBlockId = new Map<string, EmphasisSuggestionViewModel[]>();
+
+  for (const suggestion of suggestions) {
+    const current = suggestionsByBlockId.get(suggestion.blockId) ?? [];
+    current.push(suggestion);
+    suggestionsByBlockId.set(suggestion.blockId, current);
+  }
+
+  const beforeBlocks: Block[] = [];
+  const afterBlocks: Block[] = [];
+  const changedBlockIds: string[] = [];
+  const appliedItemIds = new Set<string>();
+
+  const nextDocument: EditorDocument = {
+    version: 2,
+    blocks: document.blocks.map((block) => {
+      const blockSuggestions = suggestionsByBlockId.get(block.id);
+
+      if (!blockSuggestions || (block.type !== "paragraph" && block.type !== "heading")) {
+        return block;
+      }
+
+      let nextContent = block.content;
+
+      for (const suggestion of blockSuggestions.slice().sort((left, right) => left.range.start - right.range.start)) {
+        if (isInlineRangeBold(nextContent, suggestion.range.start, suggestion.range.end)) {
+          continue;
+        }
+
+        nextContent = applyBoldToInlineRange(nextContent, suggestion.range.start, suggestion.range.end);
+        appliedItemIds.add(suggestion.itemId);
+      }
+
+      if (JSON.stringify(nextContent) === JSON.stringify(block.content)) {
+        return block;
+      }
+
+      const nextBlock = {
+        ...block,
+        content: nextContent
+      };
+
+      beforeBlocks.push(block);
+      afterBlocks.push(nextBlock);
+      changedBlockIds.push(block.id);
+
+      return nextBlock;
+    })
+  };
+
+  return {
+    document: nextDocument,
+    changedBlockIds,
+    beforeBlocks,
+    afterBlocks,
+    appliedItemIds: Array.from(appliedItemIds)
+  };
 }
 
 function applyBoldToInlineRange(nodes: InlineNode[], start: number, end: number): InlineNode[] {

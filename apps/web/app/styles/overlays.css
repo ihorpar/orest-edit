@@ -1420,6 +1420,13 @@
   color: #b3bbc6;
 }
 
+.step-review-prototype-utility-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .step-review-prototype-utility-toggle {
   border: 0;
   background: transparent;
@@ -1447,6 +1454,11 @@
 
 .step-review-prototype-content {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
   gap: 18px;
   padding: 18px 24px 24px;
 }

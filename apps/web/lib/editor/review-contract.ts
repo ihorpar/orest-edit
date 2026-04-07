@@ -581,7 +581,13 @@ export function normalizeEditorialReviewItems(input: {
     const record = candidate as Record<string, unknown>;
     const isEmphasisStep = input.stepId === "emphasis";
     const emphasisTarget = isEmphasisStep ? normalizeEmphasisTarget(record) : undefined;
-    const rawBlockStart = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
+    const resolvedEmphasisAnchor = isEmphasisStep
+      ? resolveEmphasisAnchorIndex(input.document, paragraphs, record, emphasisTarget)
+      : null;
+    const rawBlockStart =
+      isEmphasisStep && resolvedEmphasisAnchor !== null
+        ? resolvedEmphasisAnchor
+        : normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
     const rawBlockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
     const blockStart = rawBlockStart;
     const blockEnd = isEmphasisStep ? rawBlockStart : rawBlockEnd;
@@ -813,6 +819,98 @@ function normalizeEmphasisTarget(record: Record<string, unknown>): EditorialEmph
         : undefined;
 
   return occurrence ? { text: rawText, occurrence } : { text: rawText };
+}
+
+function resolveEmphasisAnchorIndex(
+  document: EditorDocument,
+  paragraphs: ReturnType<typeof getManuscriptParagraphs>,
+  record: Record<string, unknown>,
+  emphasisTarget?: EditorialEmphasisTarget
+): number | null {
+  if (!emphasisTarget?.text) {
+    return null;
+  }
+
+  const requestedBlockId = normalizeRequestedBlockId(record.blockId ?? record.anchorBlockId);
+  const requestedIndexFromId =
+    requestedBlockId
+      ? paragraphs.findIndex((paragraph) => paragraph.id === requestedBlockId)
+      : -1;
+  const requestedIndexFromNumber = normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
+  const requestedIndex = requestedIndexFromId >= 0 ? requestedIndexFromId : requestedIndexFromNumber;
+
+  if (requestedIndex !== null && blockContainsEmphasisTarget(paragraphs[requestedIndex]?.text ?? "", emphasisTarget)) {
+    return requestedIndex;
+  }
+
+  const matchingIndexes = paragraphs
+    .map((paragraph, index) => (blockContainsEmphasisTarget(paragraph.text, emphasisTarget) ? index : -1))
+    .filter((index) => index >= 0);
+
+  if (matchingIndexes.length === 0) {
+    return requestedIndex;
+  }
+
+  if (matchingIndexes.length === 1) {
+    return matchingIndexes[0] ?? requestedIndex;
+  }
+
+  const normalizedExcerpt = normalizeCopy(record.excerpt, 420);
+  const excerptMatchedIndexes = normalizedExcerpt
+    ? matchingIndexes.filter((index) => {
+        const blockText = getBlockText(getBlock(document, paragraphs[index]?.id)!).replace(/\s+/g, " ").trim();
+        return blockText.includes(normalizedExcerpt) || normalizedExcerpt.includes(blockText);
+      })
+    : [];
+
+  if (excerptMatchedIndexes.length === 1) {
+    return excerptMatchedIndexes[0] ?? requestedIndex;
+  }
+
+  if (requestedIndex !== null) {
+    const nearbyMatch = matchingIndexes
+      .map((index) => ({ index, distance: Math.abs(index - requestedIndex) }))
+      .sort((left, right) => left.distance - right.distance)[0];
+
+    if (nearbyMatch && nearbyMatch.distance <= 2) {
+      return nearbyMatch.index;
+    }
+  }
+
+  return requestedIndex;
+}
+
+function normalizeRequestedBlockId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function blockContainsEmphasisTarget(text: string, emphasisTarget: EditorialEmphasisTarget): boolean {
+  const occurrence = Math.max(1, emphasisTarget.occurrence ?? 1);
+  return findOccurrenceRange(text, emphasisTarget.text, occurrence) !== null;
+}
+
+function findOccurrenceRange(text: string, phrase: string, occurrence: number): { start: number; end: number } | null {
+  if (!phrase) {
+    return null;
+  }
+
+  let searchFrom = 0;
+
+  for (let current = 1; current <= occurrence; current += 1) {
+    const start = text.indexOf(phrase, searchFrom);
+
+    if (start < 0) {
+      return null;
+    }
+
+    if (current === occurrence) {
+      return { start, end: start + phrase.length };
+    }
+
+    searchFrom = start + 1;
+  }
+
+  return null;
 }
 
 function extractEmphasisTargetFromCopy(value: unknown): string | undefined {

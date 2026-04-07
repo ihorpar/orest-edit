@@ -125,6 +125,138 @@ test("generateEditorialReview includes existing bold markers in emphasis prompt"
   );
 
   assert.match(requestBody, /\*\*часто першою показує\*\*/);
+  assert.match(requestBody, /blockId/);
+});
+
+test("generateEditorialReview injects aggressive emphasis coverage guidance starting from level 2", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "emphasis",
+      apiKey: "test-key",
+      changeLevel: 2
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Уже від рівня змін 2\/5 багато змістовних абзаців можуть потребувати акценту/);
+  assert.match(requestBody, /М'який орієнтир для цього документа: приблизно \d+-\d+ акцентів/);
+  assert.match(requestBody, /слід покривати значну частину змістовного тексту/);
+});
+
+test("generateEditorialReview chunks large emphasis runs and merges global anchors", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: Array.from({ length: 40 }, (_, index) => ({
+      id: `p${index + 1}`,
+      type: "paragraph" as const,
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для діагонального читання.` }]
+    }))
+  };
+  let requestCount = 0;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "emphasis",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        requestCount += 1;
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  blockId: `p${1 + (requestCount - 1) * 16}`,
+                  excerpt: "тест",
+                  priority: "medium",
+                  emphasisText: "ключову тезу"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(requestCount, 3);
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "emphasis");
+  assert.equal(response.items.length, 3);
+  assert.deepEqual(
+    response.items.map((item) => item.anchor.blockIds[0]),
+    ["p1", "p17", "p33"]
+  );
+});
+
+test("generateEditorialReview repairs emphasis anchor when blockId is wrong but phrase is unique", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [{ text: "Перший абзац задає контекст і не містить цільової фрази." }]
+      },
+      {
+        id: "p2",
+        type: "paragraph",
+        content: [{ text: "Другий абзац містить унікальний вислів критично важливий маркер для діагонального читання." }]
+      }
+    ]
+  };
+
+  const response = await generateEditorialReview(createRequest({
+    document,
+    revision: deriveManuscriptRevisionState(document),
+    apiKey: "test-key",
+    stepId: "emphasis"
+  }), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            items: [
+              {
+                blockId: "p1",
+                excerpt: "Перший абзац задає контекст",
+                priority: "medium",
+                emphasisText: "критично важливий маркер"
+              }
+            ]
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 1);
+  assert.deepEqual(response.items[0]?.anchor.blockIds, ["p2"]);
+  assert.equal(response.items[0]?.emphasisTarget?.text, "критично важливий маркер");
 });
 
 test("generateEditorialReview normalizes provider items to block anchors", async () => {
@@ -189,14 +321,13 @@ test("generateEditorialReview normalizes provider emphasis items to exact target
     fetchImpl: async () =>
       new Response(
         JSON.stringify({
-          output_text: JSON.stringify({
-            items: [
-              {
-                blockStart: 0,
-                blockEnd: 0,
-                excerpt: "Шкіра часто першою показує, як організм реагує на стрес.",
-                priority: "medium",
-                emphasisText: "першою показує",
+            output_text: JSON.stringify({
+              items: [
+                {
+                  blockId: "p1",
+                  excerpt: "Шкіра часто першою показує, як організм реагує на стрес.",
+                  priority: "medium",
+                  emphasisText: "першою показує",
                 occurrence: 1
               }
             ]

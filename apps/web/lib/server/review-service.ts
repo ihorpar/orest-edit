@@ -15,7 +15,7 @@ import {
 } from "../editor/review-contract.ts";
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
-import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
+import { deriveManuscriptRevisionState, formatParagraphLabel } from "../editor/manuscript-structure.ts";
 import { appendBulletListPunctuationRule, CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
@@ -27,6 +27,9 @@ const anthropicVersion = "2023-06-01";
 const reviewRequestTimeoutMs = 120000;
 const geminiGroundedFactCheckModel = "gemini-3.1-flash-lite-preview";
 const groundedSourceResolveTimeoutMs = 4000;
+const emphasisChunkSize = 18;
+const emphasisChunkOverlap = 2;
+const emphasisChunkThreshold = 24;
 const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
 const trustedFactCheckDomains = [
   "who.int",
@@ -167,14 +170,13 @@ const openAiEmphasisSchema = {
         type: "object",
         additionalProperties: false,
         properties: {
-          blockStart: { type: "integer" },
-          blockEnd: { type: "integer" },
+          blockId: { type: "string" },
           excerpt: { type: "string" },
           priority: { type: "string", enum: ["high", "medium", "low"] },
           emphasisText: { type: "string" },
           occurrence: { type: "integer" }
         },
-        required: ["blockStart", "blockEnd", "excerpt", "priority", "emphasisText"]
+        required: ["blockId", "excerpt", "priority", "emphasisText"]
       }
     }
   },
@@ -189,14 +191,13 @@ const geminiEmphasisSchema = {
       items: {
         type: "OBJECT",
         properties: {
-          blockStart: { type: "INTEGER" },
-          blockEnd: { type: "INTEGER" },
+          blockId: { type: "STRING" },
           excerpt: { type: "STRING" },
           priority: { type: "STRING" },
           emphasisText: { type: "STRING" },
           occurrence: { type: "INTEGER" }
         },
-        required: ["blockStart", "blockEnd", "excerpt", "priority", "emphasisText"]
+        required: ["blockId", "excerpt", "priority", "emphasisText"]
       }
     }
   },
@@ -452,11 +453,13 @@ export async function generateEditorialReview(
 
   try {
     const result =
-      request.provider === "gemini"
-        ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-        : request.provider === "anthropic"
-          ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-          : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
+      stepId === "emphasis"
+        ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+        : request.provider === "gemini"
+          ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+          : request.provider === "anthropic"
+            ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+            : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
 
     return buildEditorialReviewResponse({
       requestId,
@@ -911,6 +914,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
   const blockCount = request.document.blocks.length;
   const targetCards =
     step.outputKind === "recommendation_cards" ? Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard)) : null;
+  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
 
   return [
     appendBulletListPunctuationRule(request.basePrompt),
@@ -930,7 +934,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
       : null,
     step.id === "emphasis"
-      ? "Формат відповіді: JSON {\"items\":[{\"blockStart\":N,\"blockEnd\":N,\"excerpt\":\"...\",\"priority\":\"high|medium|low\",\"emphasisText\":\"точний підрядок із документа\",\"occurrence\":1}]}. Не повертай title, reason, recommendation або будь-які пояснення."
+      ? "Формат відповіді: JSON {\"items\":[{\"blockId\":\"точний id блока з документа\",\"excerpt\":\"...\",\"priority\":\"high|medium|low\",\"emphasisText\":\"точний підрядок із документа\",\"occurrence\":1}]}. Не повертай title, reason, recommendation або будь-які пояснення."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Формат відповіді: JSON {\"items\":[...]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON."
@@ -948,7 +952,11 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним."
       : null,
     step.id === "emphasis"
-      ? "Не пропонуй item, якщо абзац і так короткий, уже добре сканується або не має очевидної тези для підсвічування."
+      ? "Для кожного item поверни blockId рівно в тому вигляді, як він показаний у квадратних дужках біля відповідного рядка документа."
+      : null,
+    emphasisCoverageGuidance,
+    step.id === "emphasis"
+      ? "Це не режим рідкісних винятків. Уже від рівня змін 2/5 багато змістовних абзаців можуть потребувати акценту; пропускай лише справді службові, тривіальні або вже достатньо добре підсвічені абзаци."
       : null,
     step.id === "emphasis"
       ? "Заборонено виділяти цілі речення, більшу частину абзацу, перші слова абзацу без смислової ваги або декоративні фрази. Мета - короткі смислові вузли, а не форматувальний шум."
@@ -965,6 +973,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const diagnosticsExpertise = request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim();
   const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
   const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
+  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
 
   return [
     diagnosticsExpertise && step.id !== "diagnostics" ? `Контекст діагностики:\n${diagnosticsExpertise}` : null,
@@ -989,19 +998,210 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? "Перевір кожен абзац документа по черзі. Якщо акцент справді покращує діагональне читання, повертай item; якщо ні - просто пропускай абзац."
       : null,
     step.id === "emphasis"
+      ? "У кожному item обов'язково поверни blockId саме того рядка, де міститься emphasisText. Не використовуй сусідній blockId навіть якщо абзаци тематично схожі."
+      : null,
+    step.id === "emphasis"
       ? "Для кроку «Акценти» створюй не більше одного item на абзац. У emphasisText повертай точний підрядок із документа без перефразування, без нового змісту і без уже наявного жирного виділення."
       : null,
+    emphasisCoverageGuidance ? `Орієнтир покриття:\n${emphasisCoverageGuidance}` : null,
     step.id === "emphasis"
       ? "Якщо той самий exact substring трапляється в абзаці кілька разів, додай occurrence: 1, 2, 3... щоб позначити потрібний збіг."
       : null,
     step.id === "emphasis"
-      ? "Не будь надто скупим: якщо в абзаці є чітка теза або ключовий висновок, який справді варто зчитати за 10-15 секунд, повертай item."
+      ? "Не будь надто скупим: якщо в абзаці є чітка теза, висновок, причинно-наслідковий вузол, практичний висновок або сильний контраст, який справді варто зчитати за 10-15 секунд, повертай item."
       : null,
     "Документ:",
     lines.join("\n")
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+async function createChunkedEmphasisReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
+  apiKey: string,
+  fetchImpl: FetchLike
+): Promise<EditorialReviewProviderResult> {
+  if (request.document.blocks.length <= emphasisChunkThreshold) {
+    return request.provider === "gemini"
+      ? createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+      : request.provider === "anthropic"
+        ? createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+        : createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
+  }
+
+  const chunks = createDocumentChunks(request.document.blocks, emphasisChunkSize, emphasisChunkOverlap);
+  const blockIndexById = new Map(request.document.blocks.map((block, index) => [block.id, index]));
+  const mergedRawItems: Array<Record<string, unknown>> = [];
+  let providerUsed = `${request.provider}:chunked`;
+  let droppedItemCount = 0;
+  const rawOutputs: string[] = [];
+
+  for (const [chunkIndex, chunk] of chunks.entries()) {
+    const chunkDocument = {
+      version: request.document.version,
+      blocks: chunk.blocks
+    };
+    const chunkRequest: EditorialReviewRequest = {
+      ...request,
+      document: chunkDocument,
+      revision: deriveManuscriptRevisionState(chunkDocument)
+    };
+    const chunkResult =
+      request.provider === "gemini"
+        ? await createGeminiEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl)
+        : request.provider === "anthropic"
+          ? await createAnthropicEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl)
+          : await createOpenAiEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl);
+
+    providerUsed = `${chunkResult.providerUsed}:chunked`;
+    droppedItemCount += chunkResult.droppedItemCount;
+
+    if (chunkResult.rawOutput?.trim()) {
+      rawOutputs.push(`chunk ${chunkIndex + 1}/${chunks.length}\n${chunkResult.rawOutput}`);
+    }
+
+    for (const item of chunkResult.items) {
+      const blockId = item.anchor.blockIds[0];
+      const globalBlockStart = blockId ? blockIndexById.get(blockId) : undefined;
+
+      if (
+        item.stepId !== "emphasis"
+        || item.anchor.blockIds.length !== 1
+        || globalBlockStart === undefined
+        || !item.emphasisTarget?.text
+      ) {
+        continue;
+      }
+
+      mergedRawItems.push({
+        blockStart: globalBlockStart,
+        blockEnd: globalBlockStart,
+        excerpt: item.anchor.excerpt,
+        priority: item.priority,
+        emphasisText: item.emphasisTarget.text,
+        occurrence: item.emphasisTarget.occurrence
+      });
+    }
+  }
+
+  const normalized = normalizeEditorialReviewItems({
+    document: request.document,
+    revision: request.revision,
+    reviewSessionId,
+    changeLevel: request.changeLevel,
+    stepId: stepSpec.id,
+    stepRunId,
+    items: dedupeChunkedEmphasisItems(mergedRawItems)
+  });
+  const filteredItems = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+
+  return {
+    stepId: stepSpec.id,
+    stepRunId,
+    items: filteredItems,
+    factCheckRows: [],
+    droppedItemCount: droppedItemCount + normalized.droppedCount + (normalized.items.length - filteredItems.length),
+    providerUsed,
+    rawOutput: rawOutputs.join("\n\n")
+  };
+}
+
+function createDocumentChunks(blocks: Block[], chunkSize: number, overlap: number): Array<{ start: number; end: number; blocks: Block[] }> {
+  if (blocks.length === 0) {
+    return [];
+  }
+
+  const chunks: Array<{ start: number; end: number; blocks: Block[] }> = [];
+  const step = Math.max(1, chunkSize - overlap);
+
+  for (let start = 0; start < blocks.length; start += step) {
+    const end = Math.min(blocks.length, start + chunkSize);
+    chunks.push({ start, end, blocks: blocks.slice(start, end) });
+
+    if (end >= blocks.length) {
+      break;
+    }
+  }
+
+  return chunks;
+}
+
+function dedupeChunkedEmphasisItems(items: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const preferredByBlockStart = new Map<number, Record<string, unknown>>();
+
+  for (const item of items) {
+    const blockStart = typeof item.blockStart === "number" ? item.blockStart : null;
+
+    if (blockStart === null) {
+      continue;
+    }
+
+    const current = preferredByBlockStart.get(blockStart);
+
+    if (!current || compareEmphasisCandidates(item, current) > 0) {
+      preferredByBlockStart.set(blockStart, item);
+    }
+  }
+
+  return Array.from(preferredByBlockStart.entries())
+    .sort((left, right) => left[0] - right[0])
+    .map(([, item]) => item);
+}
+
+function compareEmphasisCandidates(left: Record<string, unknown>, right: Record<string, unknown>): number {
+  const priorityScore = (value: unknown): number => {
+    switch (value) {
+      case "high":
+        return 3;
+      case "medium":
+        return 2;
+      case "low":
+        return 1;
+      default:
+        return 0;
+    }
+  };
+  const leftPriority = priorityScore(left.priority);
+  const rightPriority = priorityScore(right.priority);
+
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  const leftLength = typeof left.emphasisText === "string" ? left.emphasisText.trim().length : 0;
+  const rightLength = typeof right.emphasisText === "string" ? right.emphasisText.trim().length : 0;
+
+  return leftLength - rightLength;
+}
+
+function buildEmphasisCoverageGuidance(request: EditorialReviewRequest): string {
+  const eligibleBlocks = request.document.blocks.filter((block) => {
+    if (block.type !== "paragraph" && block.type !== "heading") {
+      return false;
+    }
+
+    return getBlockText(block).replace(/\s+/g, " ").trim().length >= 40;
+  }).length;
+
+  const [minShare, maxShare] =
+    request.changeLevel >= 5
+      ? [0.7, 0.9]
+      : request.changeLevel === 4
+        ? [0.6, 0.8]
+      : request.changeLevel === 3
+          ? [0.5, 0.7]
+        : request.changeLevel === 2
+            ? [0.35, 0.55]
+            : [0.2, 0.35];
+
+  const minItems = Math.max(1, Math.round(eligibleBlocks * minShare));
+  const maxItems = Math.max(minItems, Math.round(eligibleBlocks * maxShare));
+
+  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але на рівні змін ${request.changeLevel}/5 слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти.`;
 }
 
 function getReviewPromptBlockText(block: Block, stepId?: EditorialReviewStepId): string {

@@ -425,3 +425,20 @@ Reason: these content types need explicit structure, styling, insertion rules, a
 Decision: the web app should move away from one monolithic `apps/web/app/globals.css` by first splitting it into ordered global partials under `apps/web/app/styles/`, preserving selector names and cascade order. CSS Modules should be introduced later only for low-coupling islands such as top bar, login, and settings.
 
 Reason: the current stylesheet mixes multiple generations of layout and feature overrides. A direct rewrite into CSS Modules or a new styling system would create unnecessary regression risk before ownership boundaries and cascade order are stabilized.
+
+## 2026-04-07
+
+### Document-wide emphasis runs are chunked, not monolithic
+Decision: the `Акценти` review pass runs in overlapping server-side chunks for larger documents, then merges normalized emphasis targets back into one document-level result set with global anchors.
+
+Reason: emphasis is a span-selection task with high recall requirements. Chunking keeps prompts small enough for stronger per-paragraph attention while preserving one coherent manuscript-level inline UI.
+
+### Emphasis anchors are block-id keyed and repaired server-side
+Decision: `Акценти` provider contracts prefer explicit `blockId` for each suggestion, and normalization attempts a local repair when the phrase is valid but the returned block appears to be a wrong nearby paragraph.
+
+Reason: the phrase itself is the stable payload; paragraph attribution is the fragile part. Validating and repairing anchors before they reach the UI reduces dropped accents during bulk apply.
+
+### Emphasis stays reviewable but supports one-click bulk apply
+Decision: `Акценти` remains an explicit accept/reject workflow, but the drawer now exposes `Прийняти всі`, which applies all actionable accents in one mutation, creates one compare/history entry, and stays undoable with the normal manuscript undo stack.
+
+Reason: formatting-only changes are low-risk enough for bulk acceptance, but still editorial enough that silent auto-apply would remove too much operator control.
