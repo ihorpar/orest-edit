@@ -3318,12 +3318,20 @@ export default function EditorPage() {
     () => deriveEmphasisSuggestions(reviewItems, document, revision),
     [document, reviewItems, revision]
   );
-  const visibleEmphasisSuggestions = useMemo(
+  const emphasisStepItems = useMemo(
+    () => reviewItems.filter((item) => item.stepId === "emphasis"),
+    [reviewItems]
+  );
+  const emphasisSuggestionByItemId = useMemo(
+    () => new Map(emphasisSuggestions.map((suggestion) => [suggestion.itemId, suggestion])),
+    [emphasisSuggestions]
+  );
+  const visibleEmphasisStepItems = useMemo(
     () =>
-      emphasisSuggestions.filter((suggestion) =>
-        showCompletedCards ? true : suggestion.status !== "applied" && suggestion.status !== "dismissed"
+      emphasisStepItems.filter((item) =>
+        showCompletedCards ? true : item.status !== "applied" && item.status !== "dismissed"
       ),
-    [emphasisSuggestions, showCompletedCards]
+    [emphasisStepItems, showCompletedCards]
   );
   const spellcheckDocumentBlockIds = useMemo(() => document.blocks.map((block) => block.id), [document.blocks]);
   const canRunSpellcheck = getSpellcheckableBlocks(document, revision, spellcheckDocumentBlockIds).length > 0;
@@ -3334,16 +3342,16 @@ export default function EditorPage() {
   );
   const emphasisStatusTone = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
     ? "active"
-    : emphasisSuggestions.length === 0
+    : emphasisStepItems.length === 0
       ? "idle"
-      : emphasisSuggestions.some((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed")
+      : emphasisStepItems.some((item) => item.status !== "applied" && item.status !== "dismissed")
         ? "warning"
         : "success";
   const emphasisStatusLabel = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
     ? "У процесі"
-    : emphasisSuggestions.length === 0
+    : emphasisStepItems.length === 0
       ? "Не запускалось"
-      : emphasisSuggestions.some((suggestion) => suggestion.status !== "applied" && suggestion.status !== "dismissed")
+      : emphasisStepItems.some((item) => item.status !== "applied" && item.status !== "dismissed")
         ? "Є акценти"
         : "Завершено";
   const spellcheckStatusTone = isSpellcheckRequestInFlight
@@ -4045,10 +4053,10 @@ export default function EditorPage() {
     if (activeWorkflowStep === "emphasis") {
       return (
         <div className="step-review-prototype-content step-review-prototype-content-emphasis">
-          {emphasisSuggestions.length > 0 ? (
+          {emphasisStepItems.length > 0 ? (
             <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
               <div className="step-review-prototype-utility-meta">
-                <span>{showCompletedCards ? `${emphasisSuggestions.length} акцентів` : `Залишилось ${visibleEmphasisSuggestions.length} акцентів`}</span>
+                <span>{showCompletedCards ? `${emphasisStepItems.length} акцентів` : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}</span>
               </div>
               <button
                 type="button"
@@ -4060,18 +4068,18 @@ export default function EditorPage() {
             </div>
           ) : null}
 
-          {visibleEmphasisSuggestions.length > 0 ? (
+          {visibleEmphasisStepItems.length > 0 ? (
             <section className="step-review-prototype-suggestions-list" aria-label="Список акцентів">
-              {visibleEmphasisSuggestions.map((suggestion) => {
-                const item = reviewItems.find((entry) => entry.id === suggestion.itemId);
-
-                if (!item) {
-                  return null;
-                }
+              {visibleEmphasisStepItems.map((item) => {
+                const suggestion = emphasisSuggestionByItemId.get(item.id);
+                const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
+                const rangeLabel = suggestion?.paragraphLabel
+                  ? `Абз. ${suggestion.paragraphLabel}`
+                  : getReviewParagraphRangeLabel(item, revision);
 
                 return (
                   <EditorialReviewCard
-                    key={suggestion.itemId}
+                    key={item.id}
                     item={item}
                     revision={revision}
                     isActive={item.id === activeReviewItemId}
@@ -4082,9 +4090,9 @@ export default function EditorPage() {
                     isLoading={item.id === preparingReviewItemId}
                     variant="emphasis"
                     hideMeta
-                    rangeLabelOverride={`Абз. ${suggestion.paragraphLabel}`}
-                    title={<span className="emphasis-card-title">"{suggestion.phrase}"</span>}
-                    description={suggestion.reason}
+                    rangeLabelOverride={rangeLabel}
+                    title={<span className="emphasis-card-title">"{phrase}"</span>}
+                    description={suggestion?.reason ?? item.reason}
                   />
                 );
               })}
@@ -4641,12 +4649,12 @@ export default function EditorPage() {
                 <div className="step-review-section-stack">
                   <section className="step-review-subsection step-review-emphasis-module">
                     <div className="step-review-subsection-head">
-                      {emphasisSuggestions.length > 0 ? (
+                      {emphasisStepItems.length > 0 ? (
                         <div className="step-review-subsection-meta">
                           <p className="step-review-cards-counter" aria-label="Лічильник акцентів">
                             {showCompletedCards
-                              ? `${emphasisSuggestions.length} акцентів`
-                              : `Залишилось ${visibleEmphasisSuggestions.length} акцентів`}
+                              ? `${emphasisStepItems.length} акцентів`
+                              : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}
                           </p>
                           <button
                             type="button"
@@ -4660,18 +4668,18 @@ export default function EditorPage() {
                       ) : null}
                     </div>
 
-                    {visibleEmphasisSuggestions.length > 0 ? (
+                    {visibleEmphasisStepItems.length > 0 ? (
                       <div className="operations-stack operations-stack-compact step-review-emphasis-list">
-                        {visibleEmphasisSuggestions.map((suggestion) => {
-                          const item = reviewItems.find((entry) => entry.id === suggestion.itemId);
-
-                          if (!item) {
-                            return null;
-                          }
+                        {visibleEmphasisStepItems.map((item) => {
+                          const suggestion = emphasisSuggestionByItemId.get(item.id);
+                          const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
+                          const rangeLabel = suggestion?.paragraphLabel
+                            ? `Абз. ${suggestion.paragraphLabel}`
+                            : getReviewParagraphRangeLabel(item, revision);
 
                           return (
                             <EditorialReviewCard
-                              key={suggestion.itemId}
+                              key={item.id}
                               item={item}
                               revision={revision}
                               isActive={item.id === activeReviewItemId}
@@ -4682,9 +4690,9 @@ export default function EditorPage() {
                               isLoading={item.id === preparingReviewItemId}
                               variant="emphasis"
                               hideMeta
-                              rangeLabelOverride={`Абз. ${suggestion.paragraphLabel}`}
-                              title={<span className="emphasis-card-title">"{suggestion.phrase}"</span>}
-                              description={suggestion.reason}
+                              rangeLabelOverride={rangeLabel}
+                              title={<span className="emphasis-card-title">"{phrase}"</span>}
+                              description={suggestion?.reason ?? item.reason}
                             />
                           );
                         })}
@@ -5191,6 +5199,29 @@ function extractEmphasisPhrase(recommendation: string): string | null {
   }
 
   return null;
+}
+
+function getEmphasisCardPhrase(item: EditorialReviewItem, resolvedPhrase?: string): string {
+  const directPhrase = trimWrappedQuotes((resolvedPhrase ?? "").trim());
+
+  if (directPhrase) {
+    return directPhrase;
+  }
+
+  const extractedPhrase = trimWrappedQuotes(extractEmphasisPhrase(item.recommendation) ?? extractEmphasisPhrase(item.title) ?? "");
+
+  if (extractedPhrase) {
+    return extractedPhrase;
+  }
+
+  return trimWrappedQuotes(item.title.trim() || item.recommendation.trim());
+}
+
+function trimWrappedQuotes(value: string): string {
+  return value
+    .replace(/^["'`«“”„]+/u, "")
+    .replace(/["'`»“”„]+$/u, "")
+    .trim();
 }
 
 function replaceInlineRangeWithText(nodes: Array<{ text: string; bold?: true; italic?: true; link?: string }>, start: number, end: number, replacement: string) {

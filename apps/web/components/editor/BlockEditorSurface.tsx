@@ -1081,7 +1081,6 @@ export function BlockEditorSurface({
                   onEmphasisSuggestionClick={handleEmphasisSuggestionClick}
                   disabled={disabled}
                   registerEditable={registerEditable}
-                  savedSelectionOffsets={savedSelectionOffsets}
                   onEditFocus={handleEditableFocus}
                   onTextBlockEnter={splitTextBlock}
                   onTextBlockBackspace={handleTextBlockBackspace}
@@ -1316,7 +1315,6 @@ function BlockRenderer({
   onEmphasisSuggestionClick,
   disabled,
   registerEditable,
-  savedSelectionOffsets,
   onEditFocus,
   onTextBlockEnter,
   onTextBlockBackspace,
@@ -1336,7 +1334,6 @@ function BlockRenderer({
   onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
-  savedSelectionOffsets: { current: Map<string, { start: number; end: number }> };
   onEditFocus: (blockId: string, editableKey: string) => void;
   onTextBlockEnter: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => void;
   onTextBlockBackspace: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => boolean;
@@ -1364,7 +1361,6 @@ function BlockRenderer({
         onEnter={onTextBlockEnter}
         onBackspace={onTextBlockBackspace}
         onSoftBreak={onSoftBreak}
-        savedSelectionOffsets={savedSelectionOffsets}
       />
     );
   }
@@ -1435,7 +1431,6 @@ function EditableTextBlock({
   onEmphasisSuggestionClick,
   disabled,
   registerEditable,
-  savedSelectionOffsets,
   onEditFocus,
   onBlockChange,
   onEnter,
@@ -1449,7 +1444,6 @@ function EditableTextBlock({
   onEmphasisSuggestionClick?: (blockId: string, itemId: string, rect: DOMRect) => void;
   disabled?: boolean;
   registerEditable: (key: string, element: HTMLElement | null) => void;
-  savedSelectionOffsets: { current: Map<string, { start: number; end: number }> };
   onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: ParagraphBlock | HeadingBlock) => void;
   onEnter: (block: ParagraphBlock | HeadingBlock, context: RichTextContext) => void;
@@ -1477,7 +1471,6 @@ function EditableTextBlock({
       onEnter={(context) => onEnter(block, context)}
       onBackspace={(context) => onBackspace(block, context)}
       onSoftBreak={onSoftBreak}
-      savedSelectionOffsets={savedSelectionOffsets}
       onSpellcheckIssueClick={(issueId, rect) => onSpellcheckIssueClick?.(block.id, issueId, rect)}
       onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
     />
@@ -1746,7 +1739,6 @@ function EditableRichText({
   onEnter,
   onBackspace,
   onSoftBreak,
-  savedSelectionOffsets,
   onSpellcheckIssueClick,
   onEmphasisSuggestionClick
 }: {
@@ -1760,7 +1752,6 @@ function EditableRichText({
   onEnter?: (context: RichTextContext) => void;
   onBackspace?: (context: RichTextContext) => boolean;
   onSoftBreak?: (context: RichTextContext) => void;
-  savedSelectionOffsets?: { current: Map<string, { start: number; end: number }> };
   onSpellcheckIssueClick?: (issueId: string, rect: DOMRect) => void;
   onEmphasisSuggestionClick?: (itemId: string, rect: DOMRect) => void;
 }) {
@@ -1776,23 +1767,34 @@ function EditableRichText({
 
     if (element.innerHTML !== html) {
       const isActive = window.document.activeElement === element;
+      const hasInlineHighlights = html.includes("spellcheck-underline") || html.includes("emphasis-suggestion");
+
+      if (isActive && hasInlineHighlights) {
+        return;
+      }
+
       const matchesCurrentContent = areInlineNodesEqual(htmlToInlineNodes(element.innerHTML), baselineContent);
 
       if (isActive && matchesCurrentContent) {
         return;
       }
 
-      const caretOffset = isActive
-        ? getCaretOffset(element) ?? savedSelectionOffsets?.current.get(focusKey)?.start ?? null
-        : null;
+      const caretOffset = isActive ? getCaretOffset(element) : null;
+
+      // During active typing, selection can be temporarily unavailable while the
+      // browser reconciles nested underline spans. Avoid forcing an innerHTML sync
+      // in that frame so we don't collapse caret to the block start.
+      if (isActive && caretOffset === null) {
+        return;
+      }
 
       element.innerHTML = html;
 
-      if (isActive) {
-        placeCaretAtOffset(element, Math.min(caretOffset ?? getNodeTextLength(element), getNodeTextLength(element)));
+      if (isActive && caretOffset !== null) {
+        placeCaretAtOffset(element, Math.min(caretOffset, getNodeTextLength(element)));
       }
     }
-  }, [html, focusKey, savedSelectionOffsets]);
+  }, [html]);
 
   function buildContext(element: HTMLDivElement): RichTextContext | null {
     const caretOffset = getCaretOffset(element);
@@ -1807,21 +1809,6 @@ function EditableRichText({
       content: htmlToInlineNodes(element.innerHTML),
       caretOffset
     };
-  }
-
-  function handleMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
-    const target = event.target;
-
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    if (
-      target.closest(".spellcheck-underline[data-spellcheck-issue-id]") ||
-      target.closest(".emphasis-suggestion[data-emphasis-item-id]")
-    ) {
-      event.preventDefault();
-    }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -1904,7 +1891,6 @@ function EditableRichText({
         return;
       }
 
-      event.preventDefault();
       event.stopPropagation();
       onSpellcheckIssueClick?.(issueId, underline.getBoundingClientRect());
       return;
@@ -1922,7 +1908,6 @@ function EditableRichText({
       return;
     }
 
-    event.preventDefault();
     event.stopPropagation();
     onEmphasisSuggestionClick?.(itemId, emphasis.getBoundingClientRect());
   }
@@ -1941,7 +1926,6 @@ function EditableRichText({
       contentEditable={!disabled}
       suppressContentEditableWarning
       onFocus={() => onEditFocus(focusKey)}
-      onMouseDown={handleMouseDown}
       onBlur={(event) => emitChangeIfNeeded(event.currentTarget.innerHTML)}
       onInput={(event) => emitChangeIfNeeded(event.currentTarget.innerHTML)}
       onKeyDown={handleKeyDown}
@@ -2215,12 +2199,15 @@ function htmlToInlineNodes(html: string): InlineNode[] {
 }
 
 function areInlineNodesEqual(left: InlineNode[], right: InlineNode[]): boolean {
-  if (left.length !== right.length) {
+  const normalizedLeft = normalizeInlineNodes(left);
+  const normalizedRight = normalizeInlineNodes(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
     return false;
   }
 
-  return left.every((node, index) => {
-    const other = right[index];
+  return normalizedLeft.every((node, index) => {
+    const other = normalizedRight[index];
     return (
       node.text === other?.text &&
       node.bold === other?.bold &&
