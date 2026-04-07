@@ -902,9 +902,30 @@
 }
 
 .step-review-spellcheck-card-head-main {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.step-review-spellcheck-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.step-review-spellcheck-card-title {
+  margin: 0;
+  color: #0f172a;
+  font: 700 15px/1.35 var(--font-ui, sans-serif);
+  letter-spacing: -0.01em;
+}
+
+.step-review-spellcheck-card-meta {
+  margin: 0;
+  color: #64748b;
+  font: 500 12px/1.2 var(--font-ui, sans-serif);
 }
 
 .step-review-spellcheck-badge {

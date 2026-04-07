@@ -177,6 +177,13 @@ Decision: `Правка`, `Правопис`, `Врізка`, and `Візуал`
 
 Reason: a tab click is direct user intent and must remain stable. Keyword inference is useful for discovery, but when it overrides the selected tab the UI becomes non-reversible and feels broken.
 
+## 2026-04-06
+
+### Spellcheck results now use the compact review-card language
+Decision: the spellcheck rail should follow the same compact review-card language as the `Структура` and `Ясність` panels. That means flat cards, no nested inner boxes, whole-card click-to-focus, chevron-only expand/collapse, and no green status strip above the spellcheck list.
+
+Reason: spellcheck is an inspection workflow, not a second nested card system. Reusing the established review-card hierarchy reduces visual noise and makes the rail read consistently with the rest of the workflow.
+
 ## 2026-03-16
 
 ### Gemini fact-check sources come from grounding metadata, not free-text citations

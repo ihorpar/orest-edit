@@ -79,6 +79,7 @@ Status: Active handoff
 - Editing a visual prompt after an image has been generated now clears the stale generated preview until the editor runs generation again, so the UI never implies that an old image still matches a changed prompt
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
+- Spellcheck result cards now follow the compact review-card language from `Структура`/`Ясність`: the green status strip is suppressed in spellcheck, the cards are flat rather than nested, whole-card clicks focus the target paragraph, and the chevron controls expand/collapse
 - DOCX export now preserves in-paragraph soft line breaks from `Shift+Enter` instead of flattening them out during `.docx` handoff
 - `Shift+Enter` now inserts a soft line break on the first keypress even when the caret is at the end of the last line in a paragraph-like block
 - Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
@@ -218,6 +219,7 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-13 after replace-proposal architecture simplification (70/70 tests), including lightweight OpenAI/Gemini replace-schema checks and existing frontend-adjacent apply/execution-lane coverage
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after compact-card UX pass (2-line clamp + expand, localized statuses, keyboard activation, stale refresh path, dismiss undo)
 - `npm run test -w @orest/web` passed on 2026-03-14 after tightening `clarity` anti-disclaimer prompt guardrails and adding regression coverage
+- `npm run typecheck -w @orest/web` passed on 2026-04-06 after the spellcheck rail compact-card and interaction pass
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after drawer simplification pass (single recommendation queue, hide-completed toggle, labeled stats, lighter inline explanation surfaces)
 - `npm run typecheck -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (`Відкрити`, `Зберегти`, clear-document icon, `.docx/.txt` + clipboard/file import)
 - `npm run test -w @orest/web` passed on 2026-03-14 after top action bar import/export pass (75/75 tests), including new `.txt` and `.docx` import coverage

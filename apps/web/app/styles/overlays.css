@@ -1427,6 +1427,7 @@
   border-bottom-color: rgba(220, 38, 38, 0.12);
 }
 
+
 .step-review-prototype-spellcheck-card:focus-visible,
 .step-review-prototype-spellcheck-card:focus-within {
   outline: none;
@@ -1465,28 +1466,14 @@
   font: 500 13px/1.2 var(--font-ui, sans-serif);
 }
 
+
+.step-review-prototype-spellcheck-card-paragraph-label,
 .step-review-prototype-spellcheck-card-count {
   color: #6b7280;
 }
 
-.step-review-prototype-spellcheck-card-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-
-.step-review-prototype-spellcheck-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: #e9f0ff;
-  color: #2455d6;
-  font: 600 11px/1 var(--font-ui, sans-serif);
+.step-review-prototype-spellcheck-card-separator {
+  color: #b3bbc6;
 }
 
 .step-review-prototype-spellcheck-expand {
@@ -1509,7 +1496,7 @@
 }
 
 .step-review-prototype-spellcheck-card[data-expanded="true"] .step-review-prototype-spellcheck-card-body {
-  max-height: 720px;
+  max-height: 760px;
   opacity: 1;
   transform: translateY(0);
   padding-bottom: 20px;
@@ -1517,7 +1504,7 @@
 
 .step-review-prototype-spellcheck-card-body-inner {
   display: grid;
-  gap: 14px;
+  gap: 0;
   min-height: 0;
 }
 
@@ -1526,22 +1513,24 @@
   color: #b91c1c;
 }
 
+
 .step-review-prototype-spellcheck-issues {
   display: grid;
-  gap: 0;
+  gap: 14px;
 }
 
 .step-review-prototype-spellcheck-issue {
   display: grid;
   gap: 10px;
-  padding: 14px 0 0;
-  border-top: 1px solid #eef2f7;
+  padding: 0;
+  border-top: 0;
 }
 
 .step-review-prototype-spellcheck-issue:first-child {
   padding-top: 0;
   border-top: 0;
 }
+
 
 .step-review-prototype-spellcheck-issue-head,
 .step-review-prototype-spellcheck-actions,
@@ -1552,32 +1541,37 @@
   flex-wrap: wrap;
 }
 
-.step-review-prototype-spellcheck-issue-head code {
-  padding: 2px 0;
-  background: transparent;
-  color: #0f172a;
-  font-family: var(--font-mono, monospace);
-  font-size: 13px;
+.step-review-prototype-spellcheck-issue-token {
+  color: #17202a;
+  font: 600 15px/1.35 var(--font-ui, sans-serif);
+  letter-spacing: -0.01em;
 }
 
 .step-review-prototype-spellcheck-issue-meta {
-  color: #64748b;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0;
+  background: transparent;
+  color: #6b7280;
+  font: 500 12px/1 var(--font-ui, sans-serif);
 }
+
 
 .step-review-prototype-spellcheck-issue-copy {
   margin: 0;
   color: #3d4754;
-  font: 400 15px/1.6 var(--font-ui, sans-serif);
+  font: 400 15px/1.58 var(--font-ui, sans-serif);
 }
+
 
 .step-review-prototype-spellcheck-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid #bfdbfe;
-  background: #f8fbff;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
   color: #1d4ed8;
   font: 600 12px/1 var(--font-ui, sans-serif);
   cursor: pointer;
@@ -1585,33 +1579,75 @@
     border-color 160ms ease,
     background-color 160ms ease,
     color 160ms ease,
-    transform 180ms ease;
+    transform 160ms ease;
 }
 
 .step-review-prototype-spellcheck-chip:hover,
 .step-review-prototype-spellcheck-chip:focus-visible {
-  border-color: #93c5fd;
-  background: #eef4ff;
+  border-color: #bfdbfe;
+  background: #dbeafe;
   outline: none;
   transform: translateY(-1px);
 }
 
 .step-review-prototype-spellcheck-chip-muted {
-  border-color: #e2e8f0;
+  border-color: #e5e7eb;
   background: #fff;
-  color: #475569;
+  color: #17202a;
 }
 
 .step-review-prototype-spellcheck-chip-muted:hover,
 .step-review-prototype-spellcheck-chip-muted:focus-visible {
-  border-color: #cbd5e1;
+  border-color: #d1d5db;
   background: #f8fafc;
-  color: #0f172a;
+  color: #111827;
 }
+
 
 .step-review-prototype-spellcheck-actions {
   padding-top: 2px;
 }
-.step-review-prototype-spellcheck-actions {
-  padding-top: 2px;
+
+.step-review-prototype-spellcheck-action,
+.step-review-prototype-spellcheck-action-primary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: 600 12px/1 var(--font-ui, sans-serif);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
+
+.step-review-prototype-spellcheck-action {
+  border: 1px solid #d8dde3;
+  background: #fff;
+  color: #17202a;
+}
+
+.step-review-prototype-spellcheck-action:hover,
+.step-review-prototype-spellcheck-action:focus-visible {
+  border-color: #cfd5dd;
+  background: #f8fafc;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.step-review-prototype-spellcheck-action-primary {
+  border: 1px solid #0f172a;
+  background: #0f172a;
+  color: #fff;
+}
+
+.step-review-prototype-spellcheck-action-primary:hover,
+.step-review-prototype-spellcheck-action-primary:focus-visible {
+  border-color: #111827;
+  background: #111827;
+  outline: none;
+  transform: translateY(-1px);
+}
+

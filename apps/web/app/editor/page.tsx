@@ -1330,20 +1330,26 @@ export default function EditorPage() {
     // Keep focus unchanged
   }
 
-  function focusBlockById(blockId: string) {
+  function focusBlockById(blockId: string, options?: { select?: boolean }) {
     const blockIndex = revision.blockOrder.indexOf(blockId);
 
     if (blockIndex < 0) {
       return;
     }
 
-    setSelection(
-      normalizeBlockSelection(document, {
-        blockIds: [blockId],
-        anchorBlockId: blockId,
-        focusBlockId: blockId
-      })
-    );
+    const shouldSelect = options?.select ?? true;
+
+    if (shouldSelect) {
+      setSelection(
+        normalizeBlockSelection(document, {
+          blockIds: [blockId],
+          anchorBlockId: blockId,
+          focusBlockId: blockId
+        })
+      );
+    } else {
+      setSelection(EMPTY_BLOCK_SELECTION);
+    }
     setFocusedBlockId(blockId);
 
     const anchor = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
@@ -3300,11 +3306,13 @@ export default function EditorPage() {
       return;
     }
 
-    if (expandedSpellcheckBlockId && spellcheckIssueResults.some((result) => result.blockId === expandedSpellcheckBlockId)) {
+    if (!expandedSpellcheckBlockId) {
       return;
     }
 
-    setExpandedSpellcheckBlockId(spellcheckIssueResults[0]?.blockId ?? null);
+    if (!spellcheckIssueResults.some((result) => result.blockId === expandedSpellcheckBlockId)) {
+      setExpandedSpellcheckBlockId(null);
+    }
   }, [expandedSpellcheckBlockId, spellcheckIssueResults]);
   const emphasisSuggestions = useMemo(
     () => deriveEmphasisSuggestions(reviewItems, document, revision),
@@ -3468,11 +3476,12 @@ export default function EditorPage() {
               zeroResultMessage: "Етап завершено без нових карток."
             });
   const shouldShowPrototypeStatusStrip =
-    activeWorkflowStep === "diagnostics"
-    || activeWorkflowStep === "fact_check"
-    || activeWorkflowStep === "spellcheck"
-    || activeWorkflowStep === "emphasis"
-    || showRecommendationStatusStrip;
+    activeWorkflowStep !== "spellcheck" &&
+    (
+      activeWorkflowStep === "diagnostics"
+      || activeWorkflowStep === "fact_check"
+      || showRecommendationStatusStrip
+    );
   const prototypeStatusMessage =
     isRecommendationStep
       ? "Підготовлено рекомендації для поточного етапу"
@@ -3899,13 +3908,6 @@ export default function EditorPage() {
             <div className="step-review-prototype-spellcheck-list">
               {spellcheckIssueResults.map((result) => {
                 const isExpanded = expandedSpellcheckBlockId === result.blockId;
-                const issueCountLabel =
-                  result.error
-                    ? "Помилка перевірки"
-                    : result.issues.length === 1
-                      ? "1 проблема"
-                      : `${result.issues.length} проблем`;
-
                 return (
                   <article
                     key={result.blockId}
@@ -3917,45 +3919,52 @@ export default function EditorPage() {
                     tabIndex={0}
                     aria-expanded={isExpanded}
                     aria-label={`Правопис: абз. ${result.paragraphLabel}`}
-                    onClick={() => {
-                      focusBlockById(result.blockId);
-                      setExpandedSpellcheckBlockId(result.blockId);
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("button")) {
+                        return;
+                      }
+                      focusBlockById(result.blockId, { select: false });
+
+                      if (!isExpanded) {
+                        setExpandedSpellcheckBlockId(result.blockId);
+                      }
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        focusBlockById(result.blockId);
-                        setExpandedSpellcheckBlockId(result.blockId);
+                        focusBlockById(result.blockId, { select: false });
+
+                        if (!isExpanded) {
+                          setExpandedSpellcheckBlockId(result.blockId);
+                        }
                       }
                     }}
                   >
                     <div className="step-review-prototype-spellcheck-card-head">
                       <div className="step-review-prototype-spellcheck-card-copy">
-                        <h3 className="step-review-prototype-spellcheck-card-title">Абз. {result.paragraphLabel}</h3>
+                        <h3 className="step-review-prototype-spellcheck-card-title">{getSpellcheckIssueHeadline(result)}</h3>
                         <div className="step-review-prototype-spellcheck-card-meta">
-                          <span className="step-review-prototype-spellcheck-card-count">{issueCountLabel}</span>
+                          <span className="step-review-prototype-spellcheck-card-paragraph-label">Абз. {result.paragraphLabel}</span>
                         </div>
                       </div>
-                      <div className="step-review-prototype-spellcheck-card-controls">
-                        <span className="step-review-prototype-spellcheck-badge" aria-hidden="true">
-                          {result.error ? "!" : result.issues.length}
-                        </span>
-                        <button
-                          type="button"
-                          className="editorial-review-card-expand step-review-prototype-spellcheck-expand"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setExpandedSpellcheckBlockId((current) => (current === result.blockId ? null : result.blockId));
-                          }}
-                          aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
-                        >
-                          {isExpanded ? (
-                            <ChevronUp aria-hidden="true" width={16} height={16} />
-                          ) : (
-                            <ChevronDown aria-hidden="true" width={16} height={16} />
-                          )}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className="editorial-review-card-expand step-review-prototype-spellcheck-expand"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setExpandedSpellcheckBlockId((current) => (current === result.blockId ? null : result.blockId));
+                        }}
+                        aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
+                      >
+                        {isExpanded ? (
+                          <ChevronUp aria-hidden="true" width={16} height={16} />
+                        ) : (
+                          <ChevronDown aria-hidden="true" width={16} height={16} />
+                        )}
+                      </button>
                     </div>
                     <div className="step-review-prototype-spellcheck-card-body">
                       <div className="step-review-prototype-spellcheck-card-body-inner">
@@ -3966,11 +3975,10 @@ export default function EditorPage() {
                             {result.issues.map((issue) => (
                               <div key={issue.id} className="step-review-prototype-spellcheck-issue">
                                 <div className="step-review-prototype-spellcheck-issue-head">
-                                  <code>{issue.badText}</code>
                                   <span className="step-review-prototype-spellcheck-issue-meta">{getSpellcheckCategoryLabel(issue.category)}</span>
                                 </div>
                                 {shouldShowSpellcheckMessage(issue.message) ? (
-                                  <p className="step-review-status-copy step-review-prototype-spellcheck-issue-copy">{issue.message}</p>
+                                  <p className="err-compact-description step-review-prototype-spellcheck-issue-copy">{issue.message}</p>
                                 ) : null}
                                 {issue.suggestions.length > 0 ? (
                                   <div className="step-review-prototype-spellcheck-chips">
@@ -3993,10 +4001,10 @@ export default function EditorPage() {
                                     ))}
                                   </div>
                                 ) : null}
-                                <div className="step-review-prototype-spellcheck-actions">
+                                <div className="err-compact-actions step-review-prototype-spellcheck-actions">
                                   <button
                                     type="button"
-                                    className="step-review-prototype-spellcheck-chip step-review-prototype-spellcheck-chip-muted"
+                                    className="err-compact-action-button step-review-prototype-spellcheck-action"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       void addSpellcheckWordToDictionary({ blockId: result.blockId, issueId: issue.id, word: issue.badText });
@@ -4006,7 +4014,7 @@ export default function EditorPage() {
                                   </button>
                                   <button
                                     type="button"
-                                    className="step-review-prototype-spellcheck-chip step-review-prototype-spellcheck-chip-muted"
+                                    className="err-compact-action-button err-compact-action-button-primary step-review-prototype-spellcheck-action-primary"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       dismissSpellcheckIssue({ blockId: result.blockId, issueId: issue.id });
@@ -4558,7 +4566,10 @@ export default function EditorPage() {
                           >
                             <div className="step-review-spellcheck-card-head">
                               <div className="step-review-spellcheck-card-head-main">
-                                <p className="mono-ui">Абз. {result.paragraphLabel}</p>
+                                <div className="step-review-spellcheck-card-copy">
+                                  <h3 className="step-review-spellcheck-card-title">{getSpellcheckIssueHeadline(result)}</h3>
+                                  <p className="step-review-spellcheck-card-meta">Абз. {result.paragraphLabel}</p>
+                                </div>
                                 <span className="step-review-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
                               </div>
                               <button
@@ -4566,7 +4577,7 @@ export default function EditorPage() {
                                 className="step-review-spellcheck-focus"
                                 aria-label={`Перейти до абзацу ${result.paragraphLabel}`}
                                 title={`Перейти до абзацу ${result.paragraphLabel}`}
-                                onClick={() => focusBlockById(result.blockId)}
+                                onClick={() => focusBlockById(result.blockId, { select: false })}
                               >
                                 <LocateFixed size={14} aria-hidden="true" />
                               </button>
@@ -4578,7 +4589,6 @@ export default function EditorPage() {
                                 {result.issues.map((issue) => (
                                   <div key={issue.id} className="step-review-spellcheck-issue">
                                     <div className="step-review-spellcheck-issue-head">
-                                      <code>{issue.badText}</code>
                                       <span className="step-review-spellcheck-issue-meta">
                                         {getSpellcheckCategoryLabel(issue.category)}
                                       </span>
@@ -5083,6 +5093,16 @@ function shouldShowSpellcheckMessage(message: string): boolean {
     normalized === "можлива орфографічна помилка." ||
     normalized === "ймовірна орфографічна помилка."
   );
+}
+
+function getSpellcheckIssueHeadline(result: SpellcheckBlockResult): string {
+  const primaryIssue = result.issues[0]?.badText.trim();
+
+  if (primaryIssue) {
+    return primaryIssue;
+  }
+
+  return `Абз. ${result.paragraphLabel}`;
 }
 
 function invalidateSpellcheckResultsForChangedBlocks(
