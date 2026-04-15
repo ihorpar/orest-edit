@@ -1191,6 +1191,24 @@
   z-index: 1;
 }
 
+.step-review-prototype-accept-all-button {
+  min-height: 38px;
+  border: 0 !important;
+  background: #2563eb !important;
+  color: #fff !important;
+  padding: 0 14px !important;
+  font: 600 13px/1 var(--font-ui, sans-serif) !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18) !important;
+}
+
+.step-review-prototype-accept-all-button:hover:not(:disabled),
+.step-review-prototype-accept-all-button:focus-visible:not(:disabled) {
+  background: #1d4ed8 !important;
+  box-shadow: 0 12px 28px rgba(29, 78, 216, 0.2) !important;
+}
+
 .step-review-prototype-body {
   display: flex;
   flex-direction: column;

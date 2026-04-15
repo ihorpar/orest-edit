@@ -552,6 +552,7 @@ function preserveFormattingForBlock(oldBlock: Block | undefined, newBlock: Block
       id: newBlock.id,
       type: "callout",
       kind: newBlock.kind,
+      depth: newBlock.depth ?? oldBlock.depth ?? "brief",
       title: preserveInlineFormatting(oldBlock.title, newBlock.title),
       body: newBlock.body.map((part, partIndex) => preserveInlineFormatting(oldBlock.body[partIndex] ?? [], part))
     };

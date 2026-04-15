@@ -25,6 +25,8 @@
 
 .topbar-right {
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .topbar-brand {
@@ -52,6 +54,11 @@
   gap: 22px;
 }
 
+.nav-links .nav-link {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .nav-link {
   padding-bottom: 5px;
   color: var(--muted);
@@ -64,6 +71,20 @@
 
 .topbar-hotkeys {
   position: relative;
+}
+
+.topbar-document-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: none;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .topbar-hotkeys-button {

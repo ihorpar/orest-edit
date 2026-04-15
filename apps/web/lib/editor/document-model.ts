@@ -1,4 +1,4 @@
-import type { EditorialCalloutKind } from "./review-contract";
+import type { EditorialCalloutDepth, EditorialCalloutKind } from "./review-contract";
 
 export type InlineNode = { text: string; bold?: true; italic?: true; link?: string };
 
@@ -11,6 +11,7 @@ export type CalloutBlock = {
   id: string;
   type: "callout";
   kind: EditorialCalloutKind;
+  depth?: EditorialCalloutDepth;
   title: InlineNode[];
   body: InlineNode[][];
 };
@@ -481,6 +482,186 @@ export function documentToPlainText(document: EditorDocument): string {
     .join("\n\n");
 }
 
+export interface DocumentTextStats {
+  words: number;
+  charactersWithSpaces: number;
+}
+
+export function getDocumentTextStats(document: EditorDocument): DocumentTextStats {
+  const text = document.blocks
+    .map((block) => blockToVisibleText(block))
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) {
+    return {
+      words: 0,
+      charactersWithSpaces: 0
+    };
+  }
+
+  return {
+    words: Array.from(text.matchAll(/[\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*/gu)).length,
+    charactersWithSpaces: text.length
+  };
+}
+
+export function convertBlockToListBlock(block: Block, type: "bullet_list" | "ordered_list"): BulletListBlock | OrderedListBlock {
+  const sourceItems =
+    block.type === "bullet_list" || block.type === "ordered_list"
+      ? block.items.map((item) => sanitizeListItemInlineNodes(item))
+      : splitInlineNodesIntoListItems(blockToEditableInlineNodes(block));
+
+  return {
+    id: block.id,
+    type,
+    items: sourceItems.length > 0 ? sourceItems : [[createInlineText("")]]
+  };
+}
+
+export function convertBlockToParagraphBlock(block: Block): ParagraphBlock {
+  return {
+    id: block.id,
+    type: "paragraph",
+    content: normalizeInlineNodes(blockToEditableInlineNodes(block))
+  };
+}
+
+export function convertBlockToHeadingBlock(block: Block, level: 1 | 2 | 3): HeadingBlock {
+  return {
+    id: block.id,
+    type: "heading",
+    level,
+    content: normalizeInlineNodes(blockToEditableInlineNodes(block))
+  };
+}
+
+function splitInlineNodesIntoListItems(nodes: InlineNode[]): InlineNode[][] {
+  const items: InlineNode[][] = [];
+  let current: InlineNode[] = [];
+
+  const pushCurrent = () => {
+    const item = sanitizeListItemInlineNodes(current);
+    current = [];
+
+    if (item.some((node) => node.text.trim())) {
+      items.push(item);
+    }
+  };
+
+  for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
+    const node = nodes[nodeIndex]!;
+    const text = node.text ?? "";
+
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index]!;
+      const nextChar = text[index + 1] ?? "";
+
+      if (char === "\n") {
+        pushCurrent();
+        while (text[index + 1] === "\n") {
+          index += 1;
+        }
+        continue;
+      }
+
+      current.push({ ...node, text: char });
+
+      if (/[.;!?]/u.test(char) && /\s/u.test(nextChar) && !/^\s*\d+[.)]$/u.test(getInlineText(current))) {
+        pushCurrent();
+
+        while (/\s/u.test(text[index + 1] ?? "")) {
+          index += 1;
+        }
+      }
+    }
+  }
+
+  pushCurrent();
+  return items;
+}
+
+function blockToEditableInlineNodes(block: Block): InlineNode[] {
+  if (block.type === "paragraph" || block.type === "heading") {
+    return block.content;
+  }
+
+  if (block.type === "bullet_list" || block.type === "ordered_list") {
+    return block.items.flatMap((item, index) => (index === 0 ? item : [createInlineText("\n"), ...item]));
+  }
+
+  return [createInlineText(blockToVisibleText(block))];
+}
+
+function sanitizeListItemInlineNodes(nodes: InlineNode[]): InlineNode[] {
+  const trimmed = trimInlineNodes(nodes);
+  const text = getInlineText(trimmed);
+  const markerMatch = /^\s*(?:[-*•]|\d+[.)])\s+/u.exec(text);
+  const withoutMarker = markerMatch ? removeInlinePrefix(trimmed, markerMatch[0].length) : trimmed;
+  return normalizeInlineNodes(trimInlineNodes(withoutMarker));
+}
+
+function trimInlineNodes(nodes: InlineNode[]): InlineNode[] {
+  const normalized = normalizeInlineNodes(nodes);
+  const text = getInlineText(normalized);
+  const leadingLength = text.length - text.trimStart().length;
+  const trailingLength = text.length - text.trimEnd().length;
+  const withoutLeading = removeInlinePrefix(normalized, leadingLength);
+  return removeInlineSuffix(withoutLeading, trailingLength);
+}
+
+function removeInlinePrefix(nodes: InlineNode[], length: number): InlineNode[] {
+  if (length <= 0) {
+    return nodes;
+  }
+
+  let remaining = length;
+  const result: InlineNode[] = [];
+
+  for (const node of nodes) {
+    if (remaining >= node.text.length) {
+      remaining -= node.text.length;
+      continue;
+    }
+
+    result.push({
+      ...node,
+      text: node.text.slice(remaining)
+    });
+    remaining = 0;
+  }
+
+  return result;
+}
+
+function removeInlineSuffix(nodes: InlineNode[], length: number): InlineNode[] {
+  if (length <= 0) {
+    return nodes;
+  }
+
+  let remaining = length;
+  const result: InlineNode[] = [];
+
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]!;
+
+    if (remaining >= node.text.length) {
+      remaining -= node.text.length;
+      continue;
+    }
+
+    result.unshift({
+      ...node,
+      text: node.text.slice(0, node.text.length - remaining)
+    });
+    remaining = 0;
+  }
+
+  return result;
+}
+
 export function selectedBlocksToPromptText(document: EditorDocument, blockIds: string[]): string {
   return blockIds
     .map((blockId) => getBlock(document, blockId))
@@ -503,13 +684,33 @@ export function blockToPromptText(block: Block): string {
     case "image":
       return `[image] alt: ${block.alt}${block.caption ? `; caption: ${getInlineText(block.caption)}` : ""}`;
     case "callout":
-      return [`[callout:${block.kind}] ${getInlineText(block.title)}`, ...block.body.map((paragraph) => getInlineText(paragraph))]
+      return [`[callout:${block.kind}:${block.depth ?? "brief"}] ${getInlineText(block.title)}`, ...block.body.map((paragraph) => getInlineText(paragraph))]
         .filter(Boolean)
         .join("\n");
     case "divider":
       return "---";
     case "table":
       return block.rows.map((row) => row.map((cell) => getInlineText(cell)).join(" | ")).join("\n");
+  }
+}
+
+function blockToVisibleText(block: Block): string {
+  switch (block.type) {
+    case "paragraph":
+      return getInlineText(block.content);
+    case "heading":
+      return getInlineText(block.content);
+    case "bullet_list":
+    case "ordered_list":
+      return block.items.map((item) => getInlineText(item)).join(" ");
+    case "image":
+      return [block.alt, block.caption ? getInlineText(block.caption) : ""].filter(Boolean).join(" ");
+    case "callout":
+      return [getInlineText(block.title), ...block.body.map((paragraph) => getInlineText(paragraph))].filter(Boolean).join(" ");
+    case "divider":
+      return "";
+    case "table":
+      return block.rows.map((row) => row.map((cell) => getInlineText(cell)).join(" ")).join(" ");
   }
 }
 

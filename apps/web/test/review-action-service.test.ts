@@ -98,7 +98,8 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
       provider: "openai",
       modelId: "gpt-5.4",
       apiKey: "test-key",
-      calloutPromptTemplate: "База prompt. Контекст: {{fragment}}. Порада: {{recommendation}}. Тип: {{calloutKindLabel}}.",
+      calloutPromptTemplate:
+        "База prompt. Контекст: {{fragment}}. Порада: {{recommendation}}. Тип: {{calloutKindLabel}}. Глибина: {{calloutDepthLabel}}.",
       item: {
         id: "review-callout-1",
         reviewSessionId: "review-session-1",
@@ -121,6 +122,7 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
           anchorBlockId: "p1"
         },
         calloutKind: "myths_vs_truth",
+        calloutDepth: "deep",
         status: "pending"
       }
     },
@@ -143,12 +145,19 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Що означає цей тип/i);
   assert.match(String(requestBody?.input ?? ""), /Міф/i);
   assert.match(String(requestBody?.input ?? ""), /Правда/i);
+  assert.match(String(requestBody?.input ?? ""), /Докладно/i);
+  assert.match(String(requestBody?.input ?? ""), /Профіль deep/i);
+  assert.match(String(requestBody?.input ?? ""), /3-6 докладних абзацах/i);
   assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
   assert.match(String(requestBody?.input ?? ""), /markdown не використовуй, крім рідкісного \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
-  assert.doesNotMatch(String(requestBody?.input ?? ""), /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}/i);
+  assert.equal(response.proposal.calloutDraft?.calloutDepth, "deep");
+  assert.doesNotMatch(
+    String(requestBody?.input ?? ""),
+    /\{\{fragment\}\}|\{\{recommendation\}\}|\{\{calloutKindLabel\}\}|\{\{calloutDepthLabel\}\}/i
+  );
 });
 
 test("generateReviewAction forwards editorial refine instruction into replace prompt", async () => {
@@ -1209,6 +1218,121 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items"]);
   assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
+});
+
+test("generateReviewAction preserves terminal punctuation in structured list items", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "First step. Second step? Third step!" }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-punctuation-1",
+        reviewSessionId: "review-session-punctuation",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Make a list",
+        reason: "A list will read better.",
+        recommendation: "Turn this into a list.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "First step. Second step? Third step!",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: ["First step.", "Second step?", "Third step!"],
+              reason: "Built a list."
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  const block = response.proposal.textDiff?.newBlocks[0];
+  assert.equal(block?.type, "bullet_list");
+  assert.deepEqual(
+    block?.type === "bullet_list" ? block.items.map((item) => item.map((node) => node.text).join("")) : [],
+    ["First step.", "Second step?", "Third step!"]
+  );
+});
+
+test("generateReviewAction preserves terminal punctuation when splitting plain list text", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "First step. Second step? Third step!" }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-punctuation-2",
+        reviewSessionId: "review-session-punctuation",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Make a list",
+        reason: "A list will read better.",
+        recommendation: "Turn this into a list.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "First step. Second step? Third step!",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ output_text: "First step. Second step? Third step!" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+    }
+  );
+
+  const block = response.proposal.textDiff?.newBlocks[0];
+  assert.equal(block?.type, "bullet_list");
+  assert.deepEqual(
+    block?.type === "bullet_list" ? block.items.map((item) => item.map((node) => node.text).join("")) : [],
+    ["First step.", "Second step?", "Third step!"]
+  );
 });
 
 test("generateReviewAction accepts structured visual JSON with prompt/caption/alt", async () => {

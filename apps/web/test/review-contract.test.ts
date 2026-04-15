@@ -62,6 +62,7 @@ test("normalizeEditorialReviewItems coerces legacy visual/callout values into th
         insertionHint: "after",
         anchorBlockId: "p2",
         calloutKind: "mechanism_explained",
+        calloutDepth: "deep",
         calloutTitle: "Як це працює",
         calloutPreviewText: "Коротке пояснення.",
         calloutSummary: "Пояснити механізм.",
@@ -74,6 +75,8 @@ test("normalizeEditorialReviewItems coerces legacy visual/callout values into th
   assert.equal(normalized.droppedCount, 0);
   assert.equal(normalized.items[0]?.recommendationType, "callout");
   assert.equal(normalized.items[0]?.calloutKind, "mechanism");
+  assert.equal(normalized.items[0]?.calloutDepth, "deep");
+  assert.equal(normalized.items[0]?.calloutDraft?.calloutDepth, "deep");
   assert.equal(normalized.items[1]?.recommendationType, "visual");
   assert.equal(normalized.items[1]?.suggestedAction, "prepare_visual");
   assert.equal(normalized.items[1]?.insertionPoint.mode, "after");

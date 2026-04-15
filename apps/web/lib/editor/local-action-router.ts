@@ -1,6 +1,9 @@
 import {
   getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
+  getEditorialCalloutDepthLabel,
+  normalizeEditorialCalloutDepth,
+  type EditorialCalloutDepth,
   getEditorialVisualIntentLabel,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
@@ -18,6 +21,7 @@ export interface LocalActionRouteRequest {
   explicitMode?: Exclude<LocalActionMode, "auto"> | null;
   preferredTextIntent?: LocalActionTextIntent | null;
   calloutKind?: EditorialCalloutKind;
+  calloutDepth?: EditorialCalloutDepth;
   visualIntent?: EditorialVisualIntent;
   visualStylePreset?: VisualStylePreset;
 }
@@ -43,6 +47,7 @@ export type LocalActionRouteResponse =
   | {
       executor: "callout";
       calloutKind: EditorialCalloutKind;
+      calloutDepth: EditorialCalloutDepth;
       prompt?: string;
       actionLabel: string;
     }
@@ -79,6 +84,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
   const explicitMode = input.explicitMode ?? null;
   const preferredTextIntent = input.preferredTextIntent ?? null;
   const calloutKind = input.calloutKind ?? "mechanism";
+  const calloutDepth = normalizeEditorialCalloutDepth(input.calloutDepth);
   const visualIntent = input.visualIntent ?? "infographic";
   const visualStylePreset = input.visualStylePreset;
   const suggestedMode = inferSuggestedLocalActionMode(trimmedPrompt);
@@ -91,6 +97,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     return {
       executor: "callout",
       calloutKind,
+      calloutDepth,
       prompt: trimmedPrompt || undefined,
       actionLabel: "Підготувати врізку"
     };
@@ -114,6 +121,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     return {
       executor: "callout",
       calloutKind,
+      calloutDepth,
       prompt: trimmedPrompt,
       actionLabel: "Підготувати врізку"
     };
@@ -219,6 +227,10 @@ export function getLocalActionTextIntentLabel(intent: LocalActionTextIntent): st
 
 export function getLocalActionCalloutDescription(kind: EditorialCalloutKind): string {
   return `${getEditorialCalloutKindLabel(kind)}: ${getEditorialCalloutKindDescription(kind)}`;
+}
+
+export function getLocalActionCalloutDepthDescription(depth: EditorialCalloutDepth): string {
+  return `${getEditorialCalloutDepthLabel(depth)}`;
 }
 
 export function getLocalActionVisualDescription(intent: EditorialVisualIntent): string {

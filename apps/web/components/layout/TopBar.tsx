@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Keyboard } from "lucide-react";
 
+import type { DocumentTextStats } from "../../lib/editor/document-model";
+
 const HOTKEY_SECTIONS = [
   { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
   { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
@@ -16,9 +18,11 @@ const HOTKEY_SECTIONS = [
 ];
 
 export function TopBar({
-  activePath = "/editor"
+  activePath = "/editor",
+  documentStats
 }: {
   activePath?: "/editor" | "/settings";
+  documentStats?: DocumentTextStats;
 }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState(false);
@@ -91,6 +95,17 @@ export function TopBar({
       </div>
 
       <div className="topbar-right">
+        {documentStats ? (
+          <div
+            className="mono-ui topbar-document-stats"
+            aria-label={`У документі ${formatTopbarCount(documentStats.words)} слів і ${formatTopbarCount(documentStats.charactersWithSpaces)} символів з пробілами`}
+            title="Слова і символи з пробілами"
+          >
+            <span>{formatTopbarCount(documentStats.words)} слів</span>
+            <span aria-hidden="true">·</span>
+            <span>{formatTopbarCount(documentStats.charactersWithSpaces)} симв.</span>
+          </div>
+        ) : null}
         <div className="topbar-hotkeys" ref={hotkeysRef}>
           <button
             type="button"
@@ -124,4 +139,8 @@ export function TopBar({
       </div>
     </header>
   );
+}
+
+function formatTopbarCount(value: number): string {
+  return new Intl.NumberFormat("uk-UA").format(value);
 }

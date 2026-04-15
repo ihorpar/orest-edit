@@ -6,6 +6,7 @@ import {
   type EditorialFactCheckSource,
   type EditorialReviewItem,
   type EditorialReviewRecommendationType,
+  type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
@@ -80,6 +81,12 @@ const openAiSchema = {
               { type: "null" }
             ]
           },
+          calloutDepth: {
+            anyOf: [
+              { type: "string", enum: ["brief", "deep"] },
+              { type: "null" }
+            ]
+          },
           calloutTitle: { anyOf: [{ type: "string" }, { type: "null" }] },
           calloutPreviewText: { anyOf: [{ type: "string" }, { type: "null" }] },
           calloutSummary: { anyOf: [{ type: "string" }, { type: "null" }] },
@@ -104,6 +111,7 @@ const openAiSchema = {
           "insertionHint",
           "anchorBlockId",
           "calloutKind",
+          "calloutDepth",
           "calloutTitle",
           "calloutPreviewText",
           "calloutSummary",
@@ -136,6 +144,7 @@ const geminiSchema = {
           insertionHint: { type: "STRING" },
           anchorBlockId: { type: "STRING" },
           calloutKind: { type: "STRING" },
+          calloutDepth: { type: "STRING" },
           calloutTitle: { type: "STRING" },
           calloutPreviewText: { type: "STRING" },
           calloutSummary: { type: "STRING" },
@@ -286,7 +295,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     title: "Діагностика",
     outputKind: "analysis_markdown",
     systemInstruction:
-      "Зроби розгорнуту редакторську діагностику рукопису: загальна картина, логіка аргументації, ризикові місця, і поблочний розбір. Це review-only крок, без карток дій."
+      "Зроби глибоку редакторську діагностику рукопису: редакторський вердикт, системні проблеми, критичні ризики, логіка аргументації, науково-медична обережність, читачевий бар'єр і поблочний розбір із доказами. Це review-only крок, без карток дій."
   },
   fact_check: {
     id: "fact_check",
@@ -930,6 +939,12 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.outputKind === "analysis_markdown"
       ? "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN»."
       : null,
+    step.id === "diagnostics"
+      ? "Для діагностики не пиши ввічливий загальний огляд замість аналізу. Кожна критична теза має мати severity, посилання на абзаци, читацьку шкоду і локальну редакторську дію."
+      : null,
+    step.id === "diagnostics"
+      ? "Обов'язково відокремлюй системні проблеми від косметичних, позначай медично або науково ризикові формулювання, термінологічні зсуви, надмірну категоричність, слабкі переходи між абзацами і втрату практичної цінності."
+      : null,
     step.outputKind === "fact_check_rows"
       ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
       : null,
@@ -941,6 +956,12 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "calloutDepth='brief' означає коротку врізку. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах; він може бути суцільним текстом або поєднанням тексту зі списками."
       : null,
     step.id === "clarity"
       ? "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій."
@@ -957,6 +978,9 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     emphasisCoverageGuidance,
     step.id === "emphasis"
       ? "Це не режим рідкісних винятків. Уже від рівня змін 2/5 багато змістовних абзаців можуть потребувати акценту; пропускай лише справді службові, тривіальні або вже достатньо добре підсвічені абзаци."
+      : null,
+    step.id === "emphasis"
+      ? "На рівні змін 5/5 працюй як щільний фінальний прохід: майже кожен змістовний абзац із самостійною тезою має отримати один короткий акцент, якщо він ще не виділений жирним."
       : null,
     step.id === "emphasis"
       ? "Заборонено виділяти цілі речення, більшу частину абзацу, перші слова абзацу без смислової ваги або декоративні фрази. Мета - короткі смислові вузли, а не форматувальний шум."
@@ -983,13 +1007,16 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     `Рівень змін: ${request.changeLevel}/5.`,
     request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
     step.id === "diagnostics"
-      ? "Зроби детальну діагностику: загальний огляд, сильні/слабкі місця, поблочний розбір із посиланням на «абз. NNN»."
+      ? "Зроби сувору діагностику за рубрикою: редакторський вердикт, критичні ризики, карта проблем за вимірами, поблочний розбір і пріоритети наступних кроків. Не приховуй гострі проблеми за загальною ввічливою мовою."
       : null,
     step.id === "fact_check"
       ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, у полі explanation. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
       : null,
     step.outputKind === "recommendation_cards"
       ? "На основі діагностики і фідбеку підготуй локальні картки змін саме для цього кроку. Не переписуй документ цілком."
+      : null,
+    step.outputKind === "recommendation_cards"
+      ? "Якщо пропонуєш врізку, самостійно обери calloutDepth='brief' або calloutDepth='deep' відповідно до контексту статті та фрагмента."
       : null,
     step.id === "clarity"
       ? "Якщо фрагмент уже подано як перелік або серію коротких пунктів, збережи короткі окремі пункти; не роздувай кожен рядок у довгий абзац."
@@ -1009,6 +1036,9 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       : null,
     step.id === "emphasis"
       ? "Не будь надто скупим: якщо в абзаці є чітка теза, висновок, причинно-наслідковий вузол, практичний висновок або сильний контраст, який справді варто зчитати за 10-15 секунд, повертай item."
+      : null,
+    step.id === "emphasis" && request.changeLevel >= 5
+      ? "Для рівня 5/5 пропускай змістовний абзац лише тоді, коли в ньому немає жодної самостійної тези або він уже має достатньо жирного виділення. Не обмежуйся кількома найочевиднішими місцями."
       : null,
     "Документ:",
     lines.join("\n")
@@ -1187,21 +1217,36 @@ function buildEmphasisCoverageGuidance(request: EditorialReviewRequest): string 
     return getBlockText(block).replace(/\s+/g, " ").trim().length >= 40;
   }).length;
 
-  const [minShare, maxShare] =
-    request.changeLevel >= 5
-      ? [0.7, 0.9]
-      : request.changeLevel === 4
-        ? [0.6, 0.8]
-      : request.changeLevel === 3
-          ? [0.5, 0.7]
-        : request.changeLevel === 2
-            ? [0.35, 0.55]
-            : [0.2, 0.35];
+  const { minShare, maxShare } = getEmphasisCoverageTargets(request.changeLevel);
 
   const minItems = Math.max(1, Math.round(eligibleBlocks * minShare));
   const maxItems = Math.max(minItems, Math.round(eligibleBlocks * maxShare));
 
-  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але на рівні змін ${request.changeLevel}/5 слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти.`;
+  const levelFiveGuidance = request.changeLevel >= 5
+    ? " На рівні 5/5 це майже повне покриття змістовних абзаців: краще повернути доречний короткий акцент для кожного сильного абзацу, ніж залишити добрі тези без виділення."
+    : "";
+
+  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але на рівні змін ${request.changeLevel}/5 слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти.${levelFiveGuidance}`;
+}
+
+function getEmphasisCoverageTargets(changeLevel: number): { minShare: number; maxShare: number } {
+  if (changeLevel >= 5) {
+    return { minShare: 0.95, maxShare: 1 };
+  }
+
+  if (changeLevel === 4) {
+    return { minShare: 0.75, maxShare: 0.9 };
+  }
+
+  if (changeLevel === 3) {
+    return { minShare: 0.6, maxShare: 0.78 };
+  }
+
+  if (changeLevel === 2) {
+    return { minShare: 0.45, maxShare: 0.65 };
+  }
+
+  return { minShare: 0.2, maxShare: 0.35 };
 }
 
 function getReviewPromptBlockText(block: Block, stepId?: EditorialReviewStepId): string {
@@ -1233,7 +1278,7 @@ function blockToPromptTextWithInlineBold(block: Block): string {
     case "image":
       return `[image] alt: ${block.alt}${block.caption ? `; caption: ${inlineNodesToPromptText(block.caption)}` : ""}`;
     case "callout":
-      return [`[callout:${block.kind}] ${inlineNodesToPromptText(block.title)}`, ...block.body.map((paragraph) => inlineNodesToPromptText(paragraph))]
+      return [`[callout:${block.kind}:${block.depth ?? "brief"}] ${inlineNodesToPromptText(block.title)}`, ...block.body.map((paragraph) => inlineNodesToPromptText(paragraph))]
         .filter(Boolean)
         .join("\n");
     case "divider":
@@ -1662,6 +1707,7 @@ export function createFallbackEditorialReviewItems(
         insertionHint: "replace",
         anchorBlockId: block.id,
         calloutKind: null,
+        calloutDepth: null,
         calloutTitle: null,
         calloutPreviewText: null,
         calloutSummary: null,
@@ -1684,6 +1730,7 @@ export function createFallbackEditorialReviewItems(
         insertionHint: "replace",
         anchorBlockId: block.id,
         calloutKind: null,
+        calloutDepth: null,
         calloutTitle: null,
         calloutPreviewText: null,
         calloutSummary: null,
@@ -1710,10 +1757,11 @@ export function createFallbackEditorialReviewItems(
           insertionHint: "after",
           anchorBlockId: nextBlock.id,
           calloutKind: "mechanism",
+          calloutDepth: "brief",
           calloutTitle: "Як це працює",
           calloutPreviewText: nextText.slice(0, 160),
           calloutSummary: "Підсилити пояснення окремою врізкою.",
-          calloutPrompt: buildFallbackCalloutPrompt("mechanism", nextText, "Пояснити механізм простими словами."),
+          calloutPrompt: buildFallbackCalloutPrompt("mechanism", "brief", nextText, "Пояснити механізм простими словами."),
           visualIntent: null
         });
       }
@@ -1737,9 +1785,19 @@ function createFallbackEmphasisReviewItems(
   stepRunId: string
 ): EditorialReviewItem[] {
   const items: Array<Record<string, unknown>> = [];
+  const eligibleParagraphCount = request.document.blocks.filter((block) => {
+    if (block.type !== "paragraph") {
+      return false;
+    }
+
+    const text = getBlockText(block).replace(/\s+/g, " ").trim();
+    return text.length >= 90 && text.length <= 520 && !/[•·]/.test(text) && !/:\s*$/.test(text);
+  }).length;
+  const { maxShare } = getEmphasisCoverageTargets(request.changeLevel);
+  const maxFallbackItems = Math.max(8, Math.ceil(eligibleParagraphCount * maxShare));
 
   request.document.blocks.forEach((block, index) => {
-    if (items.length >= 8 || block.type !== "paragraph") {
+    if (items.length >= maxFallbackItems || block.type !== "paragraph") {
       return;
     }
 
@@ -1837,24 +1895,28 @@ function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialRev
 
     const excerpt = item.anchor.excerpt || item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
     const kind: EditorialCalloutKind = item.calloutKind ?? "mechanism";
+    const depth: EditorialCalloutDepth = item.calloutDepth ?? "brief";
 
     return {
       ...item,
       calloutKind: kind,
+      calloutDepth: depth,
       calloutDraft: {
         calloutKind: kind,
+        calloutDepth: depth,
         title: getEditorialCalloutKindLabel(kind),
-        prompt: buildFallbackCalloutPrompt(kind, excerpt, item.recommendation),
-        previewText: excerpt.slice(0, 180),
+        prompt: buildFallbackCalloutPrompt(kind, depth, excerpt, item.recommendation),
+        previewText: excerpt.slice(0, depth === "deep" ? 1200 : 180),
         summary: item.reason
       }
     };
   });
 }
 
-function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, fragment: string, recommendation: string): string {
+function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, depth: EditorialCalloutDepth, fragment: string, recommendation: string): string {
   return [
     `Тип врізки: ${getEditorialCalloutKindLabel(kind)}.`,
+    `Глибина врізки: ${depth === "deep" ? "deep / докладно" : "brief / стисло"}.`,
     `Фрагмент: ${fragment}`,
     `Редакторська задача: ${recommendation}`
   ].join("\n");

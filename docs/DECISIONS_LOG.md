@@ -442,3 +442,25 @@ Reason: the phrase itself is the stable payload; paragraph attribution is the fr
 Decision: `Акценти` remains an explicit accept/reject workflow, but the drawer now exposes `Прийняти всі`, which applies all actionable accents in one mutation, creates one compare/history entry, and stays undoable with the normal manuscript undo stack.
 
 Reason: formatting-only changes are low-risk enough for bulk acceptance, but still editorial enough that silent auto-apply would remove too much operator control.
+
+## 2026-04-15
+
+### Level 5 `Акценти` is a dense final emphasis pass
+Decision: at change level 5, the `Акценти` pass should target near-complete coverage of meaningful paragraphs with self-contained theses, not just a handful of highest-salience phrases. The step still returns at most one exact short phrase per paragraph and must avoid full-sentence, decorative, or already-bold spans.
+
+Reason: editors use level 5 when they want a strong scanability pass. Sparse output at that setting made the feature feel underpowered even though bulk apply remains reviewable and undoable.
+
+### Bulk accent apply is available from the active step header
+Decision: when actionable `Акценти` suggestions exist, the active step header exposes a prominent `Прийняти всі` button in addition to the list-level utility action.
+
+Reason: users expect a single-click accept-all path immediately after the feature produces accents, without hunting in the result list controls.
+
+### Diagnostics uses a strict editorial-risk rubric
+Decision: `Діагностика` remains review-only, but its default prompt now requires an editorial verdict, critical risks with severity/evidence/reader harm/local action, a dimension-by-dimension problem map, selective block analysis, and prioritized next workflow steps.
+
+Reason: the earlier diagnostics prompt asked for a detailed review but did not force depth. Editors need a sharper diagnostic layer that separates systemic problems from polish, names medical/scientific risk, and produces useful context for downstream workflow steps.
+
+### Callout depth is a first-class profile
+Decision: callouts now have a first-class `calloutDepth` profile with allowed values `brief` and `deep`, separate from `calloutKind`. The model may choose the profile during card generation, manual callout workflows can set it explicitly, and proposal prompts preserve it through regeneration and insertion. `deep` asks for a 3-6 paragraph deep dive into the issue and may combine prose with lists; it is not framed as a rare fallback.
+
+Reason: callout kind answers what shape the sidebar content has, while depth answers how much editorial explanation the manuscript needs. Keeping these axes separate lets end users request and receive richer deep dives without overloading the existing kind taxonomy or steering the model away from depth when the source context supports it.

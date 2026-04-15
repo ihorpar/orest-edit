@@ -3,6 +3,7 @@ import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../edito
 import { createInlineText, getBlockText, getInlineText, type Block } from "../editor/document-model.ts";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import type {
+  EditorialCalloutDepth,
   EditorialCalloutKind,
   EditorialReviewRecommendationType,
   EditorialVisualIntent,
@@ -15,7 +16,8 @@ import {
   getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindTitle,
-  isReplaceReviewType
+  isReplaceReviewType,
+  normalizeEditorialCalloutDepth
 } from "../editor/review-contract.ts";
 import {
   appendBulletListPunctuationRule,
@@ -32,6 +34,10 @@ const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const anthropicVersion = "2023-06-01";
 const requestTimeoutMs = 45000;
+const CALLOUT_DEPTH_PROMPT_GUIDANCE: Record<EditorialCalloutDepth, string> = {
+  brief: "Профіль brief / стисло: створи коротку врізку в поточному стилі.",
+  deep: "Профіль deep / докладно: зроби глибокий розбір питання у 3-6 докладних абзацах; body може бути суцільним текстом або поєднанням тексту зі списками."
+};
 
 type FetchLike = typeof fetch;
 type InfographicLayout = "comparison" | "process" | "timeline" | "cause_effect" | "layers" | "diagram";
@@ -329,6 +335,7 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
 
   if (request.item.calloutKind) {
     compactItem.calloutKind = request.item.calloutKind;
+    compactItem.calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth);
   }
 
   if (request.item.visualIntent) {
@@ -603,6 +610,8 @@ function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provide
 function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
   const calloutKind: EditorialCalloutKind = request.item.calloutKind ?? "mechanism";
+  const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth);
+  const fallbackLength = calloutDepth === "deep" ? 1200 : 220;
 
   return {
     id: createPatchId("proposal-callout"),
@@ -614,9 +623,10 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
     canApplyDirectly: true,
     calloutDraft: {
       calloutKind,
+      calloutDepth,
       title: getEditorialCalloutKindTitle(calloutKind),
-      prompt: buildFallbackCalloutPrompt(calloutKind, excerpt, request.item.recommendation),
-      previewText: normalizeCalloutBodyByKind(excerpt.slice(0, 220), calloutKind)
+      prompt: buildFallbackCalloutPrompt(calloutKind, calloutDepth, excerpt, request.item.recommendation),
+      previewText: normalizeCalloutBodyByKind(excerpt.slice(0, fallbackLength), calloutKind)
     }
   };
 }
@@ -682,9 +692,10 @@ async function createCalloutProposal(
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const calloutKind = request.item.calloutKind ?? "mechanism";
+  const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth);
   const parsed = parseCalloutDraftOutput(result, {
     title: request.item.calloutDraft?.title ?? getEditorialCalloutKindTitle(calloutKind),
-    body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, 220)
+    body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, calloutDepth === "deep" ? 1200 : 220)
   }, calloutKind);
 
   return {
@@ -700,6 +711,7 @@ async function createCalloutProposal(
       canApplyDirectly: true,
       calloutDraft: {
         calloutKind,
+        calloutDepth,
         title: parsed.title,
         prompt,
         previewText: parsed.body
@@ -793,8 +805,11 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
 
   if (mode === "callout") {
     const calloutKind = request.item.calloutKind ?? "mechanism";
+    const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth);
     const template = appendBulletListPunctuationRule(interpolatePromptTemplate(request.calloutPromptTemplate?.trim(), {
       calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
+      calloutDepth,
+      calloutDepthLabel: calloutDepth === "deep" ? "Докладно" : "Стисло",
       fragment: excerpt,
       recommendation: request.item.recommendation
     }));
@@ -802,6 +817,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     return [
       template,
       templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
+      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutDepth") ? null : `Глибина врізки: ${calloutDepth}.`,
+      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutDepthLabel") ? null : `Профіль глибини: ${calloutDepth === "deep" ? "Докладно" : "Стисло"}.`,
+      CALLOUT_DEPTH_PROMPT_GUIDANCE[calloutDepth],
       `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
       `Додаткове правило для типу: ${getCalloutKindGuardrail(calloutKind)}`,
       calloutKind === "top_list"
@@ -816,7 +834,10 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
       "Формат відповіді: поверни лише JSON-об'єкт без markdown.",
       "Схема JSON: {\"title\":\"...\",\"body\":\"...\"}.",
       "title: короткий заголовок врізки (1 рядок, plain text).",
-      "body: основний текст врізки для block editor; markdown не використовуй, крім рідкісного **жирного** для коротких змістових акцентів."
+      calloutDepth === "deep"
+        ? "body: глибокий розбір у 3-6 докладних абзацах; можна поєднувати абзаци зі списками, якщо це природно для фрагмента."
+        : "body: короткий основний текст врізки для block editor.",
+      "У body markdown не використовуй, крім рідкісного **жирного** для коротких змістових акцентів."
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -1873,9 +1894,11 @@ async function runAnthropicTextPrompt(modelId: string, apiKey: string, prompt: s
   }
 }
 
-function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, fragment: string, recommendation: string): string {
+function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, depth: EditorialCalloutDepth, fragment: string, recommendation: string): string {
   return [
     `Тип врізки: ${getEditorialCalloutKindLabel(kind)}.`,
+    `Глибина врізки: ${depth === "deep" ? "deep / докладно" : "brief / стисло"}.`,
+    CALLOUT_DEPTH_PROMPT_GUIDANCE[depth],
     `Фрагмент: ${fragment}`,
     `Рекомендація: ${recommendation}`,
     "Поверни plain text без markdown, придатний для block editor."
@@ -2238,7 +2261,6 @@ function normalizeTopListLine(line: string): string {
 
 function collapseTopListTitle(value: string): string {
   return value
-    .replace(/[.,;:!?]+$/g, "")
     .trim()
     .split(/\s+/)
     .slice(0, 2)

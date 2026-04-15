@@ -580,6 +580,7 @@ function rewriteBlockFallback(block: Block, prompt?: string): Block {
       id: block.id,
       type: "callout",
       kind: block.kind,
+      depth: block.depth ?? "brief",
       title: [createTextNode(rewriteTextFallback(block.title.map((node) => node.text).join(""), prompt))],
       body: block.body.map((part) => [createTextNode(rewriteTextFallback(part.map((node) => node.text).join(""), prompt))])
     };

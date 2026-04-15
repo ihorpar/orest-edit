@@ -11,8 +11,10 @@ import {
   type LocalActionTextIntent
 } from "../../lib/editor/local-action-router";
 import {
+  getEditorialCalloutDepthOptions,
   getEditorialCalloutKindOptions,
   getEditorialVisualIntentOptions,
+  type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
   type VisualStylePreset,
@@ -74,9 +76,11 @@ export function FloatingComposerPanel({
   localActionMode,
   onLocalActionModeChange,
   manualCalloutKind,
+  manualCalloutDepth,
   manualVisualIntent,
   manualVisualStylePreset,
   onManualCalloutKindChange,
+  onManualCalloutDepthChange,
   onManualVisualIntentChange,
   onManualVisualStylePresetChange,
   manualCalloutPrompt,
@@ -112,9 +116,11 @@ export function FloatingComposerPanel({
   localActionMode: LocalActionMode;
   onLocalActionModeChange: (mode: LocalActionMode) => void;
   manualCalloutKind: EditorialCalloutKind;
+  manualCalloutDepth: EditorialCalloutDepth;
   manualVisualIntent: EditorialVisualIntent;
   manualVisualStylePreset: VisualStylePreset;
   onManualCalloutKindChange: (value: EditorialCalloutKind) => void;
+  onManualCalloutDepthChange: (value: EditorialCalloutDepth) => void;
   onManualVisualIntentChange: (value: EditorialVisualIntent) => void;
   onManualVisualStylePresetChange: (value: VisualStylePreset) => void;
   manualCalloutPrompt: string;
@@ -135,6 +141,7 @@ export function FloatingComposerPanel({
 }) {
   const isReview = mode === "review";
   const calloutOptions = getEditorialCalloutKindOptions();
+  const calloutDepthOptions = getEditorialCalloutDepthOptions();
   const visualOptions = getEditorialVisualIntentOptions();
   const visualStyleOptions = getVisualStylePresetOptions();
   const manualInFlight = Boolean(manualLoadingKind);
@@ -604,6 +611,20 @@ export function FloatingComposerPanel({
                       aria-label="Тип врізки"
                     >
                       {calloutOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="floating-bridge-select-shell">
+                    <select
+                      value={manualCalloutDepth}
+                      onChange={(event) => onManualCalloutDepthChange(event.target.value as EditorialCalloutDepth)}
+                      disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                      aria-label="Глибина врізки"
+                    >
+                      {calloutDepthOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>

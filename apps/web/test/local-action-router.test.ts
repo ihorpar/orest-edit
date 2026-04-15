@@ -5,6 +5,7 @@ import { AUTH_COOKIE_NAME, createSessionToken } from "../lib/auth/password-auth.
 import {
   buildPatchPromptForTextIntent,
   getLocalActionCalloutDescription,
+  getLocalActionCalloutDepthDescription,
   getLocalActionVisualDescription,
   inferSuggestedLocalActionMode,
   inferLocalActionRoute
@@ -31,6 +32,19 @@ test("local action router lets explicit feature keywords override text intent", 
   assert.equal(plan.executor, "visual");
   assert.equal(plan.visualIntent, "illustration");
   assert.equal(plan.visualStylePreset, "modern_glass");
+});
+
+test("local action router preserves explicit callout depth", () => {
+  const plan = inferLocalActionRoute({
+    prompt: "Підготуй докладну врізку до цього фрагмента",
+    explicitMode: "callout",
+    calloutKind: "mechanism",
+    calloutDepth: "deep"
+  });
+
+  assert.equal(plan.executor, "callout");
+  assert.equal(plan.calloutKind, "mechanism");
+  assert.equal(plan.calloutDepth, "deep");
 });
 
 test("explicit edit mode keeps feature keywords as a suggestion instead of forcing the mode", () => {
@@ -88,5 +102,6 @@ test("local action route returns authenticated review-backed list plan", async (
 
 test("local action descriptions expose user-facing copy", () => {
   assert.match(getLocalActionCalloutDescription("mechanism"), /механізм/i);
+  assert.match(getLocalActionCalloutDepthDescription("deep"), /Докладно/i);
   assert.match(getLocalActionVisualDescription("infographic"), /структурований візуал/i);
 });

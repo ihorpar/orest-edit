@@ -21,6 +21,7 @@ export type EditorialReviewSuggestedAction = "rewrite_text" | "insert_text" | "p
 export type EditorialReviewPriority = "high" | "medium" | "low";
 export type EditorialReviewInsertionHint = "replace" | "before" | "after";
 export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
+export type EditorialCalloutDepth = "brief" | "deep";
 export type EditorialVisualIntent = "infographic" | "illustration";
 export type VisualStylePreset = "minimal" | "calm_gradient" | "neo_brutal" | "modern_glass";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
@@ -146,8 +147,10 @@ export interface EditorialReviewItem {
     anchorBlockId: string;
   };
   calloutKind?: EditorialCalloutKind;
+  calloutDepth?: EditorialCalloutDepth;
   calloutDraft?: {
     calloutKind: EditorialCalloutKind;
+    calloutDepth: EditorialCalloutDepth;
     title: string;
     prompt: string;
     previewText: string;
@@ -242,6 +245,7 @@ export interface ReviewActionProposal {
   };
   calloutDraft?: {
     calloutKind: EditorialCalloutKind;
+    calloutDepth: EditorialCalloutDepth;
     title: string;
     prompt: string;
     previewText?: string;
@@ -349,6 +353,7 @@ const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
   "myths_vs_truth",
   "top_list"
 ];
+const REVIEW_CALLOUT_DEPTHS: EditorialCalloutDepth[] = ["brief", "deep"];
 const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["infographic", "illustration"];
 const REVIEW_RECOMMENDATION_TYPE_LABELS: Record<EditorialReviewRecommendationType, string> = {
   rewrite: "переписати",
@@ -391,6 +396,14 @@ const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
   myths_vs_truth: "Подати короткі пари «Міф / Правда» лише для тверджень, що прямо випливають із фрагмента.",
   top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
 };
+const CALLOUT_DEPTH_LABELS: Record<EditorialCalloutDepth, string> = {
+  brief: "Стисло",
+  deep: "Докладно"
+};
+const CALLOUT_DEPTH_DESCRIPTIONS: Record<EditorialCalloutDepth, string> = {
+  brief: "Коротка врізка у поточному стилі.",
+  deep: "Глибокий розбір у 3-6 докладних абзацах; може поєднувати текст і списки."
+};
 const VISUAL_INTENT_LABELS: Record<EditorialVisualIntent, string> = {
   infographic: "інфографіка",
   illustration: "ілюстрація"
@@ -427,6 +440,10 @@ const LEGACY_VISUAL_INTENT_MAP: Record<string, EditorialVisualIntent> = {
 
 export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
   return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: CALLOUT_KIND_LABELS[value] }));
+}
+
+export function getEditorialCalloutDepthOptions(): Array<{ value: EditorialCalloutDepth; label: string }> {
+  return REVIEW_CALLOUT_DEPTHS.map((value) => ({ value, label: CALLOUT_DEPTH_LABELS[value] }));
 }
 
 export function createEmptyStepRunHistory(): EditorialStepRunHistory {
@@ -489,6 +506,18 @@ export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string
 
 export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind): string {
   return CALLOUT_KIND_DESCRIPTIONS[kind];
+}
+
+export function getEditorialCalloutDepthLabel(depth: EditorialCalloutDepth): string {
+  return CALLOUT_DEPTH_LABELS[depth];
+}
+
+export function getEditorialCalloutDepthDescription(depth: EditorialCalloutDepth): string {
+  return CALLOUT_DEPTH_DESCRIPTIONS[depth];
+}
+
+export function normalizeEditorialCalloutDepth(value: unknown): EditorialCalloutDepth {
+  return value === "deep" ? "deep" : "brief";
 }
 
 export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecommendationType): string {
@@ -653,6 +682,7 @@ export function normalizeEditorialReviewItems(input: {
         anchorBlockId: requestedAnchorBlockId && getBlock(input.document, requestedAnchorBlockId) ? requestedAnchorBlockId : insertionAnchor
       },
       calloutKind: normalizeCalloutKind(record.calloutKind),
+      calloutDepth: recommendationType === "callout" ? normalizeEditorialCalloutDepth(record.calloutDepth) : undefined,
       calloutDraft: normalizeCalloutDraft(record),
       visualIntent: normalizeVisualIntent(record.visualIntent),
       emphasisTarget,
@@ -948,9 +978,10 @@ function trimToLength(value: string, maxLength: number): string {
 
 function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReviewItem["calloutDraft"] | undefined {
   const kind = normalizeCalloutKind(record.calloutKind);
+  const depth = normalizeEditorialCalloutDepth(record.calloutDepth);
   const title = normalizeCopy(record.calloutTitle, 90);
   const prompt = normalizeCopy(record.calloutPrompt, 600);
-  const previewText = normalizeCopy(record.calloutPreviewText, 600);
+  const previewText = normalizeCopy(record.calloutPreviewText, depth === "deep" ? 2600 : 600);
 
   if (!kind || !title || !prompt || !previewText) {
     return undefined;
@@ -958,6 +989,7 @@ function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReview
 
   return {
     calloutKind: kind,
+    calloutDepth: depth,
     title,
     prompt,
     previewText

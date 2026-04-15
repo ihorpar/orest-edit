@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import type {
+  EditorialCalloutDepth,
   EditorialCalloutKind,
   EditorialReviewItem,
   EditorialVisualIntent,
@@ -11,6 +12,9 @@ import type {
 } from "../../lib/editor/review-contract";
 import {
   getEditorialCalloutKindDescription,
+  getEditorialCalloutDepthDescription,
+  getEditorialCalloutDepthLabel,
+  getEditorialCalloutDepthOptions,
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindOptions,
   getEditorialRecommendationTypeLabel,
@@ -39,6 +43,7 @@ export function ReviewRecommendationDetail({
   onApplySubsection,
   onDismiss,
   onUpdateActiveCalloutKind,
+  onUpdateActiveCalloutDepth,
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
@@ -67,6 +72,7 @@ export function ReviewRecommendationDetail({
   onApplySubsection: (item: EditorialReviewItem) => void;
   onDismiss: (item: EditorialReviewItem) => void;
   onUpdateActiveCalloutKind: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
+  onUpdateActiveCalloutDepth: (item: EditorialReviewItem, depth: EditorialCalloutDepth) => void;
   onUpdateActiveCalloutTitle: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle: (item: EditorialReviewItem, title: string) => void;
@@ -93,6 +99,7 @@ export function ReviewRecommendationDetail({
   const subsectionDraft = proposal?.kind === "subsection_prompt" && proposal.subsectionDraft ? proposal.subsectionDraft : currentItem.subsectionDraft;
   const imageDraft = proposal?.kind === "image_prompt" ? proposal.imageDraft : null;
   const activeCalloutKind = calloutDraft?.calloutKind ?? currentItem.calloutKind ?? "mechanism";
+  const activeCalloutDepth = calloutDraft?.calloutDepth ?? currentItem.calloutDepth ?? "brief";
   const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
   const canInsertSubsection = Boolean(subsectionDraft?.title?.trim());
   const rangeLabel = revision ? getReviewParagraphRangeLabel(currentItem, revision) : null;
@@ -295,6 +302,25 @@ export function ReviewRecommendationDetail({
               <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutKindLabel(activeCalloutKind)}</strong>
               {" "}
               {getEditorialCalloutKindDescription(activeCalloutKind)}
+            </p>
+          </div>
+          <div className="editorial-review-callout-kind-row">
+            <p className="editorial-review-detail-label">Глибина врізки</p>
+            <select
+              className="editorial-review-callout-kind-select"
+              value={activeCalloutDepth}
+              onChange={(event) => onUpdateActiveCalloutDepth(currentItem, event.target.value as EditorialCalloutDepth)}
+            >
+              {getEditorialCalloutDepthOptions().map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="editorial-review-callout-kind-copy">
+              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutDepthLabel(activeCalloutDepth)}</strong>
+              {" "}
+              {getEditorialCalloutDepthDescription(activeCalloutDepth)}
             </p>
           </div>
           <div className="editorial-review-field-group">

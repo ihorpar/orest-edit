@@ -41,6 +41,38 @@ test("generateEditorialReview builds fallback recommendations without API key", 
   assert.equal(response.diagnostics.blockCount, 2);
 });
 
+test("generateEditorialReview injects strict diagnostics rubric into provider prompt", async () => {
+  let requestBody = "";
+
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "diagnostics",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: "### 1. Редакторський вердикт\nТестова діагностика."
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.stepId, "diagnostics");
+  assert.match(requestBody, /редакторський вердикт/i);
+  assert.match(requestBody, /критичні ризики/i);
+  assert.match(requestBody, /severity/);
+  assert.match(requestBody, /читацьку шкоду/);
+  assert.match(requestBody, /не приховуй гострі проблеми/i);
+});
+
 test("generateEditorialReview fallback enforces step-specific recommendation types", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "visuals" }), {
     readEnvValue: () => null,
@@ -157,6 +189,50 @@ test("generateEditorialReview injects aggressive emphasis coverage guidance star
   assert.match(requestBody, /Уже від рівня змін 2\/5 багато змістовних абзаців можуть потребувати акценту/);
   assert.match(requestBody, /М'який орієнтир для цього документа: приблизно \d+-\d+ акцентів/);
   assert.match(requestBody, /слід покривати значну частину змістовного тексту/);
+});
+
+test("generateEditorialReview asks level 5 emphasis to cover nearly every meaningful paragraph", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: Array.from({ length: 20 }, (_, index) => ({
+      id: `p${index + 1}`,
+      type: "paragraph" as const,
+      content: [
+        {
+          text: `Meaningful paragraph ${index + 1} contains a standalone thesis and enough context for a useful scan-friendly accent.`
+        }
+      ]
+    }))
+  };
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "emphasis",
+      apiKey: "test-key",
+      changeLevel: 5
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /19-20/);
+  assert.match(requestBody, /5\/5/);
 });
 
 test("generateEditorialReview chunks large emphasis runs and merges global anchors", async () => {

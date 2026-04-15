@@ -21,6 +21,7 @@ import {
   documentToPlainText,
   EMPTY_BLOCK_SELECTION,
   getBlockText,
+  getDocumentTextStats,
   getInlineText,
   insertBlocksAfter,
   normalizeBlockSelection,
@@ -29,7 +30,6 @@ import {
   sliceDocumentForBlockRange,
   replaceBlocksByIds
 } from "../../lib/editor/document-model";
-import { DEFAULT_EDITOR_DOCUMENT } from "../../lib/editor/default-manuscript";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, type PersistedWorkflowStepId } from "../../lib/editor/draft-state";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
@@ -74,6 +74,7 @@ import {
   createDefaultStepRunModeMap,
   createEmptyStepRunHistory,
   type EditorialFactCheckRow,
+  type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialReviewStepId,
   type EditorialStepFeedbackMap,
@@ -95,7 +96,8 @@ import {
   type ReviewActionRequest,
   type ReviewActionProposal,
   type ReviewActionResponse,
-  type WholeTextChangeLevel
+  type WholeTextChangeLevel,
+  normalizeEditorialCalloutDepth
 } from "../../lib/editor/review-contract";
 import {
   CHANGE_LEVEL_GUIDANCE,
@@ -228,6 +230,7 @@ interface EditorSessionSnapshot {
   reviewExpertise: string | null;
   activeWorkflowStep: WorkflowStepId;
   manualCalloutKind: EditorialCalloutKind;
+  manualCalloutDepth: EditorialCalloutDepth;
   manualVisualIntent: EditorialVisualIntent;
   localActionMode: LocalActionMode;
   localTextIntent: LocalActionTextIntent;
@@ -253,6 +256,7 @@ const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInst
   additionalInstructions: ""
 };
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
+const defaultManualCalloutDepth: EditorialCalloutDepth = "brief";
 const defaultManualVisualIntent: EditorialVisualIntent = "infographic";
 const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
 const defaultLocalActionMode = "edit" as const;
@@ -297,11 +301,25 @@ function isLocalActionRoutePayload(value: LocalActionRouteResponse | { error?: s
   return "executor" in value;
 }
 
+function createBlankDocument(): EditorDocument {
+  return {
+    version: 2,
+    blocks: [createEmptyParagraphBlock("p-blank")]
+  };
+}
+
 export default function EditorPage() {
-  const [document, setDocument] = useState<EditorDocument>(DEFAULT_EDITOR_DOCUMENT);
-  const [revision, setRevision] = useState<ManuscriptRevisionState>(() => deriveManuscriptRevisionState(DEFAULT_EDITOR_DOCUMENT));
+  const initialDocumentRef = useRef<EditorDocument | null>(null);
+  if (initialDocumentRef.current === null) {
+    initialDocumentRef.current = createBlankDocument();
+  }
+  const initialDocument = initialDocumentRef.current;
+
+  const [document, setDocument] = useState<EditorDocument>(initialDocument);
+  const [revision, setRevision] = useState<ManuscriptRevisionState>(() => deriveManuscriptRevisionState(initialDocument));
+  const documentStats = useMemo(() => getDocumentTextStats(document), [document]);
   const [selection, setSelection] = useState<BlockSelection>(EMPTY_BLOCK_SELECTION);
-  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(DEFAULT_EDITOR_DOCUMENT.blocks[0]?.id ?? null);
+  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(initialDocument.blocks[0]?.id ?? null);
   const [operations, setOperations] = useState<PatchOperation[]>([]);
   const [reviewItems, setReviewItems] = useState<EditorialReviewItem[]>([]);
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
@@ -331,6 +349,7 @@ export default function EditorPage() {
   const [reviewExpertise, setReviewExpertise] = useState<string | null>(null);
   const [activeWorkflowStep, setActiveWorkflowStep] = useState<WorkflowStepId>("diagnostics");
   const [manualCalloutKind, setManualCalloutKind] = useState<EditorialCalloutKind>(defaultManualCalloutKind);
+  const [manualCalloutDepth, setManualCalloutDepth] = useState<EditorialCalloutDepth>(defaultManualCalloutDepth);
   const [manualVisualIntent, setManualVisualIntent] = useState<EditorialVisualIntent>(defaultManualVisualIntent);
   const [manualGenerationInFlight, setManualGenerationInFlight] = useState<{ kind: ManualGenerationKind; key: string } | null>(null);
   const [localActionMode, setLocalActionMode] = useState<LocalActionMode>(defaultLocalActionMode);
@@ -393,10 +412,11 @@ export default function EditorPage() {
         explicitMode: localActionMode === "auto" ? null : localActionMode,
         preferredTextIntent: localTextIntent,
         calloutKind: manualCalloutKind,
+        calloutDepth: manualCalloutDepth,
         visualIntent: manualVisualIntent,
         visualStylePreset: visualStylePreset
       }),
-    [customPrompt, localActionMode, localTextIntent, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
+    [customPrompt, localActionMode, localTextIntent, manualCalloutDepth, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
   );
   const localModeSuggestion = useMemo<{ mode: SuggestedLocalActionMode; label: string } | null>(() => {
     if (localActionMode !== "edit" && localActionMode !== "auto") {
@@ -1154,13 +1174,6 @@ export default function EditorPage() {
     applySpellcheckState(nextSpellcheckState);
   }
 
-  function createBlankDocument(): EditorDocument {
-    return {
-      version: 2,
-      blocks: [createEmptyParagraphBlock()]
-    };
-  }
-
   function captureEditorSessionSnapshot(): EditorSessionSnapshot {
     return structuredClone({
       document,
@@ -1183,6 +1196,7 @@ export default function EditorPage() {
       reviewExpertise,
       activeWorkflowStep,
       manualCalloutKind,
+      manualCalloutDepth,
       manualVisualIntent,
       localActionMode,
       localTextIntent,
@@ -1225,6 +1239,7 @@ export default function EditorPage() {
     setReviewExpertise(snapshot.reviewExpertise);
     setActiveWorkflowStep(snapshot.activeWorkflowStep);
     setManualCalloutKind(snapshot.manualCalloutKind);
+    setManualCalloutDepth(normalizeEditorialCalloutDepth(snapshot.manualCalloutDepth));
     setManualVisualIntent(snapshot.manualVisualIntent);
     setLocalActionMode(snapshot.localActionMode === "auto" ? "edit" : snapshot.localActionMode);
     setLocalTextIntent(snapshot.localTextIntent);
@@ -1280,6 +1295,7 @@ export default function EditorPage() {
     closeComposer({ immediate: true });
     setCustomPrompt("");
     setManualCalloutKind(defaultManualCalloutKind);
+    setManualCalloutDepth(defaultManualCalloutDepth);
     setManualVisualIntent(defaultManualVisualIntent);
     setManualGenerationInFlight(null);
     setLocalActionMode(defaultLocalActionMode);
@@ -1924,6 +1940,7 @@ export default function EditorPage() {
           explicitMode: localActionMode === "auto" ? null : localActionMode,
           preferredTextIntent: localTextIntent,
           calloutKind: manualCalloutKind,
+          calloutDepth: manualCalloutDepth,
           visualIntent: manualVisualIntent,
           visualStylePreset
         })
@@ -1962,6 +1979,7 @@ export default function EditorPage() {
       if (payload.executor === "callout") {
         return await requestManualInsert("callout", {
           calloutKind: payload.calloutKind,
+          calloutDepth: payload.calloutDepth,
           editorialInstruction: payload.prompt
         });
       }
@@ -2277,6 +2295,7 @@ export default function EditorPage() {
     kind: ManualGenerationKind,
     overrides?: {
       calloutKind?: EditorialCalloutKind;
+      calloutDepth?: EditorialCalloutDepth;
       visualIntent?: EditorialVisualIntent;
       visualStylePreset?: VisualStylePreset;
       editorialInstruction?: string;
@@ -2303,6 +2322,7 @@ export default function EditorPage() {
       changeLevel: reviewComposer.changeLevel,
       recommendationType,
       calloutKind: overrides?.calloutKind ?? manualCalloutKind,
+      calloutDepth: overrides?.calloutDepth ?? manualCalloutDepth,
       visualIntent: overrides?.visualIntent ?? manualVisualIntent,
       manualInstruction:
         overrides?.editorialInstruction ??
@@ -2395,6 +2415,7 @@ export default function EditorPage() {
 
     if (item.calloutKind) {
       compactItem.calloutKind = item.calloutKind;
+      compactItem.calloutDepth = normalizeEditorialCalloutDepth(item.calloutDepth);
     }
 
     if (item.visualIntent) {
@@ -2601,8 +2622,10 @@ export default function EditorPage() {
             entry.id === item.id
               ? {
                 ...entry,
+                calloutDepth: payload.proposal.calloutDraft!.calloutDepth,
                 calloutDraft: {
                   calloutKind: payload.proposal.calloutDraft!.calloutKind,
+                  calloutDepth: payload.proposal.calloutDraft!.calloutDepth,
                   title: payload.proposal.calloutDraft!.title,
                   prompt: payload.proposal.calloutDraft!.prompt,
                   previewText: payload.proposal.calloutDraft!.previewText ?? ""
@@ -2660,6 +2683,7 @@ export default function EditorPage() {
       id: createBlockId("callout"),
       type: "callout",
       kind: item.calloutDraft.calloutKind,
+      depth: item.calloutDraft.calloutDepth,
       title: parseBoldMarkdownToInlineNodes(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind)),
       body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText, item.calloutDraft.calloutKind)
     };
@@ -2735,8 +2759,10 @@ export default function EditorPage() {
         }
 
         const fallbackTitle = getEditorialCalloutKindTitle(kind);
+        const depth = normalizeEditorialCalloutDepth(entry.calloutDraft?.calloutDepth ?? entry.calloutDepth);
         const draft = entry.calloutDraft ?? {
           calloutKind: kind,
+          calloutDepth: depth,
           title: fallbackTitle,
           prompt: "",
           previewText: ""
@@ -2745,9 +2771,11 @@ export default function EditorPage() {
         return {
           ...entry,
           calloutKind: kind,
+          calloutDepth: depth,
           calloutDraft: {
             ...draft,
             calloutKind: kind,
+            calloutDepth: depth,
             title: draft.title.trim() ? draft.title : fallbackTitle
           }
         };
@@ -2760,8 +2788,10 @@ export default function EditorPage() {
       }
 
       const fallbackTitle = getEditorialCalloutKindTitle(kind);
+      const depth = normalizeEditorialCalloutDepth(current.calloutDraft?.calloutDepth);
       const draft = current.calloutDraft ?? {
         calloutKind: kind,
+        calloutDepth: depth,
         title: fallbackTitle,
         prompt: "",
         previewText: ""
@@ -2772,7 +2802,45 @@ export default function EditorPage() {
         calloutDraft: {
           ...draft,
           calloutKind: kind,
+          calloutDepth: depth,
           title: draft.title.trim() ? draft.title : fallbackTitle
+        }
+      };
+    });
+  }
+
+  function updateActiveCalloutDepth(item: EditorialReviewItem, depth: EditorialCalloutDepth) {
+    setReviewItems((current) =>
+      current.map((entry) => {
+        if (entry.id !== item.id) {
+          return entry;
+        }
+
+        const kind = entry.calloutDraft?.calloutKind ?? entry.calloutKind ?? "mechanism";
+        return {
+          ...entry,
+          calloutDepth: depth,
+          calloutDraft: {
+            calloutKind: kind,
+            calloutDepth: depth,
+            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
+            prompt: entry.calloutDraft?.prompt ?? "",
+            previewText: entry.calloutDraft?.previewText ?? ""
+          }
+        };
+      })
+    );
+
+    setActiveProposal((current) => {
+      if (!current || current.kind !== "callout_prompt" || current.reviewItemId !== item.id || !current.calloutDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        calloutDraft: {
+          ...current.calloutDraft,
+          calloutDepth: depth
         }
       };
     });
@@ -2786,10 +2854,12 @@ export default function EditorPage() {
         }
 
         const kind = entry.calloutDraft?.calloutKind ?? entry.calloutKind ?? "mechanism";
+        const depth = normalizeEditorialCalloutDepth(entry.calloutDraft?.calloutDepth ?? entry.calloutDepth);
         return {
           ...entry,
           calloutDraft: {
             calloutKind: kind,
+            calloutDepth: depth,
             title,
             prompt: entry.calloutDraft?.prompt ?? "",
             previewText: entry.calloutDraft?.previewText ?? ""
@@ -2821,10 +2891,12 @@ export default function EditorPage() {
         }
 
         const kind = entry.calloutDraft?.calloutKind ?? entry.calloutKind ?? "mechanism";
+        const depth = normalizeEditorialCalloutDepth(entry.calloutDraft?.calloutDepth ?? entry.calloutDepth);
         return {
           ...entry,
           calloutDraft: {
             calloutKind: kind,
+            calloutDepth: depth,
             title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
             prompt: entry.calloutDraft?.prompt ?? "",
             previewText: body
@@ -3224,6 +3296,7 @@ export default function EditorPage() {
         };
       }
 
+      await persistImportedAssets(imported);
       replaceEditorSession(imported.document, buildImportFeedback(imported));
     } catch (error) {
       setFeedback({
@@ -3252,6 +3325,7 @@ export default function EditorPage() {
 
     try {
       const imported = await importFileToDocument(file);
+      await persistImportedAssets(imported);
       replaceEditorSession(imported.document, buildImportFeedback(imported));
     } catch (error) {
       setFeedback({
@@ -3261,6 +3335,22 @@ export default function EditorPage() {
     } finally {
       setIsImportInFlight(false);
     }
+  }
+
+  async function persistImportedAssets(imported: ImportedDocumentResult) {
+    if (!imported.assets?.length) {
+      return;
+    }
+
+    await Promise.all(
+      imported.assets.map((asset) =>
+        storeEditorAssetFromBlob({
+          blob: asset.blob,
+          assetId: asset.assetId,
+          mimeType: asset.mimeType
+        })
+      )
+    );
   }
 
   function handleClearDocument() {
@@ -3303,7 +3393,7 @@ export default function EditorPage() {
     }
 
     clearEditorDraftState();
-    replaceEditorSession(DEFAULT_EDITOR_DOCUMENT, { tone: "info", message: "Локальну сесію скинуто." });
+    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Локальну сесію скинуто." });
     setDestructiveRecoveryState({
       kind: "reset_draft",
       message: "Локальну сесію скинуто.",
@@ -4226,7 +4316,7 @@ export default function EditorPage() {
 
   return (
     <>
-      <TopBar activePath="/editor" />
+      <TopBar activePath="/editor" documentStats={documentStats} />
       {destructiveRecoveryState ? (
         <div className="editor-toast-stack" aria-live="polite">
           <div className="editor-toast editor-toast-success" role="status">
@@ -4349,6 +4439,7 @@ export default function EditorPage() {
               onApplyReviewSubsection={applyReviewSubsection}
               onDismissReviewItem={dismissReviewItem}
               onUpdateActiveCalloutKind={updateActiveCalloutKind}
+              onUpdateActiveCalloutDepth={updateActiveCalloutDepth}
               onUpdateActiveCalloutTitle={updateActiveCalloutTitle}
               onUpdateActiveCalloutBody={updateActiveCalloutBody}
               onUpdateActiveSubsectionTitle={updateActiveSubsectionTitle}
@@ -4417,9 +4508,11 @@ export default function EditorPage() {
                 localActionMode={localActionMode}
                 onLocalActionModeChange={handleLocalActionModeChange}
                 manualCalloutKind={manualCalloutKind}
+                manualCalloutDepth={manualCalloutDepth}
                 manualVisualIntent={manualVisualIntent}
                 manualVisualStylePreset={visualStylePreset}
                 onManualCalloutKindChange={setManualCalloutKind}
+                onManualCalloutDepthChange={setManualCalloutDepth}
                 onManualVisualIntentChange={setManualVisualIntent}
                 onManualVisualStylePresetChange={persistVisualStylePreset}
                 manualCalloutPrompt={manualCalloutPrompt}
@@ -4474,6 +4567,20 @@ export default function EditorPage() {
                     <h1 className="step-review-prototype-title">{activeStepMeta.label}</h1>
                   </div>
                   <div className="step-review-prototype-head-actions">
+                    {activeWorkflowStep === "emphasis" && actionableEmphasisSuggestionCount > 0 ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="step-review-prototype-accept-all-button"
+                        onClick={applyAllEmphasisSuggestions}
+                        disabled={isReviewRequestInFlight}
+                        aria-label="Прийняти всі акценти"
+                      >
+                        <span className="button-content">
+                          <span>Прийняти всі</span>
+                        </span>
+                      </Button>
+                    ) : null}
                     <Button
                       variant="primary"
                       size="sm"
@@ -5849,6 +5956,7 @@ function createFactCheckLinkedReviewItems(input: {
         anchorBlockId: anchor.anchorBlockId
       },
       calloutKind: needsCallout ? "myths_vs_truth" : undefined,
+      calloutDepth: needsCallout ? "brief" : undefined,
       priority: row.status === "не підтверджено" ? "high" : "medium",
       status: "pending"
     });

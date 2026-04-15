@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeTextBlockIntoPrevious, replaceTextInDocument, sliceDocumentForBlockRange, type EditorDocument } from "../lib/editor/document-model.ts";
+import {
+  convertBlockToHeadingBlock,
+  convertBlockToListBlock,
+  convertBlockToParagraphBlock,
+  getDocumentTextStats,
+  mergeTextBlockIntoPrevious,
+  replaceTextInDocument,
+  sliceDocumentForBlockRange,
+  type EditorDocument
+} from "../lib/editor/document-model.ts";
 
 test("mergeTextBlockIntoPrevious merges paragraph text into the previous text block and returns the join offset", () => {
   const document: EditorDocument = {
@@ -142,4 +151,130 @@ test("replaceTextInDocument replaces repeated literal matches across text-bearin
   assert.equal(list.items[0]?.[0]?.text, "barrier list");
   assert.equal(image.alt, "barrier alt");
   assert.equal(image.caption?.[0]?.text, "barrier caption");
+});
+
+test("getDocumentTextStats counts visible words and symbols with spaces", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "h-1", type: "heading", level: 2, content: [{ text: "Назва розділу" }] },
+      { id: "p-1", type: "paragraph", content: [{ text: "Перше речення." }] },
+      { id: "l-1", type: "bullet_list", items: [[{ text: "пункт один" }], [{ text: "пункт два" }]] },
+      {
+        id: "c-1",
+        type: "callout",
+        kind: "mechanism",
+        title: [{ text: "Врізка" }],
+        body: [[{ text: "короткий текст" }]]
+      },
+      {
+        id: "i-1",
+        type: "image",
+        assetId: "asset-1",
+        alt: "схема",
+        caption: [{ text: "підпис" }]
+      },
+      {
+        id: "t-1",
+        type: "table",
+        rows: [
+          [[{ text: "A1" }], [{ text: "B1" }]],
+          [[{ text: "A2" }], [{ text: "B2" }]]
+        ]
+      },
+      { id: "d-1", type: "divider" }
+    ]
+  };
+
+  const stats = getDocumentTextStats(document);
+
+  assert.equal(stats.words, 17);
+  assert.equal(stats.charactersWithSpaces, "Назва розділу Перше речення. пункт один пункт два Врізка короткий текст схема підпис A1 B1 A2 B2".length);
+});
+
+test("convertBlockToListBlock preserves inline formatting and terminal punctuation", () => {
+  const block: EditorDocument["blocks"][number] = {
+    id: "p-1",
+    type: "paragraph",
+    content: [
+      { text: "Перший", bold: true },
+      { text: " пункт. " },
+      { text: "Другий", italic: true },
+      { text: " пункт." }
+    ]
+  };
+
+  const list = convertBlockToListBlock(block, "bullet_list");
+
+  assert.equal(list.type, "bullet_list");
+  assert.equal(list.items.length, 2);
+  assert.equal(list.items[0]?.[0]?.text, "Перший");
+  assert.equal(list.items[0]?.[0]?.bold, true);
+  assert.equal(list.items[0]?.[1]?.text, " пункт.");
+  assert.equal(list.items[1]?.[0]?.text, "Другий");
+  assert.equal(list.items[1]?.[0]?.italic, true);
+  assert.equal(list.items[1]?.[1]?.text, " пункт.");
+});
+
+test("convertBlockToListBlock strips list markers without stripping formatting", () => {
+  const block: EditorDocument["blocks"][number] = {
+    id: "p-1",
+    type: "paragraph",
+    content: [
+      { text: "- " },
+      { text: "Жирний пункт", bold: true },
+      { text: "\n2. " },
+      { text: "Курсивний пункт", italic: true }
+    ]
+  };
+
+  const list = convertBlockToListBlock(block, "ordered_list");
+
+  assert.equal(list.type, "ordered_list");
+  assert.equal(list.items[0]?.[0]?.text, "Жирний пункт");
+  assert.equal(list.items[0]?.[0]?.bold, true);
+  assert.equal(list.items[1]?.[0]?.text, "Курсивний пункт");
+  assert.equal(list.items[1]?.[0]?.italic, true);
+});
+
+test("convertBlockToParagraphBlock preserves inline formatting when flattening a list", () => {
+  const block: EditorDocument["blocks"][number] = {
+    id: "l-1",
+    type: "bullet_list",
+    items: [
+      [{ text: "Жирний", bold: true }, { text: " пункт." }],
+      [{ text: "Курсивний", italic: true }, { text: " пункт." }]
+    ]
+  };
+
+  const paragraph = convertBlockToParagraphBlock(block);
+
+  assert.equal(paragraph.type, "paragraph");
+  assert.equal(paragraph.content[0]?.text, "Жирний");
+  assert.equal(paragraph.content[0]?.bold, true);
+  assert.equal(paragraph.content[1]?.text, " пункт.\n");
+  assert.equal(paragraph.content[2]?.text, "Курсивний");
+  assert.equal(paragraph.content[2]?.italic, true);
+  assert.equal(paragraph.content[3]?.text, " пункт.");
+});
+
+test("convertBlockToHeadingBlock preserves inline formatting when flattening a list", () => {
+  const block: EditorDocument["blocks"][number] = {
+    id: "l-1",
+    type: "ordered_list",
+    items: [
+      [{ text: "Перший", bold: true }],
+      [{ text: "Другий", italic: true }]
+    ]
+  };
+
+  const heading = convertBlockToHeadingBlock(block, 2);
+
+  assert.equal(heading.type, "heading");
+  assert.equal(heading.level, 2);
+  assert.equal(heading.content[0]?.text, "Перший");
+  assert.equal(heading.content[0]?.bold, true);
+  assert.equal(heading.content[1]?.text, "\n");
+  assert.equal(heading.content[2]?.text, "Другий");
+  assert.equal(heading.content[2]?.italic, true);
 });

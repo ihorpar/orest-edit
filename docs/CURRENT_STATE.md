@@ -33,11 +33,13 @@ Status: Active handoff
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, and `final_editing`
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
+- Diagnostics now uses a stricter rubric-driven prompt: editorial verdict, critical risks with severity/evidence/reader harm, dimension map, selective block analysis, and prioritized next workflow steps instead of a broad polite overview
 - Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
 - Gemini fact-check now runs through grounded Google Search on `gemini-3.1-flash-lite-preview`; row sources are derived from `groundingMetadata` into structured `sources[]`, with low-trust domains filtered out
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
+- Callouts now carry two orthogonal attributes: `calloutKind` (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) and `calloutDepth` (`brief`, `deep`). `brief` keeps the existing short-card behavior, while `deep` asks for a 3-6 paragraph deep dive that may mix prose and lists when natural.
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
 - Compact recommendation cards now truncate recommendation copy to two lines by default and allow per-card expand/collapse for full text
@@ -56,6 +58,7 @@ Status: Active handoff
 - Shared workflow-UI presentation helpers now derive visible feedback banners, step CTA copy, and header status state from existing editor state instead of duplicating ad hoc header logic directly in `/editor`
 - Drawer-level action feedback now renders for both success and error states; prior `info` feedback is no longer silently hidden
 - Clear-document and reset-session actions no longer fire immediately: both now open inline consequence panels, execute only after confirmation, and expose a session-local undo/recovery banner after the action completes
+- Clear-document, reset-session, and fresh no-draft editor sessions now use a blank manuscript instead of loading the old preset sample article
 - Step config help no longer depends on compact hover-only info icons; the current context explanation is now inline copy inside the relevant drawer sections
 - The active review step label now stays visible in the mini-hub rail without requiring hover, reducing orientation loss on compact layouts
 - Critical icon-first manuscript controls now have explicit accessibility labels, and block delete affordances remain visible not only on hover but also for selected/focused rows
@@ -69,6 +72,7 @@ Status: Active handoff
 - `callout`, `visual`, and stale/preparing recommendation states now execute from the manuscript surface through one floating inline card
 - Execution cards no longer render duplicated rationale/excerpt context; focus stays on editable fields and CTA actions
 - Callout execution panels no longer render raw prompt text; only kind/title/body + regenerate/insert actions remain
+- Callout execution panels, manuscript callout blocks, and the floating manual callout launcher expose the `Стисло` / `Докладно` depth selector and keep that value through proposal regeneration, insertion, document serialization, and manual local-action routing.
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
 - Visual execution panels now also expose an icon-only focus action that opens a full-screen visual workspace with large prompt editing, preview, caption/style/intent controls, and the same generate/insert actions before or after image generation
 - Visual execution now supports local style presets (`minimal`, `calm_gradient`, `neo_brutal`, `modern_glass`) in both manuscript-inline visual cards and manual visual launcher
@@ -88,6 +92,7 @@ Status: Active handoff
 - Local patch requests from the floating composer now send a sliced manuscript payload (selected range plus one neighboring block on each side) instead of the full document, while provider prompt assembly still stays limited to that same local context
 - `/editor` now supports a document-wide global replace flow via `Ctrl/Cmd+H`; it opens a compact Ukrainian dialog and applies one undoable manuscript-wide replacement across text-bearing blocks
 - The editor hotkey map now includes `Ctrl/Cmd+Shift+8` for bullet-list toggle, and the top navbar exposes a `Гарячі клавіші` popup with the common shortcuts
+- The editor top navbar now shows compact live document stats near `Гарячі клавіші`: word count plus symbols with spaces
 - The floating local composer is now viewport-bounded and draggable: it clamps to the visible viewport on tablet/mobile-like sizes, keeps internal overflow scrollable instead of clipping action rows, and remembers the last dropped position for the current browser session
 - The `Правка` tab in the floating local composer is now an explicit mode, not a thin alias for keyword auto-routing; feature keywords such as `правопис` surface by highlighting the matching top pill as a suggestion instead of force-switching tabs
 - The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Таблиця`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
@@ -102,6 +107,8 @@ Status: Active handoff
 - Large `Акценти` runs now execute in overlapping chunked review batches server-side instead of one monolithic whole-document call; chunk results are merged back into one global inline-emphasis result set with document-level anchors preserved
 - Emphasis provider contracts now key suggestions by explicit `blockId` (not only numeric paragraph positions), and normalization attempts a local server-side re-anchor when `emphasisText` is valid but the returned block points to the wrong neighboring paragraph
 - The `Акценти` drawers now expose a `Прийняти всі` bulk action; one click applies all currently actionable inline accents, writes one compare/history entry (`Прийняти всі акценти`), and keeps the whole operation reversible through the normal undo flow
+- The active `Акценти` step header now also exposes `Прийняти всі` whenever actionable accents exist, so bulk acceptance is available as a single prominent click immediately after reviewing generated accents
+- `Акценти` level 5 is now calibrated as a dense final pass: prompt coverage targets nearly every meaningful paragraph with a self-contained thesis, while still limiting each paragraph to one short bold phrase and avoiding already-bold or decorative spans
 - The `Акценти` drawer uses its own review module rather than compact proposal cards: it lists the suggested phrases per paragraph, keeps completed-toggle behavior, and focuses the manuscript anchor without auto-preparing a diff lane
 - The `Акценти` step now runs as a standalone lightweight pass and no longer requires diagnostics context; its review request omits diagnostics/expertise prompt ballast (`basePrompt`, `cardsPrompt`, `expertise`, `stepContext`)
 - `Правопис` and `Акценти` now share the modern prototype stage shell, and `Акценти` exposes stage settings wired through run mode, feedback, and change-level request settings
@@ -153,6 +160,7 @@ Status: Active handoff
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - The manuscript top action bar now separates document-level actions from block formatting: `Відкрити` menu on the left, `Зберегти` menu on the right, plus red clear-document icon and debug `Скинути`
 - Import v1 now exists through `Відкрити`: `.txt`, `.docx`, and clipboard text/HTML are normalized into the block document model before replacing the current manuscript
+- DOCX import now preserves embedded images by extracting `word/media/*` assets into browser-local image storage and creating manuscript `image` blocks in document order
 - Save v1 now supports both `.docx` and `.txt` from the same `Зберегти` menu
 - Browser draft persistence uses `orest-editor-draft-v3`
 - `.docx` export renders directly from the block document model
@@ -197,6 +205,8 @@ Status: Active handoff
 - AI formatting policy is intentionally narrow: generated editorial text may use only sparse `bold` emphasis on short key phrases, not arbitrary markdown or full-sentence highlighting
 - The document-wide `Акценти` pass is a separate inline-accept/reject workflow from generic AI formatting: it proposes one exact phrase per paragraph at most, shows it directly in the manuscript, and never opens a diff card
 - Toolbar list toggles can now convert existing bullet/ordered lists back to paragraphs instead of forcing editors to manually strip list structure
+- Toolbar list conversion now preserves inline bold/italic formatting and terminal punctuation when turning paragraph/heading text into bullet or ordered lists
+- Reverse toolbar list conversion now also preserves inline bold/italic formatting when turning bullet or ordered lists back into paragraphs or headings
 - Pressing `Enter` on an empty list item now exits the list safely instead of wiping the whole block: multi-item lists keep their existing items and insert an empty paragraph after the list, while a single empty item converts in place to an empty paragraph
 - Manually inserted manuscript callouts now expose an in-block kind selector, and switching kind updates the default title only when the title still matches the previous kind default
 - Undo/redo applies only to manuscript mutations in the current session; compare history is persisted separately as accepted-change snapshots rather than as a full revision timeline
@@ -209,6 +219,13 @@ Status: Active handoff
 4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
+- `node --import tsx --test apps/web/test/review-contract.test.ts apps/web/test/manual-review-items.test.ts apps/web/test/local-action-router.test.ts apps/web/test/review-action-service.test.ts apps/web/test/review-service.test.ts`, `npm run typecheck -w @orest/web`, and `npm run test -w @orest/web` passed on 2026-04-15 after wiring callout depth/profile (`brief`/`deep`) through review generation, proposal generation, manual launchers, local-action routing, inline execution, manuscript blocks, and settings prompts.
+- `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/settings.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after strengthening diagnostics into a rubric-driven editorial-risk prompt
+- `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/review-contract.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after exposing header-level `Прийняти всі` for `Акценти` and increasing level-5 accent density; no-screenshot runtime smoke against `http://127.0.0.1:3000/editor` confirmed the editor loads without framework overlays or console errors
+- `node --import tsx --test apps/web/test/document-model.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after adding live top-bar document stats; no-screenshot runtime smoke against `http://127.0.0.1:3000/editor` confirmed the stats render and update after editing
+- `node --import tsx --test apps/web/test/document-model.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after preserving inline formatting in toolbar list conversion
+- `node --import tsx --test apps/web/test/document-model.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after preserving inline formatting in reverse list conversion (`list -> paragraph|heading`)
+- `node --import tsx --test apps/web/test/import.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after DOCX image import preservation
 - `npm run typecheck -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
 - `npm run build -w @orest/web` passed on 2026-03-11 after pass-2 updates (top_list hardening, no-op escalation, range clipping, autosize diff editors)
 - `npm run test -w @orest/web` passed on 2026-03-11 (47 tests), including new coverage for top_list normalization, numeric-line preservation in callout cleanup, range clipping, and callout template hardening

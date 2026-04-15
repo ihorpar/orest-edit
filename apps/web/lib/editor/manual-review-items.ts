@@ -2,6 +2,7 @@ import { getBlock, getBlockText, type EditorDocument } from "./document-model";
 import { createPatchId } from "./patch-contract";
 import { computeAnchorFingerprint, type ManuscriptRevisionState } from "./manuscript-structure";
 import type {
+  EditorialCalloutDepth,
   EditorialCalloutKind,
   EditorialReviewItem,
   EditorialReviewRecommendationType,
@@ -20,6 +21,7 @@ export interface BuildManualReviewItemInput {
   changeLevel: WholeTextChangeLevel;
   recommendationType: "callout" | "visual" | "list";
   calloutKind?: EditorialCalloutKind;
+  calloutDepth?: EditorialCalloutDepth;
   visualIntent?: EditorialVisualIntent;
   manualInstruction?: string;
   now?: string;
@@ -98,6 +100,7 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
       anchorBlockId
     },
     calloutKind: recommendationType === "callout" ? input.calloutKind ?? "mechanism" : undefined,
+    calloutDepth: recommendationType === "callout" ? input.calloutDepth ?? "brief" : undefined,
     visualIntent: recommendationType === "visual" ? input.visualIntent ?? "infographic" : undefined,
     status: "pending",
     origin: "manual",

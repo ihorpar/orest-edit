@@ -106,3 +106,63 @@ test("importDocxArrayBuffer groups list items and preserves tables", async () =>
     ]
   );
 });
+
+test("importDocxArrayBuffer preserves embedded images as image blocks with assets", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document
+      xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:r><w:t>Before image.</w:t></w:r>
+        </w:p>
+        <w:p>
+          <w:r>
+            <w:drawing>
+              <a:graphic>
+                <a:graphicData>
+                  <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:blipFill>
+                      <a:blip r:embed="rId5"/>
+                    </pic:blipFill>
+                  </pic:pic>
+                </a:graphicData>
+              </a:graphic>
+            </w:drawing>
+          </w:r>
+        </w:p>
+        <w:p>
+          <w:r><w:t>After image.</w:t></w:r>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+  zip.file(
+    "word/_rels/document.xml.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      <Relationship
+        Id="rId5"
+        Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+        Target="media/image1.png"/>
+    </Relationships>`
+  );
+  zip.file("word/media/image1.png", Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]));
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const imageBlock = result.document.blocks[1];
+
+  assert.equal(result.warnings.length, 0);
+  assert.deepEqual(result.document.blocks.map((block) => block.type), ["paragraph", "image", "paragraph"]);
+  assert.equal(imageBlock?.type, "image");
+  assert.equal(imageBlock?.type === "image" ? imageBlock.alt : "", "image1");
+  assert.equal(result.assets?.length, 1);
+  assert.equal(result.assets?.[0]?.assetId, imageBlock?.type === "image" ? imageBlock.assetId : "");
+  assert.equal(result.assets?.[0]?.mimeType, "image/png");
+  assert.equal(result.assets?.[0]?.blob.size, 8);
+});

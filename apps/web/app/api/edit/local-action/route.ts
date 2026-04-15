@@ -56,6 +56,7 @@ function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionR
       explicitMode,
       preferredTextIntent,
       calloutKind: typeof record.calloutKind === "string" ? record.calloutKind as LocalActionRouteRequest["calloutKind"] : undefined,
+      calloutDepth: typeof record.calloutDepth === "string" ? record.calloutDepth as LocalActionRouteRequest["calloutDepth"] : undefined,
       visualIntent: typeof record.visualIntent === "string" ? record.visualIntent as LocalActionRouteRequest["visualIntent"] : undefined,
       visualStylePreset:
         typeof record.visualStylePreset === "string" ? normalizeVisualStylePreset(record.visualStylePreset) : undefined

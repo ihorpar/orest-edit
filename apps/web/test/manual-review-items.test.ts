@@ -33,6 +33,7 @@ test("buildManualReviewItem sets required metadata and anchor fields", () => {
     changeLevel: 4,
     recommendationType: "callout",
     calloutKind: "analogy",
+    calloutDepth: "deep",
     now
   });
 
@@ -41,6 +42,7 @@ test("buildManualReviewItem sets required metadata and anchor fields", () => {
   assert.equal(item.changeLevel, 4);
   assert.equal(item.recommendationType, "callout");
   assert.equal(item.calloutKind, "analogy");
+  assert.equal(item.calloutDepth, "deep");
   assert.equal(item.origin, "manual");
   assert.equal(item.manualRequest?.source, "floating_local_bar");
   assert.equal(item.manualRequest?.createdAt, now);
@@ -87,6 +89,7 @@ test("upsertManualReviewItem reuses existing manual item for same revision+type+
     changeLevel: 3,
     recommendationType: "callout",
     calloutKind: "top_list",
+    calloutDepth: "deep",
     now: "2026-03-11T12:05:00.000Z"
   });
 
@@ -98,6 +101,7 @@ test("upsertManualReviewItem reuses existing manual item for same revision+type+
   assert.equal(secondInsert.reused, true);
   assert.equal(secondInsert.item.id, first.id);
   assert.equal(secondInsert.item.calloutKind, "top_list");
+  assert.equal(secondInsert.item.calloutDepth, "deep");
   assert.equal(secondInsert.item.status, "pending");
   assert.equal(secondInsert.item.manualRequest?.createdAt, "2026-03-11T12:05:00.000Z");
   assert.equal(secondInsert.dedupeKey, createManualReviewDedupeKeyForItem(second));

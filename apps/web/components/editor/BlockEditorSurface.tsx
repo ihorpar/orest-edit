@@ -17,6 +17,9 @@ import type {
   TableBlock
 } from "../../lib/editor/document-model";
 import {
+  convertBlockToHeadingBlock,
+  convertBlockToListBlock,
+  convertBlockToParagraphBlock,
   createBlockId,
   createEmptyParagraphBlock,
   createInlineText,
@@ -33,12 +36,15 @@ import {
 } from "../../lib/editor/document-model";
 import { exitListItemToParagraph } from "../../lib/editor/list-editing";
 import {
+  type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
   type VisualStylePreset,
   getEditorialCalloutKindOptions,
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindTitle,
+  getEditorialCalloutDepthOptions,
+  getEditorialCalloutDepthLabel,
   type ReviewActionProposal,
   type EditorialReviewItem
 } from "../../lib/editor/review-contract";
@@ -121,6 +127,7 @@ export function BlockEditorSurface({
   onApplyReviewSubsection,
   onDismissReviewItem,
   onUpdateActiveCalloutKind,
+  onUpdateActiveCalloutDepth,
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
@@ -175,6 +182,7 @@ export function BlockEditorSurface({
   onApplyReviewSubsection?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
   onUpdateActiveCalloutKind?: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
+  onUpdateActiveCalloutDepth?: (item: EditorialReviewItem, depth: EditorialCalloutDepth) => void;
   onUpdateActiveCalloutTitle?: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody?: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle?: (item: EditorialReviewItem, title: string) => void;
@@ -982,6 +990,7 @@ export function BlockEditorSurface({
                 id: createBlockId("callout"),
                 type: "callout",
                 kind: "mechanism",
+                depth: "brief",
                 title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
                 body: [[createInlineText("")]]
               }))
@@ -1132,6 +1141,7 @@ export function BlockEditorSurface({
                       onApplySubsection={(item) => onApplyReviewSubsection?.(item)}
                       onDismiss={(item) => onDismissReviewItem?.(item)}
                       onUpdateActiveCalloutKind={(item, kind) => onUpdateActiveCalloutKind?.(item, kind)}
+                      onUpdateActiveCalloutDepth={(item, depth) => onUpdateActiveCalloutDepth?.(item, depth)}
                       onUpdateActiveCalloutTitle={(item, title) => onUpdateActiveCalloutTitle?.(item, title)}
                       onUpdateActiveCalloutBody={(item, body) => onUpdateActiveCalloutBody?.(item, body)}
                       onUpdateActiveSubsectionTitle={(item, title) => onUpdateActiveSubsectionTitle?.(item, title)}
@@ -1581,6 +1591,27 @@ function EditableCalloutBlock({
             ))}
           </select>
         </label>
+        <label className="block-callout-kind-field">
+          <select
+            className="block-callout-kind-select"
+            value={block.depth ?? "brief"}
+            onChange={(event) => {
+              onBlockChange({
+                ...block,
+                depth: event.target.value as EditorialCalloutDepth
+              });
+            }}
+            disabled={disabled}
+            aria-label="Глибина врізки"
+            title={getEditorialCalloutDepthLabel(block.depth ?? "brief")}
+          >
+            {getEditorialCalloutDepthOptions().map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <EditableRichText
         focusKey={makeEditableKey(block.id, "callout-title")}
@@ -1935,35 +1966,15 @@ function EditableRichText({
 }
 
 function toParagraphBlock(block: Block): ParagraphBlock {
-  return {
-    id: block.id,
-    type: "paragraph",
-    content: [createInlineText(getBlockTextForParagraph(block))]
-  };
+  return convertBlockToParagraphBlock(block);
 }
 
 function toHeadingBlock(block: Block, level: 1 | 2 | 3): HeadingBlock {
-  return {
-    id: block.id,
-    type: "heading",
-    level,
-    content: [createInlineText(getBlockPreviewText(block))]
-  };
+  return convertBlockToHeadingBlock(block, level);
 }
 
 function toListBlock(block: Block, type: "bullet_list" | "ordered_list"): BulletListBlock | OrderedListBlock {
-  const sourceText = getBlockTextForParagraph(block);
-  const items = sourceText
-    .split(/\n+|[•*-]\s+|\d+[.)]\s+|[.;]\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => [createInlineText(item)]);
-
-  return {
-    id: block.id,
-    type,
-    items: items.length > 0 ? items : [[createInlineText("")]]
-  };
+  return convertBlockToListBlock(block, type);
 }
 
 function toCalloutBlock(block: Block): CalloutBlock {
@@ -1971,6 +1982,7 @@ function toCalloutBlock(block: Block): CalloutBlock {
     id: block.id,
     type: "callout",
     kind: "mechanism",
+    depth: "brief",
     title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
     body: [[createInlineText(getBlockPreviewText(block))]]
   };

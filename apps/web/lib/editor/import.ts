@@ -16,6 +16,13 @@ export interface ImportedDocumentResult {
   document: EditorDocument;
   warnings: string[];
   format: ImportedDocumentFormat;
+  assets?: ImportedDocumentAsset[];
+}
+
+export interface ImportedDocumentAsset {
+  assetId: string;
+  blob: Blob;
+  mimeType: string;
 }
 
 interface ListContext {
@@ -25,10 +32,21 @@ interface ListContext {
 
 interface DocxImportContext {
   numberingByNumId: Map<string, "bullet_list" | "ordered_list">;
+  imagesByRelationshipId: Map<string, ImportedDocxImage>;
+  assets: ImportedDocumentAsset[];
   warnings: Set<string>;
 }
 
 type XmlOrderedNode = Record<string, unknown>;
+
+type DocxRunPart = InlineNode | ImportedDocxImage;
+
+interface ImportedDocxImage {
+  kind: "image";
+  assetId: string;
+  mimeType: string;
+  alt: string;
+}
 
 const orderedXmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -108,9 +126,14 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
   }
 
   const numberingXml = await zip.file("word/numbering.xml")?.async("string");
+  const relationshipsXml = await zip.file("word/_rels/document.xml.rels")?.async("string");
+  const warnings = new Set<string>();
+  const { imagesByRelationshipId, assets } = await buildDocxImageMap(zip, relationshipsXml, warnings);
   const context: DocxImportContext = {
     numberingByNumId: buildDocxNumberingMap(numberingXml),
-    warnings: new Set<string>()
+    imagesByRelationshipId,
+    assets,
+    warnings
   };
   const ordered = orderedXmlParser.parse(documentXml) as XmlOrderedNode[];
   const documentRoot = ordered.find((node) => Boolean(node["w:document"]));
@@ -121,25 +144,34 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
 
   for (const child of bodyNode) {
     if (child["w:p"]) {
-      const parsed = parseDocxParagraph(getOrderedNodeChildren(child, "w:p"), context);
+      const parsedBlocks = parseDocxParagraph(getOrderedNodeChildren(child, "w:p"), context);
 
-      if (!parsed) {
+      if (parsedBlocks.length === 0) {
         continue;
       }
 
-      if (parsed.type === "bullet_list" || parsed.type === "ordered_list") {
-        if (!pendingList || pendingList.type !== parsed.type) {
-          flushPendingList(blocks, pendingList);
-          pendingList = { type: parsed.type, items: [] };
+      for (const parsed of parsedBlocks) {
+        if (parsed.type === "bullet_list" || parsed.type === "ordered_list") {
+          if (!pendingList || pendingList.type !== parsed.type) {
+            flushPendingList(blocks, pendingList);
+            pendingList = { type: parsed.type, items: [] };
+          }
+
+          pendingList.items.push(parsed.items[0]);
+          continue;
         }
 
-        pendingList.items.push(parsed.items[0]);
-        continue;
-      }
+        if (parsed.type === "image") {
+          flushPendingList(blocks, pendingList);
+          pendingList = null;
+          blocks.push(parsed);
+          continue;
+        }
 
-      flushPendingList(blocks, pendingList);
-      pendingList = null;
-      blocks.push(parsed);
+        flushPendingList(blocks, pendingList);
+        pendingList = null;
+        blocks.push(parsed);
+      }
       continue;
     }
 
@@ -159,7 +191,8 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
   return {
     document: ensureDocumentHasBlocks({ version: 2, blocks }),
     warnings: Array.from(context.warnings),
-    format: "docx"
+    format: "docx",
+    assets: context.assets
   };
 }
 
@@ -328,10 +361,68 @@ function buildDocxNumberingMap(numberingXml: string | undefined): Map<string, "b
   return numberingByNumId;
 }
 
-function parseDocxParagraph(nodes: XmlOrderedNode[], context: DocxImportContext): Block | null {
+async function buildDocxImageMap(
+  zip: JSZip,
+  relationshipsXml: string | undefined,
+  warnings: Set<string>
+): Promise<{ imagesByRelationshipId: Map<string, ImportedDocxImage>; assets: ImportedDocumentAsset[] }> {
+  const imagesByRelationshipId = new Map<string, ImportedDocxImage>();
+  const assets: ImportedDocumentAsset[] = [];
+
+  if (!relationshipsXml) {
+    return { imagesByRelationshipId, assets };
+  }
+
+  const relationshipsDocument = xmlParser.parse(relationshipsXml) as Record<string, unknown>;
+  const relationshipsRoot = asRecord(relationshipsDocument.Relationships);
+
+  for (const entry of asArray(relationshipsRoot.Relationship)) {
+    const relationship = asRecord(entry);
+    const id = typeof relationship.Id === "string" ? relationship.Id : "";
+    const target = typeof relationship.Target === "string" ? relationship.Target : "";
+    const type = typeof relationship.Type === "string" ? relationship.Type : "";
+    const targetMode = typeof relationship.TargetMode === "string" ? relationship.TargetMode : "";
+
+    if (!id || !target || !type.endsWith("/image")) {
+      continue;
+    }
+
+    if (targetMode.toLowerCase() === "external") {
+      warnings.add("Зовнішні зображення з DOCX поки що не імпортуються.");
+      continue;
+    }
+
+    const imagePath = resolveDocxRelationshipTarget("word/document.xml", target);
+    const imageFile = zip.file(imagePath);
+
+    if (!imageFile) {
+      warnings.add("Не вдалося знайти зображення всередині DOCX.");
+      continue;
+    }
+
+    const mimeType = mimeTypeFromPath(imagePath);
+    const bytes = await imageFile.async("uint8array");
+    const imageBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(imageBuffer).set(bytes);
+    const assetId = createBlockId("asset");
+    const blob = new Blob([imageBuffer], { type: mimeType });
+
+    assets.push({ assetId, blob, mimeType });
+    imagesByRelationshipId.set(id, {
+      kind: "image",
+      assetId,
+      mimeType,
+      alt: imagePath.split("/").pop()?.replace(/\.[^.]+$/, "") || "image"
+    });
+  }
+
+  return { imagesByRelationshipId, assets };
+}
+
+function parseDocxParagraph(nodes: XmlOrderedNode[], context: DocxImportContext): Block[] {
   let styleValue = "";
   let listType: "bullet_list" | "ordered_list" | null = null;
-  const inlineNodes: InlineNode[] = [];
+  const parts: DocxRunPart[] = [];
 
   for (const node of nodes) {
     if (node["w:pPr"]) {
@@ -342,47 +433,98 @@ function parseDocxParagraph(nodes: XmlOrderedNode[], context: DocxImportContext)
     }
 
     if (node["w:r"]) {
-      inlineNodes.push(...parseDocxRun(getOrderedNodeChildren(node, "w:r"), context, {}));
+      parts.push(...parseDocxRunWithImages(getOrderedNodeChildren(node, "w:r"), context, {}));
       continue;
     }
 
     if (node["w:hyperlink"]) {
-      inlineNodes.push(...parseDocxHyperlink(getOrderedNodeChildren(node, "w:hyperlink"), context));
+      parts.push(...parseDocxHyperlink(getOrderedNodeChildren(node, "w:hyperlink"), context));
       continue;
     }
   }
 
-  const normalizedInlineNodes = normalizeInlineNodes(inlineNodes);
-  const textContent = normalizedInlineNodes.map((entry) => entry.text).join("").trim();
+  return buildParagraphBlocksFromParts(parts, {
+    styleValue,
+    listType
+  });
+}
 
-  if (!textContent) {
+function buildParagraphBlocksFromParts(
+  parts: DocxRunPart[],
+  props: { styleValue: string; listType: "bullet_list" | "ordered_list" | null }
+): Block[] {
+  const blocks: Block[] = [];
+  let pendingInlineNodes: InlineNode[] = [];
+
+  const flushText = () => {
+    const normalizedInlineNodes = normalizeInlineNodes(pendingInlineNodes);
+    pendingInlineNodes = [];
+    const textContent = normalizedInlineNodes.map((entry) => entry.text).join("").trim();
+
+    if (!textContent) {
+      return;
+    }
+
+    if (props.listType) {
+      blocks.push({
+        id: createBlockId(props.listType === "bullet_list" ? "list" : "olist"),
+        type: props.listType,
+        items: [normalizedInlineNodes]
+      });
+      return;
+    }
+
+    const headingLevel = resolveHeadingLevel(props.styleValue);
+
+    if (headingLevel) {
+      blocks.push({
+        id: createBlockId("heading"),
+        type: "heading",
+        level: headingLevel,
+        content: normalizedInlineNodes
+      });
+      return;
+    }
+
+    blocks.push({
+      id: createBlockId("p"),
+      type: "paragraph",
+      content: normalizedInlineNodes
+    });
+  };
+
+  for (const part of parts) {
+    if (isImportedDocxImage(part)) {
+      flushText();
+      blocks.push({
+        id: createBlockId("image"),
+        type: "image",
+        assetId: part.assetId,
+        alt: part.alt,
+        caption: [createInlineText("")]
+      });
+      continue;
+    }
+
+    pendingInlineNodes.push(part);
+  }
+
+  flushText();
+  return blocks;
+}
+
+function isImportedDocxImage(part: DocxRunPart): part is ImportedDocxImage {
+  return "kind" in part && part.kind === "image";
+}
+
+function resolveDocxRunImage(node: XmlOrderedNode, context: DocxImportContext): ImportedDocxImage | null {
+  const relationshipId = findOrderedNodeAttribute(node, ["r:embed", "r:id", "r:link"]);
+
+  if (!relationshipId) {
     return null;
   }
 
-  if (listType) {
-    return {
-      id: createBlockId(listType === "bullet_list" ? "list" : "olist"),
-      type: listType,
-      items: [normalizedInlineNodes]
-    };
-  }
-
-  const headingLevel = resolveHeadingLevel(styleValue);
-
-  if (headingLevel) {
-    return {
-      id: createBlockId("heading"),
-      type: "heading",
-      level: headingLevel,
-      content: normalizedInlineNodes
-    };
-  }
-
-  return {
-    id: createBlockId("p"),
-    type: "paragraph",
-    content: normalizedInlineNodes
-  };
+  return context.imagesByRelationshipId.get(relationshipId) ?? null;
 }
 
 function parseDocxParagraphProps(nodes: XmlOrderedNode[], context: DocxImportContext): {
@@ -417,13 +559,13 @@ function parseDocxParagraphProps(nodes: XmlOrderedNode[], context: DocxImportCon
   return { styleValue, listType };
 }
 
-function parseDocxRun(
+function parseDocxRunWithImages(
   nodes: XmlOrderedNode[],
   context: DocxImportContext,
   marks: Omit<InlineNode, "text">
-): InlineNode[] {
+): DocxRunPart[] {
   const runMarks = { ...marks };
-  const inlineNodes: InlineNode[] = [];
+  const parts: DocxRunPart[] = [];
 
   for (const node of nodes) {
     if (node["w:rPr"]) {
@@ -435,28 +577,35 @@ function parseDocxRun(
       const text = getOrderedNodeText(getOrderedNodeChildren(node, "w:t"));
 
       if (text) {
-        inlineNodes.push({ text, ...runMarks });
+        parts.push({ text, ...runMarks });
       }
 
       continue;
     }
 
     if (node["w:tab"]) {
-      inlineNodes.push({ text: "\t", ...runMarks });
+      parts.push({ text: "\t", ...runMarks });
       continue;
     }
 
     if (node["w:br"] || node["w:cr"]) {
-      inlineNodes.push({ text: "\n", ...runMarks });
+      parts.push({ text: "\n", ...runMarks });
       continue;
     }
 
-    if (node["w:drawing"] || node["w:pict"]) {
+    const image = node["w:drawing"] || node["w:pict"] ? resolveDocxRunImage(node, context) : null;
+
+    if (image) {
+      parts.push(image);
+      continue;
+    }
+
+    if ((node["w:drawing"] || node["w:pict"]) && !image) {
       context.warnings.add("Зображення з DOCX поки що не імпортуються.");
     }
   }
 
-  return inlineNodes;
+  return parts;
 }
 
 function parseDocxRunMarks(nodes: XmlOrderedNode[]): Omit<InlineNode, "text"> {
@@ -475,16 +624,16 @@ function parseDocxRunMarks(nodes: XmlOrderedNode[]): Omit<InlineNode, "text"> {
   return nextMarks;
 }
 
-function parseDocxHyperlink(nodes: XmlOrderedNode[], context: DocxImportContext): InlineNode[] {
-  const inlineNodes: InlineNode[] = [];
+function parseDocxHyperlink(nodes: XmlOrderedNode[], context: DocxImportContext): DocxRunPart[] {
+  const parts: DocxRunPart[] = [];
 
   for (const node of nodes) {
     if (node["w:r"]) {
-      inlineNodes.push(...parseDocxRun(getOrderedNodeChildren(node, "w:r"), context, {}));
+      parts.push(...parseDocxRunWithImages(getOrderedNodeChildren(node, "w:r"), context, {}));
     }
   }
 
-  return inlineNodes;
+  return parts;
 }
 
 function parseDocxTable(nodes: XmlOrderedNode[], context: DocxImportContext): Block | null {
@@ -509,15 +658,22 @@ function parseDocxTable(nodes: XmlOrderedNode[], context: DocxImportContext): Bl
           continue;
         }
 
-        const paragraph = parseDocxParagraph(getOrderedNodeChildren(child, "w:p"), context);
+        const paragraphBlocks = parseDocxParagraph(getOrderedNodeChildren(child, "w:p"), context);
         const paragraphText =
-          paragraph?.type === "paragraph"
-            ? paragraph.content.map((entry) => entry.text).join("")
-            : paragraph?.type === "heading"
-              ? paragraph.content.map((entry) => entry.text).join("")
-              : paragraph?.type === "bullet_list" || paragraph?.type === "ordered_list"
-                ? paragraph.items.map((entry) => entry.map((part) => part.text).join("")).join("\n")
-                : "";
+          paragraphBlocks
+            .map((paragraph) =>
+              paragraph.type === "paragraph"
+                ? paragraph.content.map((entry) => entry.text).join("")
+                : paragraph.type === "heading"
+                  ? paragraph.content.map((entry) => entry.text).join("")
+                  : paragraph.type === "bullet_list" || paragraph.type === "ordered_list"
+                    ? paragraph.items.map((entry) => entry.map((part) => part.text).join("")).join("\n")
+                    : paragraph.type === "image"
+                      ? `[image: ${paragraph.alt}]`
+                      : ""
+            )
+            .filter(Boolean)
+            .join("\n");
 
         if (paragraphText.trim()) {
           cellParagraphs.push(paragraphText);
@@ -715,6 +871,34 @@ function getOrderedNodeAttribute(node: XmlOrderedNode, attributeName: string): s
   return typeof attributes[attributeName] === "string" ? attributes[attributeName] : "";
 }
 
+function findOrderedNodeAttribute(node: XmlOrderedNode, attributeNames: string[]): string {
+  const attributes = asRecord(node[":@"]);
+
+  for (const attributeName of attributeNames) {
+    const value = attributes[attributeName];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (child && typeof child === "object") {
+          const match = findOrderedNodeAttribute(child as XmlOrderedNode, attributeNames);
+
+          if (match) {
+            return match;
+          }
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
 function getOrderedNodeText(nodes: XmlOrderedNode[]): string {
   return nodes
     .map((node) => (typeof node["#text"] === "string" ? node["#text"] : ""))
@@ -751,6 +935,53 @@ function resolveHeadingLevel(styleValue: string): 1 | 2 | 3 | null {
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function resolveDocxRelationshipTarget(sourcePath: string, target: string): string {
+  const normalizedTarget = target.replace(/\\/g, "/");
+
+  if (normalizedTarget.startsWith("/")) {
+    return normalizedTarget.replace(/^\/+/, "");
+  }
+
+  const sourceDirectory = sourcePath.split("/").slice(0, -1);
+  const segments = [...sourceDirectory, ...normalizedTarget.split("/")];
+  const resolved: string[] = [];
+
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      resolved.pop();
+      continue;
+    }
+
+    resolved.push(segment);
+  }
+
+  return resolved.join("/");
+}
+
+function mimeTypeFromPath(path: string): string {
+  const extension = path.split(".").pop()?.toLowerCase();
+
+  switch (extension) {
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 function asArray<T>(value: T | T[] | undefined): T[] {
