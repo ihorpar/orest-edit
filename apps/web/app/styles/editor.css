@@ -1594,25 +1594,30 @@
 }
 
 .block-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 24;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.block-editor-toolbar-scroll {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  position: sticky;
-  top: 0;
-  z-index: 24;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(14px);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
 
-.block-editor-toolbar::-webkit-scrollbar {
+.block-editor-toolbar-scroll::-webkit-scrollbar {
   display: none;
 }
 
@@ -1922,6 +1927,8 @@
 }
 
 .block-callout-shell {
+  display: grid;
+  gap: 8px;
   border-left: 4px solid #0f172a;
   background: linear-gradient(180deg, #f8fafc 0%, #eef4fb 100%);
   padding: 12px 14px;
@@ -1932,7 +1939,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
 
 .block-callout-kind-field {
@@ -1954,7 +1961,40 @@
 .block-callout-title {
   font-size: 1.05rem;
   font-weight: 700;
-  margin-bottom: 6px;
+  margin: 0;
+  color: #0f172a;
+}
+
+.block-callout-title strong,
+.block-callout-body strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.block-callout-body {
+  margin: 0;
+}
+
+.block-callout-body + .block-callout-body {
+  margin-top: 2px;
+}
+
+.block-callout-body-section-heading {
+  margin-top: 8px;
+  line-height: 1.35;
+}
+
+.block-callout-title + .block-callout-body-section-heading {
+  margin-top: 0;
+}
+
+.block-callout-body-section-heading + .block-callout-body:not(.block-callout-body-section-heading) {
+  margin-top: 0;
+}
+
+.block-callout-body-list {
+  padding-left: 1.2em;
+  text-indent: -1.2em;
 }
 
 .block-table-shell {

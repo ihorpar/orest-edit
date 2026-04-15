@@ -66,11 +66,14 @@ test("generateEditorialReview injects strict diagnostics rubric into provider pr
 
   assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "diagnostics");
-  assert.match(requestBody, /редакторський вердикт/i);
-  assert.match(requestBody, /критичні ризики/i);
-  assert.match(requestBody, /severity/);
-  assert.match(requestBody, /читацьку шкоду/);
-  assert.match(requestBody, /не приховуй гострі проблеми/i);
+  assert.match(requestBody, /макродіагностики великого розділу/i);
+  assert.match(requestBody, /карта структури й читацького маршруту/i);
+  assert.match(requestBody, /Головний діагноз розділу/);
+  assert.match(requestBody, /Карта розділу/);
+  assert.match(requestBody, /Що зайве або дубльоване/);
+  assert.match(requestBody, /8-15 найпоказовіших абзаців/);
+  assert.match(requestBody, /Починай відповідь відразу з заголовка «## Головний діагноз розділу»/);
+  assert.match(requestBody, /Не відкривай відповідь похвалою/i);
 });
 
 test("generateEditorialReview fallback enforces step-specific recommendation types", async () => {
@@ -83,6 +86,51 @@ test("generateEditorialReview fallback enforces step-specific recommendation typ
   assert.equal(response.stepId, "visuals");
   assert.equal(response.items.length, 0);
   assert.ok(response.diagnostics.droppedItemCount >= 1);
+});
+
+test("generateEditorialReview prompt encourages deep callouts for dense explanatory fragments", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "interest",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Не обирай brief за замовчуванням/i);
+  assert.match(requestBody, /віддавай перевагу deep/i);
+  assert.match(requestBody, /активним використанням \*\*жирного\*\*/i);
+  assert.match(requestBody, /якорі-підзаголовки/i);
+  assert.match(requestBody, /ключові думки/i);
+  assert.match(requestBody, /не використовуй #, ## або HTML-заголовки/i);
+});
+
+test("generateEditorialReview fallback callout after dense heading paragraph prefers deep", async () => {
+  const response = await generateEditorialReview(createRequest({ stepId: "structure" }), {
+    readEnvValue: () => null,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  const callout = response.items.find((item) => item.recommendationType === "callout");
+  assert.ok(callout);
+  assert.equal(callout?.calloutDepth, "deep");
+  assert.equal(callout?.calloutDraft?.calloutDepth, "deep");
 });
 
 test("generateEditorialReview builds fallback emphasis targets as exact inline spans", async () => {

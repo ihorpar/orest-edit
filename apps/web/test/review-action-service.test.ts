@@ -148,6 +148,14 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /Докладно/i);
   assert.match(String(requestBody?.input ?? ""), /Профіль deep/i);
   assert.match(String(requestBody?.input ?? ""), /3-6 докладних абзацах/i);
+  assert.match(String(requestBody?.input ?? ""), /якор(і|і-підзаголовки|і-підзаголовок|і-підзаголовк)/i);
+  assert.match(String(requestBody?.input ?? ""), /активно використовуй \*\*жирний\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /якорі-підзаголовки/i);
+  assert.match(String(requestBody?.input ?? ""), /ключові думки/i);
+  assert.match(String(requestBody?.input ?? ""), /3-5 пунктів/i);
+  assert.match(String(requestBody?.input ?? ""), /суцільн(е|им) полотн/i);
+  assert.match(String(requestBody?.input ?? ""), /обов'язково оформи одну частину body як короткий список/i);
+  assert.match(String(requestBody?.input ?? ""), /не використовуй #, ## або HTML-заголовки/i);
   assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
   assert.match(String(requestBody?.input ?? ""), /markdown не використовуй, крім рідкісного \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /пунктуація списків:/i);
@@ -670,9 +678,74 @@ test("generateReviewAction parses structured callout draft output and strips mar
 
   assert.equal(response.proposal.kind, "callout_prompt");
   assert.equal(response.proposal.calloutDraft?.title, "Шкіра — дзеркало мозку");
-  assert.equal(response.proposal.calloutDraft?.previewText, "**Шкіра** і нервова система мають спільне походження.");
+  assert.equal(response.proposal.calloutDraft?.previewText, "- **Шкіра** і нервова система мають спільне походження.");
   assert.equal(response.proposal.summary, "Аналогія зніме когнітивне навантаження.");
-  assert.doesNotMatch(response.proposal.calloutDraft?.previewText ?? "", /^-\s/m);
+});
+
+test("generateReviewAction preserves bold anchors and bullet lines in deep callouts", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Фрагмент про сенолітики та запалення." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.4",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-deep-structure-1",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати докладну врізку",
+        reason: "Потрібна більш структурована пояснювальна врізка.",
+        recommendation: "Поясни механізм докладно.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Фрагмент про сенолітики та запалення.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "mechanism",
+        calloutDepth: "deep",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"title":"Як працюють сенолітики","body":"**Що відбувається.** З віком накопичуються сенесцентні клітини.\\n\\n- Вони підтримують хронічне запалення.\\n- Вони заважають тканинам відновлюватися.\\n\\n**Що змінюють сенолітики.** Вони допомагають прибрати частину таких клітин.","summary":"Структурований deep dive."}'
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  assert.equal(
+    response.proposal.calloutDraft?.previewText,
+    [
+      "**Що відбувається.** З віком накопичуються сенесцентні клітини.",
+      "",
+      "- Вони підтримують хронічне запалення.",
+      "- Вони заважають тканинам відновлюватися.",
+      "",
+      "**Що змінюють сенолітики.** Вони допомагають прибрати частину таких клітин."
+    ].join("\n")
+  );
 });
 
 test("generateReviewAction normalizes top_list callout body into actionable multi-line entries", async () => {

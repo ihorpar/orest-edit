@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { EditorialReviewCard } from "../../components/editor/EditorialReviewCard";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
@@ -34,6 +35,7 @@ import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, typ
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
+import { splitCalloutDraftIntoParagraphs } from "../../lib/editor/callout-preview";
 import { getEditorHotkeyAction, getUndoRedoHotkeyAction, type EditorHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 import {
   computeAnchorFingerprint,
@@ -3885,37 +3887,40 @@ export default function EditorPage() {
 
           <div className="step-review-analysis-card">
             {expertiseForDisplay ? (
-              <ReactMarkdown
-                components={{
-                  a: ({ href, children }) => {
-                    if (href?.startsWith("#block-")) {
-                      const index = Number.parseInt(href.replace("#block-", ""), 10);
+              <div className="step-review-analysis-markdown">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) => {
+                      if (href?.startsWith("#block-")) {
+                        const index = Number.parseInt(href.replace("#block-", ""), 10);
+                        return (
+                          <button
+                            type="button"
+                            className="step-review-analysis-link"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              if (!Number.isNaN(index)) {
+                                handleScrollToBlockIndex(index);
+                              }
+                            }}
+                          >
+                            {children}
+                          </button>
+                        );
+                      }
+
                       return (
-                        <button
-                          type="button"
-                          className="step-review-analysis-link"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            if (!Number.isNaN(index)) {
-                              handleScrollToBlockIndex(index);
-                            }
-                          }}
-                        >
+                        <a href={href} target="_blank" rel="noopener noreferrer">
                           {children}
-                        </button>
+                        </a>
                       );
                     }
-
-                    return (
-                      <a href={href} target="_blank" rel="noopener noreferrer">
-                        {children}
-                      </a>
-                    );
-                  }
-                }}
-              >
-                {expertiseForDisplay}
-              </ReactMarkdown>
+                  }}
+                >
+                  {expertiseForDisplay}
+                </ReactMarkdown>
+              </div>
             ) : (
               <p className="step-review-empty-copy">
                 Запустіть діагностику, щоб отримати детальний огляд.
@@ -6371,16 +6376,6 @@ function linkifyParagraphRefs(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function splitCalloutDraftIntoParagraphs(text: string, kind: EditorialCalloutKind) {
-  const normalized = text.replace(/\r\n?/g, "\n");
-  const parts =
-    kind === "top_list" || kind === "myths_vs_truth"
-      ? normalized.split("\n").map((part) => part.trim()).filter(Boolean)
-      : normalized.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
-
-  return (parts.length > 0 ? parts : [""]).map((part) => parseBoldMarkdownToInlineNodes(part));
 }
 
 function splitTextIntoParagraphBlocks(text: string): string[] {

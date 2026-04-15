@@ -40,11 +40,25 @@ test("DEFAULT_IMAGE_PROMPT_TEMPLATE documents visualStyleGuide placeholder", () 
 test("default editorial prompts forbid generic disclaimer injection for clarity edits", () => {
   assert.match(DEFAULT_BASE_PROMPT, /не додавай шаблонних медичних застережень/i);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /Пунктуація списків:/i);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Працюй у режимі макродіагностики великого розділу/);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Починай відповідь відразу з заголовка «## Головний діагноз розділу»/);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /не починай із похвали/i);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Поділи весь документ на великі смислові зони без пропусків/i);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Що зайве або дубльоване/);
   assert.match(DEFAULT_CARDS_PROMPT, /не використовуй картки ясності для шаблонних медичних попереджень/i);
   assert.match(DEFAULT_CARDS_PROMPT, /зберігай scan-friendly подачу/i);
   assert.match(DEFAULT_CARDS_PROMPT, /починається з малої літери/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /починається з великої літери/i);
   assert.match(BULLET_LIST_PUNCTUATION_RULE, /крапкою з комою/i);
+});
+
+test("default cards prompt prefers deep callouts for dense explanatory fragments", () => {
+  assert.match(DEFAULT_CARDS_PROMPT, /deep/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /brief/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /Не обирай brief за замовчуванням/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /віддавай перевагу deep/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /якорі-підзаголовки/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /ключові думки/i);
 });
 
 test("visual style preset helpers expose all supported presets and fallback safely", () => {

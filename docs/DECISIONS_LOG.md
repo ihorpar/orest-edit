@@ -14,6 +14,11 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-26
 
+### Deep callout body formatting treats short label lines as structural anchors
+Decision: deep callout preview parsing now preserves standalone short label lines such as `Прихована загроза` or `Чому це важливо` as separate body paragraphs and auto-emphasizes them in bold, instead of flattening single newlines into one prose paragraph.
+
+Reason: provider output for deep explanatory callouts uses these short labels as lightweight subsection anchors. Collapsing them during client parsing destroys the intended reading rhythm and makes the resulting callout look malformed even when the model output is structurally sound.
+
 ### Step drawer headers now expose explicit workflow state and labeled primary actions
 Decision: the review drawer header no longer relies primarily on compact icon-only run controls. Each step now shows three explicit header elements: `Етап N / 8`, a visible status pill + status copy derived from shared workflow state, and a labeled primary CTA (`Запустити…` / `Оновити…`) whose wording depends on the active step and whether prior results already exist.
 
@@ -460,7 +465,32 @@ Decision: `Діагностика` remains review-only, but its default prompt n
 
 Reason: the earlier diagnostics prompt asked for a detailed review but did not force depth. Editors need a sharper diagnostic layer that separates systemic problems from polish, names medical/scientific risk, and produces useful context for downstream workflow steps.
 
+### Diagnostics is optimized for macro-structure before local critique
+Decision: the diagnostics prompt now runs in macro-diagnosis mode for long sections: first the main structural failure and a full map of the chapter, then systemic problems, missing subsection boundaries, redundant or removable material, representative paragraph evidence, and only then the restructuring plan.
+
+Reason: the previous stricter prompt still produced polished local criticism more readily than true chapter-level diagnosis. For long manuscripts, editors need composition analysis and structural operations (`скоротити`, `об'єднати`, `розбити`, `переставити`, `винести`, `видалити`) before micro-level wording critique.
+
+### Diagnostics markdown is rendered as GFM without content post-processing
+Decision: diagnostics output in the drawer is rendered with GFM markdown support, but the UI does not rewrite or strip model prose after generation.
+
+Reason: markdown table support is a rendering concern; removing or rewriting intro lines in UI code is brittle and can silently delete meaningful analysis. Diagnostics tone and structure should be fixed in prompt contracts, not by heuristic post-processing.
+
 ### Callout depth is a first-class profile
 Decision: callouts now have a first-class `calloutDepth` profile with allowed values `brief` and `deep`, separate from `calloutKind`. The model may choose the profile during card generation, manual callout workflows can set it explicitly, and proposal prompts preserve it through regeneration and insertion. `deep` asks for a 3-6 paragraph deep dive into the issue and may combine prose with lists; it is not framed as a rare fallback.
 
 Reason: callout kind answers what shape the sidebar content has, while depth answers how much editorial explanation the manuscript needs. Keeping these axes separate lets end users request and receive richer deep dives without overloading the existing kind taxonomy or steering the model away from depth when the source context supports it.
+
+### Deep callouts may use lightweight internal structure
+Decision: deep callouts keep the same UI shell as other callouts, but their body format may use short `**bold**` anchors inside paragraphs plus one short bullet or numbered list when that helps readability. Server-side normalization must preserve those markers instead of stripping them out, and inserted manuscript callouts should render list lines with readable indentation.
+
+Reason: the product does not need a second visual component for “deep” callouts, but longer explanatory blocks become unreadable if every deep dive is flattened into plain uninterrupted prose. Allowing a narrow set of structure markers improves scanability without turning callouts into full markdown articles.
+
+### Dense explanatory callouts should default toward deep
+Decision: recommendation-card prompts and fallback review hydration should not treat `brief` as the default callout depth. For dense explanatory fragments, mechanism-heavy passages, causal chains, and contexts that need unpacking, the system should prefer `deep`; `brief` remains for quick side notes and compact clarifications.
+
+Reason: editors were consistently seeing `brief` even when the reading problem clearly called for a fuller explanation. Making the depth choice explicit and biased toward `deep` in those contexts better matches the product goal and user expectations.
+
+### Deep callouts should actively use bold for composition
+Decision: deep callout prompts now require active use of `**bold**` both for short 1-3 word subheads on their own lines and for key ideas inside paragraphs. These subheads must not use markdown headings (`#`, `##`) or HTML heading tags.
+
+Reason: allowing bold as an optional flourish produced timid formatting. Editors want deep callouts that scan well at a glance, and short bold subheads plus internal emphasis create that reading rhythm without introducing a second UI treatment.

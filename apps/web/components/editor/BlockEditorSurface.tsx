@@ -34,6 +34,7 @@ import {
   removeBlocksByIds,
   type DividerBlock
 } from "../../lib/editor/document-model";
+import { isCalloutSectionHeadingText } from "../../lib/editor/callout-preview";
 import { exitListItemToParagraph } from "../../lib/editor/list-editing";
 import {
   type EditorialCalloutDepth,
@@ -835,7 +836,8 @@ export function BlockEditorSurface({
   return (
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
-        <div className="block-editor-toolbar-group" aria-label="Історія змін">
+        <div className="block-editor-toolbar-scroll">
+          <div className="block-editor-toolbar-group" aria-label="Історія змін">
           <button
             type="button"
             className="block-toolbar-button"
@@ -1028,8 +1030,8 @@ export function BlockEditorSurface({
             <span className="sr-only">Додати зображення</span>
             <input type="file" accept="image/*" onChange={handleFileSelection} disabled={disabled} />
           </label>
+          </div>
         </div>
-
       </div>
 
       <div className="block-editor-canvas">
@@ -1628,7 +1630,13 @@ function EditableCalloutBlock({
         <EditableRichText
           key={`${block.id}-${index}`}
           focusKey={makeEditableKey(block.id, `callout-body-${index}`)}
-          className="block-callout-body"
+          className={[
+            "block-callout-body",
+            isCalloutListParagraph(paragraph) ? "block-callout-body-list" : "",
+            isCalloutSectionHeadingParagraph(paragraph) ? "block-callout-body-section-heading" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
           html={inlineNodesToHtml(block.id, paragraph, [], emphasisSuggestions)}
           disabled={disabled}
           registerEditable={registerEditable}
@@ -2018,6 +2026,19 @@ function getBlockPreviewText(block: Block): string {
   }
 
   return "";
+}
+
+function isCalloutListParagraph(nodes: InlineNode[]): boolean {
+  return /^(?:•|\d+[.])\s+/.test(getInlineText(nodes).trim());
+}
+
+function isCalloutSectionHeadingParagraph(nodes: InlineNode[]): boolean {
+  const text = getInlineText(nodes).trim();
+  if (!isCalloutSectionHeadingText(text)) {
+    return false;
+  }
+
+  return nodes.some((node) => Boolean(node.bold)) && nodes.every((node) => !node.text.trim() || node.bold);
 }
 
 function getBlockTextForParagraph(block: Block): string {

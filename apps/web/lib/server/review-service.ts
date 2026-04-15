@@ -940,10 +940,19 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN»."
       : null,
     step.id === "diagnostics"
-      ? "Для діагностики не пиши ввічливий загальний огляд замість аналізу. Кожна критична теза має мати severity, посилання на абзаци, читацьку шкоду і локальну редакторську дію."
+      ? "Працюй у режимі макродіагностики великого розділу: спочатку карта структури й читацького маршруту, потім абзаци як докази системних проблем."
       : null,
     step.id === "diagnostics"
-      ? "Обов'язково відокремлюй системні проблеми від косметичних, позначай медично або науково ризикові формулювання, термінологічні зсуви, надмірну категоричність, слабкі переходи між абзацами і втрату практичної цінності."
+      ? "Для діагностики не підміняй структурний аналіз набором точкових стилістичних зауваг. Локальні фрази використовуй лише як докази макропроблем."
+      : null,
+    step.id === "diagnostics"
+      ? "Починай відповідь відразу з заголовка «## Головний діагноз розділу». Не починай з фраз на кшталт «Ось діагностика», «Нижче аналіз» або загальних ввідних реверансів."
+      : null,
+    step.id === "diagnostics"
+      ? "Не відкривай відповідь похвалою. Якщо текст місцями сильний, назви це коротко лише після того, як уже сформулював головний діагноз і ключові ризики."
+      : null,
+    step.id === "diagnostics"
+      ? "Будь жорсткішим за замовчуванням: шукай слабку архітектуру розділу, дублювання, провисання логіки, втрату читацького маршруту, редакторську млявість, псевдонауковий або рекламний підтекст і зайві бокові блоки."
       : null,
     step.outputKind === "fact_check_rows"
       ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
@@ -961,7 +970,16 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "calloutDepth='brief' означає коротку врізку. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах; він може бути суцільним текстом або поєднанням тексту зі списками."
+      ? "calloutDepth='brief' означає коротку врізку для швидкого пояснення в 1-2 коротких абзацах. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах з внутрішньою структурою."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Не обирай brief за замовчуванням. Якщо фрагмент щільний, пояснювальний, вводить механізм, причинно-наслідковий ланцюг, практичні наслідки або потребує розгортання контексту, віддавай перевагу deep."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Для deep-callout вимагай структуровану подачу: не суцільне полотно, а 3-6 абзаців із активним використанням **жирного**. Перед частиною абзаців мають з'являтися короткі **якорі-підзаголовки** з 1-3 слів окремим рядком, а всередині тексту - **ключові думки**. Якщо є природне перерахування причин, кроків, наслідків або прикладів, передбач один короткий список."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Для deep-callout не використовуй #, ## або HTML-заголовки. Підзаголовки мають бути оформлені тільки як короткі жирні рядки на кшталт **Чому це важливо**."
       : null,
     step.id === "clarity"
       ? "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій."
@@ -1007,7 +1025,16 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     `Рівень змін: ${request.changeLevel}/5.`,
     request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
     step.id === "diagnostics"
-      ? "Зроби сувору діагностику за рубрикою: редакторський вердикт, критичні ризики, карта проблем за вимірами, поблочний розбір і пріоритети наступних кроків. Не приховуй гострі проблеми за загальною ввічливою мовою."
+      ? "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови."
+      : null,
+    step.id === "diagnostics"
+      ? "Використовуй саме такі markdown-заголовки другого рівня: «## Головний діагноз розділу», «## Карта розділу», «## Ключові структурні проблеми», «## Де потрібні підрозділи», «## Що зайве або дубльоване», «## Показові абзаци», «## Пріоритетний план перебудови»."
+      : null,
+    step.id === "diagnostics"
+      ? "У блоці «Карта розділу» покрий увесь документ великими смисловими зонами без пропусків; кожен абзац має належати рівно одній зоні."
+      : null,
+    step.id === "diagnostics"
+      ? "У блоці «Показові абзаци» розбирай 8-15 найпоказовіших абзаців як докази великих проблем. Для кожного абзацу поясни, яку саме системну поломку він доводить."
       : null,
     step.id === "fact_check"
       ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, у полі explanation. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
@@ -1744,6 +1771,7 @@ export function createFallbackEditorialReviewItems(
       const nextText = getBlockText(nextBlock).trim();
 
       if (nextBlock.type === "paragraph" && nextText.length > 260) {
+        const fallbackDepth = inferCalloutDepth(nextText, "mechanism", "Пояснити механізм простими словами.");
         items.push({
           title: "Додати пояснювальну врізку",
           reason: "Після підзаголовка йде щільний пояснювальний шматок без швидкого входу для читача.",
@@ -1757,11 +1785,11 @@ export function createFallbackEditorialReviewItems(
           insertionHint: "after",
           anchorBlockId: nextBlock.id,
           calloutKind: "mechanism",
-          calloutDepth: "brief",
+          calloutDepth: fallbackDepth,
           calloutTitle: "Як це працює",
-          calloutPreviewText: nextText.slice(0, 160),
+          calloutPreviewText: nextText.slice(0, fallbackDepth === "deep" ? 420 : 160),
           calloutSummary: "Підсилити пояснення окремою врізкою.",
-          calloutPrompt: buildFallbackCalloutPrompt("mechanism", "brief", nextText, "Пояснити механізм простими словами."),
+          calloutPrompt: buildFallbackCalloutPrompt("mechanism", fallbackDepth, nextText, "Пояснити механізм простими словами."),
           visualIntent: null
         });
       }
@@ -1895,7 +1923,7 @@ function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialRev
 
     const excerpt = item.anchor.excerpt || item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
     const kind: EditorialCalloutKind = item.calloutKind ?? "mechanism";
-    const depth: EditorialCalloutDepth = item.calloutDepth ?? "brief";
+    const depth: EditorialCalloutDepth = item.calloutDepth ?? inferCalloutDepth(excerpt, kind, item.recommendation);
 
     return {
       ...item,
@@ -1920,6 +1948,28 @@ function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, depth: Editorial
     `Фрагмент: ${fragment}`,
     `Редакторська задача: ${recommendation}`
   ].join("\n");
+}
+
+function inferCalloutDepth(
+  excerpt: string,
+  kind: EditorialCalloutKind,
+  recommendation: string
+): EditorialCalloutDepth {
+  const normalizedExcerpt = excerpt.replace(/\s+/g, " ").trim();
+  const normalizedRecommendation = recommendation.toLowerCase();
+
+  if (kind === "top_list" || kind === "myths_vs_truth") {
+    return "brief";
+  }
+
+  if (
+    normalizedExcerpt.length >= 420 ||
+    /\b(поясн|розкрий|розгор|механізм|чому|як саме|наслід|контекст|практичн)/i.test(normalizedRecommendation)
+  ) {
+    return "deep";
+  }
+
+  return "brief";
 }
 
 async function readProviderText(response: Response): Promise<string> {
