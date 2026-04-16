@@ -70,3 +70,14 @@ test("review-image job marks failure when provider generation fails", async () =
   assert.equal(failed.status, "failed");
   assert.match(failed.error ?? "", /Provider unavailable/i);
 });
+
+test("review-image job store prunes expired jobs on read", () => {
+  const createdAt = new Date("2026-04-15T10:00:00.000Z");
+  const job = createQueuedReviewImageJob(createdAt);
+
+  const beforeExpiry = readReviewImageJob(job.id, new Date("2026-04-15T10:14:59.000Z"));
+  assert.ok(beforeExpiry);
+
+  const afterExpiry = readReviewImageJob(job.id, new Date("2026-04-15T10:15:00.000Z"));
+  assert.equal(afterExpiry, null);
+});

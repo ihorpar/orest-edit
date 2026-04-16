@@ -10,6 +10,60 @@ function createJsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+test("generateReviewImage rejects empty prompts before calling the provider", async () => {
+  let called = false;
+
+  const response = await generateReviewImage(
+    { prompt: "   ", apiKey: "gem-test-key" },
+    {
+      fetchImpl: async () => {
+        called = true;
+        return createJsonResponse({});
+      }
+    }
+  );
+
+  assert.equal(called, false);
+  assert.equal(response.asset, undefined);
+  assert.match(response.error ?? "", /Порожній image prompt/i);
+});
+
+test("generateReviewImage returns provider error text for non-ok responses", async () => {
+  const response = await generateReviewImage(
+    { prompt: "Зроби схему.", apiKey: "gem-test-key" },
+    {
+      fetchImpl: async () =>
+        createJsonResponse(
+          {
+            error: {
+              message: "Provider unavailable"
+            }
+          },
+          503
+        )
+    }
+  );
+
+  assert.equal(response.asset, undefined);
+  assert.match(response.error ?? "", /Provider unavailable/i);
+});
+
+test("generateReviewImage returns a timeout-style message on abort errors", async () => {
+  const response = await generateReviewImage(
+    { prompt: "Зроби інфографіку.", apiKey: "gem-test-key" },
+    {
+      fetchImpl: async () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+    }
+  );
+
+  assert.equal(response.asset, undefined);
+  assert.match(response.error ?? "", /не відповів вчасно/i);
+});
+
 test("generateReviewImage sends generationConfig with responseModalities and imageConfig", async () => {
   let requestBody: Record<string, unknown> | undefined;
 

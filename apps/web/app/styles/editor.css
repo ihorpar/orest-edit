@@ -2155,19 +2155,92 @@
   }
 
   .block-editor-toolbar {
-    --toolbar-cluster-gap: 8px;
+    --toolbar-cluster-gap: 6px;
     --toolbar-padding-y: 6px;
-    --toolbar-padding-x: 8px;
-    --toolbar-group-gap: 1px;
-    --toolbar-group-padding: 3px;
-    --toolbar-button-min-width: 38px;
+    --toolbar-padding-x: 6px;
+    --toolbar-group-gap: 0;
+    --toolbar-group-padding: 2px;
+    --toolbar-button-min-width: 37px;
     --toolbar-button-height: 40px;
-    --toolbar-button-padding-x: 5px;
+    --toolbar-button-padding-x: 4px;
     --toolbar-icon-size: 16px;
     --toolbar-text-size: 13px;
     --toolbar-heading-1-size: 19px;
     --toolbar-heading-2-size: 18px;
     --toolbar-heading-3-size: 16px;
+    --toolbar-scroll-x: hidden;
+  }
+
+  .block-editor-toolbar-scroll {
+    align-items: center;
+    flex-wrap: nowrap;
+    mask-image: none;
+  }
+
+  .block-editor-toolbar-group {
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1365px) {
+  .block-editor-toolbar {
+    --toolbar-cluster-gap: 3px;
+    --toolbar-padding-y: 5px;
+    --toolbar-padding-x: 4px;
+    --toolbar-group-gap: 0;
+    --toolbar-group-padding: 1px;
+    --toolbar-button-min-width: 24px;
+    --toolbar-button-height: 34px;
+    --toolbar-button-padding-x: 2px;
+    --toolbar-icon-size: 12px;
+    --toolbar-text-size: 11px;
+    --toolbar-heading-1-size: 14px;
+    --toolbar-heading-2-size: 13px;
+    --toolbar-heading-3-size: 12px;
+    --toolbar-scroll-x: hidden;
+  }
+
+  .block-editor-toolbar-scroll {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    mask-image: none;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1179px) {
+  .block-editor-toolbar {
+    --toolbar-cluster-gap: 2px;
+    --toolbar-padding-y: 4px;
+    --toolbar-padding-x: 3px;
+    --toolbar-group-gap: 0;
+    --toolbar-group-padding: 0;
+    --toolbar-button-min-width: 19px;
+    --toolbar-button-height: 30px;
+    --toolbar-button-padding-x: 1px;
+    --toolbar-icon-size: 10px;
+    --toolbar-text-size: 10px;
+    --toolbar-heading-1-size: 12px;
+    --toolbar-heading-2-size: 11px;
+    --toolbar-heading-3-size: 10px;
+    --toolbar-scroll-x: hidden;
+  }
+}
+
+@media (min-width: 1401px) {
+  .block-editor-toolbar {
+    --toolbar-cluster-gap: 4px;
+    --toolbar-padding-y: 6px;
+    --toolbar-padding-x: 5px;
+    --toolbar-group-gap: 0;
+    --toolbar-group-padding: 2px;
+    --toolbar-button-min-width: 34px;
+    --toolbar-button-height: 38px;
+    --toolbar-button-padding-x: 3px;
+    --toolbar-icon-size: 15px;
+    --toolbar-text-size: 13px;
+    --toolbar-heading-1-size: 18px;
+    --toolbar-heading-2-size: 17px;
+    --toolbar-heading-3-size: 15px;
     --toolbar-scroll-x: hidden;
   }
 

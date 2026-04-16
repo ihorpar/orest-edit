@@ -1770,7 +1770,7 @@ export default function EditorPage() {
       }
     });
     updateSpellcheckSummary(filteredSpellcheckResults, summaryMeta, 0);
-    setFeedback({ tone: "info", message: "Правопис виправлено." });
+    setFeedback({ tone: "info", message: input.suggestion.length === 0 ? "Фрагмент видалено." : "Правопис виправлено." });
   }
 
   function dismissSpellcheckIssue(input: { blockId: string; issueId: string }) {
@@ -4126,6 +4126,22 @@ export default function EditorPage() {
                                   </div>
                                 ) : null}
                                 <div className="err-compact-actions step-review-prototype-spellcheck-actions">
+                                  {issue.suggestions.length === 0 && issue.range.end > issue.range.start ? (
+                                    <button
+                                      type="button"
+                                      className="err-compact-action-button step-review-prototype-spellcheck-action"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        applySpellcheckSuggestion({
+                                          blockId: result.blockId,
+                                          issueId: issue.id,
+                                          suggestion: ""
+                                        });
+                                      }}
+                                    >
+                                      Видалити
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     className="err-compact-action-button step-review-prototype-spellcheck-action"
@@ -4303,18 +4319,6 @@ export default function EditorPage() {
       <TopBar
         activePath="/editor"
         documentStats={documentStats}
-        historyControls={{
-          canUndo,
-          canRedo,
-          canCompare: compareHistory.length > 0,
-          onUndo: undoLastMutation,
-          onRedo: redoLastMutation,
-          onCompare: () => {
-            const nextId = compareHistory[0]?.id ?? null;
-            setActiveCompareEntryId(nextId);
-            setExpandedCompareEntryId(nextId);
-          }
-        }}
       />
       {destructiveRecoveryState ? (
         <div className="editor-toast-stack" aria-live="polite">
@@ -4412,6 +4416,18 @@ export default function EditorPage() {
               revision={revision}
               selection={normalizedSelection}
               focusedBlockId={focusedBlockId}
+              historyControls={{
+                canUndo,
+                canRedo,
+                canCompare: compareHistory.length > 0,
+                onUndo: undoLastMutation,
+                onRedo: redoLastMutation,
+                onCompare: () => {
+                  const nextId = compareHistory[0]?.id ?? null;
+                  setActiveCompareEntryId(nextId);
+                  setExpandedCompareEntryId(nextId);
+                }
+              }}
               onDocumentChange={handleManualDocumentChange}
               onSelectionChange={setSelection}
               onFocusedBlockChange={setFocusedBlockId}
@@ -4764,6 +4780,39 @@ export default function EditorPage() {
                                             {suggestion.value}
                                           </button>
                                         ))}
+                                        {issue.range.end > issue.range.start ? (
+                                          <button
+                                            type="button"
+                                            className="step-review-spellcheck-chip"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              applySpellcheckSuggestion({
+                                                blockId: result.blockId,
+                                                issueId: issue.id,
+                                                suggestion: ""
+                                              });
+                                            }}
+                                          >
+                                            Видалити
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    ) : issue.range.end > issue.range.start ? (
+                                      <div className="step-review-spellcheck-suggestions">
+                                        <button
+                                          type="button"
+                                          className="step-review-spellcheck-chip"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            applySpellcheckSuggestion({
+                                              blockId: result.blockId,
+                                              issueId: issue.id,
+                                              suggestion: ""
+                                            });
+                                          }}
+                                        >
+                                          Видалити
+                                        </button>
                                       </div>
                                     ) : null}
                                   </div>
@@ -5274,16 +5323,101 @@ function invalidateSpellcheckResultsForChangedBlocks(
   const previousBlocks = new Map(previousDocument.blocks.map((block) => [block.id, block]));
   const nextBlocks = new Map(nextDocument.blocks.map((block) => [block.id, block]));
 
-  return results.filter((result) => {
-    const previousBlock = previousBlocks.get(result.blockId);
-    const nextBlock = nextBlocks.get(result.blockId);
+  return results
+    .map((result) => {
+      const previousBlock = previousBlocks.get(result.blockId);
+      const nextBlock = nextBlocks.get(result.blockId);
 
-    if (!previousBlock || !nextBlock) {
-      return false;
+      if (!previousBlock || !nextBlock) {
+        return null;
+      }
+
+      const previousText = getBlockText(previousBlock);
+      const nextText = getBlockText(nextBlock);
+
+      if (previousText === nextText) {
+        return result;
+      }
+
+      // Rebase untouched issue ranges for a single contiguous text edit.
+      // If the edit shape is ambiguous, we still invalidate this block.
+      if (result.text !== previousText) {
+        return null;
+      }
+
+      return reconcileSpellcheckBlockResultAfterTextEdit(result, nextText);
+    })
+    .filter((result): result is SpellcheckBlockResult => Boolean(result));
+}
+
+function reconcileSpellcheckBlockResultAfterTextEdit(result: SpellcheckBlockResult, nextText: string): SpellcheckBlockResult | null {
+  const replacement = detectSingleTextReplacement(result.text, nextText);
+
+  if (!replacement) {
+    return null;
+  }
+
+  const delta = replacement.text.length - (replacement.end - replacement.start);
+  const nextIssues = result.issues.flatMap((issue) => {
+    if (issue.range.end <= replacement.start) {
+      return [issue];
     }
 
-    return getBlockText(previousBlock) === getBlockText(nextBlock);
+    if (issue.range.start >= replacement.end) {
+      return [
+        {
+          ...issue,
+          range: {
+            start: issue.range.start + delta,
+            end: issue.range.end + delta
+          }
+        }
+      ];
+    }
+
+    return [];
   });
+
+  return {
+    ...result,
+    text: nextText,
+    issues: nextIssues
+  };
+}
+
+function detectSingleTextReplacement(previousText: string, nextText: string): { start: number; end: number; text: string } | null {
+  if (previousText === nextText) {
+    return {
+      start: previousText.length,
+      end: previousText.length,
+      text: ""
+    };
+  }
+
+  let prefixLength = 0;
+  const prefixMax = Math.min(previousText.length, nextText.length);
+
+  while (prefixLength < prefixMax && previousText.charAt(prefixLength) === nextText.charAt(prefixLength)) {
+    prefixLength += 1;
+  }
+
+  let previousSuffixIndex = previousText.length;
+  let nextSuffixIndex = nextText.length;
+
+  while (
+    previousSuffixIndex > prefixLength &&
+    nextSuffixIndex > prefixLength &&
+    previousText.charAt(previousSuffixIndex - 1) === nextText.charAt(nextSuffixIndex - 1)
+  ) {
+    previousSuffixIndex -= 1;
+    nextSuffixIndex -= 1;
+  }
+
+  return {
+    start: prefixLength,
+    end: previousSuffixIndex,
+    text: nextText.slice(prefixLength, nextSuffixIndex)
+  };
 }
 
 function deriveEmphasisSuggestions(

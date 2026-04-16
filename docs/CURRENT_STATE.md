@@ -17,10 +17,10 @@ Status: Active handoff
 - `Enter` inside paragraph-like editing creates a new block
 - Text rewrites may now preserve explicit internal line breaks (`\n`) inside a single paragraph/heading block, so verse-like or short-line formatting can stay inside one block when the editor asks for it
 - Paragraph numbering is visible and tracks block IDs
-- Manuscript mutations now keep an in-session undo/redo stack, exposed in the top navbar before `Редактор` and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
-- Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the navbar `Порівняти` action
+- Manuscript mutations now keep an in-session undo/redo stack, exposed in the manuscript formatting toolbar and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
+- Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the toolbar `Історія змін` action
 - The top-bar destructive action is now a single `Очистити` control that clears manuscript text plus analysis/session artifacts, and the block editor no longer shows a separate bottom `Фокус:` status label
-- The manuscript formatting toolbar spans the working text column: undo/redo/compare live in the navbar, inline/block formatting stays in the sticky toolbar, tablet layouts keep toolbar controls in one visible row with compact 32x38px button targets and no horizontal clipping, toolbar groups use tight intentional spacing rather than full-width spreading, and the normal-text control uses a compact `Т` while H1/H2/H3 remain visually larger in the hierarchy
+- The manuscript formatting toolbar uses a centered content-width surface: undo/redo/change-history, inline/block formatting, and insertion controls all live in the sticky toolbar; tablet layouts keep the full toolbar in one visible row with compact but touch-comfortable button targets and no horizontal clipping, and the normal-text control uses a compact `Т` while H1/H2/H3 remain visually larger in the hierarchy
 - The compare dialog now keeps a short fixed title, clamps the verbose change summary into supporting copy, shows compact metadata chips, and uses concise history-picker labels so side-by-side content stays primary
 - The compare dialog `Стало` panel now supports direct block-level editing for live text/callout/list snapshots; changes sync straight back into the current draft through normal manual-edit history
 - Local AI patch requests are block-based and send `targetBlockIds`, not character offsets
@@ -191,7 +191,7 @@ Status: Active handoff
 - No export patch flow or full document version history
 - No manual launcher for `subsection` in the floating panel yet (manual v1 covers only `callout` and `visual`)
 - No full runtime browser QA pass yet for the complete 8-step workflow after step-aware contract migration
-- Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting; manual edits invalidate spellcheck only for the changed checked block instead of clearing the whole spellcheck session
+- Spellcheck now shows persistent inline red underlines for checked `paragraph`/`heading` blocks, exposes a click popover with suggestions, and applies one suggestion directly into block content while preserving surrounding inline formatting; for manual edits in an already checked block, non-overlapping findings are now rebased and preserved, and only overlapping findings are dropped
 - There is still no full persistent-browser automation harness from the `playwright-interactive` skill in this session; runtime QA for new inline layers is currently done through ad hoc Playwright scripts against a local `next start` server
 
 ## Current product direction
@@ -304,7 +304,7 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
 - `npm run build -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
 - Runtime QA on 2026-03-25 against production `next start` at `http://127.0.0.1:3002` after API login confirmed: sticky-toolbar undo/redo restores manuscript edits, accepted AI rewrite opens `Порівняти`, and the compare dialog shows distinct `Було` / `Стало` snapshots for the accepted change
-- Runtime QA on 2026-04-15 against local dev server `http://127.0.0.1:3003` after API login confirmed: the manuscript formatting toolbar uses a centered content-width surface on the iPad Pro landscape viewport (`1366x1024`), the final toolbar group stays fully visible inside the toolbar bounds, and the toolbar content reports no horizontal overflow (`scrollWidth === clientWidth`)
+- Runtime QA on 2026-04-16 against local dev server `http://127.0.0.1:3001` after API login confirmed: the manuscript formatting toolbar uses a centered content-width surface on the iPad Pro landscape viewport (`1366x1024`) and the desktop breakpoint edge (`1401x793`), stays in a single scaled row through the narrow desktop/tablet band (`960`, `1024`, `1100`, `1180`, `1240`, `1290`, `1365`), includes the undo/redo/change-history controls plus the formatting/insertion groups, topbar history controls are absent, undo/redo work after real typed input, the final toolbar group stays fully visible inside the toolbar bounds, and the toolbar content reports no horizontal overflow (`scrollWidth === clientWidth`)
 - `node --import tsx --test apps/web/test/list-editing.test.ts apps/web/test/patch-service.test.ts` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
 - `node --import tsx --test apps/web/test/inline-markup.test.ts apps/web/test/patch-contract.test.ts apps/web/test/review-action-service.test.ts` passed on 2026-03-26 after the AI bold-formatting policy pass

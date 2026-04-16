@@ -70,6 +70,9 @@ import {
   Minus,
   Table,
   Image as ImageIcon,
+  Undo2,
+  Redo2,
+  Columns2,
   X,
   Trash2
 } from "lucide-react";
@@ -106,6 +109,7 @@ export function BlockEditorSurface({
   selection,
   focusedBlockId,
   disabled,
+  historyControls,
   onDocumentChange,
   onSelectionChange,
   onFocusedBlockChange,
@@ -152,6 +156,14 @@ export function BlockEditorSurface({
   selection: BlockSelection;
   focusedBlockId: string | null;
   disabled?: boolean;
+  historyControls?: {
+    canUndo: boolean;
+    canRedo: boolean;
+    canCompare: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+    onCompare: () => void;
+  };
   onDocumentChange: (document: EditorDocument) => void;
   onSelectionChange: (selection: BlockSelection) => void;
   onFocusedBlockChange: (blockId: string | null) => void;
@@ -821,6 +833,44 @@ export function BlockEditorSurface({
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
         <div className="block-editor-toolbar-scroll">
+          {historyControls ? (
+            <div className="block-editor-toolbar-group" role="group" aria-label="Історія змін">
+              <button
+                type="button"
+                className="block-toolbar-button"
+                onMouseDown={handleToolbarMouseDown}
+                onClick={historyControls.onUndo}
+                disabled={!historyControls.canUndo}
+                title="Скасувати (Ctrl/Cmd+Z)"
+                aria-label="Скасувати"
+              >
+                <Undo2 />
+              </button>
+              <button
+                type="button"
+                className="block-toolbar-button"
+                onMouseDown={handleToolbarMouseDown}
+                onClick={historyControls.onRedo}
+                disabled={!historyControls.canRedo}
+                title="Повернути (Ctrl/Cmd+Shift+Z)"
+                aria-label="Повернути"
+              >
+                <Redo2 />
+              </button>
+              <button
+                type="button"
+                className="block-toolbar-button"
+                onMouseDown={handleToolbarMouseDown}
+                onClick={historyControls.onCompare}
+                disabled={!historyControls.canCompare}
+                title="Історія змін"
+                aria-label="Історія змін"
+              >
+                <Columns2 />
+              </button>
+            </div>
+          ) : null}
+
           <div className="block-editor-toolbar-group">
             <button
               type="button"
@@ -1167,6 +1217,22 @@ export function BlockEditorSurface({
                       {suggestion.value}
                     </button>
                   ))}
+                  {issue.range.end > issue.range.start ? (
+                    <button
+                      type="button"
+                      className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                      onClick={() => {
+                        onApplySpellcheckSuggestion?.({
+                          blockId: activeSpellcheckPopover.blockId,
+                          issueId: issue.id,
+                          suggestion: ""
+                        });
+                        setActiveSpellcheckPopover(null);
+                      }}
+                    >
+                      Видалити
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
@@ -1184,6 +1250,22 @@ export function BlockEditorSurface({
                 </div>
               ) : (
                 <div className="spellcheck-popover-suggestions">
+                  {issue.range.end > issue.range.start ? (
+                    <button
+                      type="button"
+                      className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
+                      onClick={() => {
+                        onApplySpellcheckSuggestion?.({
+                          blockId: activeSpellcheckPopover.blockId,
+                          issueId: issue.id,
+                          suggestion: ""
+                        });
+                        setActiveSpellcheckPopover(null);
+                      }}
+                    >
+                      Видалити
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
