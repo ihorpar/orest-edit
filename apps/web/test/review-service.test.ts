@@ -121,6 +121,60 @@ test("generateEditorialReview prompt encourages deep callouts for dense explanat
   assert.match(requestBody, /не використовуй #, ## або HTML-заголовки/i);
 });
 
+test("generateEditorialReview serializes structural blocks in step prompts", async () => {
+  let requestBody = "";
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "h1", type: "heading", level: 2, content: [{ text: "Механізм" }] },
+      {
+        id: "c1",
+        type: "callout",
+        kind: "mechanism",
+        depth: "deep",
+        title: [{ text: "Як це працює" }],
+        body: [
+          [{ text: "Стислий опис уже додано у врізці." }],
+          [{ text: "Другий абзац пояснює наслідок." }]
+        ]
+      },
+      {
+        id: "l1",
+        type: "bullet_list",
+        items: [[{ text: "Перший пункт" }], [{ text: "Другий пункт" }]]
+      }
+    ]
+  };
+
+  await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "formatting",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ items: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /## Механізм/);
+  assert.match(requestBody, /\[callout:mechanism:deep\] Як це працює/);
+  assert.match(requestBody, /Стислий опис уже додано у врізці/);
+  assert.match(requestBody, /- Перший пункт/);
+  assert.match(requestBody, /- Другий пункт/);
+});
+
 test("generateEditorialReview fallback callout after dense heading paragraph prefers deep", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "structure" }), {
     readEnvValue: () => null,

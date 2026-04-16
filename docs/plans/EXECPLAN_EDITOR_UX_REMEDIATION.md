@@ -26,6 +26,7 @@ The visible outcome should be a calmer, more legible editorial workstation. The 
 - [x] (2026-03-26 15:32Z) Implemented a shared workflow-UI helper for feedback presentation, step CTA copy, and header status state in `apps/web/lib/editor/workflow-ui.ts`.
 - [x] (2026-03-26 15:32Z) Replaced icon-only/ambiguous step-primary actions with explicit labeled header CTAs for diagnostics, fact-check, spellcheck, and recommendation steps.
 - [x] (2026-03-26 16:12Z) Reworked destructive document/session actions into explicit inline confirmation and recovery flows with consequence copy, undo snapshots, and post-action recovery banners.
+- [x] (2026-04-15 00:00Z) Consolidated the top-bar destructive action into a single `Очистити` control that clears manuscript text plus analysis/session artifacts, and removed the bottom-of-screen `Фокус:` status label from the block editor.
 - [x] (2026-03-26 16:12Z) Removed the main hover-only help dependency from step config, surfaced active step labels directly in the mini-hub, and added explicit accessibility labels for critical icon-first editor controls.
 - [ ] Raise high-frequency controls to tablet-safe hit targets and validate mixed-input behavior.
 - [ ] Split shared step configuration/copy into step-specific UX modules so each step describes its actual job.
@@ -95,6 +96,14 @@ The visible outcome should be a calmer, more legible editorial workstation. The 
   Rationale: both actions affect trust-sensitive editor state, but they are still safely reversible inside the current browser session. Inline confirmation keeps scope and consequence visible, while undo avoids forcing the user through extra modal friction.
   Date/Author: 2026-03-26 / Codex
 
+- Decision: the top-bar destructive affordance should collapse into a single `Очистити` action that clears manuscript text and analysis/session artifacts.
+  Rationale: separate clear/reset buttons were too close in meaning for the editor's primary audience, and the broader reset behavior is already reversible through the inline recovery snapshot.
+  Date/Author: 2026-04-15 / Codex
+
+- Decision: the block editor status strip should summarize selection state only and omit a standalone focus paragraph label.
+  Rationale: the focus readout added visual noise at the bottom of the manuscript canvas without helping the main task, while paragraph-level targeting already remains available through the block surface and review cards.
+  Date/Author: 2026-04-15 / Codex
+
 - Decision: milestone 4 will treat accessibility labels and inline copy as the primary fallback for icon-first controls rather than adding a broad custom tooltip system.
   Rationale: the product already leans compact and icon-first. The immediate issue was hidden meaning on touch and hover-only help, which can be reduced materially by surfacing critical context inline and ensuring icon-only controls have explicit labels for assistive tech.
   Date/Author: 2026-03-26 / Codex
@@ -108,6 +117,7 @@ Implemented:
 - the step drawer header now shows explicit labeled primary actions instead of mostly icon-only run controls
 - the step drawer now renders inline feedback for success and error outcomes, fixing the prior “info state exists but is invisible” gap
 - destructive document/session actions now require inline confirmation, explain scope and consequence, and expose one-click session-local undo after execution
+- the top-bar destructive action is now a single `Очистити` control that clears text plus analysis/session artifacts, and the block editor no longer shows a separate bottom `Фокус:` label
 - step configuration help no longer depends on hover-only info icons, the active step label stays visible in the mini-hub, and critical editor icon controls now carry explicit accessibility labels
 - the web test suite now includes focused coverage for the new workflow-UI helper
 

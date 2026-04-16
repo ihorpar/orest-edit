@@ -157,7 +157,8 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
   assert.match(String(requestBody?.input ?? ""), /обов'язково оформи одну частину body як короткий список/i);
   assert.match(String(requestBody?.input ?? ""), /не використовуй #, ## або HTML-заголовки/i);
   assert.match(String(requestBody?.input ?? ""), /Формат відповіді:\s*поверни лише JSON-об'єкт/i);
-  assert.match(String(requestBody?.input ?? ""), /markdown не використовуй, крім рідкісного \*\*жирного\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /інший markdown не додавай/i);
   assert.match(String(requestBody?.input ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.input ?? ""), /Фрагмент про міфи й факти навколо шкіри/i);
   assert.match(String(requestBody?.input ?? ""), /Додати блок міфів і правди/i);
@@ -229,6 +230,12 @@ test("generateReviewAction forwards editorial refine instruction into replace pr
   assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.instructions ?? ""), /починається з великої літери/i);
   assert.match(String(requestBody?.input ?? ""), /Додаткова вказівка редактора: Зберігай формат короткого списку і прибери канцеляризми\./i);
+  assert.match(String(requestBody?.input ?? ""), /ключові думки/i);
+  assert.match(String(requestBody?.input ?? ""), /\*\*жирн(ий|им)\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /label-line/i);
+  assert.match(String(requestBody?.input ?? ""), /Кожен змістовий абзац/i);
+  assert.match(String(requestBody?.input ?? ""), /2-3 короткі акценти/i);
+  assert.match(String(requestBody?.input ?? ""), /Не використовуй #, ##, HTML-заголовки/i);
 });
 
 test("generateReviewAction preserves sparse **bold** accents in replace proposals", async () => {
@@ -1291,6 +1298,10 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items"]);
   assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
+  assert.match(String(requestBody?.input ?? ""), /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
+  assert.match(String(requestBody?.input ?? ""), /ключових думок/i);
+  assert.match(String(requestBody?.input ?? ""), /кожному змістовому пункті/i);
+  assert.match(String(requestBody?.input ?? ""), /Не виділяй жирним цілий пункт/i);
 });
 
 test("generateReviewAction preserves terminal punctuation in structured list items", async () => {
@@ -1898,6 +1909,9 @@ test("generateReviewAction uses Gemini header auth and parses subsection output"
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
   assert.match(requestPrompt, /Рекомендація:/i);
   assert.match(requestPrompt, /Щільний абзац/i);
+  assert.match(requestPrompt, /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
+  assert.match(requestPrompt, /label-line/i);
+  assert.match(requestPrompt, /1-2 короткі ключові фрази/i);
 });
 
 test("generateReviewAction uses Anthropic headers and parses subsection output", async () => {

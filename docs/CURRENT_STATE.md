@@ -17,9 +17,10 @@ Status: Active handoff
 - `Enter` inside paragraph-like editing creates a new block
 - Text rewrites may now preserve explicit internal line breaks (`\n`) inside a single paragraph/heading block, so verse-like or short-line formatting can stay inside one block when the editor asks for it
 - Paragraph numbering is visible and tracks block IDs
-- Manuscript mutations now keep an in-session undo/redo stack, exposed in the manuscript sticky toolbar and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
-- Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the sticky-toolbar `Порівняти` action
-- Sticky manuscript toolbar now starts with undo/redo/compare on the far left; compare uses a split-view icon instead of a history glyph
+- Manuscript mutations now keep an in-session undo/redo stack, exposed in the top navbar before `Редактор` and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
+- Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the navbar `Порівняти` action
+- The top-bar destructive action is now a single `Очистити` control that clears manuscript text plus analysis/session artifacts, and the block editor no longer shows a separate bottom `Фокус:` status label
+- The manuscript formatting toolbar spans the working text column: undo/redo/compare live in the navbar, inline/block formatting stays in the sticky toolbar, tablet layouts keep toolbar controls in one visible row with compact 32x38px button targets and no horizontal clipping, toolbar groups use tight intentional spacing rather than full-width spreading, and the normal-text control uses a compact `Т` while H1/H2/H3 remain visually larger in the hierarchy
 - The compare dialog now keeps a short fixed title, clamps the verbose change summary into supporting copy, shows compact metadata chips, and uses concise history-picker labels so side-by-side content stays primary
 - The compare dialog `Стало` panel now supports direct block-level editing for live text/callout/list snapshots; changes sync straight back into the current draft through normal manual-edit history
 - Local AI patch requests are block-based and send `targetBlockIds`, not character offsets
@@ -77,6 +78,7 @@ Status: Active handoff
 - Deep callouts now preserve lightweight internal structure instead of collapsing back into one prose slab: proposal prompts allow short `**жирні**` anchors and one short bullet/numbered list, server normalization keeps those markers, and inserted callout blocks render list lines with readable hanging indent inside the existing callout UI.
 - Deep callout preview parsing now preserves standalone short section-label lines (for example `Прихована загроза`, `Чому це важливо`) as their own body paragraphs instead of flattening them into the following prose, and those labels render as bold section anchors inside the callout body.
 - Review and generation prompts now explicitly prefer `deep` callouts for dense explanatory/mechanism fragments instead of treating `brief` as the silent default; fallback recommendation hydration also infers `deep` for long explanatory callouts when the provider omits depth.
+- Review-item normalization now also recovers `deep` depth when provider output is internally inconsistent, for example when the title/recommendation says `глибоку врізку` or `deep dive` but `calloutDepth` is missing, localized, or incorrectly set to `brief`.
 - Deep callout prompt contracts now actively require bold structure, not just permit it: short bold subheads are expected as separate 1-3 word lines before some paragraphs, and key ideas inside the prose should also be emphasized with `**...**` while still avoiding markdown headings.
 - Visual execution panels now include editable caption and keep prompt-editable flow with generate/regenerate/insert actions
 - Visual execution panels now also expose an icon-only focus action that opens a full-screen visual workspace with large prompt editing, preview, caption/style/intent controls, and the same generate/insert actions before or after image generation
@@ -97,7 +99,7 @@ Status: Active handoff
 - Local patch requests from the floating composer now send a sliced manuscript payload (selected range plus one neighboring block on each side) instead of the full document, while provider prompt assembly still stays limited to that same local context
 - `/editor` now supports a document-wide global replace flow via `Ctrl/Cmd+H`; it opens a compact Ukrainian dialog and applies one undoable manuscript-wide replacement across text-bearing blocks
 - The editor hotkey map now includes `Ctrl/Cmd+Shift+8` for bullet-list toggle, and the top navbar exposes a `Гарячі клавіші` popup with the common shortcuts
-- The editor top navbar now shows compact live document stats near `Гарячі клавіші`: word count plus symbols with spaces
+- The editor top navbar now shows compact live document stats near `Гарячі клавіші`: word count plus symbols with spaces. Nav links and utility actions use the regular UI type scale; stats remain smaller.
 - The floating local composer is now viewport-bounded and draggable: it clamps to the visible viewport on tablet/mobile-like sizes, keeps internal overflow scrollable instead of clipping action rows, and remembers the last dropped position for the current browser session
 - The `Правка` tab in the floating local composer is now an explicit mode, not a thin alias for keyword auto-routing; feature keywords such as `правопис` surface by highlighting the matching top pill as a suggestion instead of force-switching tabs
 - The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Таблиця`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
@@ -105,7 +107,8 @@ Status: Active handoff
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
-- AI-generated replace/callout/subsection text now supports sparse editorial emphasis via `**...**` markers in proposal transport; those markers are parsed into real inline `bold` nodes on apply, while unsupported markdown is still stripped
+- AI-generated replace/callout/subsection text now supports controlled editorial emphasis via `**...**` markers in proposal transport; those markers are parsed into real inline `bold` nodes on apply, while unsupported markdown is still stripped
+- `rewrite` and `simplify` proposal prompts now actively ask the model to use `**bold**` for key ideas and for short local heading/label lines, while still forbidding markdown headings (`#`, `##`) and HTML.
 - The new `Акценти` step now runs as an inline manuscript inspection layer instead of a green-diff proposal flow: each actionable suggestion carries one exact emphasis target (`emphasisText` plus optional `occurrence`), renders it directly in the manuscript as blue bold clickable text, and opens a small `Погодити / Відхилити` popover on click
 - `Акценти` suggestions are derived from step review items and do not use `/review/proposal`; accepting a suggestion applies real inline `bold` directly into the affected paragraph/heading and records a compare-history snapshot, while rejecting it dismisses only that inline suggestion. The UI resolves emphasis from explicit target payloads first and keeps prose-quote parsing only as backward-compatible fallback for older draft data
 - Emphasis-step prompt assembly now preserves existing manuscript bold via `**...**` markers, so the model sees what is already emphasized and can avoid duplicate highlight recommendations
@@ -120,7 +123,7 @@ Status: Active handoff
 - The manuscript now marks active replace-source blocks in red while the inline diff card renders only proposed replacement blocks in green (no nested old/new card frames)
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
-- Rewrite/simplify execution now strips markdown artifacts from replacement text and flags near-no-op outputs with explicit regenerate guidance
+- Manuscript-generating AI actions (`rewrite`, `simplify`, `expand`, `list`, `subsection`, and local patch rewrites) now allow controlled `**bold**` instead of blanket markdown bans: prompts ask the model to bold key ideas and short label-lines while still rejecting headings, HTML, and decorative markdown. Bold density is explicit: every meaningful paragraph or list item should get at least one short emphasis, with 2-3 for longer or multi-thesis passages.
 - Replace-type proposal generation (`rewrite`, `simplify`, `expand`, `list`) now runs through a dedicated lightweight proposal-content contract in `review-action-service` instead of reusing the generic nested patch-diff generator; LLMs return plain replacement content (`replacements[]` or `items[]`) and the server reconstructs final block-first `text_diff`
 - Gemini `rewrite`/`simplify`/`expand` proposal generation now uses a lightweight `replacements[] + reason` schema with local block reconstruction instead of the older nested Gemini `newBlocks` contract, which avoids timeout-prone local replace requests on Flash Lite
 - Local patch requests from the floating composer now surface their first `replace_blocks` result directly in the manuscript inline diff lane instead of only updating hidden patch state, and fallback list rewrites collapse list blocks into a visible paragraph draft instead of returning a no-op list clone
@@ -207,7 +210,7 @@ Status: Active handoff
 - `callout` is already a first-class block type
 - `image` is already a first-class block type
 - Toolbar inline formatting now preserves the selected range when bold/italic actions are triggered from the manuscript toolbar instead of dropping the caret to block start
-- AI formatting policy is intentionally narrow: generated editorial text may use only sparse `bold` emphasis on short key phrases, not arbitrary markdown or full-sentence highlighting
+- AI formatting policy is intentionally narrow: generated editorial text may use controlled `bold` emphasis on short key phrases and short local label lines, not arbitrary markdown or full-sentence highlighting
 - The document-wide `Акценти` pass is a separate inline-accept/reject workflow from generic AI formatting: it proposes one exact phrase per paragraph at most, shows it directly in the manuscript, and never opens a diff card
 - Toolbar list toggles can now convert existing bullet/ordered lists back to paragraphs instead of forcing editors to manually strip list structure
 - Toolbar list conversion now preserves inline bold/italic formatting and terminal punctuation when turning paragraph/heading text into bullet or ordered lists
@@ -309,3 +312,4 @@ Status: Active handoff
 - `npm run test -w @orest/web` passed on 2026-03-26 after workflow-UI milestone 1/2 (105 tests), including new coverage for feedback presentation, step CTA copy, and header status derivation
 - Live Gemini check on 2026-03-13: the provided one-block `rewrite` payload returned a real `text_diff` in about 1.3s via `generateReviewAction` with `gemini-3.1-flash-lite-preview`; the prior nested-schema path timed out after about 62s on the same payload
 - `npm run build -w @orest/web` failed on 2026-03-12 with generic `Build failed because of webpack errors` in this environment (no stacktrace surfaced in command output)
+- The step-review top-right AI run button now keeps its blue treatment while work is in flight, using an animated gradient shimmer instead of flattening to a gray disabled state

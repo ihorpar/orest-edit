@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Keyboard } from "lucide-react";
+import { Columns2, Keyboard, Redo2, Undo2 } from "lucide-react";
 
 import type { DocumentTextStats } from "../../lib/editor/document-model";
 
@@ -19,10 +19,19 @@ const HOTKEY_SECTIONS = [
 
 export function TopBar({
   activePath = "/editor",
-  documentStats
+  documentStats,
+  historyControls
 }: {
   activePath?: "/editor" | "/settings";
   documentStats?: DocumentTextStats;
+  historyControls?: {
+    canUndo: boolean;
+    canRedo: boolean;
+    canCompare: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+    onCompare: () => void;
+  };
 }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState(false);
@@ -85,6 +94,40 @@ export function TopBar({
           </span>
         </div>
         <nav className="nav-links" aria-label="Основна навігація">
+          {historyControls ? (
+            <div className="topbar-history-controls" aria-label="Історія змін">
+              <button
+                type="button"
+                className="button-reset topbar-history-button"
+                onClick={historyControls.onUndo}
+                disabled={!historyControls.canUndo}
+                title="Назад (Ctrl/Cmd+Z)"
+                aria-label="Назад"
+              >
+                <Undo2 size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="button-reset topbar-history-button"
+                onClick={historyControls.onRedo}
+                disabled={!historyControls.canRedo}
+                title="Вперед (Ctrl/Cmd+Shift+Z)"
+                aria-label="Вперед"
+              >
+                <Redo2 size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="button-reset topbar-history-button"
+                onClick={historyControls.onCompare}
+                disabled={!historyControls.canCompare}
+                title="Порівняти прийняту правку"
+                aria-label="Порівняти"
+              >
+                <Columns2 size={14} aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
           <Link href="/editor" className="mono-ui nav-link" data-active={activePath === "/editor"}>
             Редактор
           </Link>

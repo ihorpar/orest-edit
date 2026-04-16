@@ -200,6 +200,11 @@ test("generatePatchResponse sends Gemini API key via header instead of URL query
   );
   assert.ok(payload.generationConfig?.responseSchema?.properties?.operations?.items?.required?.includes("replacements"));
   assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /Не повертай rich-text blocks, newBlocks/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /ключових думок|ключові думки/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /label-line/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /\*\*жирний\*\*/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /Кожен змістовий абзац/i);
+  assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /2-3 короткі акценти/i);
   assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /пунктуація списків:/i);
   assert.match(payload.systemInstruction?.parts?.[0]?.text ?? "", /починається з малої літери/i);
 });

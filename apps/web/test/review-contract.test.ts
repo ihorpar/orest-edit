@@ -82,6 +82,44 @@ test("normalizeEditorialReviewItems coerces legacy visual/callout values into th
   assert.equal(normalized.items[1]?.insertionPoint.mode, "after");
 });
 
+test("normalizeEditorialReviewItems infers deep depth from deep-callout wording", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-depth",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Створити глибоку врізку",
+        reason: "Потрібно пояснити механізм докладніше.",
+        recommendation: "Створити глибоку врізку, що пояснює процес простими кроками.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Перший абзац із щільним поясненням.",
+        insertionHint: "after",
+        anchorBlockId: "p1",
+        calloutKind: "mechanism",
+        calloutDepth: "brief",
+        calloutTitle: "Як це працює",
+        calloutPreviewText: "Пояснення механізму.",
+        calloutSummary: "Пояснити механізм.",
+        calloutPrompt: "Створи deep dive про механізм.",
+        visualIntent: null
+      }
+    ]
+  });
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.items[0]?.calloutDepth, "deep");
+  assert.equal(normalized.items[0]?.calloutDraft?.calloutDepth, "deep");
+});
+
 test("normalizeEditorialReviewItems enforces subsection insert semantics", () => {
   const document = createDocument();
   const revision = deriveManuscriptRevisionState(document);

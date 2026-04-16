@@ -29,10 +29,10 @@ Decision: the editor now renders one shared drawer-level feedback banner for act
 
 Reason: successful actions such as apply, prepare, export, or clear were already writing `info` feedback into state, but only errors were rendered. Surfacing both outcomes restores trust and makes the existing state model useful to the operator.
 
-### Destructive document actions now use inline confirmation and session-local undo
-Decision: `Очистити текст` and `Скинути сесію` no longer execute immediately. The editor now shows inline consequence copy before execution and stores a full local session snapshot so the user can undo the destructive action from an in-place recovery banner.
+### Destructive document actions now use inline confirmation, undo, and a single clear control
+Decision: the top-bar destructive affordance is a single `Очистити` action. It clears manuscript text plus analysis/session artifacts, and the editor keeps an inline recovery snapshot so the user can undo the action from the in-place recovery banner.
 
-Reason: these controls affect trust-sensitive manuscript state, but the current app can still recover them locally without a modal workflow or server persistence. Inline confirmation keeps scope legible at the point of action, and undo is a better trust pattern than immediate irreversible execution.
+Reason: separate clear/reset buttons were too close in meaning for the main editor audience. A single explicit clear action is easier to understand, and the existing local recovery model still preserves a safe escape hatch.
 
 ### Hover-only help is being replaced by inline context and explicit labels
 Decision: critical help and control meaning should not depend on native browser `title` tooltips. For this remediation phase, step-context hints move inline, the active mini-hub step label stays visible, and icon-first controls gain explicit accessibility labels rather than relying on hidden hover text.
@@ -137,8 +137,8 @@ Reason: editors asked to verify that accepted changes did not distort meaning, w
 
 ## 2026-03-26
 
-### AI formatting is limited to sparse bold emphasis
-Decision: generated editorial text may use only sparse `bold` emphasis on short key phrases. The only supported transport syntax is `**...**`, which is parsed into real inline `bold` nodes in the editor. Other markdown remains unsupported and is still stripped from replace/callout/subsection text.
+### AI formatting is limited to controlled bold emphasis
+Decision: generated editorial text may use controlled `bold` emphasis on short key phrases and short local label lines. The only supported transport syntax is `**...**`, which is parsed into real inline `bold` nodes in the editor. Other markdown remains unsupported and is still stripped from replace/callout/subsection text.
 
 Reason: editors want scan-friendly emphasis, but the product is still a block editor, not a markdown authoring surface. Allowing one narrow emphasis mechanism solves the need without opening generic markdown, noisy styling, or unstable rendering rules.
 
@@ -490,7 +490,17 @@ Decision: recommendation-card prompts and fallback review hydration should not t
 
 Reason: editors were consistently seeing `brief` even when the reading problem clearly called for a fuller explanation. Making the depth choice explicit and biased toward `deep` in those contexts better matches the product goal and user expectations.
 
+### Callout depth normalization may recover semantic deep intent
+Decision: review-item normalization should recover `calloutDepth='deep'` when provider output is inconsistent but the title, reason, recommendation, or callout prompt clearly asks for a deep/detailed callout (`глибоку врізку`, `докладно`, `deep dive`, etc.). The recovered depth is also applied to any hydrated callout draft so UI selectors and generated drafts stay aligned.
+
+Reason: real model output can contradict itself: a card may ask for a deep dive in prose while the structured `calloutDepth` field is missing, localized, or incorrectly set to `brief`. The UI should reflect the editorial intent rather than blindly preserving the bad enum value.
+
 ### Deep callouts should actively use bold for composition
 Decision: deep callout prompts now require active use of `**bold**` both for short 1-3 word subheads on their own lines and for key ideas inside paragraphs. These subheads must not use markdown headings (`#`, `##`) or HTML heading tags.
 
 Reason: allowing bold as an optional flourish produced timid formatting. Editors want deep callouts that scan well at a glance, and short bold subheads plus internal emphasis create that reading rhythm without introducing a second UI treatment.
+
+### Manuscript-generating actions should use bold for scanability
+Decision: manuscript-generating execution prompts (`rewrite`, `simplify`, `expand`, `list`, `subsection`, and local patch rewrites) should actively ask for `**bold**` on key ideas and on short local heading/label lines when such lines appear in the replacement text. The expected density is explicit: every meaningful paragraph, replacement block, or list item should receive at least one short bold emphasis, and long or multi-thesis passages may receive 2-3 short emphases. Prompts must still forbid markdown headings (`#`, `##`), HTML headings, arbitrary markdown, whole-sentence bolding, full-paragraph bolding, and full-list-item bolding.
+
+Reason: these actions produce actual manuscript prose, not just side material. If the editor asks the AI to make dense text clearer, the result should also be easier to scan, using the same controlled bold mechanism that now works well for deep callouts. Blanket "no markdown" wording is too easy for models to interpret as "never use `**bold**`", so prompts should instead ban only other markdown.

@@ -16,6 +16,7 @@
 
   .button-spinner,
   .loading-inline-dots span,
+  .step-review-prototype-run-button[data-loading="true"]::before,
   .floating-panel-loading::before,
   .floating-loading-orb::before,
   .floating-loading-orb-core,
@@ -312,8 +313,11 @@
 
 @media (max-width: 720px) {
   .topbar {
+    height: auto;
+    min-height: 60px;
     padding: 12px 14px;
     align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .topbar-left {

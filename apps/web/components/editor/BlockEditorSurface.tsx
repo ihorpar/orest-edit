@@ -59,9 +59,7 @@ import { ReviewRecommendationDetail } from "../layout/ReviewRecommendationDetail
 import { useResolvedEditorAssetUrl } from "./ResolvedEditorImage";
 import {
   Bold,
-  Columns2,
   Italic,
-  Type,
   Heading1,
   Heading2,
   Heading3,
@@ -72,10 +70,8 @@ import {
   Minus,
   Table,
   Image as ImageIcon,
-  Redo2,
   X,
-  Trash2,
-  Undo2
+  Trash2
 } from "lucide-react";
 import { getInlineFormatHotkeyCommand, getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 
@@ -148,12 +144,6 @@ export function BlockEditorSurface({
   emphasisSuggestions = [],
   onApplyEmphasisSuggestion,
   onDismissEmphasisSuggestion,
-  canUndo = false,
-  canRedo = false,
-  canCompare = false,
-  onUndo,
-  onRedo,
-  onCompare,
   editorHotkeyCommand,
   editorHotkeyCommandNonce = 0
 }: {
@@ -203,12 +193,6 @@ export function BlockEditorSurface({
   emphasisSuggestions?: EmphasisSuggestion[];
   onApplyEmphasisSuggestion?: (input: { itemId: string }) => void;
   onDismissEmphasisSuggestion?: (input: { itemId: string }) => void;
-  canUndo?: boolean;
-  canRedo?: boolean;
-  canCompare?: boolean;
-  onUndo?: () => void;
-  onRedo?: () => void;
-  onCompare?: () => void;
   editorHotkeyCommand?: ExternalEditorCommand | null;
   editorHotkeyCommandNonce?: number;
 }) {
@@ -837,66 +821,30 @@ export function BlockEditorSurface({
     <div className="block-editor-shell">
       <div className="block-editor-toolbar">
         <div className="block-editor-toolbar-scroll">
-          <div className="block-editor-toolbar-group" aria-label="Історія змін">
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onMouseDown={handleToolbarMouseDown}
-            onClick={onUndo}
-            disabled={disabled || !canUndo}
-            title="Назад (Ctrl/Cmd+Z)"
-            aria-label="Назад"
-          >
-            <Undo2 />
-          </button>
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onMouseDown={handleToolbarMouseDown}
-            onClick={onRedo}
-            disabled={disabled || !canRedo}
-            title="Вперед (Ctrl/Cmd+Shift+Z)"
-            aria-label="Вперед"
-          >
-            <Redo2 />
-          </button>
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onMouseDown={handleToolbarMouseDown}
-            onClick={onCompare}
-            disabled={disabled || !canCompare}
-            title="Порівняти прийняту правку"
-            aria-label="Порівняти"
-          >
-            <Columns2 />
-          </button>
-        </div>
+          <div className="block-editor-toolbar-group">
+            <button
+              type="button"
+              className="block-toolbar-button"
+              onMouseDown={(event) => handleInlineFormatMouseDown(event, "bold")}
+              disabled={disabled}
+              title="Жирний"
+              aria-label="Жирний"
+            >
+              <Bold />
+            </button>
+            <button
+              type="button"
+              className="block-toolbar-button"
+              onMouseDown={(event) => handleInlineFormatMouseDown(event, "italic")}
+              disabled={disabled}
+              title="Курсив"
+              aria-label="Курсив"
+            >
+              <Italic />
+            </button>
+          </div>
 
-        <div className="block-editor-toolbar-group">
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onMouseDown={(event) => handleInlineFormatMouseDown(event, "bold")}
-            disabled={disabled}
-            title="Жирний"
-            aria-label="Жирний"
-          >
-            <Bold />
-          </button>
-          <button
-            type="button"
-            className="block-toolbar-button"
-            onMouseDown={(event) => handleInlineFormatMouseDown(event, "italic")}
-            disabled={disabled}
-            title="Курсив"
-            aria-label="Курсив"
-          >
-            <Italic />
-          </button>
-        </div>
-
-        <div className="block-editor-toolbar-group">
+          <div className="block-editor-toolbar-group">
           <button
             type="button"
             className="block-toolbar-button"
@@ -907,11 +855,11 @@ export function BlockEditorSurface({
             aria-label="Абзац"
             data-active={getBlock(document, focusedBlockId)?.type === "paragraph"}
           >
-            <Type />
+            <span className="block-toolbar-text-icon" aria-hidden="true">Т</span>
           </button>
           <button
             type="button"
-            className="block-toolbar-button"
+            className="block-toolbar-button block-toolbar-heading-button block-toolbar-heading-button-1"
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-1")}
             disabled={disabled}
@@ -923,7 +871,7 @@ export function BlockEditorSurface({
           </button>
           <button
             type="button"
-            className="block-toolbar-button"
+            className="block-toolbar-button block-toolbar-heading-button block-toolbar-heading-button-2"
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-2")}
             disabled={disabled}
@@ -935,7 +883,7 @@ export function BlockEditorSurface({
           </button>
           <button
             type="button"
-            className="block-toolbar-button"
+            className="block-toolbar-button block-toolbar-heading-button block-toolbar-heading-button-3"
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("heading-3")}
             disabled={disabled}
@@ -1167,9 +1115,7 @@ export function BlockEditorSurface({
       <div className="block-editor-status mono-ui">
         {hasSelectedBlocks(normalizedSelection)
           ? `AI: ${normalizedSelection.blockIds.length} блок(и)`
-          : focusedBlockId
-            ? `Фокус: ${formatParagraphLabel(getBlockIndex(document, focusedBlockId))}`
-            : "AI: блок не вибрано"}
+          : null}
       </div>
 
       {activeSpellcheckPopover ? (

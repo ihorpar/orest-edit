@@ -8,7 +8,7 @@
   background: var(--porcelain);
   min-height: 60px;
   gap: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .topbar-left,
@@ -20,22 +20,25 @@
 }
 
 .topbar-left {
-  gap: 30px;
+  gap: 24px;
 }
 
 .topbar-right {
   margin-left: auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+  gap: 16px;
 }
 
 .topbar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 15px;
+  font: 700 14px/1 var(--font-ui, sans-serif);
+  letter-spacing: 0;
   font-weight: 700;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .brand-mark {
@@ -51,22 +54,82 @@
 
 .nav-links {
   display: flex;
-  gap: 22px;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
 }
 
-.nav-links .nav-link {
+.topbar .nav-link {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  min-height: 38px;
+  padding: 0 0 2px;
+  color: #6b7788;
+  font: 650 14px/1.15 var(--font-ui, sans-serif);
   text-transform: none;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
-.nav-link {
-  padding-bottom: 5px;
-  color: var(--muted);
+.topbar-history-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  min-height: 38px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  flex: 0 0 auto;
+}
+
+.topbar-history-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  width: 34px;
+  height: 32px;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.topbar-history-button:hover:not(:disabled) {
+  color: var(--surgical-blue);
+  background: #fff;
+}
+
+.topbar-history-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.topbar-history-button:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.topbar-history-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .nav-link[data-active="true"] {
   color: var(--surgical-blue);
-  border-bottom: 1px solid var(--surgical-blue);
+}
+
+.topbar .nav-link[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--surgical-blue);
 }
 
 .topbar-hotkeys {
@@ -77,8 +140,8 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 0 8px;
   border: none;
   color: #475569;
   background: #f8fafc;
@@ -90,8 +153,11 @@
 .topbar-hotkeys-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-bottom: 0;
+  gap: 7px;
+}
+
+.topbar-hotkeys {
+  margin-left: 2px;
 }
 
 .topbar-hotkeys-popover {

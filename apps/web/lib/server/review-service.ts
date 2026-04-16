@@ -1281,11 +1281,7 @@ function getReviewPromptBlockText(block: Block, stepId?: EditorialReviewStepId):
     return blockToPromptTextWithInlineBold(block);
   }
 
-  if (block.type === "image") {
-    return blockToPromptText(block);
-  }
-
-  return getBlockText(block);
+  return blockToPromptText(block);
 }
 
 function inlineNodesToPromptText(nodes: Array<{ text: string; bold?: true }>): string {

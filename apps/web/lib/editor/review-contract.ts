@@ -517,7 +517,7 @@ export function getEditorialCalloutDepthDescription(depth: EditorialCalloutDepth
 }
 
 export function normalizeEditorialCalloutDepth(value: unknown): EditorialCalloutDepth {
-  return value === "deep" ? "deep" : "brief";
+  return parseEditorialCalloutDepth(value) ?? "brief";
 }
 
 export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecommendationType): string {
@@ -660,6 +660,8 @@ export function normalizeEditorialReviewItems(input: {
     const requestedAnchorBlockId =
       typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
 
+    const calloutDepth = recommendationType === "callout" ? normalizeCalloutDepthForRecord(record) : undefined;
+
     normalized.push({
       id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`review-item-${index + 1}`),
       reviewSessionId: input.reviewSessionId,
@@ -682,8 +684,8 @@ export function normalizeEditorialReviewItems(input: {
         anchorBlockId: requestedAnchorBlockId && getBlock(input.document, requestedAnchorBlockId) ? requestedAnchorBlockId : insertionAnchor
       },
       calloutKind: normalizeCalloutKind(record.calloutKind),
-      calloutDepth: recommendationType === "callout" ? normalizeEditorialCalloutDepth(record.calloutDepth) : undefined,
-      calloutDraft: normalizeCalloutDraft(record),
+      calloutDepth,
+      calloutDraft: normalizeCalloutDraft(record, calloutDepth),
       visualIntent: normalizeVisualIntent(record.visualIntent),
       emphasisTarget,
       origin: "review",
@@ -976,9 +978,74 @@ function trimToLength(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function normalizeCalloutDraft(record: Record<string, unknown>): EditorialReviewItem["calloutDraft"] | undefined {
+function parseEditorialCalloutDepth(value: unknown): EditorialCalloutDepth | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[_\s-]+/g, " ");
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    normalized === "deep" ||
+    normalized === "deep dive" ||
+    normalized === "докладно" ||
+    normalized === "детально" ||
+    normalized === "глибоко" ||
+    /\bdeep\b/.test(normalized) ||
+    /докладн|детальн|глибок|розгорнут/.test(normalized)
+  ) {
+    return "deep";
+  }
+
+  if (
+    normalized === "brief" ||
+    normalized === "short" ||
+    normalized === "стисло" ||
+    normalized === "коротко" ||
+    /стисл|коротк|brief|short/.test(normalized)
+  ) {
+    return "brief";
+  }
+
+  return null;
+}
+
+function normalizeCalloutDepthForRecord(record: Record<string, unknown>): EditorialCalloutDepth {
+  const explicit = parseEditorialCalloutDepth(record.calloutDepth);
+
+  if (explicit === "deep" || hasDeepCalloutIntent(record)) {
+    return "deep";
+  }
+
+  return explicit ?? "brief";
+}
+
+function hasDeepCalloutIntent(record: Record<string, unknown>): boolean {
+  const text = [
+    record.title,
+    record.reason,
+    record.recommendation,
+    record.calloutTitle,
+    record.calloutPrompt,
+    record.calloutSummary
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return /глибок|докладн|детальн|розгорнут|\bdeep\b/.test(text);
+}
+
+function normalizeCalloutDraft(
+  record: Record<string, unknown>,
+  resolvedDepth?: EditorialCalloutDepth
+): EditorialReviewItem["calloutDraft"] | undefined {
   const kind = normalizeCalloutKind(record.calloutKind);
-  const depth = normalizeEditorialCalloutDepth(record.calloutDepth);
+  const depth = resolvedDepth ?? normalizeCalloutDepthForRecord(record);
   const title = normalizeCopy(record.calloutTitle, 90);
   const prompt = normalizeCopy(record.calloutPrompt, 600);
   const previewText = normalizeCopy(record.calloutPreviewText, depth === "deep" ? 2600 : 600);

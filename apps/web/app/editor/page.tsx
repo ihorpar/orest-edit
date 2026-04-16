@@ -163,7 +163,7 @@ interface DismissUndoState {
 }
 
 interface PendingDestructiveAction {
-  kind: "clear_document" | "reset_draft";
+  kind: "clear_document";
   title: string;
   description: string;
   confirmLabel: string;
@@ -3360,20 +3360,9 @@ export default function EditorPage() {
     setDestructiveRecoveryState(null);
     setPendingDestructiveAction({
       kind: "clear_document",
-      title: "Очистити текст документа?",
-      description: "Буде очищено лише поточний текст рукопису. Історія запусків і налаштування кроків залишаться в цій сесії.",
-      confirmLabel: "Очистити текст"
-    });
-  }
-
-  function handleResetDraft() {
-    setActiveTopActionMenu(null);
-    setDestructiveRecoveryState(null);
-    setPendingDestructiveAction({
-      kind: "reset_draft",
-      title: "Скинути локальну сесію?",
-      description: "Буде скинуто документ, картки, історію запусків і стан панелей у браузері.",
-      confirmLabel: "Скинути сесію"
+      title: "Очистити весь вміст?",
+      description: "Буде очищено текст і всі результати аналізів у цій локальній сесії.",
+      confirmLabel: "Очистити"
     });
   }
 
@@ -3384,21 +3373,11 @@ export default function EditorPage() {
 
     const snapshot = captureEditorSessionSnapshot();
 
-    if (pendingDestructiveAction.kind === "clear_document") {
-      replaceEditorSession(createBlankDocument(), { tone: "info", message: "Документ очищено." });
-      setDestructiveRecoveryState({
-        kind: "clear_document",
-        message: "Текст документа очищено.",
-        snapshot
-      });
-      return;
-    }
-
     clearEditorDraftState();
-    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Локальну сесію скинуто." });
+    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Текст і результати аналізів очищено." });
     setDestructiveRecoveryState({
-      kind: "reset_draft",
-      message: "Локальну сесію скинуто.",
+      kind: "clear_document",
+      message: "Текст і результати аналізів очищено.",
       snapshot
     });
   }
@@ -4321,7 +4300,22 @@ export default function EditorPage() {
 
   return (
     <>
-      <TopBar activePath="/editor" documentStats={documentStats} />
+      <TopBar
+        activePath="/editor"
+        documentStats={documentStats}
+        historyControls={{
+          canUndo,
+          canRedo,
+          canCompare: compareHistory.length > 0,
+          onUndo: undoLastMutation,
+          onRedo: redoLastMutation,
+          onCompare: () => {
+            const nextId = compareHistory[0]?.id ?? null;
+            setActiveCompareEntryId(nextId);
+            setExpandedCompareEntryId(nextId);
+          }
+        }}
+      />
       {destructiveRecoveryState ? (
         <div className="editor-toast-stack" aria-live="polite">
           <div className="editor-toast editor-toast-success" role="status">
@@ -4390,16 +4384,8 @@ export default function EditorPage() {
                 >
                   <span className="button-content">
                     <Trash2 size={14} aria-hidden="true" />
-                    <span>Очистити текст</span>
+                    <span>Очистити</span>
                   </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="editor-danger-button editor-danger-button-ghost"
-                  onClick={handleResetDraft}
-                >
-                  Скинути сесію
                 </Button>
               </div>
             </div>
@@ -4471,16 +4457,6 @@ export default function EditorPage() {
                 if (item) {
                   dismissReviewItem(item);
                 }
-              }}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              canCompare={compareHistory.length > 0}
-              onUndo={undoLastMutation}
-              onRedo={redoLastMutation}
-              onCompare={() => {
-                const nextId = compareHistory[0]?.id ?? null;
-                setActiveCompareEntryId(nextId);
-                setExpandedCompareEntryId(nextId);
               }}
               editorHotkeyCommand={editorHotkeyCommand === "toggle_bullet_list" ? "toggle-bullet-list" : null}
               editorHotkeyCommandNonce={editorHotkeyCommandNonce}

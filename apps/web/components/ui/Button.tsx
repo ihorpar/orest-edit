@@ -46,7 +46,9 @@ export function Button({
       <button
         {...rest}
         disabled={isDisabled}
+        aria-busy={loading || undefined}
         aria-describedby={describedBy}
+        data-loading={loading ? "true" : undefined}
         className={className ? `mono-ui ${className}` : "mono-ui"}
         style={{
           border: "1px solid #e2e8f0",

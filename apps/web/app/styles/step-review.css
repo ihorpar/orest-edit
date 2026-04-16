@@ -8,6 +8,7 @@
 .step-review-manuscript {
   flex: 1 1 auto;
   min-width: 420px;
+  overflow-x: hidden;
   overflow-y: auto;
   background: #fff;
 }
