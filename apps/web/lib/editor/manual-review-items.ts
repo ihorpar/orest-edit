@@ -19,7 +19,7 @@ export interface BuildManualReviewItemInput {
   revision: ManuscriptRevisionState;
   blockIds: string[];
   changeLevel: WholeTextChangeLevel;
-  recommendationType: "callout" | "visual" | "list";
+  recommendationType: "callout" | "visual" | "list" | "subsection";
   calloutKind?: EditorialCalloutKind;
   calloutDepth?: EditorialCalloutDepth;
   visualIntent?: EditorialVisualIntent;
@@ -78,14 +78,18 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
         ? "Ручна врізка"
         : recommendationType === "visual"
           ? "Ручний візуал"
-          : "Ручний список",
+          : recommendationType === "subsection"
+            ? "Ручні підзаголовки"
+            : "Ручний список",
     reason: `Ручний запит із панелі локальної правки.${instructionSuffix}`,
     recommendation:
       recommendationType === "callout"
         ? `Згенерувати врізку для виділеного фрагмента.${instructionSuffix}`
         : recommendationType === "visual"
           ? `Згенерувати візуал для виділеного фрагмента.${instructionSuffix}`
-          : `Перетворити виділений фрагмент на компактний список.${instructionSuffix}`,
+          : recommendationType === "subsection"
+            ? `Запропонувати H3-підзаголовки для виділеного фрагмента.${instructionSuffix}`
+            : `Перетворити виділений фрагмент на компактний список.${instructionSuffix}`,
     recommendationType,
     suggestedAction,
     priority: "medium",

@@ -11,7 +11,7 @@ import {
 } from "./review-contract";
 
 export type LocalActionMode = "auto" | "edit" | "spellcheck" | "callout" | "visual";
-export type LocalActionTextIntent = "rewrite" | "shorten" | "list" | "table";
+export type LocalActionTextIntent = "rewrite" | "shorten" | "list" | "subsection";
 export type LocalActionExecutor = "patch" | "review" | "spellcheck" | "callout" | "visual" | "clarify";
 export type LocalActionClarifyChoice = "patch" | "spellcheck" | "callout" | "visual";
 export type SuggestedLocalActionMode = Exclude<LocalActionMode, "auto" | "edit">;
@@ -36,7 +36,7 @@ export type LocalActionRouteResponse =
     }
   | {
       executor: "review";
-      recommendationType: "list";
+      recommendationType: "list" | "subsection";
       prompt?: string;
       actionLabel: string;
     }
@@ -68,14 +68,14 @@ const TEXT_INTENT_LABELS: Record<LocalActionTextIntent, string> = {
   rewrite: "Переписати",
   shorten: "Скоротити",
   list: "Список",
-  table: "Таблиця"
+  subsection: "Підзаголовки"
 };
 
 const CLARIFY_PATTERNS = /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i;
 const SPELLCHECK_PATTERNS = /(правопис|орфограф|помилк|описк|grammar|spell)/i;
 const CALLOUT_PATTERNS = /(врізк|врезк|бокс|сайдбар|виноск)/i;
 const VISUAL_PATTERNS = /(візуал|зображ|картин|ілюстрац|схем|інфограф)/i;
-const TABLE_PATTERNS = /(таблиц|таблич|порівняльну таблиц)/i;
+const SUBSECTION_PATTERNS = /(підзаголов|підрозділ|заголовк|h3|h 3)/i;
 const LIST_PATTERNS = /(спис(ок|ком)?|перел(ік|іч)|bullets?)/i;
 const SHORTEN_PATTERNS = /(скорот|стисл|ущільн|коротш)/i;
 
@@ -147,8 +147,8 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
 
   const inferredTextIntent =
     preferredTextIntent ??
-    (trimmedPrompt && TABLE_PATTERNS.test(trimmedPrompt)
-      ? "table"
+    (trimmedPrompt && SUBSECTION_PATTERNS.test(trimmedPrompt)
+      ? "subsection"
       : trimmedPrompt && LIST_PATTERNS.test(trimmedPrompt)
         ? "list"
         : trimmedPrompt && SHORTEN_PATTERNS.test(trimmedPrompt)
@@ -157,10 +157,10 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
 
   const normalizedPrompt = buildPatchPromptForTextIntent(inferredTextIntent, trimmedPrompt);
 
-  if (inferredTextIntent === "list") {
+  if (inferredTextIntent === "list" || inferredTextIntent === "subsection") {
     return {
       executor: "review",
-      recommendationType: "list",
+      recommendationType: inferredTextIntent,
       prompt: trimmedPrompt || undefined,
       actionLabel: TEXT_INTENT_LABELS[inferredTextIntent]
     };
@@ -207,9 +207,9 @@ export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, pro
   const baseInstruction =
     intent === "shorten"
       ? "Скороти виділений фрагмент, збережи зміст, логіку й тон."
-      : intent === "list"
-        ? "Перетвори виділений фрагмент на компактний список українською без втрати змісту."
-        : "Перетвори виділений фрагмент на компактну таблицю українською без вигадування нових фактів.";
+      : intent === "subsection"
+        ? "Запропонуй короткі H3-підзаголовки для виділеного фрагмента українською без зміни змісту."
+        : "Перетвори виділений фрагмент на компактний список українською без втрати змісту.";
 
   return trimmedPrompt ? `${baseInstruction}\n\nДодаткова інструкція: ${trimmedPrompt}` : baseInstruction;
 }

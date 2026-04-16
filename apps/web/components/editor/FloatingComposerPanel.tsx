@@ -135,7 +135,7 @@ export function FloatingComposerPanel({
   onRequestManualCallout: () => void;
   onRequestManualVisual: () => void;
   onRequestSpellcheck: () => void;
-  manualLoadingKind?: "callout" | "visual" | "list" | null;
+  manualLoadingKind?: "callout" | "visual" | "list" | "subsection" | null;
   isClosing?: boolean;
   onClose: () => void;
 }) {
@@ -310,7 +310,7 @@ export function FloatingComposerPanel({
     }
 
     if (executor === "review") {
-      return manualLoadingKind === "list";
+      return manualLoadingKind === "list" || manualLoadingKind === "subsection";
     }
 
     if (executor === "spellcheck") {

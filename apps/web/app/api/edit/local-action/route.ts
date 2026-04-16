@@ -69,5 +69,5 @@ function parseExplicitMode(value: unknown): Exclude<LocalActionMode, "auto"> | n
 }
 
 function parseTextIntent(value: unknown): LocalActionTextIntent | null {
-  return value === "rewrite" || value === "shorten" || value === "list" || value === "table" ? value : null;
+  return value === "rewrite" || value === "shorten" || value === "list" || value === "subsection" ? value : null;
 }

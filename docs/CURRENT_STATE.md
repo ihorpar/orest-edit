@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-04-04
+Date: 2026-04-16
 Status: Active handoff
 
 ## What exists now
@@ -102,7 +102,8 @@ Status: Active handoff
 - The editor top navbar now shows compact live document stats near `Гарячі клавіші`: word count plus symbols with spaces. Nav links and utility actions use the regular UI type scale; stats remain smaller.
 - The floating local composer is now viewport-bounded and draggable: it clamps to the visible viewport on tablet/mobile-like sizes, keeps internal overflow scrollable instead of clipping action rows, and remembers the last dropped position for the current browser session
 - The `Правка` tab in the floating local composer is now an explicit mode, not a thin alias for keyword auto-routing; feature keywords such as `правопис` surface by highlighting the matching top pill as a suggestion instead of force-switching tabs
-- The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Таблиця`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
+- The local composer no longer shows a separate drag-handle chip in the top row; drag still works from the top strip, and the `Правка` footer now uses shorter intent labels (`Список`, `Підзаголовки`) plus a non-wrapping scrollable control row so the send button stays visible on compact widths
+- The `Підзаголовки` intent in the floating `Правка` footer now creates a review-backed subsection proposal that inserts an H3 heading for the selected paragraph range instead of using the old table intent
 - When a local spellcheck run completes, the right drawer now auto-switches to the dedicated `Правопис` step so the result list is visible immediately
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
 - Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
@@ -229,6 +230,8 @@ Status: Active handoff
 ## Last validated state
 - `node --import tsx --test apps/web/test/review-action-service.test.ts apps/web/test/review-service.test.ts apps/web/test/settings.test.ts`, `npm run typecheck -w @orest/web`, and `npm test -w @orest/web` passed on 2026-04-15 after teaching deep callouts to preserve short bold anchors, bullet/numbered list lines, and more structured body splitting on insert.
 - `node --import tsx --test apps/web/test/review-contract.test.ts apps/web/test/manual-review-items.test.ts apps/web/test/local-action-router.test.ts apps/web/test/review-action-service.test.ts apps/web/test/review-service.test.ts`, `npm run typecheck -w @orest/web`, and `npm run test -w @orest/web` passed on 2026-04-15 after wiring callout depth/profile (`brief`/`deep`) through review generation, proposal generation, manual launchers, local-action routing, inline execution, manuscript blocks, and settings prompts.
+- `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-16 after replacing the floating `Правка` table intent with review-backed `Підзаголовки` H3 proposals.
+- Runtime smoke on 2026-04-16 against `http://127.0.0.1:3000/editor` after API login confirmed selecting a paragraph opens the floating `Правка` footer with `Підзаголовки`, no `Таблиця`, no framework overlay, and no browser console/page errors.
 - `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/settings.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after switching diagnostics to a macro-structure prompt (`## Головний діагноз розділу`, full section map, redundancy/removal analysis, representative evidence) and keeping drawer output verbatim with GFM table rendering
 - `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/settings.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after strengthening diagnostics into a rubric-driven editorial-risk prompt
 - `node --import tsx --test apps/web/test/review-service.test.ts apps/web/test/review-contract.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-15 after exposing header-level `Прийняти всі` for `Акценти` and increasing level-5 accent density; no-screenshot runtime smoke against `http://127.0.0.1:3000/editor` confirmed the editor loads without framework overlays or console errors

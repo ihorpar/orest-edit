@@ -265,7 +265,7 @@ const defaultLocalActionMode = "edit" as const;
 const defaultLocalTextIntent = "rewrite" as const;
 
 type ComposerMode = "local" | "review" | null;
-type ManualGenerationKind = "callout" | "visual" | "list";
+type ManualGenerationKind = "callout" | "visual" | "list" | "subsection";
 type WorkflowStepId = PersistedWorkflowStepId;
 type TopActionMenuId = "open" | "save" | null;
 
@@ -1973,7 +1973,7 @@ export default function EditorPage() {
       }
 
       if (payload.executor === "review") {
-        return await requestManualInsert("list", {
+        return await requestManualInsert(payload.recommendationType, {
           editorialInstruction: payload.prompt
         });
       }
@@ -2313,7 +2313,8 @@ export default function EditorPage() {
     resetActiveExecutionLane();
     setActiveWorkflowStep(getWorkflowStepForManualKind(kind));
 
-    const recommendationType = kind === "callout" ? "callout" : kind === "visual" ? "visual" : "list";
+    const recommendationType =
+      kind === "callout" ? "callout" : kind === "visual" ? "visual" : kind === "subsection" ? "subsection" : "list";
     if (kind === "visual") {
       persistVisualStylePreset(overrides?.visualStylePreset ?? visualStylePreset);
     }
@@ -5941,6 +5942,10 @@ function getWorkflowStepForManualKind(kind: ManualGenerationKind): WorkflowStepI
 
   if (kind === "callout") {
     return "interest";
+  }
+
+  if (kind === "subsection") {
+    return "structure";
   }
 
   return "formatting";

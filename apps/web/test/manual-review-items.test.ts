@@ -159,3 +159,24 @@ test("buildManualReviewItem supports local list generation as replace suggestion
   assert.match(item.recommendation, /компактний список/i);
   assert.match(item.reason, /Зберегти причинно-наслідковий порядок/i);
 });
+
+test("buildManualReviewItem supports local subsection generation as H3 insertion", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const item = buildManualReviewItem({
+    document,
+    revision,
+    blockIds: ["p2", "p3"],
+    changeLevel: 2,
+    recommendationType: "subsection",
+    manualInstruction: "Без довгого ліду."
+  });
+
+  assert.equal(item.recommendationType, "subsection");
+  assert.equal(item.suggestedAction, "insert_text");
+  assert.equal(item.insertionPoint.mode, "before");
+  assert.equal(item.insertionPoint.anchorBlockId, "p2");
+  assert.match(item.title, /підзаголовки/i);
+  assert.match(item.recommendation, /H3-підзаголовки/i);
+  assert.match(item.reason, /Без довгого ліду/i);
+});
