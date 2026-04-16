@@ -1594,10 +1594,25 @@
 }
 
 .block-editor-toolbar {
+  --toolbar-cluster-gap: clamp(10px, 1.8vw, 18px);
+  --toolbar-padding-y: 8px;
+  --toolbar-padding-x: 10px;
+  --toolbar-group-gap: 2px;
+  --toolbar-group-padding: 3px;
+  --toolbar-button-min-width: 40px;
+  --toolbar-button-height: 40px;
+  --toolbar-button-padding-x: 7px;
+  --toolbar-icon-size: 16px;
+  --toolbar-text-size: 14px;
+  --toolbar-heading-1-size: 20px;
+  --toolbar-heading-2-size: 18px;
+  --toolbar-heading-3-size: 16px;
+  --toolbar-scroll-x: auto;
   position: sticky;
   top: 0;
   z-index: 24;
-  width: 100%;
+  align-self: center;
+  width: max-content;
   max-width: 100%;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.94);
@@ -1613,10 +1628,10 @@
   align-items: center;
   flex-wrap: nowrap;
   justify-content: flex-start;
-  gap: clamp(24px, 4.8vw, 44px);
+  gap: var(--toolbar-cluster-gap);
   max-width: 100%;
-  padding: 8px 10px;
-  overflow-x: auto;
+  padding: var(--toolbar-padding-y) var(--toolbar-padding-x);
+  overflow-x: var(--toolbar-scroll-x);
   overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -1628,8 +1643,8 @@
 .block-editor-toolbar-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
+  gap: var(--toolbar-group-gap);
+  padding: var(--toolbar-group-padding);
   background: #f8fafc;
   border: 1px solid #f1f5f9;
   border-radius: 8px;
@@ -1642,9 +1657,9 @@
   justify-content: center;
   border: 0;
   background: transparent;
-  min-width: 44px;
-  height: 44px;
-  padding: 0 8px;
+  min-width: var(--toolbar-button-min-width);
+  height: var(--toolbar-button-height);
+  padding: 0 var(--toolbar-button-padding-x);
   cursor: pointer;
   border-radius: 6px;
   color: #64748b;
@@ -1674,14 +1689,14 @@
 }
 
 .block-toolbar-button svg {
-  width: 18px;
-  height: 18px;
+  width: var(--toolbar-icon-size);
+  height: var(--toolbar-icon-size);
   stroke-width: 2.25;
 }
 
 .block-toolbar-text-icon {
   display: inline-block;
-  font: 700 14px/1 var(--font-ui, sans-serif);
+  font: 700 var(--toolbar-text-size)/1 var(--font-ui, sans-serif);
   letter-spacing: 0;
   text-transform: none;
   transform: translateY(1px);
@@ -1692,18 +1707,18 @@
 }
 
 .block-toolbar-heading-button-1 svg {
-  width: 22px;
-  height: 22px;
+  width: var(--toolbar-heading-1-size);
+  height: var(--toolbar-heading-1-size);
 }
 
 .block-toolbar-heading-button-2 svg {
-  width: 20px;
-  height: 20px;
+  width: var(--toolbar-heading-2-size);
+  height: var(--toolbar-heading-2-size);
 }
 
 .block-toolbar-heading-button-3 svg {
-  width: 18px;
-  height: 18px;
+  width: var(--toolbar-heading-3-size);
+  height: var(--toolbar-heading-3-size);
 }
 
 .block-toolbar-button-file {
@@ -2134,63 +2149,38 @@
   }
 }
 
-@media (min-width: 721px) and (max-width: 1180px) {
+@media (min-width: 721px) and (max-width: 1400px) {
   .editor-page-shell {
     padding: 56px 40px;
   }
 
   .block-editor-toolbar {
-    width: calc(100% + 40px);
-    max-width: calc(100% + 40px);
+    --toolbar-cluster-gap: 8px;
+    --toolbar-padding-y: 6px;
+    --toolbar-padding-x: 8px;
+    --toolbar-group-gap: 1px;
+    --toolbar-group-padding: 3px;
+    --toolbar-button-min-width: 38px;
+    --toolbar-button-height: 40px;
+    --toolbar-button-padding-x: 5px;
+    --toolbar-icon-size: 16px;
+    --toolbar-text-size: 13px;
+    --toolbar-heading-1-size: 19px;
+    --toolbar-heading-2-size: 18px;
+    --toolbar-heading-3-size: 16px;
+    --toolbar-scroll-x: hidden;
   }
 
   .block-editor-toolbar-scroll {
     align-items: center;
     flex-wrap: nowrap;
-    gap: 6px;
-    padding: 5px 6px;
-    overflow-x: hidden;
     mask-image: none;
   }
 
   .block-editor-toolbar-group {
-    gap: 0;
-    padding: 2px;
     max-width: 100%;
   }
-
-  .block-toolbar-button {
-    min-width: 32px;
-    height: 38px;
-    padding: 0 4px;
-  }
-
-  .block-toolbar-button svg {
-    width: 15px;
-    height: 15px;
-  }
-
-  .block-toolbar-text-icon {
-    font-size: 12px;
-  }
-
-  .block-toolbar-heading-button-1 svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .block-toolbar-heading-button-2 svg {
-    width: 17px;
-    height: 17px;
-  }
-
-  .block-toolbar-heading-button-3 svg {
-    width: 16px;
-    height: 16px;
-  }
 }
-
-
 
 .block-diff-inline-container {
   padding: 6px 0 0;

@@ -304,6 +304,7 @@ Status: Active handoff
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
 - `npm run build -w @orest/web` passed on 2026-03-25 after the Epic 5 history/reversibility pass
 - Runtime QA on 2026-03-25 against production `next start` at `http://127.0.0.1:3002` after API login confirmed: sticky-toolbar undo/redo restores manuscript edits, accepted AI rewrite opens `Порівняти`, and the compare dialog shows distinct `Було` / `Стало` snapshots for the accepted change
+- Runtime QA on 2026-04-15 against local dev server `http://127.0.0.1:3003` after API login confirmed: the manuscript formatting toolbar uses a centered content-width surface on the iPad Pro landscape viewport (`1366x1024`), the final toolbar group stays fully visible inside the toolbar bounds, and the toolbar content reports no horizontal overflow (`scrollWidth === clientWidth`)
 - `node --import tsx --test apps/web/test/list-editing.test.ts apps/web/test/patch-service.test.ts` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
 - `npm run typecheck -w @orest/web` passed on 2026-03-25 after the list-enter safety fix and provider-error messaging pass
 - `node --import tsx --test apps/web/test/inline-markup.test.ts apps/web/test/patch-contract.test.ts apps/web/test/review-action-service.test.ts` passed on 2026-03-26 after the AI bold-formatting policy pass
