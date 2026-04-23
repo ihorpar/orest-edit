@@ -74,7 +74,8 @@ import {
   Redo2,
   Columns2,
   X,
-  Trash2
+  Trash2,
+  LocateFixed
 } from "lucide-react";
 import { getInlineFormatHotkeyCommand, getUndoRedoHotkeyAction } from "../../lib/editor/keyboard-shortcuts";
 
@@ -103,6 +104,9 @@ type RichTextContext = {
   content: InlineNode[];
   caretOffset: number;
 };
+
+const TOOLBAR_RESCUE_WATCHDOG_MS = 450;
+const TOOLBAR_RESCUE_RETURN_THRESHOLD = 6;
 
 function calculateToolbarRescueState(
   shellElement: HTMLDivElement | null,
@@ -165,6 +169,17 @@ function shouldRescueToolbar(shellElement: HTMLDivElement | null, toolbarElement
   const toolbarIsHorizontallyDetached = toolbarRect.right < shellRect.left + 24 || toolbarRect.left > shellRect.right - 24;
 
   return toolbarIsCollapsed || toolbarIsVerticallyDetached || toolbarIsHorizontallyDetached;
+}
+
+function isToolbarRescueHotkey(event: globalThis.KeyboardEvent) {
+  const key = event.key.toLowerCase?.() ?? "";
+  const hasPrimaryModifier = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey;
+
+  if (!hasPrimaryModifier) {
+    return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === "t";
+  }
+
+  return key === "m" || key === "." || event.code === "KeyM" || event.code === "Period";
 }
 
 export function BlockEditorSurface({
@@ -280,6 +295,7 @@ export function BlockEditorSurface({
   const savedSelectionOffsets = useRef(new Map<string, { start: number; end: number }>());
   const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
   const [toolbarRescueState, setToolbarRescueState] = useState<ToolbarRescueState | null>(null);
+  const [toolbarRescueTouchHintVisible, setToolbarRescueTouchHintVisible] = useState(false);
   const [activeSpellcheckPopover, setActiveSpellcheckPopover] = useState<ActiveSpellcheckPopover | null>(null);
   const [activeEmphasisPopover, setActiveEmphasisPopover] = useState<ActiveEmphasisPopover | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
@@ -295,6 +311,17 @@ export function BlockEditorSurface({
     return map;
   }, [spellcheckResults]);
   const emphasisSuggestionMap = useMemo(() => new Map(emphasisSuggestions.map((suggestion) => [suggestion.itemId, suggestion])), [emphasisSuggestions]);
+
+  function applyToolbarRescue(reason: ToolbarRescueState["reason"]) {
+    const nextState = calculateToolbarRescueState(shellRef.current, toolbarRef.current, reason);
+
+    if (!nextState) {
+      return;
+    }
+
+    setToolbarRescueState(nextState);
+    setToolbarRescueTouchHintVisible(reason !== "manual");
+  }
 
   useEffect(() => {
     function handlePointerRelease() {
@@ -312,27 +339,9 @@ export function BlockEditorSurface({
 
   useEffect(() => {
     function handleToolbarRestoreHotkey(event: globalThis.KeyboardEvent) {
-      const key = event.key.toLowerCase();
-      const isAltMnemonic =
-        event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.shiftKey &&
-        key === "t";
-      const isControlRescue =
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey &&
-        !event.shiftKey &&
-        (key === "m" || event.code === "KeyM" || key === "." || event.code === "Period");
-
-      if (isAltMnemonic || isControlRescue) {
-        const nextState = calculateToolbarRescueState(shellRef.current, toolbarRef.current, "manual");
-
-        if (nextState) {
-          event.preventDefault();
-          setToolbarRescueState(nextState);
-        }
+      if (isToolbarRescueHotkey(event)) {
+        event.preventDefault();
+        applyToolbarRescue("manual");
       }
     }
 
@@ -349,6 +358,9 @@ export function BlockEditorSurface({
     function scheduleToolbarRescueCheck() {
       cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(() => {
+        const toolbarNeedsRescue = shouldRescueToolbar(shellRef.current, toolbarRef.current);
+
+        setToolbarRescueTouchHintVisible(toolbarNeedsRescue);
         setToolbarRescueState((currentState) => {
           const nextState = calculateToolbarRescueState(shellRef.current, toolbarRef.current, currentState?.reason ?? "auto");
 
@@ -358,7 +370,12 @@ export function BlockEditorSurface({
 
           const shellRect = shellRef.current?.getBoundingClientRect();
           const visualTop = window.visualViewport?.offsetTop ?? 0;
-          const canReturnToSticky = Boolean(currentState?.reason === "auto" && shellRect && shellRect.top >= visualTop + 6);
+          const canReturnToSticky = Boolean(
+            currentState?.reason === "auto" &&
+              shellRect &&
+              shellRect.top >= visualTop + TOOLBAR_RESCUE_RETURN_THRESHOLD &&
+              !toolbarNeedsRescue
+          );
 
           if (canReturnToSticky) {
             return null;
@@ -368,16 +385,22 @@ export function BlockEditorSurface({
             return nextState;
           }
 
-          return shouldRescueToolbar(shellRef.current, toolbarRef.current) ? nextState : null;
+          return toolbarNeedsRescue ? nextState : null;
         });
       });
     }
 
     window.addEventListener("scroll", scheduleToolbarRescueCheck, true);
     window.addEventListener("resize", scheduleToolbarRescueCheck);
+    window.addEventListener("orientationchange", scheduleToolbarRescueCheck);
+    window.addEventListener("pageshow", scheduleToolbarRescueCheck);
+    window.addEventListener("focus", scheduleToolbarRescueCheck);
+    window.addEventListener("focusin", scheduleToolbarRescueCheck);
+    window.addEventListener("focusout", scheduleToolbarRescueCheck);
+    window.addEventListener("touchend", scheduleToolbarRescueCheck, true);
     window.visualViewport?.addEventListener("scroll", scheduleToolbarRescueCheck);
     window.visualViewport?.addEventListener("resize", scheduleToolbarRescueCheck);
-    const rescueWatchdog = window.setInterval(scheduleToolbarRescueCheck, 1250);
+    const rescueWatchdog = window.setInterval(scheduleToolbarRescueCheck, TOOLBAR_RESCUE_WATCHDOG_MS);
     scheduleToolbarRescueCheck();
 
     return () => {
@@ -385,6 +408,12 @@ export function BlockEditorSurface({
       window.clearInterval(rescueWatchdog);
       window.removeEventListener("scroll", scheduleToolbarRescueCheck, true);
       window.removeEventListener("resize", scheduleToolbarRescueCheck);
+      window.removeEventListener("orientationchange", scheduleToolbarRescueCheck);
+      window.removeEventListener("pageshow", scheduleToolbarRescueCheck);
+      window.removeEventListener("focus", scheduleToolbarRescueCheck);
+      window.removeEventListener("focusin", scheduleToolbarRescueCheck);
+      window.removeEventListener("focusout", scheduleToolbarRescueCheck);
+      window.removeEventListener("touchend", scheduleToolbarRescueCheck, true);
       window.visualViewport?.removeEventListener("scroll", scheduleToolbarRescueCheck);
       window.visualViewport?.removeEventListener("resize", scheduleToolbarRescueCheck);
     };
@@ -986,6 +1015,17 @@ export function BlockEditorSurface({
 
   return (
     <div className="block-editor-shell" ref={shellRef}>
+      {toolbarRescueTouchHintVisible ? (
+        <button
+          type="button"
+          className="block-editor-toolbar-rescue-button"
+          onClick={() => applyToolbarRescue("manual")}
+          aria-label="Повернути меню форматування"
+          title="Повернути меню форматування (Cmd/Ctrl+.)"
+        >
+          <LocateFixed />
+        </button>
+      ) : null}
       <div
         className="block-editor-toolbar"
         ref={toolbarRef}
