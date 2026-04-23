@@ -83,6 +83,7 @@ type CaretPlacement = "start" | "end";
 type PendingFocusTarget = { key: string; placement: CaretPlacement } | { key: string; offset: number };
 type ActiveSpellcheckPopover = { blockId: string; issueId: string; top: number; left: number };
 type ActiveEmphasisPopover = { blockId: string; itemId: string; top: number; left: number };
+type ToolbarRescueState = { top: number; left: number; width: number; reason: "auto" | "manual" };
 type EmphasisSuggestion = {
   itemId: string;
   blockId: string;
@@ -102,6 +103,69 @@ type RichTextContext = {
   content: InlineNode[];
   caretOffset: number;
 };
+
+function calculateToolbarRescueState(
+  shellElement: HTMLDivElement | null,
+  toolbarElement: HTMLDivElement | null,
+  reason: ToolbarRescueState["reason"]
+): ToolbarRescueState | null {
+  if (!shellElement || !toolbarElement || typeof window === "undefined") {
+    return null;
+  }
+
+  const shellRect = shellElement.getBoundingClientRect();
+  const toolbarRect = toolbarElement.getBoundingClientRect();
+  const visualViewport = window.visualViewport;
+  const viewportWidth = visualViewport?.width ?? window.innerWidth;
+  const visualTop = visualViewport?.offsetTop ?? 0;
+  const safeInset = 8;
+  const shellLeft = Math.max(safeInset, shellRect.left);
+  const shellRight = Math.min(viewportWidth - safeInset, shellRect.right);
+  const shellWidth = Math.max(0, shellRight - shellLeft);
+
+  if (shellWidth <= 0) {
+    return null;
+  }
+
+  const naturalWidth = toolbarRect.width > 24 ? toolbarRect.width : shellWidth;
+  const width = Math.min(shellWidth, naturalWidth, viewportWidth - safeInset * 2);
+  const left = Math.max(
+    safeInset,
+    Math.min(shellLeft + Math.max(0, (shellWidth - width) / 2), viewportWidth - width - safeInset)
+  );
+
+  return {
+    top: Math.max(safeInset, visualTop + safeInset),
+    left,
+    width,
+    reason
+  };
+}
+
+function shouldRescueToolbar(shellElement: HTMLDivElement | null, toolbarElement: HTMLDivElement | null) {
+  if (!shellElement || !toolbarElement || typeof window === "undefined") {
+    return false;
+  }
+
+  const shellRect = shellElement.getBoundingClientRect();
+  const toolbarRect = toolbarElement.getBoundingClientRect();
+  const visualViewport = window.visualViewport;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const visualTop = visualViewport?.offsetTop ?? 0;
+  const safeTop = visualTop + 8;
+  const visualBottom = visualTop + viewportHeight;
+  const shellIsVisible = shellRect.bottom > safeTop + 24 && shellRect.top < visualBottom - 24;
+
+  if (!shellIsVisible) {
+    return false;
+  }
+
+  const toolbarIsCollapsed = toolbarRect.width < 48 || toolbarRect.height < 24;
+  const toolbarIsVerticallyDetached = toolbarRect.bottom < safeTop + 12 || toolbarRect.top > visualBottom - 48;
+  const toolbarIsHorizontallyDetached = toolbarRect.right < shellRect.left + 24 || toolbarRect.left > shellRect.right - 24;
+
+  return toolbarIsCollapsed || toolbarIsVerticallyDetached || toolbarIsHorizontallyDetached;
+}
 
 export function BlockEditorSurface({
   document,
@@ -208,11 +272,14 @@ export function BlockEditorSurface({
   editorHotkeyCommand?: ExternalEditorCommand | null;
   editorHotkeyCommandNonce?: number;
 }) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
   const editableRefs = useRef(new Map<string, HTMLElement>());
   const dragAnchorBlockId = useRef<string | null>(null);
   const activeEditableKey = useRef<string | null>(null);
   const savedSelectionOffsets = useRef(new Map<string, { start: number; end: number }>());
   const pendingFocusTarget = useRef<PendingFocusTarget | null>(null);
+  const [toolbarRescueState, setToolbarRescueState] = useState<ToolbarRescueState | null>(null);
   const [activeSpellcheckPopover, setActiveSpellcheckPopover] = useState<ActiveSpellcheckPopover | null>(null);
   const [activeEmphasisPopover, setActiveEmphasisPopover] = useState<ActiveEmphasisPopover | null>(null);
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
@@ -240,6 +307,86 @@ export function BlockEditorSurface({
     return () => {
       window.removeEventListener("mouseup", handlePointerRelease);
       window.removeEventListener("blur", handlePointerRelease);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleToolbarRestoreHotkey(event: globalThis.KeyboardEvent) {
+      const key = event.key.toLowerCase();
+      const isAltMnemonic =
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        key === "t";
+      const isControlRescue =
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        (key === "m" || event.code === "KeyM" || key === "." || event.code === "Period");
+
+      if (isAltMnemonic || isControlRescue) {
+        const nextState = calculateToolbarRescueState(shellRef.current, toolbarRef.current, "manual");
+
+        if (nextState) {
+          event.preventDefault();
+          setToolbarRescueState(nextState);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleToolbarRestoreHotkey);
+
+    return () => {
+      window.removeEventListener("keydown", handleToolbarRestoreHotkey);
+    };
+  }, []);
+
+  useEffect(() => {
+    let animationFrame = 0;
+
+    function scheduleToolbarRescueCheck() {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        setToolbarRescueState((currentState) => {
+          const nextState = calculateToolbarRescueState(shellRef.current, toolbarRef.current, currentState?.reason ?? "auto");
+
+          if (!nextState) {
+            return null;
+          }
+
+          const shellRect = shellRef.current?.getBoundingClientRect();
+          const visualTop = window.visualViewport?.offsetTop ?? 0;
+          const canReturnToSticky = Boolean(currentState?.reason === "auto" && shellRect && shellRect.top >= visualTop + 6);
+
+          if (canReturnToSticky) {
+            return null;
+          }
+
+          if (currentState) {
+            return nextState;
+          }
+
+          return shouldRescueToolbar(shellRef.current, toolbarRef.current) ? nextState : null;
+        });
+      });
+    }
+
+    window.addEventListener("scroll", scheduleToolbarRescueCheck, true);
+    window.addEventListener("resize", scheduleToolbarRescueCheck);
+    window.visualViewport?.addEventListener("scroll", scheduleToolbarRescueCheck);
+    window.visualViewport?.addEventListener("resize", scheduleToolbarRescueCheck);
+    const rescueWatchdog = window.setInterval(scheduleToolbarRescueCheck, 1250);
+    scheduleToolbarRescueCheck();
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      window.clearInterval(rescueWatchdog);
+      window.removeEventListener("scroll", scheduleToolbarRescueCheck, true);
+      window.removeEventListener("resize", scheduleToolbarRescueCheck);
+      window.visualViewport?.removeEventListener("scroll", scheduleToolbarRescueCheck);
+      window.visualViewport?.removeEventListener("resize", scheduleToolbarRescueCheck);
     };
   }, []);
 
@@ -829,9 +976,23 @@ export function BlockEditorSurface({
     setActiveSpellcheckPopover(null);
   }
 
+  const toolbarRescueStyle = toolbarRescueState
+    ? {
+        top: `${toolbarRescueState.top}px`,
+        left: `${toolbarRescueState.left}px`,
+        width: `${toolbarRescueState.width}px`
+      }
+    : undefined;
+
   return (
-    <div className="block-editor-shell">
-      <div className="block-editor-toolbar">
+    <div className="block-editor-shell" ref={shellRef}>
+      <div
+        className="block-editor-toolbar"
+        ref={toolbarRef}
+        data-rescue={toolbarRescueState ? "true" : "false"}
+        data-rescue-reason={toolbarRescueState?.reason}
+        style={toolbarRescueStyle}
+      >
         <div className="block-editor-toolbar-scroll">
           {historyControls ? (
             <div className="block-editor-toolbar-group" role="group" aria-label="Історія змін">

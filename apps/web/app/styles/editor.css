@@ -1623,6 +1623,15 @@
   -webkit-backdrop-filter: blur(14px);
 }
 
+.block-editor-toolbar[data-rescue="true"] {
+  position: fixed;
+  margin: 0;
+  max-width: calc(100vw - 16px);
+  z-index: 80;
+  transform: translateZ(0);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+}
+
 .block-editor-toolbar-scroll {
   display: flex;
   align-items: center;
