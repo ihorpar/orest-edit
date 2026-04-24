@@ -50,6 +50,32 @@
   z-index: 300;
 }
 
+@media (min-width: 901px) and (max-width: 1220px) {
+  .step-review-manuscript {
+    min-width: 0;
+  }
+
+  .step-review-resizer {
+    display: none;
+  }
+
+  .step-review-drawer {
+    width: clamp(320px, 34vw, 380px) !important;
+    min-width: 320px;
+    max-width: 380px;
+  }
+
+  .step-review-mini-hub {
+    width: 48px;
+    padding-inline: 0;
+  }
+
+  .step-review-mini-hub-button {
+    width: 42px;
+    height: 42px;
+  }
+}
+
 .step-review-mini-hub-item {
   position: relative;
   display: flex;

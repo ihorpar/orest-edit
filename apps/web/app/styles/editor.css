@@ -1614,7 +1614,7 @@
   align-self: center;
   width: max-content;
   max-width: 100%;
-  overflow: hidden;
+  overflow: clip;
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 12px;
@@ -1674,6 +1674,7 @@
   max-width: 100%;
   padding: var(--toolbar-padding-y) var(--toolbar-padding-x);
   overflow-x: var(--toolbar-scroll-x);
+  -webkit-overflow-scrolling: touch;
   overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -2210,7 +2211,7 @@
     --toolbar-heading-1-size: 19px;
     --toolbar-heading-2-size: 18px;
     --toolbar-heading-3-size: 16px;
-    --toolbar-scroll-x: hidden;
+    --toolbar-scroll-x: auto;
   }
 
   .block-editor-toolbar-scroll {
@@ -2239,7 +2240,7 @@
     --toolbar-heading-1-size: 14px;
     --toolbar-heading-2-size: 13px;
     --toolbar-heading-3-size: 12px;
-    --toolbar-scroll-x: hidden;
+    --toolbar-scroll-x: auto;
   }
 
   .block-editor-toolbar-scroll {
@@ -2264,7 +2265,7 @@
     --toolbar-heading-1-size: 12px;
     --toolbar-heading-2-size: 11px;
     --toolbar-heading-3-size: 10px;
-    --toolbar-scroll-x: hidden;
+    --toolbar-scroll-x: auto;
   }
 }
 
@@ -2283,7 +2284,7 @@
     --toolbar-heading-1-size: 18px;
     --toolbar-heading-2-size: 17px;
     --toolbar-heading-3-size: 15px;
-    --toolbar-scroll-x: hidden;
+    --toolbar-scroll-x: auto;
   }
 
   .block-editor-toolbar-scroll {

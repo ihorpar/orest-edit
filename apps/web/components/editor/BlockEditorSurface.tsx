@@ -107,6 +107,7 @@ type RichTextContext = {
 
 const TOOLBAR_RESCUE_WATCHDOG_MS = 450;
 const TOOLBAR_RESCUE_RETURN_THRESHOLD = 6;
+const TOOLBAR_RESCUE_TOP_OFFSET = 68;
 
 function calculateToolbarRescueState(
   shellElement: HTMLDivElement | null,
@@ -139,7 +140,7 @@ function calculateToolbarRescueState(
   );
 
   return {
-    top: Math.max(safeInset, visualTop + safeInset),
+    top: Math.max(safeInset, visualTop + TOOLBAR_RESCUE_TOP_OFFSET),
     left,
     width,
     reason
