@@ -1,6 +1,12 @@
 import type { PatchResponseDiagnostics, PatchOperation } from "../../lib/editor/patch-contract";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import { getReviewParagraphRangeLabel, type EditorialReviewDiagnostics, type EditorialReviewItem } from "../../lib/editor/review-contract";
+import {
+  getEditorialRecommendationTypeLabel,
+  getReviewParagraphRangeLabel,
+  type EditorialReviewDiagnostics,
+  type EditorialReviewItem,
+  type EditorialReviewRecommendationType
+} from "../../lib/editor/review-contract";
 import { getAiActivityTaskMessage, getAiActivityTaskTone, type AiActivityTask } from "../../lib/editor/ai-activity";
 import { EditorialReviewCard } from "../editor/EditorialReviewCard";
 import { OperationCard } from "../editor/OperationCard";
@@ -18,6 +24,28 @@ export interface RequestHistoryItem {
   usedFallback: boolean;
   tone: "info" | "error";
   message: string;
+}
+
+function formatFilteredTypeCounts(
+  counts?: Partial<Record<EditorialReviewRecommendationType, number>>
+): string | null {
+  if (!counts) {
+    return null;
+  }
+
+  const entries: string[] = [];
+
+  for (const type of Object.keys(counts) as EditorialReviewRecommendationType[]) {
+    const count = counts[type];
+
+    if (typeof count !== "number" || count <= 0) {
+      continue;
+    }
+
+    entries.push(`${getEditorialRecommendationTypeLabel(type)} × ${count}`);
+  }
+
+  return entries.length > 0 ? entries.join(", ") : null;
 }
 
 export function RightOperationsRail({
@@ -88,6 +116,7 @@ export function RightOperationsRail({
       .filter((item) => item.activeProposalId)
       .map((item) => [item.activeProposalId as string, item])
   );
+  const filteredTypeSummary = formatFilteredTypeCounts(reviewDiagnostics?.filteredItemCountsByType);
 
   return (
     <div className="rail-stack" data-state={isIdle ? "idle" : "active"}>
@@ -222,6 +251,16 @@ export function RightOperationsRail({
             <p className="editor-note-copy">Провайдер: {reviewDiagnostics.requestedProvider} → {reviewDiagnostics.requestedModelId}</p>
             <p className="editor-note-copy">Блоків: {reviewDiagnostics.blockCount}</p>
             <p className="editor-note-copy">Рекомендацій: {reviewDiagnostics.returnedItemCount}</p>
+            {reviewDiagnostics.droppedItemCount > 0 ? (
+              <p className="editor-note-copy">
+                Відхилено під час нормалізації/фільтрації: {reviewDiagnostics.droppedItemCount}
+              </p>
+            ) : null}
+            {filteredTypeSummary ? (
+              <p className="editor-note-copy">
+                Відфільтровано за типом: {filteredTypeSummary}
+              </p>
+            ) : null}
           </div>
         </details>
       ) : null}

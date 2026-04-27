@@ -362,3 +362,99 @@ test("normalizeEditorialReviewItems clips adjacent structural heading from repla
   assert.equal(normalized.items[0]?.anchor.generationBlockRange.end, 2);
   assert.match(normalized.items[0]?.reason ?? "", /автоматично обрізано/i);
 });
+
+test("normalizeEditorialReviewItems does not dedupe non-emphasis cards only by identical title", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Перший фрагмент для підзаголовка." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Другий фрагмент для підзаголовка." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-6",
+    changeLevel: 3,
+    stepId: "structure",
+    items: [
+      {
+        title: "Додати підзаголовок",
+        reason: "Перша локальна зона без заголовка.",
+        recommendation: "Додати підзаголовок перед абз. 001.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "medium",
+        blockStart: 0,
+        blockEnd: 0,
+        excerpt: "Перший фрагмент",
+        insertionHint: "before",
+        anchorBlockId: "p1"
+      },
+      {
+        title: "Додати підзаголовок",
+        reason: "Друга локальна зона без заголовка.",
+        recommendation: "Додати підзаголовок перед абз. 002.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Другий фрагмент",
+        insertionHint: "before",
+        anchorBlockId: "p2"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 2);
+  assert.deepEqual(normalized.items.map((item) => item.anchor.blockIds[0]), ["p1", "p2"]);
+});
+
+test("normalizeEditorialReviewItems splits subsection cards by explicit non-contiguous paragraph references", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "Абзац 1." }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Абзац 2." }] },
+      { id: "p3", type: "paragraph", content: [{ text: "Абзац 3." }] },
+      { id: "p4", type: "paragraph", content: [{ text: "Абзац 4." }] },
+      { id: "p5", type: "paragraph", content: [{ text: "Абзац 5." }] },
+      { id: "p6", type: "paragraph", content: [{ text: "Абзац 6." }] },
+      { id: "p7", type: "paragraph", content: [{ text: "Абзац 7." }] },
+      { id: "p8", type: "paragraph", content: [{ text: "Абзац 8." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-7",
+    changeLevel: 3,
+    stepId: "structure",
+    items: [
+      {
+        title: "Додати підзаголовки",
+        reason: "Є кілька окремих зламів теми.",
+        recommendation: "Додати підзаголовки для абз. 2, 5, 7-8.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "high",
+        blockStart: 1,
+        blockEnd: 7,
+        excerpt: "Довгий фрагмент",
+        insertionHint: "before",
+        anchorBlockId: "p2"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 3);
+  assert.deepEqual(
+    normalized.items.map((item) => item.anchor.blockIds),
+    [["p2"], ["p5"], ["p7", "p8"]]
+  );
+});

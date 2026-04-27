@@ -8,6 +8,23 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-14
 
+## 2026-04-27
+
+### Review-card deduplication is anchor-based, not title-based
+Decision: recommendation deduplication in whole-text review no longer collapses non-emphasis cards by identical `title`. Cards are deduplicated only when both anchor range and recommendation type are the same.
+
+Reason: recurring structural cards like `Додати підзаголовок` are expected to repeat across different locations. Title-based dedup was dropping valid cards and hiding actionable edits from editors.
+
+### Subsection cards split by explicit paragraph references and bounded ranges
+Decision: subsection normalization now enforces one contiguous anchor per card at runtime by splitting explicit non-contiguous paragraph references (for example `абз. 2, 10, 15-17`) into multiple cards and chunking overly wide subsection ranges into bounded contiguous segments.
+
+Reason: one subsection card applies one heading insertion before one anchor. Without runtime splitting, one broad card could silently apply only to the first location and lose intended structural edits.
+
+### Review diagnostics expose drop/filter transparency in API and rail
+Decision: review diagnostics now include drop reasons and per-type filter counts (`droppedItemCountsByReason`, `filteredItemCountsByType`), and the right rail shows these counters.
+
+Reason: editors need to distinguish “model found little” from “system filtered or normalized items away” when auditing low-card runs.
+
 ## 2026-03-19
 
 ## 2026-03-22

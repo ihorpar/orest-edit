@@ -186,6 +186,8 @@ export interface EditorialReviewDiagnostics {
   returnedItemCount: number;
   returnedFactCheckCount: number;
   droppedItemCount: number;
+  droppedItemCountsByReason?: Record<string, number>;
+  filteredItemCountsByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
   generatedAt: string;
   rawOutput?: string;
 }
@@ -592,18 +594,23 @@ export function normalizeEditorialReviewItems(input: {
   stepId?: EditorialReviewStepId;
   stepRunId?: string;
   items: unknown;
-}): { items: EditorialReviewItem[]; droppedCount: number } {
+}): { items: EditorialReviewItem[]; droppedCount: number; droppedByReason: Record<string, number> } {
   if (!Array.isArray(input.items)) {
-    return { items: [], droppedCount: 0 };
+    return { items: [], droppedCount: 0, droppedByReason: {} };
   }
 
   const paragraphs = getManuscriptParagraphs(input.document, input.revision);
   const normalized: EditorialReviewItem[] = [];
   let droppedCount = 0;
+  const droppedByReason: Record<string, number> = {};
+  const markDropped = (reason: string) => {
+    droppedCount += 1;
+    droppedByReason[reason] = (droppedByReason[reason] ?? 0) + 1;
+  };
 
   for (const [index, candidate] of input.items.entries()) {
     if (!candidate || typeof candidate !== "object") {
-      droppedCount += 1;
+      markDropped("invalid_item_shape");
       continue;
     }
 
@@ -617,82 +624,104 @@ export function normalizeEditorialReviewItems(input: {
       isEmphasisStep && resolvedEmphasisAnchor !== null
         ? resolvedEmphasisAnchor
         : normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
-    const rawBlockEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
-    const blockStart = rawBlockStart;
-    const blockEnd = isEmphasisStep ? rawBlockStart : rawBlockEnd;
     const title = isEmphasisStep ? buildEmphasisTitle(emphasisTarget?.text) : normalizeCopy(record.title, 90);
     const reason = isEmphasisStep ? "" : normalizeCopy(record.reason, 420);
     const recommendation = isEmphasisStep ? buildEmphasisRecommendation(emphasisTarget?.text) : normalizeCopy(record.recommendation, 420);
     const recommendationType = normalizeRecommendationType(record.recommendationType);
 
     if (
-      blockStart === null ||
-      blockEnd === null ||
+      rawBlockStart === null ||
       !title ||
       !recommendation ||
       (!isEmphasisStep && !reason) ||
       (isEmphasisStep && !emphasisTarget)
     ) {
-      droppedCount += 1;
+      markDropped("missing_required_fields");
       continue;
     }
 
-    const start = Math.min(blockStart, blockEnd);
-    const end = Math.max(blockStart, blockEnd);
-    const guardedRange = applyReplaceRangeGuard(paragraphs, { start, end }, recommendationType);
-    const blockIds = paragraphs.slice(guardedRange.start, guardedRange.end + 1).map((paragraph) => paragraph.id);
+    const rawBlockEnd = isEmphasisStep ? rawBlockStart : normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
 
-    if (blockIds.length === 0) {
-      droppedCount += 1;
+    if (rawBlockEnd === null) {
+      markDropped("missing_required_fields");
       continue;
     }
 
-    const fallbackExcerpt = blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
-    const excerpt = guardedRange.clipped ? fallbackExcerpt : normalizeCopy(record.excerpt, 420) ?? fallbackExcerpt;
-    const insertionMode = normalizeInsertionHint(recommendationType, record.insertionHint);
-    const insertionAnchor = resolveInsertionAnchor(blockIds, insertionMode);
+    const baseRange = {
+      start: Math.min(rawBlockStart, rawBlockEnd),
+      end: Math.max(rawBlockStart, rawBlockEnd)
+    };
+    const candidateRanges = resolveCardRanges(record, baseRange, recommendationType, paragraphs.length);
+    const ranges = candidateRanges.length > 0 ? candidateRanges : [baseRange];
+    let acceptedForRecord = 0;
 
-    if (!insertionAnchor) {
-      droppedCount += 1;
-      continue;
+    for (const [rangeIndex, range] of ranges.entries()) {
+      const guardedRange = applyReplaceRangeGuard(paragraphs, range, recommendationType);
+      const blockIds = paragraphs.slice(guardedRange.start, guardedRange.end + 1).map((paragraph) => paragraph.id);
+
+      if (blockIds.length === 0) {
+        markDropped("empty_anchor_range");
+        continue;
+      }
+
+      const fallbackExcerpt = blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
+      const excerpt = guardedRange.clipped ? fallbackExcerpt : normalizeCopy(record.excerpt, 420) ?? fallbackExcerpt;
+      const insertionMode = normalizeInsertionHint(recommendationType, record.insertionHint);
+      const insertionAnchor = resolveInsertionAnchor(blockIds, insertionMode);
+
+      if (!insertionAnchor) {
+        markDropped("missing_insertion_anchor");
+        continue;
+      }
+
+      const requestedAnchorBlockId =
+        typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
+
+      const calloutDepth = recommendationType === "callout" ? normalizeCalloutDepthForRecord(record) : undefined;
+
+      acceptedForRecord += 1;
+
+      normalized.push({
+        id:
+          typeof record.id === "string" && record.id.trim()
+            ? ranges.length > 1
+              ? `${record.id}::${rangeIndex + 1}`
+              : record.id
+            : createPatchId(`review-item-${index + 1}-${rangeIndex + 1}`),
+        reviewSessionId: input.reviewSessionId,
+        documentRevisionId: input.revision.documentRevisionId,
+        changeLevel: input.changeLevel,
+        title,
+        reason: guardedRange.clipped ? appendRangeClipNote(reason ?? "") : (reason ?? ""),
+        recommendation,
+        recommendationType,
+        suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
+        priority: normalizePriority(record.priority),
+        anchor: {
+          blockIds,
+          generationBlockRange: { start: guardedRange.start, end: guardedRange.end },
+          excerpt,
+          fingerprint: computeAnchorFingerprint(input.document, blockIds)
+        },
+        insertionPoint: {
+          mode: insertionMode,
+          anchorBlockId: requestedAnchorBlockId && getBlock(input.document, requestedAnchorBlockId) ? requestedAnchorBlockId : insertionAnchor
+        },
+        calloutKind: normalizeCalloutKind(record.calloutKind),
+        calloutDepth,
+        calloutDraft: normalizeCalloutDraft(record, calloutDepth),
+        visualIntent: normalizeVisualIntent(record.visualIntent),
+        emphasisTarget,
+        origin: "review",
+        stepId: input.stepId,
+        stepRunId: input.stepRunId,
+        status: "pending"
+      });
     }
 
-    const requestedAnchorBlockId =
-      typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
-
-    const calloutDepth = recommendationType === "callout" ? normalizeCalloutDepthForRecord(record) : undefined;
-
-    normalized.push({
-      id: typeof record.id === "string" && record.id.trim() ? record.id : createPatchId(`review-item-${index + 1}`),
-      reviewSessionId: input.reviewSessionId,
-      documentRevisionId: input.revision.documentRevisionId,
-      changeLevel: input.changeLevel,
-      title,
-      reason: guardedRange.clipped ? appendRangeClipNote(reason ?? "") : (reason ?? ""),
-      recommendation,
-      recommendationType,
-      suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
-      priority: normalizePriority(record.priority),
-      anchor: {
-        blockIds,
-        generationBlockRange: { start: guardedRange.start, end: guardedRange.end },
-        excerpt,
-        fingerprint: computeAnchorFingerprint(input.document, blockIds)
-      },
-      insertionPoint: {
-        mode: insertionMode,
-        anchorBlockId: requestedAnchorBlockId && getBlock(input.document, requestedAnchorBlockId) ? requestedAnchorBlockId : insertionAnchor
-      },
-      calloutKind: normalizeCalloutKind(record.calloutKind),
-      calloutDepth,
-      calloutDraft: normalizeCalloutDraft(record, calloutDepth),
-      visualIntent: normalizeVisualIntent(record.visualIntent),
-      emphasisTarget,
-      origin: "review",
-      stepId: input.stepId,
-      stepRunId: input.stepRunId,
-      status: "pending"
-    });
+    if (acceptedForRecord === 0) {
+      markDropped("record_produced_no_valid_ranges");
+    }
   }
 
   const deduped: EditorialReviewItem[] = [];
@@ -701,18 +730,155 @@ export function normalizeEditorialReviewItems(input: {
     if (
       deduped.some(
         (existing) =>
-          (existing.stepId !== "emphasis" && item.stepId !== "emphasis" && existing.title === item.title) ||
           (existing.anchor.blockIds.join("|") === item.anchor.blockIds.join("|") && existing.recommendationType === item.recommendationType)
       )
     ) {
-      droppedCount += 1;
+      markDropped("duplicate_anchor_type");
       continue;
     }
 
     deduped.push(item);
   }
 
-  return { items: deduped, droppedCount };
+  return { items: deduped, droppedCount, droppedByReason };
+}
+
+function resolveCardRanges(
+  record: Record<string, unknown>,
+  baseRange: { start: number; end: number },
+  recommendationType: EditorialReviewRecommendationType,
+  paragraphCount: number
+): Array<{ start: number; end: number }> {
+  if (recommendationType !== "subsection") {
+    return [baseRange];
+  }
+
+  const parsedFromText = extractParagraphRangesFromCopy([
+    typeof record.recommendation === "string" ? record.recommendation : "",
+    typeof record.reason === "string" ? record.reason : "",
+    typeof record.title === "string" ? record.title : ""
+  ], paragraphCount);
+
+  const normalizedRanges = parsedFromText.length > 0 ? parsedFromText : [baseRange];
+  const expanded: Array<{ start: number; end: number }> = [];
+
+  for (const range of normalizedRanges) {
+    const chunked = splitLongRange(range, 3);
+    expanded.push(...chunked);
+  }
+
+  return expanded.length > 0 ? expanded : [baseRange];
+}
+
+function extractParagraphRangesFromCopy(values: string[], paragraphCount: number): Array<{ start: number; end: number }> {
+  if (paragraphCount <= 0) {
+    return [];
+  }
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  const markerRegex = /(?:абз\.?|параграф(?:и|ів)?|п\.)\s*([0-9,\s\-–]+)/gi;
+
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+
+    let match: RegExpExecArray | null;
+    while ((match = markerRegex.exec(value)) !== null) {
+      const list = match[1] ?? "";
+      const tokens = list
+        .split(",")
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      for (const token of tokens) {
+        const rangeMatch = /^(\d{1,4})\s*[-–]\s*(\d{1,4})$/.exec(token);
+
+        if (rangeMatch) {
+          const from = clampParagraphIndex(Number.parseInt(rangeMatch[1] ?? "", 10) - 1, paragraphCount);
+          const to = clampParagraphIndex(Number.parseInt(rangeMatch[2] ?? "", 10) - 1, paragraphCount);
+
+          if (from !== null && to !== null) {
+            ranges.push({ start: Math.min(from, to), end: Math.max(from, to) });
+          }
+          continue;
+        }
+
+        const singleMatch = /^(\d{1,4})$/.exec(token);
+
+        if (singleMatch) {
+          const index = clampParagraphIndex(Number.parseInt(singleMatch[1] ?? "", 10) - 1, paragraphCount);
+
+          if (index !== null) {
+            ranges.push({ start: index, end: index });
+          }
+        }
+      }
+    }
+  }
+
+  if (ranges.length === 0) {
+    return [];
+  }
+
+  const indexed = new Set<number>();
+  for (const range of ranges) {
+    for (let index = range.start; index <= range.end; index += 1) {
+      indexed.add(index);
+    }
+  }
+
+  const sorted = Array.from(indexed).sort((left, right) => left - right);
+  const merged: Array<{ start: number; end: number }> = [];
+
+  for (const index of sorted) {
+    const current = merged[merged.length - 1];
+
+    if (!current || index > current.end + 1) {
+      merged.push({ start: index, end: index });
+      continue;
+    }
+
+    current.end = index;
+  }
+
+  return merged;
+}
+
+function splitLongRange(range: { start: number; end: number }, maxLength: number): Array<{ start: number; end: number }> {
+  const safeMaxLength = Math.max(1, Math.floor(maxLength));
+  const length = range.end - range.start + 1;
+
+  if (length <= safeMaxLength) {
+    return [range];
+  }
+
+  const chunks: Array<{ start: number; end: number }> = [];
+
+  for (let start = range.start; start <= range.end; start += safeMaxLength) {
+    chunks.push({
+      start,
+      end: Math.min(range.end, start + safeMaxLength - 1)
+    });
+  }
+
+  return chunks;
+}
+
+function clampParagraphIndex(value: number, paragraphCount: number): number | null {
+  if (!Number.isFinite(value) || paragraphCount <= 0) {
+    return null;
+  }
+
+  if (value < 0) {
+    return 0;
+  }
+
+  if (value >= paragraphCount) {
+    return paragraphCount - 1;
+  }
+
+  return value;
 }
 
 export function getReviewParagraphLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState): string {

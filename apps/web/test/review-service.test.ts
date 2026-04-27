@@ -1056,7 +1056,166 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.ok(requestBody);
   assert.match(String(requestBody?.instructions ?? ""), /не пропонуй шаблонних застережень про консультацію з лікарем/i);
   assert.match(String(requestBody?.instructions ?? ""), /для кроку «ясність» пропонуй лише мовні й локально-структурні правки/i);
+  assert.match(String(requestBody?.instructions ?? ""), /для «ясність» не пропонуй підзаголовки, врізки, таблиці або зміни макроструктури/i);
+  assert.match(String(requestBody?.instructions ?? ""), /одна картка має охоплювати лише один суцільний діапазон абзаців без розривів/i);
+  assert.match(String(requestBody?.instructions ?? ""), /якщо одна проблема є в несуміжних місцях/i);
   assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.instructions ?? ""), /починається з малої літери/i);
   assert.match(String(requestBody?.input ?? ""), /збережи короткі окремі пункти/i);
+});
+
+test("generateEditorialReview enforces step-specific card type boundaries", async () => {
+  const providerItems = [
+    {
+      title: "Переписати речення",
+      reason: "Локальна неясність формулювання.",
+      recommendation: "Переписати речення коротше.",
+      recommendationType: "rewrite",
+      suggestedAction: "rewrite_text",
+      priority: "high",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "replace",
+      anchorBlockId: "p1"
+    },
+    {
+      title: "Спростити термін",
+      reason: "Надмірна термінологічність.",
+      recommendation: "Спростити термін без втрати змісту.",
+      recommendationType: "simplify",
+      suggestedAction: "rewrite_text",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "replace",
+      anchorBlockId: "p1"
+    },
+    {
+      title: "Локально розгорнути пояснення",
+      reason: "Коротке формулювання без зв'язки.",
+      recommendation: "Додати одне коротке пояснення причинно-наслідкового зв'язку.",
+      recommendationType: "expand",
+      suggestedAction: "rewrite_text",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "replace",
+      anchorBlockId: "p1"
+    },
+    {
+      title: "Оформити списком",
+      reason: "Є дискретні пункти для сканування.",
+      recommendation: "Оформити 3-4 пункти списком.",
+      recommendationType: "list",
+      suggestedAction: "rewrite_text",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "replace",
+      anchorBlockId: "p1"
+    },
+    {
+      title: "Додати підзаголовок",
+      reason: "Тут змінюється мікротема.",
+      recommendation: "Додати короткий підзаголовок перед фрагментом.",
+      recommendationType: "subsection",
+      suggestedAction: "insert_text",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "before",
+      anchorBlockId: "p1"
+    },
+    {
+      title: "Додати врізку",
+      reason: "Потрібен швидкий пояснювальний винос.",
+      recommendation: "Додати коротку врізку після абзацу.",
+      recommendationType: "callout",
+      suggestedAction: "prepare_callout",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "after",
+      anchorBlockId: "p1",
+      calloutKind: "mechanism"
+    }
+  ];
+
+  const fetchImpl = async () =>
+    new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          items: providerItems
+        })
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+
+  const structureResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "structure" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+  const clarityResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "clarity" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+  const formattingResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "formatting" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+
+  assert.deepEqual(
+    structureResponse.items.map((item) => item.recommendationType).sort(),
+    ["callout", "list", "subsection"]
+  );
+  assert.deepEqual(
+    clarityResponse.items.map((item) => item.recommendationType).sort(),
+    ["expand", "rewrite", "simplify"]
+  );
+  assert.deepEqual(
+    formattingResponse.items.map((item) => item.recommendationType).sort(),
+    ["callout", "list", "subsection"]
+  );
+  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.list ?? 0) >= 1);
+  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.subsection ?? 0) >= 1);
+  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.callout ?? 0) >= 1);
+  assert.ok((clarityResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type ?? 0) >= 3);
+});
+
+test("generateEditorialReview injects structure and formatting scope guardrails into prompts", async () => {
+  const requestBodies: Record<string, unknown>[] = [];
+  const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          items: []
+        })
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+
+  await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "structure" }), {
+    fetchImpl,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+  await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "formatting" }), {
+    fetchImpl,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  const structureInstructions = String(requestBodies[0]?.instructions ?? "");
+  const formattingInstructions = String(requestBodies[1]?.instructions ?? "");
+
+  assert.match(structureInstructions, /для «структура» не витрачай картки на мікролексичні або пунктуаційні правки/i);
+  assert.match(formattingInstructions, /для «форматування» фокусуйся на форматі подачі/i);
+  assert.match(formattingInstructions, /не пропонуй мовне переписування абзаців як окремий тип правки/i);
 });

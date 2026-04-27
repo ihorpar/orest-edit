@@ -308,7 +308,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     id: "structure",
     title: "Структура",
     outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["subsection", "list", "rewrite", "callout"],
+    allowedRecommendationTypes: ["subsection", "list", "callout"],
     cardGuidance:
       "Фокус: архітектура розділу, послідовність думки, місця для підзаголовків і дроблення масивних блоків.",
     systemInstruction:
@@ -318,7 +318,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     id: "clarity",
     title: "Ясність",
     outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["simplify", "rewrite", "expand", "list"],
+    allowedRecommendationTypes: ["simplify", "rewrite", "expand"],
     cardGuidance:
       "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
     systemInstruction:
@@ -348,11 +348,11 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     id: "formatting",
     title: "Форматування",
     outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["list", "callout", "subsection", "rewrite"],
+    allowedRecommendationTypes: ["list", "callout", "subsection"],
     cardGuidance:
-      "Фокус: де потрібні списки, таблиці, врізки і компактні формати подачі для швидкого сканування.",
+      "Фокус: де потрібні списки, підзаголовки, врізки і компактні формати подачі для швидкого сканування.",
     systemInstruction:
-      "Переформатовуй подачу: шукай місця для списків, врізок, табличного або блочного оформлення без повного переписування розділу."
+      "Переформатовуй подачу: шукай місця для списків, підзаголовків і врізок без повного переписування розділу."
   },
   emphasis: {
     id: "emphasis",
@@ -384,6 +384,8 @@ type EditorialReviewProviderResult = {
   factCheckRows?: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
+  droppedItemCountsByReason?: Record<string, number>;
+  filteredItemCountsByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
   providerUsed: string;
   rawOutput?: string;
 };
@@ -485,6 +487,8 @@ export async function generateEditorialReview(
       factCheckRows: result.factCheckRows ?? [],
       expertise: result.expertise,
       droppedItemCount: result.droppedItemCount,
+      droppedItemCountsByReason: result.droppedItemCountsByReason,
+      filteredItemCountsByType: result.filteredItemCountsByType,
       usedFallback: false,
       generatedAt: now(),
       rawOutput: result.rawOutput
@@ -518,6 +522,8 @@ function buildEditorialReviewResponse(input: {
   factCheckRows: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
+  droppedItemCountsByReason?: Record<string, number>;
+  filteredItemCountsByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
   usedFallback: boolean;
   generatedAt: string;
   rawOutput?: string;
@@ -547,6 +553,8 @@ function buildEditorialReviewResponse(input: {
       returnedItemCount: input.items.length,
       returnedFactCheckCount: input.factCheckRows.length,
       droppedItemCount: input.droppedItemCount,
+      droppedItemCountsByReason: input.droppedItemCountsByReason,
+      filteredItemCountsByType: input.filteredItemCountsByType,
       generatedAt: input.generatedAt,
       rawOutput: input.rawOutput
     }
@@ -568,8 +576,9 @@ function buildFallbackEditorialReviewResponse(input: {
     stepSpec.outputKind === "recommendation_cards"
       ? createFallbackEditorialReviewItems(input.request, input.reviewSessionId, input.stepId, input.stepRunId)
       : [];
-  const fallbackItems = filterStepItems(rawFallbackItems, stepSpec.allowedRecommendationTypes);
-  const fallbackDroppedCount = rawFallbackItems.length - fallbackItems.length;
+  const filteredFallback = filterStepItems(rawFallbackItems, stepSpec.allowedRecommendationTypes);
+  const fallbackItems = filteredFallback.items;
+  const fallbackDroppedCount = filteredFallback.droppedCount;
   const fallbackFactRows = stepSpec.outputKind === "fact_check_rows" ? createFallbackFactCheckRows(input.request) : [];
   const fallbackExpertise = stepSpec.outputKind === "analysis_markdown" ? createFallbackDiagnosticsExpertise(input.request) : undefined;
 
@@ -588,6 +597,8 @@ function buildFallbackEditorialReviewResponse(input: {
     factCheckRows: fallbackFactRows,
     expertise: fallbackExpertise,
     droppedItemCount: fallbackDroppedCount,
+    droppedItemCountsByReason: fallbackDroppedCount > 0 ? { filtered_by_step_type: fallbackDroppedCount } : undefined,
+    filteredItemCountsByType: filteredFallback.droppedByType,
     usedFallback: true,
     error: input.error,
     generatedAt: input.generatedAt
@@ -881,15 +892,21 @@ function buildNormalizedReviewResult(
     items: items && typeof items === "object" && "items" in (items as Record<string, unknown>) ? (items as { items: unknown }).items : items
   });
 
-  const filteredItems = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
-  const droppedCount = normalized.droppedCount + (normalized.items.length - filteredItems.length);
+  const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+  const droppedCount = normalized.droppedCount + filtered.droppedCount;
+  const droppedByReason = mergeCountMaps(
+    normalized.droppedByReason,
+    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined
+  );
 
   return {
     stepId: stepSpec.id,
     stepRunId,
-    items: hydratedReviewItems(filteredItems, request),
+    items: hydratedReviewItems(filtered.items, request),
     factCheckRows: [],
     droppedItemCount: droppedCount,
+    droppedItemCountsByReason: droppedByReason,
+    filteredItemCountsByType: filtered.droppedByType,
     providerUsed,
     rawOutput
   };
@@ -898,12 +915,84 @@ function buildNormalizedReviewResult(
 function filterStepItems(
   items: EditorialReviewItem[],
   allowedRecommendationTypes?: EditorialReviewRecommendationType[]
-): EditorialReviewItem[] {
+): {
+  items: EditorialReviewItem[];
+  droppedCount: number;
+  droppedByType: Partial<Record<EditorialReviewRecommendationType, number>>;
+} {
   if (!allowedRecommendationTypes || allowedRecommendationTypes.length === 0) {
-    return items;
+    return {
+      items,
+      droppedCount: 0,
+      droppedByType: {}
+    };
   }
 
-  return items.filter((item) => allowedRecommendationTypes.includes(item.recommendationType));
+  const allowed = new Set(allowedRecommendationTypes);
+  const kept: EditorialReviewItem[] = [];
+  const droppedByType: Partial<Record<EditorialReviewRecommendationType, number>> = {};
+  let droppedCount = 0;
+
+  for (const item of items) {
+    if (allowed.has(item.recommendationType)) {
+      kept.push(item);
+      continue;
+    }
+
+    droppedCount += 1;
+    droppedByType[item.recommendationType] = (droppedByType[item.recommendationType] ?? 0) + 1;
+  }
+
+  return {
+    items: kept,
+    droppedCount,
+    droppedByType
+  };
+}
+
+function mergeCountMaps(
+  ...maps: Array<Record<string, number> | undefined>
+): Record<string, number> | undefined {
+  const merged: Record<string, number> = {};
+
+  for (const map of maps) {
+    if (!map) {
+      continue;
+    }
+
+    for (const [key, count] of Object.entries(map)) {
+      if (!count) {
+        continue;
+      }
+
+      merged[key] = (merged[key] ?? 0) + count;
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function mergeRecommendationTypeCounts(
+  ...maps: Array<Partial<Record<EditorialReviewRecommendationType, number>> | undefined>
+): Partial<Record<EditorialReviewRecommendationType, number>> | undefined {
+  const merged: Partial<Record<EditorialReviewRecommendationType, number>> = {};
+
+  for (const map of maps) {
+    if (!map) {
+      continue;
+    }
+
+    for (const [key, count] of Object.entries(map)) {
+      if (!count) {
+        continue;
+      }
+
+      const typedKey = key as EditorialReviewRecommendationType;
+      merged[typedKey] = (merged[typedKey] ?? 0) + count;
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 function resolveStepId(request: EditorialReviewRequest): EditorialReviewStepId {
@@ -967,6 +1056,12 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
@@ -985,7 +1080,16 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій."
       : null,
     step.id === "clarity"
+      ? "Для «Ясність» не пропонуй підзаголовки, врізки, таблиці або зміни макроструктури. Працюй лише в межах simplify/rewrite/expand."
+      : null,
+    step.id === "clarity"
       ? "Не пропонуй шаблонних застережень про консультацію з лікарем, самодіагностику, «варто перевірити стан» або інших повторюваних пересторог, якщо цього прямо не просить редактор і цього немає у фрагменті."
+      : null,
+    step.id === "structure"
+      ? "Для «Структура» не витрачай картки на мікролексичні або пунктуаційні правки. Фокус: підзаголовки, сегментація, послідовність блоків, врізки й списки як елементи архітектури читання."
+      : null,
+    step.id === "formatting"
+      ? "Для «Форматування» фокусуйся на форматі подачі (list/subsection/callout). Не пропонуй мовне переписування абзаців як окремий тип правки."
       : null,
     step.id === "emphasis"
       ? "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним."
@@ -1095,6 +1199,8 @@ async function createChunkedEmphasisReview(
   const mergedRawItems: Array<Record<string, unknown>> = [];
   let providerUsed = `${request.provider}:chunked`;
   let droppedItemCount = 0;
+  let droppedByReason: Record<string, number> | undefined;
+  let filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> | undefined;
   const rawOutputs: string[] = [];
 
   for (const [chunkIndex, chunk] of chunks.entries()) {
@@ -1116,6 +1222,8 @@ async function createChunkedEmphasisReview(
 
     providerUsed = `${chunkResult.providerUsed}:chunked`;
     droppedItemCount += chunkResult.droppedItemCount;
+    droppedByReason = mergeCountMaps(droppedByReason, chunkResult.droppedItemCountsByReason);
+    filteredByType = mergeRecommendationTypeCounts(filteredByType, chunkResult.filteredItemCountsByType);
 
     if (chunkResult.rawOutput?.trim()) {
       rawOutputs.push(`chunk ${chunkIndex + 1}/${chunks.length}\n${chunkResult.rawOutput}`);
@@ -1154,14 +1262,20 @@ async function createChunkedEmphasisReview(
     stepRunId,
     items: dedupeChunkedEmphasisItems(mergedRawItems)
   });
-  const filteredItems = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+  const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+  const normalizedDropReasons = mergeCountMaps(
+    normalized.droppedByReason,
+    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined
+  );
 
   return {
     stepId: stepSpec.id,
     stepRunId,
-    items: filteredItems,
+    items: filtered.items,
     factCheckRows: [],
-    droppedItemCount: droppedItemCount + normalized.droppedCount + (normalized.items.length - filteredItems.length),
+    droppedItemCount: droppedItemCount + normalized.droppedCount + filtered.droppedCount,
+    droppedItemCountsByReason: mergeCountMaps(droppedByReason, normalizedDropReasons),
+    filteredItemCountsByType: mergeRecommendationTypeCounts(filteredByType, filtered.droppedByType),
     providerUsed,
     rawOutput: rawOutputs.join("\n\n")
   };

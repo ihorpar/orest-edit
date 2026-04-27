@@ -32,6 +32,10 @@ Status: Active handoff
 - `/editor` now renders a unified step workspace shell with manuscript + draggable resizer + flyout review drawer + icon-first mini-hub (Lucide) for 8-step navigation
 - `/api/edit/review` is now step-aware: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, and optional `factCheckRows`
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, and `final_editing`
+- Recommendation-step guardrails now enforce tighter scope boundaries: `structure` emits only structural cards (`subsection`/`list`/`callout`), `clarity` is language-only (`simplify`/`rewrite`/`expand`), `formatting` is format-only (`list`/`subsection`/`callout`), and one card must target one contiguous paragraph range (non-contiguous cases split into separate cards)
+- Review normalization no longer deduplicates cards by shared title alone; dedup is anchor+type based so repeated labels like `Додати підзаголовок` survive across different anchors
+- Subsection normalization now parses explicit paragraph references in recommendation text (for example `абз. 2, 10, 15-17`) and splits them into multiple contiguous cards; overly wide subsection ranges are chunked into bounded contiguous segments
+- Review diagnostics now include transparent drop/filter metadata (`droppedItemCountsByReason`, `filteredItemCountsByType`), and the right rail disclosure surfaces those counters to explain low-card runs
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
 - Diagnostics now uses a macro-diagnostic prompt for long chapters: main structural diagnosis, full section map, systemic problems, missing subsection boundaries, redundant/extra material, representative paragraph evidence, and a prioritized restructuring plan
