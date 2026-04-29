@@ -41,6 +41,7 @@ Status: Active handoff
 - Diagnostics now uses a macro-diagnostic prompt for long chapters: main structural diagnosis, full section map, systemic problems, missing subsection boundaries, redundant/extra material, representative paragraph evidence, and a prioritized restructuring plan
 - Diagnostics markdown now renders GFM tables in the drawer; output text itself is shown verbatim, while stronger diagnostics structure is enforced at prompt time rather than by post-processing model text in the UI
 - Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
+- Fact-check now behaves as a red-flag detector: provider prompts and server normalization suppress `ok`/reassurance rows, allow an empty `rows[]` result, and add a small local guard for suspicious medical numbers or measurement units
 - Gemini fact-check now runs through grounded Google Search on `gemini-3.1-flash-lite-preview`; row sources are derived from `groundingMetadata` into structured `sources[]`, with low-trust domains filtered out
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
@@ -53,12 +54,14 @@ Status: Active handoff
 - Compact recommendation status chips are now fully localized in Ukrainian (`очікує`, `готово`, `погоджено`, `відхилено`, `застаріло`, `готується`)
 - Compact recommendation cards are now keyboard-focusable and support `Enter`/`Space` activation while keeping click-to-focus + auto-prepare flow
 - Dismissed recommendations now expose a 5-second inline undo affordance (`Повернути`) in the step drawer
+- Rejected recommendations now persist as compact negative prompt memory (`blockIds`, `recommendationType`, and 300 characters of recommendation text); future full-document step review prompts include the full rejected list, and server normalization drops same-type cards that overlap rejected blocks
 - Replace diff cards now use explicit rejection semantics (`Відхилити`) instead of the ambiguous `Скасувати`, so declining a prepared recommendation moves it to the rejected state
 - Active recommendation cards now use explicit `Уточнити` + `Перегенерувати` + `Застосувати/Вставити` CTA separation; editor instructions are sent only through regenerate, while apply/insert stays blocked until pending уточнення is resolved
 - Post-generation AI self-explanations were removed from execution cards; active cards now keep only the original recommendation context plus the generated result
 - Review-action prompt contracts no longer ask providers to generate extra post-edit `reason/summary` text for replace/callout/subsection drafts
 - Recommendation-step drawers now show one recommendation queue only; the duplicate `Правки` section was removed
 - Recommendation-step drawers now hide completed cards by default and expose a `Показати завершені` toggle
+- The `Структура` drawer now renders an outline-first chapter map derived from manuscript headings and grouped structure cards; outline actions focus the existing executable recommendation cards instead of introducing a separate apply path
 - Recommendation-step stats now use explicit labeled copy (`в роботі`, `погоджено`, `відхилено`) instead of compact numeric slash counters
 - Step drawer headers now place `Етап N / 8` under the title, show an explicit status pill + status copy, and use labeled primary CTA buttons (`Запустити…` / `Оновити…`) instead of mostly icon-only run controls
 - Shared workflow-UI presentation helpers now derive visible feedback banners, step CTA copy, and header status state from existing editor state instead of duplicating ad hoc header logic directly in `/editor`

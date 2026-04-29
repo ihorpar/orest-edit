@@ -76,6 +76,117 @@ test("generateEditorialReview injects strict diagnostics rubric into provider pr
   assert.match(requestBody, /Не відкривай відповідь похвалою/i);
 });
 
+test("generateEditorialReview injects rejected ideas into step prompt", async () => {
+  let requestBody = "";
+  const longRejectedRecommendation = `Повторити вже відхилену ідею. ${"Зайвий контекст. ".repeat(40)}`;
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key",
+      rejectedIdeas: [
+        {
+          blockIds: ["p1"],
+          recommendationType: "rewrite",
+          recommendation: longRejectedRecommendation
+        }
+      ]
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ items: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Ідеї, які редактор уже відхилив/);
+  assert.match(requestBody, /Блоки: абз\. 002; тип: rewrite/);
+  assert.match(requestBody, /Не повторюй ці ідеї як нові рекомендації/);
+  assert.ok(!requestBody.includes("Зайвий контекст. ".repeat(30)));
+});
+
+test("generateEditorialReview drops items matching rejected recommendation type and block overlap", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key",
+      rejectedIdeas: [
+        {
+          blockIds: ["p1"],
+          recommendationType: "rewrite",
+          recommendation: "Уже відхилена пропозиція переписати цей абзац."
+        }
+      ]
+    }),
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Переписати абзац",
+                  reason: "Фрагмент щільний.",
+                  recommendation: "Переписати цей абзац простішою мовою.",
+                  recommendationType: "rewrite",
+                  suggestedAction: "rewrite_text",
+                  priority: "high",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  excerpt: "Фрагмент",
+                  insertionHint: "replace",
+                  anchorBlockId: null,
+                  calloutKind: null,
+                  calloutDepth: null,
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
+                },
+                {
+                  title: "Трохи розширити пояснення",
+                  reason: "Бракує пояснення терміна.",
+                  recommendation: "Додати одне коротке уточнення без зміни структури.",
+                  recommendationType: "expand",
+                  suggestedAction: "rewrite_text",
+                  priority: "medium",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  excerpt: "Фрагмент",
+                  insertionHint: "replace",
+                  anchorBlockId: null,
+                  calloutKind: null,
+                  calloutDepth: null,
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0]?.recommendationType, "expand");
+  assert.equal(response.diagnostics.droppedItemCountsByReason?.rejected_idea_duplicate, 1);
+});
+
 test("generateEditorialReview fallback enforces step-specific recommendation types", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "visuals" }), {
     readEnvValue: () => null,
@@ -557,6 +668,94 @@ test("generateEditorialReview returns provider-native structured fact-check rows
   );
 });
 
+test("generateEditorialReview fact-check prompt asks for red flags only", async () => {
+  let requestBody = "";
+
+  const response = await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "fact_check" }), {
+    fetchImpl: async (_input, init) => {
+      requestBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({ rows: [] })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    },
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 0);
+  assert.match(requestBody, /лише проблемні або сумнівні рядки/i);
+  assert.match(requestBody, /Ніколи не повертай рядки зі статусом ok/i);
+  assert.match(requestBody, /застаріла або радянська медична рамка/i);
+  assert.match(requestBody, /дозування, тривалість, ризики, лабораторні пороги/i);
+});
+
+test("generateEditorialReview drops ok fact-check rows instead of showing reassurance", async () => {
+  const response = await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "fact_check" }), {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            rows: [
+              {
+                claim: "Вода потрібна організму.",
+                status: "ok",
+                explanation: "Це коректне твердження.",
+                sources: []
+              }
+            ]
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ),
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.deepEqual(response.factCheckRows, []);
+});
+
+test("generateEditorialReview adds local suspicion rows for medical numbers and units", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [{ text: "Для нормалізації тиску автор радить 500 мг речовини щодня протягом 30 днів." }]
+      }
+    ]
+  };
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      apiKey: "test-key",
+      stepId: "fact_check"
+    }),
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ rows: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.factCheckRows?.length, 1);
+  assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
+  assert.match(response.factCheckRows?.[0]?.claim ?? "", /500 мг/);
+  assert.match(response.factCheckRows?.[0]?.explanation ?? "", /число або одиниця вимірювання/);
+});
+
 test("generateEditorialReview treats valid empty provider recommendations as empty result, not fallback", async () => {
   const response = await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "clarity" }), {
     fetchImpl: async () =>
@@ -609,7 +808,7 @@ test("generateEditorialReview sends grounded Gemini fact-check request via heade
                           rows: [
                             {
                               claim: "Тестове твердження.",
-                              status: "ok",
+                              status: "сумнівно",
                               explanation: "Тестове обґрунтування.",
                               sources: []
                             }
@@ -691,7 +890,7 @@ test("generateEditorialReview preserves parsed row sources when grounded mapping
                           rows: [
                             {
                               claim: "Тестове твердження.",
-                              status: "ok",
+                              status: "сумнівно",
                               explanation: "Текст пояснення.",
                               sources: [
                                 {
@@ -774,7 +973,7 @@ test("generateEditorialReview drops grounded sources outside trusted domain allo
                           rows: [
                             {
                               claim: "Тестове твердження.",
-                              status: "ok",
+                              status: "сумнівно",
                               explanation: "Тестове обґрунтування.",
                               sources: []
                             }
@@ -1216,6 +1415,7 @@ test("generateEditorialReview injects structure and formatting scope guardrails 
   const formattingInstructions = String(requestBodies[1]?.instructions ?? "");
 
   assert.match(structureInstructions, /для «структура» не витрачай картки на мікролексичні або пунктуаційні правки/i);
+  assert.match(structureInstructions, /одна картка = один конкретний підзаголовок/i);
   assert.match(formattingInstructions, /для «форматування» фокусуйся на форматі подачі/i);
   assert.match(formattingInstructions, /не пропонуй мовне переписування абзаців як окремий тип правки/i);
 });

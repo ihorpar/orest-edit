@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import type { EditorialReviewRequest, EditorialReviewResponse, EditorialReviewStepId } from "../../../../lib/editor/review-contract";
+import {
+  normalizeRejectedReviewIdeas,
+  type EditorialReviewRequest,
+  type EditorialReviewResponse,
+  type EditorialReviewStepId
+} from "../../../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-structure";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
@@ -155,7 +160,8 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
                 : undefined
           }
           : undefined,
-      expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined
+      expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined,
+      rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas)
     }
   };
 }

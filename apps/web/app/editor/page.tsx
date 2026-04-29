@@ -94,7 +94,9 @@ import {
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
+  type RejectedReviewIdea,
   isReplaceReviewType,
+  normalizeRejectedReviewIdeas,
   type ReviewActionRequest,
   type ReviewActionProposal,
   type ReviewActionResponse,
@@ -160,6 +162,7 @@ import {
 
 interface DismissUndoState {
   item: EditorialReviewItem;
+  rejectedIdea?: RejectedReviewIdea;
 }
 
 interface PendingDestructiveAction {
@@ -181,6 +184,25 @@ interface CompareEntryDraft {
   blockIds: string[];
   beforeBlocks: Block[];
   afterBlocks: Block[];
+}
+
+interface StructureOutlineAction {
+  item: EditorialReviewItem;
+  rangeLabel: string;
+  label: string;
+  statusLabel: string;
+  isHidden: boolean;
+}
+
+interface StructureOutlineNode {
+  id: string;
+  title: string;
+  level: number;
+  rangeLabel: string;
+  startIndex: number;
+  endIndex: number;
+  anchorBlockId: string | null;
+  actions: StructureOutlineAction[];
 }
 
 interface EmphasisSuggestionViewModel {
@@ -217,6 +239,7 @@ interface EditorSessionSnapshot {
   focusedBlockId: string | null;
   operations: PatchOperation[];
   reviewItems: EditorialReviewItem[];
+  rejectedReviewIdeas: RejectedReviewIdea[];
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
   feedback: RequestFeedback | null;
@@ -324,6 +347,7 @@ export default function EditorPage() {
   const [focusedBlockId, setFocusedBlockId] = useState<string | null>(initialDocument.blocks[0]?.id ?? null);
   const [operations, setOperations] = useState<PatchOperation[]>([]);
   const [reviewItems, setReviewItems] = useState<EditorialReviewItem[]>([]);
+  const [rejectedReviewIdeas, setRejectedReviewIdeas] = useState<RejectedReviewIdea[]>([]);
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [patchDiagnostics, setPatchDiagnostics] = useState<PatchResponseDiagnostics | null>(null);
   const [reviewDiagnostics, setReviewDiagnostics] = useState<EditorialReviewDiagnostics | null>(null);
@@ -473,6 +497,7 @@ export default function EditorPage() {
       setSelection(draft.selection);
       setOperations(draft.operations);
       setReviewItems(draft.reviewItems);
+      setRejectedReviewIdeas(normalizeRejectedReviewIdeas(draft.rejectedReviewIdeas));
       setPatchDiagnostics(draft.patchDiagnostics);
       setReviewDiagnostics(draft.reviewDiagnostics);
       setReviewExpertise(draft.reviewExpertise ?? null);
@@ -870,6 +895,7 @@ export default function EditorPage() {
       selection: normalizedSelection,
       operations,
       reviewItems,
+      rejectedReviewIdeas,
       patchDiagnostics,
       reviewDiagnostics,
       reviewExpertise,
@@ -903,6 +929,7 @@ export default function EditorPage() {
     reviewDiagnostics,
     reviewComposer,
     reviewItems,
+    rejectedReviewIdeas,
     revision,
     activeWorkflowStep,
     stepRunHistory,
@@ -1183,6 +1210,7 @@ export default function EditorPage() {
       focusedBlockId,
       operations,
       reviewItems,
+      rejectedReviewIdeas,
       patchDiagnostics,
       reviewDiagnostics,
       feedback,
@@ -1225,6 +1253,7 @@ export default function EditorPage() {
     setFocusedBlockId(snapshot.focusedBlockId ?? snapshot.selection.focusBlockId ?? snapshot.selection.anchorBlockId ?? nextDocument.blocks[0]?.id ?? null);
     setOperations(snapshot.operations);
     setReviewItems(snapshot.reviewItems);
+    setRejectedReviewIdeas(snapshot.rejectedReviewIdeas);
     setPatchDiagnostics(snapshot.patchDiagnostics);
     setReviewDiagnostics(snapshot.reviewDiagnostics);
     setFeedback(snapshot.feedback);
@@ -1280,6 +1309,7 @@ export default function EditorPage() {
     setFocusedBlockId(nextDocument.blocks[0]?.id ?? null);
     setOperations([]);
     setReviewItems([]);
+    setRejectedReviewIdeas([]);
     setPatchDiagnostics(null);
     setReviewDiagnostics(null);
     setReviewExpertise(null);
@@ -2054,7 +2084,8 @@ export default function EditorPage() {
             additionalInstructions: reviewComposer.additionalInstructions,
             stepId,
             runMode,
-            stepFeedback: currentStepFeedback || undefined
+            stepFeedback: currentStepFeedback || undefined,
+            rejectedIdeas: rejectedReviewIdeas
           }
         : {
             document,
@@ -2080,7 +2111,8 @@ export default function EditorPage() {
                   diagnosticsFeedback: diagnosticsFeedback || undefined,
                   currentStepFeedback: currentStepFeedback || undefined
                 },
-            expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined
+            expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined,
+            rejectedIdeas: rejectedReviewIdeas
           };
 
       const response = await fetch("/api/edit/review", {
@@ -3167,13 +3199,20 @@ export default function EditorPage() {
       dismissUndoTimeoutRef.current = null;
     }
 
+    const rejectedIdea = buildRejectedReviewIdea(item);
+    const shouldStoreRejectedIdea = !rejectedReviewIdeas.some((idea) => getRejectedReviewIdeaKey(idea) === getRejectedReviewIdeaKey(rejectedIdea));
+
+    if (shouldStoreRejectedIdea) {
+      setRejectedReviewIdeas((current) => normalizeRejectedReviewIdeas([...current, rejectedIdea]));
+    }
+
     setReviewItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, status: "dismissed" } : entry)));
     if (activeReviewItemId === item.id) {
       setActiveReviewItemId(null);
       setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     }
 
-    setDismissUndoState({ item });
+    setDismissUndoState({ item, rejectedIdea: shouldStoreRejectedIdea ? rejectedIdea : undefined });
     dismissUndoTimeoutRef.current = window.setTimeout(() => {
       setDismissUndoState(null);
       dismissUndoTimeoutRef.current = null;
@@ -3192,6 +3231,10 @@ export default function EditorPage() {
 
     const restoreItem = dismissUndoState.item;
     setReviewItems((current) => current.map((entry) => (entry.id === restoreItem.id ? restoreItem : entry)));
+    if (dismissUndoState.rejectedIdea) {
+      const rejectedIdeaKey = getRejectedReviewIdeaKey(dismissUndoState.rejectedIdea);
+      setRejectedReviewIdeas((current) => current.filter((idea) => getRejectedReviewIdeaKey(idea) !== rejectedIdeaKey));
+    }
     setDismissUndoState(null);
   }
 
@@ -3404,6 +3447,10 @@ export default function EditorPage() {
   const activeStepItems = activeEditorialStepId ? stepItems[activeEditorialStepId] : [];
   const visibleActiveStepItems = activeStepItems.filter(
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
+  );
+  const structureOutline = useMemo(
+    () => buildStructureOutline(document, activeStepItems, revision, showCompletedCards),
+    [document, activeStepItems, revision, showCompletedCards]
   );
   const activeStepRunCount = activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0;
   const spellcheckIssueResults = useMemo(
@@ -4001,7 +4048,7 @@ export default function EditorPage() {
 
           {factCheckRows.length === 0 ? (
             <p className="step-review-empty-copy">
-              Після діагностики тут з’явиться таблиця перевірки фактів.
+              Тут з’являться лише твердження, які варто поставити під сумнів або перевірити за джерелами.
             </p>
           ) : null}
         </div>
@@ -4246,6 +4293,130 @@ export default function EditorPage() {
           ) : !isReviewRequestInFlight ? (
             <p className="step-review-empty-copy">Запустіть етап, щоб побачити inline-акценти в рукописі.</p>
           ) : null}
+        </div>
+      );
+    }
+
+    if (activeWorkflowStep === "structure") {
+      const visibleStructureActionCount = structureOutline.reduce(
+        (count, node) => count + node.actions.filter((action) => !action.isHidden).length,
+        0
+      );
+
+      return (
+        <div className="step-review-prototype-content step-review-prototype-content-structure">
+          <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
+            <div className="step-review-prototype-utility-meta">
+              <span>{activeStepCardStats.actionable} активних</span>
+              <span>{activeStepCardStats.applied} погоджено</span>
+              <span>{activeStepCardStats.dismissed} відхилено</span>
+            </div>
+            <button
+              type="button"
+              className="step-review-prototype-utility-toggle"
+              onClick={() => setShowCompletedCards((current) => !current)}
+            >
+              {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+            </button>
+          </div>
+
+          <section className="step-review-structure-outline" aria-label="План розділу">
+            <div className="step-review-structure-outline-head">
+              <div>
+                <h3>План розділу</h3>
+                <p>{visibleStructureActionCount > 0 ? `${visibleStructureActionCount} дій у структурі` : "Поточна карта рукопису"}</p>
+              </div>
+              <LayoutGrid aria-hidden="true" width={18} height={18} />
+            </div>
+
+            <div className="step-review-structure-outline-list">
+              {structureOutline.map((node, nodeIndex) => {
+                const visibleActions = node.actions.filter((action) => !action.isHidden);
+
+                return (
+                  <article
+                    key={node.id}
+                    className="step-review-structure-node"
+                    data-depth={Math.min(node.level, 3)}
+                    data-has-actions={visibleActions.length > 0 ? "true" : "false"}
+                  >
+                    <button
+                      type="button"
+                      className="step-review-structure-node-head"
+                      onClick={() => {
+                        if (node.anchorBlockId) {
+                          focusBlockById(node.anchorBlockId, { select: false });
+                        }
+                      }}
+                      disabled={!node.anchorBlockId}
+                    >
+                      <span className="step-review-structure-node-index">{String(nodeIndex + 1).padStart(2, "0")}</span>
+                      <span className="step-review-structure-node-copy">
+                        <span className="step-review-structure-node-title">{node.title}</span>
+                        <span className="step-review-structure-node-range">{node.rangeLabel}</span>
+                      </span>
+                      <LocateFixed aria-hidden="true" width={15} height={15} />
+                    </button>
+
+                    {visibleActions.length > 0 ? (
+                      <div className="step-review-structure-actions">
+                        {visibleActions.map((action) => (
+                          <button
+                            key={action.item.id}
+                            type="button"
+                            className="step-review-structure-action"
+                            data-active={action.item.id === activeReviewItemId ? "true" : "false"}
+                            data-status={action.item.status}
+                            onClick={() => focusReviewItem(action.item)}
+                          >
+                            <span className="step-review-structure-action-main">
+                              <span className="step-review-structure-action-title">{action.item.title}</span>
+                              <span className="step-review-structure-action-meta">{action.rangeLabel} · {action.label}</span>
+                            </span>
+                            <span className="step-review-structure-action-status">{action.statusLabel}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="step-review-structure-node-empty">Без структурних дій.</p>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="step-review-structure-cards" aria-label="Картки дій">
+            <div className="step-review-structure-section-head">
+              <h3>Картки дій</h3>
+            </div>
+            <div className="step-review-prototype-suggestions-list step-review-structure-card-list">
+              {activeStepItems.map((item) => {
+                const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
+                return (
+                  <EditorialReviewCard
+                    key={item.id}
+                    item={item}
+                    revision={revision}
+                    isActive={item.id === activeReviewItemId}
+                    isHidden={isHidden}
+                    onFocus={focusReviewItem}
+                    onPrepare={(entry) => void prepareReviewItem(entry)}
+                    onApplyCallout={applyReviewCallout}
+                    onDismiss={dismissReviewItem}
+                    isLoading={item.id === preparingReviewItemId}
+                  />
+                );
+              })}
+              {visibleActiveStepItems.length === 0 ? (
+                <p className="step-review-empty-copy step-review-prototype-empty-copy">
+                  {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+                    ? "Усі структурні картки вже завершено. Увімкніть показ завершених, щоб переглянути їх."
+                    : "Для структури ще немає карток."}
+                </p>
+              ) : null}
+            </div>
+          </section>
         </div>
       );
     }
@@ -6171,6 +6342,154 @@ function tokenizeForFactMatching(input: string): string[] {
     .filter((token) => token.length >= 4 && !FACT_CHECK_SKIP_TOKENS.has(token));
 }
 
+function buildStructureOutline(
+  document: EditorDocument,
+  items: EditorialReviewItem[],
+  revision: ManuscriptRevisionState,
+  showCompletedCards: boolean
+): StructureOutlineNode[] {
+  if (document.blocks.length === 0) {
+    return [];
+  }
+
+  const blockIndexById = new Map(document.blocks.map((block, index) => [block.id, index]));
+  const nodes: StructureOutlineNode[] = [];
+
+  document.blocks.forEach((block, index) => {
+    if (block.type !== "heading") {
+      return;
+    }
+
+    const title = getBlockText(block).trim() || "Без назви";
+    nodes.push({
+      id: `heading-${block.id}`,
+      title,
+      level: block.level,
+      rangeLabel: "",
+      startIndex: index,
+      endIndex: index,
+      anchorBlockId: block.id,
+      actions: []
+    });
+  });
+
+  if (nodes.length === 0) {
+    nodes.push({
+      id: "structure-outline-root",
+      title: "Рукопис без підзаголовків",
+      level: 1,
+      rangeLabel: "",
+      startIndex: 0,
+      endIndex: document.blocks.length - 1,
+      anchorBlockId: document.blocks[0]?.id ?? null,
+      actions: []
+    });
+  } else if (nodes[0] && nodes[0].startIndex > 0) {
+    nodes.unshift({
+      id: "structure-outline-prefix",
+      title: "Початок без підзаголовка",
+      level: 1,
+      rangeLabel: "",
+      startIndex: 0,
+      endIndex: nodes[0].startIndex - 1,
+      anchorBlockId: document.blocks[0]?.id ?? null,
+      actions: []
+    });
+  }
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const next = nodes[index + 1];
+    nodes[index].endIndex = next ? Math.max(nodes[index].startIndex, next.startIndex - 1) : document.blocks.length - 1;
+    nodes[index].rangeLabel = formatStructureRangeLabel(nodes[index].startIndex, nodes[index].endIndex);
+  }
+
+  const sortedItems = [...items].sort(
+    (left, right) => getItemStartIndex(left, blockIndexById) - getItemStartIndex(right, blockIndexById)
+  );
+
+  for (const item of sortedItems) {
+    const startIndex = getItemStartIndex(item, blockIndexById);
+    const targetNode = nodes.find((node) => startIndex >= node.startIndex && startIndex <= node.endIndex) ?? nodes[nodes.length - 1];
+
+    if (!targetNode) {
+      continue;
+    }
+
+    targetNode.actions.push({
+      item,
+      rangeLabel: getReviewParagraphRangeLabel(item, revision),
+      label: getStructureActionLabel(item),
+      statusLabel: getStructureActionStatusLabel(item.status),
+      isHidden: !showCompletedCards && (item.status === "applied" || item.status === "dismissed")
+    });
+  }
+
+  return nodes;
+}
+
+function getItemStartIndex(item: EditorialReviewItem, blockIndexById: Map<string, number>): number {
+  const anchorId = item.anchor.blockIds[0] ?? item.insertionPoint.anchorBlockId;
+  return blockIndexById.get(anchorId) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function formatStructureRangeLabel(start: number, end: number): string {
+  return start === end
+    ? `Абз. ${formatParagraphLabel(start)}`
+    : `Абз. ${formatParagraphLabel(start)}-${formatParagraphLabel(end)}`;
+}
+
+function getStructureActionLabel(item: EditorialReviewItem): string {
+  if (item.status === "ready") {
+    return "відкрити чернетку";
+  }
+
+  if (item.status === "applied") {
+    return "вже застосовано";
+  }
+
+  if (item.status === "dismissed") {
+    return "відхилено";
+  }
+
+  if (item.recommendationType === "subsection") {
+    return "підготувати підзаголовок";
+  }
+
+  if (item.recommendationType === "list") {
+    return "оформити списком";
+  }
+
+  if (item.recommendationType === "callout") {
+    return "підготувати врізку";
+  }
+
+  return "підготувати дію";
+}
+
+function getStructureActionStatusLabel(status: EditorialReviewItem["status"]): string {
+  if (status === "applied") {
+    return "погоджено";
+  }
+
+  if (status === "dismissed") {
+    return "відхилено";
+  }
+
+  if (status === "ready") {
+    return "готово";
+  }
+
+  if (status === "preparing") {
+    return "готується";
+  }
+
+  if (status === "stale") {
+    return "застаріло";
+  }
+
+  return "очікує";
+}
+
 function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): boolean {
   if (item.stepId) {
     return item.stepId === stepId;
@@ -6239,6 +6558,24 @@ function getStepCardStats(items: EditorialReviewItem[], stepId: WorkflowStepId):
   }
 
   return { actionable, applied, dismissed };
+}
+
+function buildRejectedReviewIdea(item: EditorialReviewItem): RejectedReviewIdea {
+  return normalizeRejectedReviewIdeas([
+    {
+      blockIds: item.anchor.blockIds,
+      recommendationType: item.recommendationType,
+      recommendation: item.recommendation
+    }
+  ])[0] ?? {
+    blockIds: item.anchor.blockIds.filter(Boolean),
+    recommendationType: item.recommendationType,
+    recommendation: item.recommendation.replace(/\s+/g, " ").trim().slice(0, 300)
+  };
+}
+
+function getRejectedReviewIdeaKey(idea: RejectedReviewIdea): string {
+  return `${idea.recommendationType}:${idea.blockIds.join("|")}`;
 }
 
 function buildReviewModeSummary(level: WholeTextChangeLevel, blockCount: number): string {

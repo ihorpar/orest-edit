@@ -1,11 +1,13 @@
 ﻿import { createPatchId } from "../editor/patch-contract.ts";
 import {
   getEditorialCalloutKindLabel,
+  REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH,
   normalizeEditorialReviewItems,
   type EditorialFactCheckRow,
   type EditorialFactCheckSource,
   type EditorialReviewItem,
   type EditorialReviewRecommendationType,
+  type RejectedReviewIdea,
   type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialReviewRequest,
@@ -32,6 +34,8 @@ const emphasisChunkSize = 18;
 const emphasisChunkOverlap = 2;
 const emphasisChunkThreshold = 24;
 const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
+const suspiciousMeasurementExplanation =
+  "У твердженні є число або одиниця вимірювання, які можуть змінити медичний зміст. Перевірте діапазон, конверсію одиниць і актуальний клінічний контекст за надійним джерелом.";
 const trustedFactCheckDomains = [
   "who.int",
   "cdc.gov",
@@ -224,7 +228,7 @@ const openAiFactCheckSchema = {
         additionalProperties: false,
         properties: {
           claim: { type: "string" },
-          status: { type: "string", enum: ["ok", "сумнівно", "не підтверджено"] },
+          status: { type: "string", enum: ["сумнівно", "не підтверджено"] },
           explanation: { type: "string" },
           sources: {
             type: "array",
@@ -302,7 +306,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     title: "Перевірка фактів",
     outputKind: "fact_check_rows",
     systemInstruction:
-      "Ти працюєш як науковий фактчекер. Повертай лише структуровані рядки таблиці, без редакторських карток."
+      "Ти працюєш як суворий науковий фактчекер для медично-популярного рукопису. Повертай лише проблемні або сумнівні рядки таблиці, без редакторських карток і без підтвердження коректних тверджень."
   },
   structure: {
     id: "structure",
@@ -484,7 +488,9 @@ export async function generateEditorialReview(
       blockCount,
       changeLevel: request.changeLevel,
       items: result.items,
-      factCheckRows: result.factCheckRows ?? [],
+      factCheckRows: stepSpec.outputKind === "fact_check_rows"
+        ? finalizeActionableFactCheckRows(request, result.factCheckRows ?? [])
+        : result.factCheckRows ?? [],
       expertise: result.expertise,
       droppedItemCount: result.droppedItemCount,
       droppedItemCountsByReason: result.droppedItemCountsByReason,
@@ -577,9 +583,12 @@ function buildFallbackEditorialReviewResponse(input: {
       ? createFallbackEditorialReviewItems(input.request, input.reviewSessionId, input.stepId, input.stepRunId)
       : [];
   const filteredFallback = filterStepItems(rawFallbackItems, stepSpec.allowedRecommendationTypes);
-  const fallbackItems = filteredFallback.items;
-  const fallbackDroppedCount = filteredFallback.droppedCount;
-  const fallbackFactRows = stepSpec.outputKind === "fact_check_rows" ? createFallbackFactCheckRows(input.request) : [];
+  const rejectedFilteredFallback = filterRejectedReviewIdeas(filteredFallback.items, input.request.rejectedIdeas);
+  const fallbackItems = rejectedFilteredFallback.items;
+  const fallbackDroppedCount = filteredFallback.droppedCount + rejectedFilteredFallback.droppedCount;
+  const fallbackFactRows = stepSpec.outputKind === "fact_check_rows"
+    ? finalizeActionableFactCheckRows(input.request, createFallbackFactCheckRows(input.request))
+    : [];
   const fallbackExpertise = stepSpec.outputKind === "analysis_markdown" ? createFallbackDiagnosticsExpertise(input.request) : undefined;
 
   return buildEditorialReviewResponse({
@@ -597,7 +606,10 @@ function buildFallbackEditorialReviewResponse(input: {
     factCheckRows: fallbackFactRows,
     expertise: fallbackExpertise,
     droppedItemCount: fallbackDroppedCount,
-    droppedItemCountsByReason: fallbackDroppedCount > 0 ? { filtered_by_step_type: fallbackDroppedCount } : undefined,
+    droppedItemCountsByReason: mergeCountMaps(
+      filteredFallback.droppedCount > 0 ? { filtered_by_step_type: filteredFallback.droppedCount } : undefined,
+      rejectedFilteredFallback.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFilteredFallback.droppedCount } : undefined
+    ),
     filteredItemCountsByType: filteredFallback.droppedByType,
     usedFallback: true,
     error: input.error,
@@ -893,16 +905,18 @@ function buildNormalizedReviewResult(
   });
 
   const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
-  const droppedCount = normalized.droppedCount + filtered.droppedCount;
+  const rejectedFiltered = filterRejectedReviewIdeas(filtered.items, request.rejectedIdeas);
+  const droppedCount = normalized.droppedCount + filtered.droppedCount + rejectedFiltered.droppedCount;
   const droppedByReason = mergeCountMaps(
     normalized.droppedByReason,
-    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined
+    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined,
+    rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
   );
 
   return {
     stepId: stepSpec.id,
     stepRunId,
-    items: hydratedReviewItems(filtered.items, request),
+    items: hydratedReviewItems(rejectedFiltered.items, request),
     factCheckRows: [],
     droppedItemCount: droppedCount,
     droppedItemCountsByReason: droppedByReason,
@@ -948,6 +962,39 @@ function filterStepItems(
     droppedCount,
     droppedByType
   };
+}
+
+function filterRejectedReviewIdeas(
+  items: EditorialReviewItem[],
+  rejectedIdeas?: RejectedReviewIdea[]
+): {
+  items: EditorialReviewItem[];
+  droppedCount: number;
+} {
+  const activeRejectedIdeas = (rejectedIdeas ?? []).filter((idea) => idea.blockIds.length > 0);
+
+  if (activeRejectedIdeas.length === 0) {
+    return { items, droppedCount: 0 };
+  }
+
+  const kept: EditorialReviewItem[] = [];
+  let droppedCount = 0;
+
+  for (const item of items) {
+    const itemBlockIds = new Set(item.anchor.blockIds);
+    const matchesRejectedIdea = activeRejectedIdeas.some(
+      (idea) => idea.recommendationType === item.recommendationType && idea.blockIds.some((blockId) => itemBlockIds.has(blockId))
+    );
+
+    if (matchesRejectedIdea) {
+      droppedCount += 1;
+      continue;
+    }
+
+    kept.push(item);
+  }
+
+  return { items: kept, droppedCount };
 }
 
 function mergeCountMaps(
@@ -1044,7 +1091,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Будь жорсткішим за замовчуванням: шукай слабку архітектуру розділу, дублювання, провисання логіки, втрату читацького маршруту, редакторську млявість, псевдонауковий або рекламний підтекст і зайві бокові блоки."
       : null,
     step.outputKind === "fact_check_rows"
-      ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"ok|сумнівно|не підтверджено\",\"explanation\":\"...\"}]} без markdown."
+      ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"сумнівно|не підтверджено\",\"explanation\":\"...\",\"sources\":[]}]} без markdown. Якщо немає проблемних або сумнівних тверджень, поверни {\"rows\":[]}. Ніколи не повертай рядки зі статусом ok."
       : null,
     step.id === "emphasis"
       ? "Формат відповіді: JSON {\"items\":[{\"blockId\":\"точний id блока з документа\",\"excerpt\":\"...\",\"priority\":\"high|medium|low\",\"emphasisText\":\"точний підрядок із документа\",\"occurrence\":1}]}. Не повертай title, reason, recommendation або будь-які пояснення."
@@ -1088,6 +1135,9 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "structure"
       ? "Для «Структура» не витрачай картки на мікролексичні або пунктуаційні правки. Фокус: підзаголовки, сегментація, послідовність блоків, врізки й списки як елементи архітектури читання."
       : null,
+    step.id === "structure"
+      ? "Якщо один великий блок треба розбити на кілька майбутніх підрозділів, поверни кілька окремих subsection-карток: одна картка = один конкретний підзаголовок перед одним місцем вставки."
+      : null,
     step.id === "formatting"
       ? "Для «Форматування» фокусуйся на форматі подачі (list/subsection/callout). Не пропонуй мовне переписування абзаців як окремий тип правки."
       : null,
@@ -1120,6 +1170,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
   const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
+  const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks);
 
   return [
     diagnosticsExpertise && step.id !== "diagnostics" ? `Контекст діагностики:\n${diagnosticsExpertise}` : null,
@@ -1141,7 +1192,13 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? "У блоці «Показові абзаци» розбирай 8-15 найпоказовіших абзаців як докази великих проблем. Для кожного абзацу поясни, яку саме системну поломку він доводить."
       : null,
     step.id === "fact_check"
-      ? "Перевір кожне наукове або медично значуще твердження. Для спірних фактів пояснюй, що саме викликає сумнів, у полі explanation. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
+      ? "Не перевіряй і не перераховуй усе підряд. Твоя задача - знайти тільки твердження, які редактор має поставити під сумнів: застаріла або радянська медична рамка, слабка доказовість, надто категоричний причинно-наслідковий висновок, лікувальна або профілактична обіцянка, конкретні числа, відсотки, дозування, тривалість, ризики, лабораторні пороги або підозрілі одиниці вимірювання. Коректні або несуттєві твердження пропускай мовчки."
+      : null,
+    step.id === "fact_check"
+      ? "Оцінюй за стандартами сучасної доказової медицини: актуальні клінічні настанови, систематичні огляди, баланс користі й шкоди, якість доказів, невизначеність. Не покладайся на авторитетність тону рукопису."
+      : null,
+    step.id === "fact_check"
+      ? "Для кожного рядка поясни, що саме насторожує і яку перевірку треба зробити. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
       : null,
     step.outputKind === "recommendation_cards"
       ? "На основі діагностики і фідбеку підготуй локальні картки змін саме для цього кроку. Не переписуй документ цілком."
@@ -1171,11 +1228,40 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "emphasis" && request.changeLevel >= 5
       ? "Для рівня 5/5 пропускай змістовний абзац лише тоді, коли в ньому немає жодної самостійної тези або він уже має достатньо жирного виділення. Не обмежуйся кількома найочевиднішими місцями."
       : null,
+    rejectedIdeasPrompt,
     "Документ:",
     lines.join("\n")
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function buildRejectedIdeasPrompt(rejectedIdeas: RejectedReviewIdea[] | undefined, blocks: Block[]): string | null {
+  if (!rejectedIdeas || rejectedIdeas.length === 0) {
+    return null;
+  }
+
+  const blockIndexById = new Map(blocks.map((block, index) => [block.id, index]));
+  const lines = rejectedIdeas.map((idea, index) => {
+    const blockLabels = idea.blockIds
+      .map((blockId) => {
+        const blockIndex = blockIndexById.get(blockId);
+        return blockIndex === undefined ? blockId : `абз. ${formatParagraphLabel(blockIndex)}`;
+      })
+      .join(", ");
+    const recommendation = idea.recommendation
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH);
+
+    return `${index + 1}. Блоки: ${blockLabels}; тип: ${idea.recommendationType}; рекомендація: ${recommendation}`;
+  });
+
+  return [
+    "Ідеї, які редактор уже відхилив:",
+    lines.join("\n"),
+    "Не повторюй ці ідеї як нові рекомендації. Не пропонуй той самий зміст іншими словами. Можеш повернутися до цих блоків лише якщо пропозиція має інший recommendationType або вирішує іншу проблему."
+  ].join("\n");
 }
 
 async function createChunkedEmphasisReview(
@@ -1263,17 +1349,19 @@ async function createChunkedEmphasisReview(
     items: dedupeChunkedEmphasisItems(mergedRawItems)
   });
   const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
+  const rejectedFiltered = filterRejectedReviewIdeas(filtered.items, request.rejectedIdeas);
   const normalizedDropReasons = mergeCountMaps(
     normalized.droppedByReason,
-    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined
+    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined,
+    rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
   );
 
   return {
     stepId: stepSpec.id,
     stepRunId,
-    items: filtered.items,
+    items: rejectedFiltered.items,
     factCheckRows: [],
-    droppedItemCount: droppedItemCount + normalized.droppedCount + filtered.droppedCount,
+    droppedItemCount: droppedItemCount + normalized.droppedCount + filtered.droppedCount + rejectedFiltered.droppedCount,
     droppedItemCountsByReason: mergeCountMaps(droppedByReason, normalizedDropReasons),
     filteredItemCountsByType: mergeRecommendationTypeCounts(filteredByType, filtered.droppedByType),
     providerUsed,
@@ -1489,25 +1577,79 @@ function parseFactCheckRows(content: string): EditorialFactCheckRow[] {
     const explanation = normalizeRowText(record.explanation, 1200);
     const status = normalizeFactCheckStatus(record.status);
 
-    if (!claim || !explanation || !status) {
+    if (!claim || !explanation || !status || status === "ok") {
       continue;
     }
 
-    normalized.push(
-      finalizeFactCheckRow({
-        claim,
-        status,
-        explanation,
-        sources: normalizeFactCheckSources(record.sources)
-      })
-    );
+    normalized.push({
+      claim,
+      status,
+      explanation,
+      sources: normalizeFactCheckSources(record.sources)
+    });
   }
 
-  if (normalized.length === 0) {
-    throw new Error("Модель не повернула валідних рядків факт-чеку.");
-  }
 
   return normalized;
+}
+
+function finalizeActionableFactCheckRows(
+  request: EditorialReviewRequest,
+  providerRows: EditorialFactCheckRow[]
+): EditorialFactCheckRow[] {
+  const uniqueRows = new Map<string, EditorialFactCheckRow>();
+
+  for (const row of [...providerRows, ...createMeasurementSuspicionRows(request)]) {
+    if (row.status === "ok") {
+      continue;
+    }
+
+    const key = row.claim.toLowerCase().replace(/\s+/g, " ").slice(0, 180);
+
+    if (!uniqueRows.has(key)) {
+      uniqueRows.set(key, finalizeFactCheckRow(row));
+    }
+  }
+
+  return Array.from(uniqueRows.values()).slice(0, 18);
+}
+
+function createMeasurementSuspicionRows(request: EditorialReviewRequest): EditorialFactCheckRow[] {
+  const rows: EditorialFactCheckRow[] = [];
+
+  for (const block of request.document.blocks) {
+    if (rows.length >= 8) {
+      break;
+    }
+
+    const text = getReviewPromptBlockText(block).replace(/\s+/g, " ").trim();
+    const excerpt = findSuspiciousMeasurementExcerpt(text);
+
+    if (!excerpt) {
+      continue;
+    }
+
+    rows.push({
+      claim: excerpt,
+      status: "сумнівно",
+      explanation: suspiciousMeasurementExplanation,
+      sources: []
+    });
+  }
+
+  return rows;
+}
+
+function findSuspiciousMeasurementExcerpt(text: string): string | null {
+  if (!text || text.length < 24) {
+    return null;
+  }
+
+  const sentences = text.match(/[^.!?;:]+(?:[.!?;:]|$)/g) ?? [text];
+  const measurementPattern = /(?:\d+(?:[,.]\d+)?\s*(?:%|відсотк\w*|мг\/дл|ммоль\/л|мг|мкг|г|мл|л|МО|IU|ккал|мм\s*рт\.?\s*ст\.?|°C|градус\w*|доб\w*|дн\w*|тижн\w*|місяц\w*|рок\w*)|(?:артеріальн\w*|тиск|глюкоз\w*|холестерин\w*|вітамін\w*|доз\w*|ризик\w*|летальн\w*|смертн\w*|ефективн\w*|знижує|підвищує)[^.!?]{0,90}\d)/i;
+  const matched = sentences.find((sentence) => measurementPattern.test(sentence));
+
+  return matched ? normalizeRowText(matched, 360) : null;
 }
 
 function normalizeFactCheckSources(value: unknown): EditorialFactCheckSource[] {
@@ -1542,7 +1684,7 @@ function normalizeFactCheckSources(value: unknown): EditorialFactCheckSource[] {
 }
 
 function finalizeFactCheckRow(row: EditorialFactCheckRow): EditorialFactCheckRow {
-  if (row.status === "ok" || row.sources.length > 0) {
+  if (row.status === "ok" || row.sources.length > 0 || row.explanation === suspiciousMeasurementExplanation) {
     return row;
   }
 
@@ -1797,18 +1939,7 @@ function createFallbackFactCheckRows(request: EditorialReviewRequest): Editorial
     });
   });
 
-  if (rows.length > 0) {
-    return rows;
-  }
-
-  return [
-    {
-      claim: "Явних перевірюваних тверджень із числовими або науковими маркерами не знайдено автоматичним fallback.",
-      status: "ok",
-      explanation: "Для повного факт-чеку запустіть крок із доступним AI-провайдером.",
-      sources: []
-    }
-  ];
+  return rows;
 }
 
 export function createFallbackEditorialReviewItems(

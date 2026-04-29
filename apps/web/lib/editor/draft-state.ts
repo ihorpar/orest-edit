@@ -11,6 +11,7 @@ import type {
   EditorialStepRunHistory,
   EditorialStepRunModeMap,
   GeneratedReviewImageAsset,
+  RejectedReviewIdea,
   ReviewActionProposal,
   WholeTextChangeLevel
 } from "./review-contract";
@@ -56,6 +57,7 @@ export interface PersistedEditorDraftState {
   patchDiagnostics: PatchResponseDiagnostics | null;
   reviewDiagnostics: EditorialReviewDiagnostics | null;
   reviewExpertise: string | null;
+  rejectedReviewIdeas: RejectedReviewIdea[];
   factCheckRows: EditorialFactCheckRow[];
   activeWorkflowStep: PersistedWorkflowStepId;
   stepRunHistory: EditorialStepRunHistory;
@@ -120,6 +122,7 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
     return {
       ...parsed,
       reviewExpertise: typeof parsed.reviewExpertise === "string" ? parsed.reviewExpertise : null,
+      rejectedReviewIdeas: Array.isArray(parsed.rejectedReviewIdeas) ? parsed.rejectedReviewIdeas : [],
       factCheckRows: Array.isArray(parsed.factCheckRows) ? parsed.factCheckRows : [],
       activeWorkflowStep,
       stepRunHistory: coerceStepRunHistory(parsed.stepRunHistory, defaultRunHistory),

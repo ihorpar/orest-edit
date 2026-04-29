@@ -25,6 +25,11 @@ Decision: review diagnostics now include drop reasons and per-type filter counts
 
 Reason: editors need to distinguish “model found little” from “system filtered or normalized items away” when auditing low-card runs.
 
+### Rejected review ideas become prompt-level negative memory
+Decision: when an editor rejects a recommendation, the app stores only a compact negative memory tuple: `blockIds`, `recommendationType`, and the recommendation text trimmed to 300 characters. Future full-document review runs receive the full list in a dedicated rejected-ideas prompt section, and server normalization drops new cards that overlap a rejected block with the same recommendation type.
+
+Reason: editors should not have to reject the same local editorial move across later stages, but the memory must stay simple and avoid blocking different kinds of useful recommendations for the same paragraph.
+
 ## 2026-03-19
 
 ## 2026-03-22
@@ -521,3 +526,17 @@ Reason: allowing bold as an optional flourish produced timid formatting. Editors
 Decision: manuscript-generating execution prompts (`rewrite`, `simplify`, `expand`, `list`, `subsection`, and local patch rewrites) should actively ask for `**bold**` on key ideas and on short local heading/label lines when such lines appear in the replacement text. The expected density is explicit: every meaningful paragraph, replacement block, or list item should receive at least one short bold emphasis, and long or multi-thesis passages may receive 2-3 short emphases. Prompts must still forbid markdown headings (`#`, `##`), HTML headings, arbitrary markdown, whole-sentence bolding, full-paragraph bolding, and full-list-item bolding.
 
 Reason: these actions produce actual manuscript prose, not just side material. If the editor asks the AI to make dense text clearer, the result should also be easier to scan, using the same controlled bold mechanism that now works well for deep callouts. Blanket "no markdown" wording is too easy for models to interpret as "never use `**bold**`", so prompts should instead ban only other markdown.
+
+### Fact-check reports only red flags, not confirmations
+Date: 2026-04-29
+
+Decision: the fact-check step must return only medically or scientifically questionable claims: outdated framing, weak evidence, overclaims, suspicious numbers, dosages, thresholds, durations, risks, or measurement units. Correct or unremarkable claims are omitted; an empty table means no separate red flags were found in that run.
+
+Reason: editors need fact-check to focus attention on claims that may need evidence-based verification, especially in manuscripts shaped by older Soviet/post-Soviet health advice. Showing `ok` rows creates false reassurance and clutters the review surface.
+
+### Structure uses an outline map over existing action cards
+Date: 2026-04-29
+
+Decision: the `Структура` step should present a chapter outline grouped by manuscript headings and attached structure actions, while preserving `EditorialReviewItem` cards as the only executable units for apply/regenerate/dismiss.
+
+Reason: editors need to see the reading route before deciding on local structure edits, but one broad structural problem can require several separate heading/list/callout insertions. Keeping each insertion as a card preserves the patch-first execution model and avoids a risky whole-outline apply operation.

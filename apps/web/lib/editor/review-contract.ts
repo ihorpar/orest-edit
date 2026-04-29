@@ -42,6 +42,8 @@ export type EditorialReviewStepId =
 export type EditorialStepRunMode = "preserve" | "replace";
 export type FactCheckStatus = "ok" | "сумнівно" | "не підтверджено";
 
+export const REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH = 300;
+
 export interface EditorialFactCheckSource {
   title: string;
   url: string;
@@ -97,6 +99,12 @@ export interface EditorialReviewSession {
   status: ReviewSessionStatus;
 }
 
+export interface RejectedReviewIdea {
+  blockIds: string[];
+  recommendationType: EditorialReviewRecommendationType;
+  recommendation: string;
+}
+
 export interface EditorialReviewRequest {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -120,6 +128,7 @@ export interface EditorialReviewRequest {
   stepFeedback?: string;
   /** Expertise text from stage 1 — fed into card generation in stage 2 */
   expertise?: string;
+  rejectedIdeas?: RejectedReviewIdea[];
 }
 
 export interface EditorialReviewItem {
@@ -741,6 +750,53 @@ export function normalizeEditorialReviewItems(input: {
   }
 
   return { items: deduped, droppedCount, droppedByReason };
+}
+
+export function normalizeRejectedReviewIdeas(value: unknown): RejectedReviewIdea[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: RejectedReviewIdea[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    const blockIds = Array.isArray(record.blockIds)
+      ? Array.from(
+          new Set(
+            record.blockIds
+              .map((blockId) => (typeof blockId === "string" ? blockId.trim() : ""))
+              .filter(Boolean)
+          )
+        )
+      : [];
+    const recommendationType = normalizeRecommendationType(record.recommendationType);
+    const recommendation = normalizeCopy(record.recommendation, REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH);
+
+    if (blockIds.length === 0 || !recommendation) {
+      continue;
+    }
+
+    const key = `${recommendationType}:${blockIds.join("|")}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push({
+      blockIds,
+      recommendationType,
+      recommendation
+    });
+  }
+
+  return normalized;
 }
 
 function resolveCardRanges(
