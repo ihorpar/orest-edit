@@ -27,7 +27,7 @@ import {
   normalizeVisualStylePreset
 } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
-import { createFallbackOperations, resolveProviderApiKey } from "./patch-service.ts";
+import { resolveProviderApiKey } from "./patch-service.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
@@ -40,6 +40,18 @@ const CALLOUT_DEPTH_PROMPT_GUIDANCE: Record<EditorialCalloutDepth, string> = {
 };
 
 type FetchLike = typeof fetch;
+type OpenAiResponsePayload = {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      text?: string;
+      refusal?: string;
+    }>;
+  }>;
+  error?: { message?: string };
+  status?: string;
+  incomplete_details?: { reason?: string };
+};
 CALLOUT_DEPTH_PROMPT_GUIDANCE.deep =
   "Профіль deep / докладно: зроби глибокий розбір питання у 3-6 докладних абзацах. Активно використовуй **жирний** як інструмент структури: став короткі **якорі-підзаголовки** з 1-3 слів над окремими абзацами та виділяй **ключові думки** всередині тексту. Це не має бути суцільне полотно; якщо матеріал містить перелік кроків, причин, наслідків або прикладів, оформи одну частину як короткий список.";
 type InfographicLayout = "comparison" | "process" | "timeline" | "cause_effect" | "layers" | "diagram";
@@ -95,6 +107,40 @@ const geminiListReplaceSchema = {
   required: ["items"]
 } as const;
 
+function readOpenAiResponseText(payload: OpenAiResponsePayload): string {
+  const directText = payload.output_text?.trim();
+
+  if (directText) {
+    return directText;
+  }
+
+  return (
+    payload.output
+      ?.flatMap((item) => item.content ?? [])
+      .map((content) => content.text ?? "")
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function describeOpenAiEmptyResponse(payload: OpenAiResponsePayload, fallbackMessage: string): string {
+  const refusals = payload.output
+    ?.flatMap((item) => item.content ?? [])
+    .map((content) => content.refusal?.trim() ?? "")
+    .filter(Boolean);
+
+  if (refusals?.length) {
+    return `OpenAI відмовився згенерувати відповідь: ${refusals.join(" ")}`;
+  }
+
+  if (payload.status === "incomplete") {
+    const reason = payload.incomplete_details?.reason;
+    return reason ? `${fallbackMessage} Причина: ${reason}.` : `${fallbackMessage} Відповідь incomplete.`;
+  }
+
+  return fallbackMessage;
+}
+
 export interface GenerateReviewActionOptions {
   fetchImpl?: FetchLike;
   now?: () => string;
@@ -142,16 +188,17 @@ export async function generateReviewAction(
     const apiKey = normalizedRequest.apiKey ?? resolveProviderApiKey(normalizedRequest.provider, readEnvValue);
 
     if (!apiKey) {
-      const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
+      const proposalKind = getRequestProposalKind(normalizedRequest);
+      const error = `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env.`;
 
       return {
-        proposal: fallbackProposal,
+        proposal: createErrorProposal(normalizedRequest, proposalKind, error),
         providerUsed: normalizedRequest.provider,
-        usedFallback: true,
-        error: `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env, тому показано локальну чернетку.`,
+        usedFallback: false,
+        error,
         diagnostics: {
           ...diagnosticsBase,
-          proposalKind: "text_diff"
+          proposalKind
         }
       };
     }
@@ -171,16 +218,17 @@ export async function generateReviewAction(
         }
       };
     } catch (error) {
-      const fallbackProposal = buildFallbackReplaceProposal(normalizedRequest);
+      const proposalKind = getRequestProposalKind(normalizedRequest);
+      const message = formatReplaceProviderErrorMessage(normalizedRequest.provider, error);
 
       return {
-        proposal: fallbackProposal,
-        providerUsed: `fallback:${normalizedRequest.provider}`,
-        usedFallback: true,
-        error: formatReplaceProviderErrorMessage(normalizedRequest.provider, error),
+        proposal: createErrorProposal(normalizedRequest, proposalKind, message),
+        providerUsed: normalizedRequest.provider,
+        usedFallback: false,
+        error: message,
         diagnostics: {
           ...diagnosticsBase,
-          proposalKind: "text_diff",
+          proposalKind,
           rawError: formatRawError(error)
         }
       };
@@ -219,21 +267,17 @@ export async function generateReviewAction(
   const apiKey = normalizedRequest.apiKey ?? resolveProviderApiKey(normalizedRequest.provider, readEnvValue);
 
   if (!apiKey) {
-    const fallbackProposal =
-      normalizedRequest.item.recommendationType === "subsection"
-        ? createFallbackSubsectionProposal(normalizedRequest)
-        : normalizedRequest.item.suggestedAction === "prepare_callout"
-        ? createFallbackCalloutProposal(normalizedRequest)
-        : createFallbackImagePromptProposal(normalizedRequest);
+    const proposalKind = getRequestProposalKind(normalizedRequest);
+    const error = `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env.`;
 
     return {
-      proposal: fallbackProposal,
+      proposal: createErrorProposal(normalizedRequest, proposalKind, error),
       providerUsed: normalizedRequest.provider,
-      usedFallback: true,
-      error: `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env, тому показано локальну чернетку.`,
+      usedFallback: false,
+      error,
       diagnostics: {
         ...diagnosticsBase,
-        proposalKind: fallbackProposal.kind
+        proposalKind
       }
     };
   }
@@ -257,21 +301,17 @@ export async function generateReviewAction(
       }
     };
   } catch (error) {
-    const fallbackProposal =
-      normalizedRequest.item.recommendationType === "subsection"
-        ? createFallbackSubsectionProposal(normalizedRequest)
-        : normalizedRequest.item.suggestedAction === "prepare_callout"
-        ? createFallbackCalloutProposal(normalizedRequest)
-        : createFallbackImagePromptProposal(normalizedRequest);
+    const proposalKind = getRequestProposalKind(normalizedRequest);
+    const message = error instanceof Error ? error.message : "Не вдалося підготувати чернетку.";
 
     return {
-      proposal: fallbackProposal,
+      proposal: createErrorProposal(normalizedRequest, proposalKind, message),
       providerUsed: normalizedRequest.provider,
-      usedFallback: true,
-      error: error instanceof Error ? error.message : "Не вдалося підготувати чернетку.",
+      usedFallback: false,
+      error: message,
       diagnostics: {
         ...diagnosticsBase,
-        proposalKind: fallbackProposal.kind,
+        proposalKind,
         rawError: formatRawError(error)
       }
     };
@@ -388,17 +428,32 @@ function createStaleProposal(request: ReviewActionRequest, staleReason: string):
   };
 }
 
-function buildTextProposalPrompt(request: ReviewActionRequest): string {
-  const blockCount = request.item.anchor.blockIds.length;
+function getRequestProposalKind(request: ReviewActionRequest): ReviewActionProposal["kind"] {
+  if (isReplaceReviewType(request.item.recommendationType)) {
+    return "text_diff";
+  }
 
-  return [
-    buildReplacePromptByType(request.item.recommendationType, blockCount, request.item.stepId),
-    `Редакторська рекомендація: ${request.item.recommendation}`,
-    `Причина: ${request.item.reason}`,
-    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  if (request.item.recommendationType === "subsection") {
+    return "subsection_prompt";
+  }
+
+  return request.item.suggestedAction === "prepare_callout" ? "callout_prompt" : "image_prompt";
+}
+
+function createErrorProposal(
+  request: ReviewActionRequest,
+  kind: ReviewActionProposal["kind"],
+  summary: string
+): ReviewActionProposal {
+  return {
+    id: createPatchId("proposal-error"),
+    reviewItemId: request.item.id,
+    sourceRevisionId: request.item.documentRevisionId,
+    targetRevisionId: request.currentRevision.documentRevisionId,
+    kind,
+    summary,
+    canApplyDirectly: false
+  };
 }
 
 function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
@@ -594,31 +649,16 @@ function getReplaceOldBlocks(request: ReviewActionRequest): Block[] {
     .filter((block): block is Block => Boolean(block));
 }
 
-function buildFallbackReplaceProposal(request: ReviewActionRequest): ReviewActionProposal {
-  const fallbackOperation = createFallbackOperations({
-    document: request.document,
-    targetBlockIds: request.item.anchor.blockIds,
-    mode: "custom",
-    prompt: buildTextProposalPrompt(request),
-    provider: request.provider,
-    modelId: request.modelId,
-    apiKey: request.apiKey,
-    basePrompt: [request.basePrompt, request.reviewLevelGuide].filter(Boolean).join("\n\n")
-  })[0];
-
-  return buildReplaceProposalFromBlocks(request, fallbackOperation.newBlocks, fallbackOperation.reason);
-}
-
 function formatReplaceProviderErrorMessage(provider: string, error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
-    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с, тому показано локальну fallback-правку.`;
+    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с.`;
   }
 
   if (error instanceof Error) {
     return error.message;
   }
 
-  return `${providerDisplayName(provider)} недоступний, тому показано локальну fallback-правку.`;
+  return `${providerDisplayName(provider)} недоступний.`;
 }
 
 function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provider: string): string {
@@ -1714,16 +1754,16 @@ async function runOpenAiStructuredReplacePrompt(
       }),
       signal: controller.signal
     });
-    const payload = (await response.json()) as { output_text?: string; error?: { message?: string } };
+    const payload = (await response.json()) as OpenAiResponsePayload;
 
     if (!response.ok) {
       throw new Error(payload.error?.message || "OpenAI недоступний.");
     }
 
-    const output = payload.output_text?.trim();
+    const output = readOpenAiResponseText(payload);
 
     if (!output) {
-      throw new Error("OpenAI повернув порожню відповідь для локальної правки.");
+      throw new Error(describeOpenAiEmptyResponse(payload, "OpenAI повернув порожню відповідь для локальної правки."));
     }
 
     return output;
@@ -1842,16 +1882,16 @@ async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: stri
       }),
       signal: controller.signal
     });
-    const payload = (await response.json()) as { output_text?: string; error?: { message?: string } };
+    const payload = (await response.json()) as OpenAiResponsePayload;
 
     if (!response.ok) {
       throw new Error(payload.error?.message || "OpenAI недоступний.");
     }
 
-    const output = payload.output_text?.trim();
+    const output = readOpenAiResponseText(payload);
 
     if (!output) {
-      throw new Error("OpenAI повернув порожню відповідь для proposal.");
+      throw new Error(describeOpenAiEmptyResponse(payload, "OpenAI повернув порожню відповідь для proposal."));
     }
 
     return output;

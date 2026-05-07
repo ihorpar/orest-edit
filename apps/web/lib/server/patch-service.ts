@@ -251,11 +251,14 @@ export async function generatePatchResponse(
   const apiKey = patchRequest.apiKey ?? resolveProviderApiKey(patchRequest.provider, readEnvValue);
 
   if (!apiKey) {
-    return buildFallbackPatchResponse({
-      patchRequest,
+    return buildPatchErrorResponse({
       requestId,
+      requestedProvider: patchRequest.provider,
+      requestedModelId: patchRequest.modelId,
+      mode: patchRequest.mode,
       targetBlockCount: targetBlocks.length,
-      error: `Немає ${providerDisplayName(patchRequest.provider)} API key у формі або .env, тому показано локальну fallback-правку.`,
+      providerUsed: patchRequest.provider,
+      error: `Немає API key для ${providerDisplayName(patchRequest.provider)} у формі або .env.`,
       generatedAt: now()
     });
   }
@@ -264,11 +267,14 @@ export async function generatePatchResponse(
     const result = await createProviderOperations(patchRequest, apiKey, fetchImpl);
 
     if (result.operations.length === 0 && result.droppedOperationCount > 0) {
-      return buildFallbackPatchResponse({
-        patchRequest,
+      return buildPatchErrorResponse({
         requestId,
+        requestedProvider: patchRequest.provider,
+        requestedModelId: patchRequest.modelId,
+        mode: patchRequest.mode,
         targetBlockCount: targetBlocks.length,
-        error: "Провайдер не повернув придатний diff, тому застосовано безпечну локальну правку.",
+        providerUsed: result.providerUsed,
+        error: "Провайдер повернув невалідний diff.",
         generatedAt: now(),
         rawOutput: result.rawOutput
       });
@@ -289,10 +295,13 @@ export async function generatePatchResponse(
       rawOutput: result.rawOutput
     });
   } catch (error) {
-    return buildFallbackPatchResponse({
-      patchRequest,
+    return buildPatchErrorResponse({
       requestId,
+      requestedProvider: patchRequest.provider,
+      requestedModelId: patchRequest.modelId,
+      mode: patchRequest.mode,
       targetBlockCount: targetBlocks.length,
+      providerUsed: patchRequest.provider,
       error: formatProviderErrorMessage(patchRequest.provider, error),
       generatedAt: now(),
       rawError: formatRawError(error)
@@ -499,9 +508,12 @@ async function createAnthropicOperations(request: PatchRequest, apiKey: string, 
 }
 
 function buildFallbackPatchResponse(input: {
-  patchRequest: PatchRequest;
   requestId: string;
+  requestedProvider: string;
+  requestedModelId: string;
+  mode: PatchRequest["mode"];
   targetBlockCount: number;
+  providerUsed: string;
   error: string;
   generatedAt: string;
   rawOutput?: string;
@@ -509,19 +521,34 @@ function buildFallbackPatchResponse(input: {
 }): PatchResponse {
   return buildPatchResponse({
     requestId: input.requestId,
-    providerUsed: `fallback:${input.patchRequest.provider}`,
-    requestedProvider: input.patchRequest.provider,
-    requestedModelId: input.patchRequest.modelId,
-    mode: input.patchRequest.mode,
+    providerUsed: input.providerUsed,
+    requestedProvider: input.requestedProvider,
+    requestedModelId: input.requestedModelId,
+    mode: input.mode,
     targetBlockCount: input.targetBlockCount,
-    operations: createFallbackOperations(input.patchRequest),
+    operations: [],
     droppedOperationCount: 0,
-    usedFallback: true,
+    usedFallback: false,
     error: input.error,
     generatedAt: input.generatedAt,
     rawOutput: input.rawOutput,
     rawError: input.rawError
   });
+}
+
+function buildPatchErrorResponse(input: {
+  requestId: string;
+  requestedProvider: string;
+  requestedModelId: string;
+  mode: PatchRequest["mode"];
+  targetBlockCount: number;
+  providerUsed: string;
+  error: string;
+  generatedAt: string;
+  rawOutput?: string;
+  rawError?: string;
+}): PatchResponse {
+  return buildFallbackPatchResponse(input);
 }
 
 function rewriteBlockFallback(block: Block, prompt?: string): Block {
@@ -869,21 +896,21 @@ function formatRawError(error: unknown): string | undefined {
 
 function formatProviderErrorMessage(provider: string, error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
-    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с, тому показано локальну fallback-правку.`;
+    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с.`;
   }
 
   if (
     error instanceof TypeError ||
     (error instanceof Error && /fetch failed|network|econnreset|enotfound|eai_again/i.test(error.message))
   ) {
-    return `${providerDisplayName(provider)} недоступний або мережа не відповідає, тому показано локальну fallback-правку.`;
+    return `${providerDisplayName(provider)} недоступний або мережа не відповідає.`;
   }
 
   if (error instanceof Error) {
     return error.message;
   }
 
-  return `${providerDisplayName(provider)} недоступний, тому показано локальну fallback-правку.`;
+  return `${providerDisplayName(provider)} недоступний.`;
 }
 
 function parsePatchOperations(content: string): { operations: unknown } {

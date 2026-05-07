@@ -55,7 +55,7 @@ function createRequest(): ReviewActionRequest {
   };
 }
 
-test("generateReviewAction prepares subsection proposal instead of failing safe", async () => {
+test("generateReviewAction returns an explicit error when API key is missing", async () => {
   const request = createRequest();
 
   const response = await generateReviewAction(request, {
@@ -63,8 +63,9 @@ test("generateReviewAction prepares subsection proposal instead of failing safe"
   });
 
   assert.equal(response.proposal.kind, "subsection_prompt");
-  assert.equal(response.usedFallback, true);
-  assert.ok(response.proposal.subsectionDraft?.title);
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.proposal.subsectionDraft, undefined);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
 test("generateReviewAction builds subsection draft deterministically from explicit heading/text instruction", async () => {
@@ -132,7 +133,17 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
 
         return new Response(
           JSON.stringify({
-            output_text: "Готовий prompt."
+            output: [
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "Готовий prompt."
+                  }
+                ]
+              }
+            ]
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
@@ -1284,7 +1295,17 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
 
         return new Response(
           JSON.stringify({
-            output_text: "{\"items\":[\"Крок А\",\"Крок Б\",\"Крок В\"],\"reason\":\"Сформував короткий список.\"}"
+            output: [
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "{\"items\":[\"Крок А\",\"Крок Б\",\"Крок В\"],\"reason\":\"Сформував короткий список.\"}"
+                  }
+                ]
+              }
+            ]
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
@@ -1716,8 +1737,9 @@ test("generateReviewAction forwards raw provider abort diagnostics for rewrite p
   );
 
   assert.equal(response.proposal.kind, "text_diff");
-  assert.equal(response.usedFallback, true);
-  assert.equal(response.providerUsed, "fallback:openai");
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "openai");
+  assert.equal(response.proposal.textDiff, undefined);
   assert.match(response.error ?? "", /перевищив таймаут 45с/i);
   assert.match(response.diagnostics.rawError ?? "", /AbortError: This operation was aborted/);
 });
@@ -1852,7 +1874,7 @@ test("generateReviewAction injects anti-disclaimer guardrails into rewrite repla
   assert.match(String(requestBody?.input ?? ""), /фраз про самодіагностику або консультацію/i);
 });
 
-test("generateReviewAction falls back on empty provider output instead of echoing prompt text", async () => {
+test("generateReviewAction returns an explicit error on empty provider output", async () => {
   const request = createRequest();
   request.apiKey = "test-key";
 
@@ -1866,10 +1888,10 @@ test("generateReviewAction falls back on empty provider output instead of echoin
       )
   });
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
   assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft, undefined);
   assert.match(response.error ?? "", /порожню відповідь/i);
-  assert.doesNotMatch(response.proposal.subsectionDraft?.lead ?? "", /Ти готуєш вставку підзаголовка|Поверни лише JSON/i);
 });
 
 test("generateReviewAction uses Gemini header auth and parses subsection output", async () => {

@@ -20,16 +20,15 @@ function createRequest(overrides: Partial<PatchRequest> = {}): PatchRequest {
   };
 }
 
-test("generatePatchResponse falls back locally when no API key is present", async () => {
+test("generatePatchResponse returns an explicit error when no API key is present", async () => {
   const response = await generatePatchResponse(createRequest(), {
     readEnvValue: () => null,
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
-  assert.equal(response.operations.length, 1);
-  assert.equal(response.operations[0]?.blockIds[0], "p1");
-  assert.match(response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0].text : "", /система серця і судин/);
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
 test("generatePatchResponse rejects empty block selection", async () => {
@@ -79,8 +78,9 @@ test("generatePatchResponse includes raw abort diagnostics when provider request
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
-  assert.equal(response.providerUsed, "fallback:openai");
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "openai");
+  assert.equal(response.operations.length, 0);
   assert.match(response.error ?? "", /перевищив таймаут 60с/i);
   assert.match(response.diagnostics.rawError ?? "", /AbortError: This operation was aborted/);
 });
@@ -310,7 +310,7 @@ test("generatePatchResponse sends strict OpenAI patch schema with closed objects
   assert.equal("temperature" in payload, false);
 });
 
-test("generatePatchResponse fallback rewrites standalone lists into a visible paragraph draft", async () => {
+test("generatePatchResponse does not return synthetic list rewrite when API key is missing", async () => {
   const response = await generatePatchResponse(
     createRequest({
       document: {
@@ -332,10 +332,9 @@ test("generatePatchResponse fallback rewrites standalone lists into a visible pa
     }
   );
 
-  assert.equal(response.usedFallback, true);
-  assert.equal(response.operations.length, 1);
-  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
-  assert.match(response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0].text : "", /Шкірні хвороби, Хронічні захворювання нирок та Синдром Рейтера\./);
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
 test("generatePatchResponse turns fetch failures into a user-facing provider availability message", async () => {
@@ -353,7 +352,8 @@ test("generatePatchResponse turns fetch failures into a user-facing provider ava
     }
   );
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.operations.length, 0);
   assert.match(response.error ?? "", /Gemini недоступний або мережа не відповідає/i);
   assert.match(response.diagnostics.rawError ?? "", /fetch failed/i);
 });

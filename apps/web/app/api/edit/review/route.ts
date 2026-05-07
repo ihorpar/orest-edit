@@ -91,7 +91,7 @@ export async function POST(request: Request) {
   }
 
   const response = await generateEditorialReview(parsed.value);
-  const status = response.providerUsed === "invalid-text" ? 400 : 200;
+  const status = response.providerUsed === "invalid-text" ? 400 : response.error ? 502 : 200;
 
   return NextResponse.json<EditorialReviewResponse>(response, { status });
 }

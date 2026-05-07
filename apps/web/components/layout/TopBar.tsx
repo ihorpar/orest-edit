@@ -8,6 +8,8 @@ import type { DocumentTextStats } from "../../lib/editor/document-model";
 import {
   EDITOR_SETTINGS_UPDATED_EVENT,
   findProviderModelPreset,
+  getModelPresetPriceLabel,
+  getModelPresetSmartnessLabel,
   getProviderModelPresets,
   readEditorSettings,
   writeEditorSettings,
@@ -133,10 +135,11 @@ export function TopBar({
     window.dispatchEvent(new CustomEvent(EDITOR_SETTINGS_UPDATED_EVENT, { detail: persisted }));
   }
 
-  const topbarModelValue =
-    editorSettings && TOPBAR_MODEL_PROVIDERS.includes(editorSettings.provider) && findProviderModelPreset(editorSettings.provider, editorSettings.modelId)
-      ? `${editorSettings.provider}::${editorSettings.modelId}`
-      : "";
+  const selectedTopbarModelPreset =
+    editorSettings && TOPBAR_MODEL_PROVIDERS.includes(editorSettings.provider)
+      ? findProviderModelPreset(editorSettings.provider, editorSettings.modelId)
+      : null;
+  const topbarModelValue = editorSettings && selectedTopbarModelPreset ? `${editorSettings.provider}::${editorSettings.modelId}` : "";
 
   return (
     <header className="topbar">
@@ -218,6 +221,7 @@ export function TopBar({
                 ))}
               </optgroup>
             </select>
+            {selectedTopbarModelPreset ? <TopbarModelPresetChips preset={selectedTopbarModelPreset} /> : null}
           </label>
         ) : null}
         {documentStats ? (
@@ -268,4 +272,24 @@ export function TopBar({
 
 function formatTopbarCount(value: number): string {
   return new Intl.NumberFormat("uk-UA").format(value);
+}
+
+function TopbarModelPresetChips({
+  preset
+}: {
+  preset: NonNullable<ReturnType<typeof findProviderModelPreset>>;
+}) {
+  const smartness = getModelPresetSmartnessLabel(preset);
+  const price = getModelPresetPriceLabel(preset);
+
+  if (!smartness && !price) {
+    return null;
+  }
+
+  return (
+    <span className="settings-model-chip-row topbar-model-chip-row" aria-label="Оцінка моделі">
+      {smartness ? <span className="settings-model-chip topbar-model-chip">💡 {smartness}</span> : null}
+      {price ? <span className="settings-model-chip topbar-model-chip">{price}</span> : null}
+    </span>
+  );
 }

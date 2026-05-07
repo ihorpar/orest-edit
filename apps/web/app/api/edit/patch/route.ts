@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   const response = await generatePatchResponse(parsed.value);
-  const status = response.providerUsed === "invalid-selection" ? 400 : 200;
+  const status = response.providerUsed === "invalid-selection" ? 400 : response.error ? 502 : 200;
 
   return NextResponse.json<PatchResponse>(response, { status });
 }

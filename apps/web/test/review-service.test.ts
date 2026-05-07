@@ -28,16 +28,16 @@ function createRequest(overrides: Partial<EditorialReviewRequest> = {}): Editori
   };
 }
 
-test("generateEditorialReview builds fallback recommendations without API key", async () => {
+test("generateEditorialReview returns an explicit error without API key", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "clarity" }), {
     readEnvValue: () => null,
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "clarity");
-  assert.ok(response.items.length >= 1);
-  assert.deepEqual(response.items[0]?.anchor.blockIds, ["p1"]);
+  assert.equal(response.items.length, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
   assert.equal(response.diagnostics.blockCount, 2);
 });
 
@@ -148,8 +148,8 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
   assert.equal(response.stepId, "final_editing");
   assert.equal(response.items[0]?.recommendationType, "visual");
   assert.equal(JSON.parse(requestBody).temperature, undefined);
-  assert.match(requestBody, /Крок workflow: Власний запит/);
-  assert.match(requestBody, /Власний запит редактора для цього запуску/);
+  assert.match(requestBody, /Крок workflow: Власний промпт/);
+  assert.match(requestBody, /Власний промпт редактора для цього запуску/);
   assert.match(requestBody, /Додай візуал і врізку/);
 });
 
@@ -292,16 +292,17 @@ test("generateEditorialReview drops items matching rejected recommendation type 
   assert.equal(response.diagnostics.droppedItemCountsByReason?.rejected_idea_duplicate, 1);
 });
 
-test("generateEditorialReview fallback enforces step-specific recommendation types", async () => {
+test("generateEditorialReview returns an explicit error for visuals step without API key", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "visuals" }), {
     readEnvValue: () => null,
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "visuals");
   assert.equal(response.items.length, 0);
-  assert.ok(response.diagnostics.droppedItemCount >= 1);
+  assert.equal(response.diagnostics.droppedItemCount, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
 test("generateEditorialReview prompt encourages deep callouts for dense explanatory fragments", async () => {
@@ -391,19 +392,18 @@ test("generateEditorialReview serializes structural blocks in step prompts", asy
   assert.match(requestBody, /- Другий пункт/);
 });
 
-test("generateEditorialReview fallback callout after dense heading paragraph prefers deep", async () => {
+test("generateEditorialReview returns an explicit error for structure step without API key", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "structure" }), {
     readEnvValue: () => null,
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  const callout = response.items.find((item) => item.recommendationType === "callout");
-  assert.ok(callout);
-  assert.equal(callout?.calloutDepth, "deep");
-  assert.equal(callout?.calloutDraft?.calloutDepth, "deep");
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
-test("generateEditorialReview builds fallback emphasis targets as exact inline spans", async () => {
+test("generateEditorialReview returns an explicit error for emphasis step without API key", async () => {
   const document: EditorDocument = {
     version: 2,
     blocks: [
@@ -423,12 +423,10 @@ test("generateEditorialReview builds fallback emphasis targets as exact inline s
     now: () => "2026-03-10T12:00:00.000Z"
   });
 
-  assert.equal(response.usedFallback, true);
+  assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "emphasis");
-  assert.ok(response.items.length >= 1);
-  assert.ok(response.items.every((item) => item.recommendationType === "rewrite"));
-  assert.ok(response.items.every((item) => item.stepId === "emphasis"));
-  assert.ok(response.items.every((item) => Boolean(item.emphasisTarget?.text)));
+  assert.equal(response.items.length, 0);
+  assert.match(response.error ?? "", /Немає API key/i);
 });
 
 test("generateEditorialReview includes existing bold markers in emphasis prompt", async () => {

@@ -1362,6 +1362,10 @@
   font-size: 12px;
 }
 
+.step-review-prototype-final-prompt {
+  padding: 16px 24px 0;
+}
+
 .step-review-prototype-input {
   width: 100%;
   border: 0;

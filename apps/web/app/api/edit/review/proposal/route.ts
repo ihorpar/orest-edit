@@ -79,7 +79,7 @@ export async function POST(request: Request) {
   }
 
   const response = await generateReviewAction(parsed.value);
-  const status = response.proposal.kind === "stale_anchor" ? 409 : 200;
+  const status = response.proposal.kind === "stale_anchor" ? 409 : response.error ? 502 : 200;
 
   return NextResponse.json<ReviewActionResponse>(response, { status });
 }

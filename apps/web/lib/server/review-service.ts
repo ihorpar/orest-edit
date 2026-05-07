@@ -362,11 +362,11 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
   },
   final_editing: {
     id: "final_editing",
-    title: "Власний запит",
+    title: "Власний промпт",
     outputKind: "recommendation_cards",
     allowedRecommendationTypes: ["rewrite", "simplify", "expand", "list", "subsection", "callout", "visual"],
     cardGuidance:
-      "Фокус: виконай власний запит редактора, але поверни результат тільки як локальні executable-картки. Якщо запит просить врізки, підзаголовки, списки, переписування або візуали, використовуй відповідні recommendationType.",
+      "Фокус: виконай власний промпт редактора, але поверни результат тільки як локальні executable-картки. Якщо промпт просить врізки, підзаголовки, списки, переписування або візуали, використовуй відповідні recommendationType.",
     systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.final_editing
   }
 };
@@ -445,14 +445,25 @@ export async function generateEditorialReview(
   const apiKey = request.apiKey ?? resolveProviderApiKey(request.provider, readEnvValue);
 
   if (!apiKey) {
-    return buildFallbackEditorialReviewResponse({
-      request,
+    return buildEditorialReviewResponse({
       requestId,
       reviewSessionId,
       stepId,
       stepRunId,
       runMode,
-      error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env, тому показано локальний редакторський огляд.`,
+      requestedProvider: request.provider,
+      requestedModelId: request.modelId,
+      providerUsed: request.provider,
+      blockCount,
+      changeLevel: request.changeLevel,
+      items: [],
+      factCheckRows: [],
+      expertise: undefined,
+      droppedItemCount: 0,
+      droppedItemCountsByReason: undefined,
+      filteredItemCountsByType: undefined,
+      usedFallback: false,
+      error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env.`,
       generatedAt: now()
     });
   }
@@ -491,14 +502,25 @@ export async function generateEditorialReview(
       rawOutput: result.rawOutput
     });
   } catch (error) {
-    return buildFallbackEditorialReviewResponse({
-      request,
+    return buildEditorialReviewResponse({
       requestId,
       reviewSessionId,
       stepId,
       stepRunId,
       runMode,
-      error: error instanceof Error ? error.message : `${providerDisplayName(request.provider)} недоступний, тому показано локальний редакторський огляд.`,
+      requestedProvider: request.provider,
+      requestedModelId: request.modelId,
+      providerUsed: request.provider,
+      blockCount,
+      changeLevel: request.changeLevel,
+      items: [],
+      factCheckRows: [],
+      expertise: undefined,
+      droppedItemCount: 0,
+      droppedItemCountsByReason: undefined,
+      filteredItemCountsByType: undefined,
+      usedFallback: false,
+      error: error instanceof Error ? error.message : `${providerDisplayName(request.provider)} недоступний.`,
       generatedAt: now()
     });
   }
@@ -1216,10 +1238,10 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     historyLines.length > 0 ? `Релевантний контекст діалогу:\n${historyLines.join("\n")}` : null,
     request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
     step.id === "final_editing" && stepFeedback
-      ? `Власний запит редактора для цього запуску:\n${stepFeedback}`
+      ? `Власний промпт редактора для цього запуску:\n${stepFeedback}`
       : null,
     step.id === "final_editing"
-      ? "Виконай саме власний запит редактора, але не редагуй документ напряму. Поверни результат як набір локальних карток за стандартним recommendation-card контрактом."
+      ? "Виконай саме власний промпт редактора, але не редагуй документ напряму. Поверни результат як набір локальних карток за стандартним recommendation-card контрактом."
       : null,
     step.id === "diagnostics"
       ? "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови."

@@ -302,7 +302,7 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
   { id: "formatting", label: "Форматування", icon: Table2 },
   { id: "spellcheck", label: "Правопис", icon: Languages },
   { id: "emphasis", label: "Акценти", icon: Highlighter },
-  { id: "final_editing", label: "Власний запит", icon: MessageSquareText }
+  { id: "final_editing", label: "Власний промпт", icon: MessageSquareText }
 ];
 
 const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
@@ -315,7 +315,7 @@ const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
   formatting: "Списки, врізки й таблиці для швидкого сканування.",
   spellcheck: "Орфографія, пунктуація, граматика й типографічна чистота.",
   emphasis: "Смислові акценти для швидкого сканування ключових тез.",
-  final_editing: "Будь-який редакторський запит, повернений як локальні картки."
+  final_editing: "Будь-який редакторський промпт, повернений як локальні картки."
 };
 
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
@@ -3595,7 +3595,10 @@ export default function EditorPage() {
     activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" || activeWorkflowStep === "emphasis"
       ? true
       : Boolean(reviewExpertise);
-  const activeStepHasSettings = activeWorkflowStep !== "spellcheck";
+  const activeStepHasSettings = activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "final_editing";
+  const shouldShowFinalPromptInput =
+    activeWorkflowStep === "final_editing" &&
+    !activeStepHasExistingResult;
   const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
   const activeStepRunButtonLabel = activeStepHasExistingResult ? "Перезапуск" : "Запустити";
   const activeStepRunButtonLoadingLabel = activeStepHasExistingResult ? "Перезапускаємо…" : "Запускаємо…";
@@ -3655,9 +3658,9 @@ export default function EditorPage() {
               isInFlight: isReviewRequestInFlight,
               hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
               zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
-              activeMessage: activeWorkflowStep === "final_editing" ? "Готуємо картки за власним запитом." : "Готуємо рекомендації для поточного етапу.",
-              idleMessage: activeWorkflowStep === "final_editing" ? "Опишіть власний запит, щоб отримати локальні картки до рукопису." : "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
-              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? "Напишіть власний запит для цього етапу." : "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
+              activeMessage: activeWorkflowStep === "final_editing" ? "Готуємо картки за власним промптом." : "Готуємо рекомендації для поточного етапу.",
+              idleMessage: activeWorkflowStep === "final_editing" ? "Опишіть власний промпт, щоб отримати локальні картки до рукопису." : "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
+              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? "Напишіть власний промпт для цього етапу." : "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
               successMessage: "Рекомендації готові. Можна переглядати та застосовувати картки.",
               zeroResultMessage: "Етап завершено без нових карток."
             });
@@ -3822,6 +3825,29 @@ export default function EditorPage() {
           />
         </div>
       </div>
+    );
+  }
+
+  function renderFinalPromptInput() {
+    if (!shouldShowFinalPromptInput) {
+      return null;
+    }
+
+    return (
+      <section className="step-review-prototype-final-prompt" aria-label="Власний промпт">
+        <div className="step-review-prototype-settings-field">
+          <label htmlFor="prototype-final-prompt">Власний промпт</label>
+          <textarea
+            id="prototype-final-prompt"
+            className="step-review-prototype-input"
+            rows={4}
+            placeholder="Наприклад: додай глибокі врізки, списки й візуали там, де вони допоможуть читачеві."
+            value={stepFeedback.final_editing}
+            onChange={(event) => updateStepFeedbackValue("final_editing", event.target.value)}
+            disabled={isReviewRequestInFlight}
+          />
+        </div>
+      </section>
     );
   }
 
@@ -4757,6 +4783,8 @@ export default function EditorPage() {
                       </section>
                     ) : null}
                   </section>
+
+                  {renderFinalPromptInput()}
 
                   {shouldShowPrototypeStatusStrip ? (
                     <section className="step-review-prototype-status-strip" data-tone={activeStepWorkspaceStatus.tone} aria-live="polite">
@@ -6581,7 +6609,7 @@ function getActiveStepRunDisabledReason(input: {
   }
 
   if (input.stepId === "final_editing" && !input.stepFeedback?.trim()) {
-    return "Напишіть власний запит для цього етапу.";
+    return "Напишіть власний промпт для цього етапу.";
   }
 
   if (input.isReviewRequestInFlight) {

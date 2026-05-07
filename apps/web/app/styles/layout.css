@@ -183,6 +183,18 @@
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
 }
 
+.topbar-model-chip-row {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.topbar-model-chip {
+  min-height: 20px;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1;
+}
+
 .topbar-hotkeys-button {
   display: inline-flex;
   align-items: center;
