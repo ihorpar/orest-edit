@@ -17,19 +17,10 @@ import {
   type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
-  type VisualStylePreset,
-  type WholeTextChangeLevel
+  type VisualStylePreset
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
 import { type SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
-
-const reviewLevelOptions: Array<{ level: WholeTextChangeLevel; label: string; description: string }> = [
-  { level: 1, label: "1", description: "Мінімальні зауваги" },
-  { level: 2, label: "2", description: "Легке шліфування" },
-  { level: 3, label: "3", description: "Помірне редакторське втручання" },
-  { level: 4, label: "4", description: "Суттєве перепакування" },
-  { level: 5, label: "5", description: "Максимально глибокий огляд" }
-];
 
 type LocalSurfaceMode = "edit" | "proof" | "callout" | "visual";
 
@@ -66,9 +57,7 @@ export function FloatingComposerPanel({
   localActionRoute,
   onLocalTextIntentChange,
   onRequestAutoAction,
-  reviewChangeLevel,
   reviewAdditionalInstructions,
-  onReviewChangeLevel,
   onReviewAdditionalInstructionsChange,
   onRequestReview,
   patchLoading,
@@ -106,9 +95,7 @@ export function FloatingComposerPanel({
   localActionRoute: LocalActionRouteResponse;
   onLocalTextIntentChange: (intent: LocalActionTextIntent) => void;
   onRequestAutoAction: () => void;
-  reviewChangeLevel: WholeTextChangeLevel;
   reviewAdditionalInstructions: string;
-  onReviewChangeLevel: (level: WholeTextChangeLevel) => void;
   onReviewAdditionalInstructionsChange: (value: string) => void;
   onRequestReview: () => void;
   patchLoading?: boolean;
@@ -733,7 +720,7 @@ export function FloatingComposerPanel({
           <p className="mono-ui">{isReview ? "Огляд документа" : "Локальні дії"}</p>
           <div className="floating-panel-question">
             {isReview
-              ? "Наскільки глибоко перевірити документ?"
+              ? "Який фокус дати наступному запуску?"
               : localActionMode === "auto"
                 ? "Виконайте локальну дію для виділеного фрагмента"
                 : localActionMode === "spellcheck"
@@ -752,28 +739,12 @@ export function FloatingComposerPanel({
 
       <div className="floating-panel-body">
         <div className="floating-review-body">
-            <div className="floating-review-scale">
-              {reviewLevelOptions.map((option) => (
-                <button
-                  key={option.level}
-                  type="button"
-                  className="floating-review-scale-button"
-                  data-active={reviewChangeLevel === option.level ? "true" : "false"}
-                  onClick={() => onReviewChangeLevel(option.level)}
-                >
-                  <span className="mono-ui">{option.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="floating-review-description">
-              {reviewLevelOptions.find((option) => option.level === reviewChangeLevel)?.description}
-            </p>
             <div className="floating-textarea-shell">
               <textarea
                 ref={reviewTextareaRef}
                 className="floating-textarea"
                 rows={3}
-                placeholder="Додаткові інструкції для огляду"
+                placeholder="Наприклад: знайди місця для глибоких врізок, списків і візуалів."
                 value={reviewAdditionalInstructions}
                 onChange={(event) => onReviewAdditionalInstructionsChange(event.currentTarget.value)}
               />

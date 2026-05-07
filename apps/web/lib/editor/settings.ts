@@ -1,4 +1,4 @@
-import type { VisualStylePreset, WholeTextChangeLevel } from "./review-contract.ts";
+import type { EditorialReviewStepId, VisualStylePreset, WholeTextChangeLevel } from "./review-contract.ts";
 
 export type ProviderId = "openai" | "gemini" | "anthropic";
 export type ModelIdValidationState = "valid" | "missing" | "invalid";
@@ -15,12 +15,14 @@ export interface EditorSettings {
   provider: ProviderId;
   modelId: string;
   apiKey: string;
+  apiKeys: Partial<Record<ProviderId, string>>;
   basePrompt: string;
   /** @deprecated Use expertisePrompt + cardsPrompt instead */
   reviewPrompt: string;
   expertisePrompt: string;
   cardsPrompt: string;
   reviewLevelGuide: string;
+  workflowStepPrompts: Record<EditorialReviewStepId, string>;
   calloutPromptTemplate: string;
   imagePromptTemplate: string;
 }
@@ -35,6 +37,7 @@ export interface SettingsValidationResult {
 }
 
 export const EDITOR_SETTINGS_STORAGE_KEY = "orest-editor-settings-v1";
+export const EDITOR_SETTINGS_UPDATED_EVENT = "orest-editor-settings-updated";
 export const VISUAL_STYLE_PRESET_STORAGE_KEY = "orest-visual-style-v1";
 export const CUSTOM_MODEL_OPTION = "__custom__";
 export const DEFAULT_VISUAL_STYLE_PRESET: VisualStylePreset = "calm_gradient";
@@ -188,6 +191,27 @@ export const DEFAULT_REVIEW_PROMPT = DEFAULT_CARDS_PROMPT;
 
 export const DEFAULT_REVIEW_LEVEL_GUIDE = `Рівень 1 — Легкий марафет: зберігай структуру і тон майже без змін, виправляй тільки явні перевантаження, дрібні неясності та надто складні формулювання. Рівень 2 — Трохи підчистити: можна локально підсилювати логіку, ущільнювати речення і радити списки чи короткі вставки, але без серйозної перебудови. Рівень 3 — Добряче пройтись: можна сміливо спрощувати, дробити важкі абзаци, радити врізки, списки, локальні доповнення і окремі візуалізації, але не перебудовувати весь розділ. Рівень 4 — Розібрати на гвинтики: дозволено глибоко перекомпоновувати проблемні місця, виносити частини в окремі підрозділи, активно радити врізки й структурні переформатування. Рівень 5 — Радикальне перепроєктування: дозволено глибоко перебудовувати подачу фрагментів, дробити, переносити, пропонувати нові підрозділи, врізки та візуалізації, якщо це реально покращує читабельність.`;
 
+export const DEFAULT_WORKFLOW_STEP_PROMPTS: Record<EditorialReviewStepId, string> = {
+  diagnostics:
+    "Зроби глибоку редакторську діагностику рукопису: редакторський вердикт, системні проблеми, критичні ризики, логіка аргументації, науково-медична обережність, читачевий бар'єр і поблочний розбір із доказами. Це review-only крок, без карток дій.",
+  fact_check:
+    "Ти працюєш як суворий науковий фактчекер для медично-популярного рукопису. Повертай лише проблемні або сумнівні рядки таблиці, без редакторських карток і без підтвердження коректних тверджень.",
+  structure:
+    "Оціни та покращ структуру розділу: де додати підзаголовки, де розділити блоки, де корисні локальні врізки.",
+  clarity:
+    "Працюй як редактор ясності: спрощуй формулювання, прибирай канцеляризм, знижуй зайву категоричність і зберігай структуру подачі. Не перетворюй локальні правки на медичні дисклеймери чи поради звернутися до лікаря.",
+  interest:
+    "Підсилюй інтерес і застосовність: шукай місця, де читачеві потрібні побутові приклади, практичні кроки або виразні візуальні опори.",
+  visuals:
+    "Генеруй лише рекомендації для візуалів: ілюстрація або інфографіка (включно зі схемою як підтипом інфографіки).",
+  formatting:
+    "Переформатовуй подачу: шукай місця для списків, підзаголовків і врізок без повного переписування розділу.",
+  emphasis:
+    "Генеруй лише локальні рекомендації для смислових акцентів. Пропонуй картку лише там, де коротке жирне виділення реально підсилить сканування тексту. Не пропонуй повне переписування абзацу.",
+  final_editing:
+    "Виконай власний запит редактора. Поверни результат як локальні executable-картки: переписування, спрощення/розширення, списки, підзаголовки, врізки або візуали, залежно від запиту."
+};
+
 export const CHANGE_LEVEL_GUIDANCE: Record<WholeTextChangeLevel, {
   expertiseTone: string;
   /** Approximate number of document blocks per one recommendation card */
@@ -289,19 +313,19 @@ export const DEFAULT_IMAGE_PROMPT_TEMPLATE = `Склади один готови
 export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> = {
   openai: [
     {
+      id: "gpt-5.5",
+      label: "GPT-5.5",
+      description: "Найсильніший OpenAI-профіль для складного editorial review і точних локальних правок."
+    },
+    {
       id: "gpt-5.4",
       label: "GPT-5.4",
       description: "Найсильніша якість редагування й найкращий кандидат для складних локальних правок та editorial review."
     },
     {
-      id: "gpt-5.3",
-      label: "GPT-5.3",
-      description: "Трохи дешевше й швидше, коли потрібен майже той самий стиль редагування без фокусу на максимальній якості."
-    },
-    {
-      id: "gpt-5.2",
-      label: "GPT-5.2",
-      description: "Стабільний запасний варіант, якщо треба залишитися ближче до поточної інтеграції або попередніх результатів."
+      id: "gpt-5.4-mini",
+      label: "GPT-5.4 Mini",
+      description: "Швидший і дешевший OpenAI-профіль для легших правок та чернеткових проходів."
     }
   ],
   anthropic: [
@@ -363,11 +387,13 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   provider: "gemini",
   modelId: getDefaultProviderModelId("gemini"),
   apiKey: "",
+  apiKeys: {},
   basePrompt: DEFAULT_BASE_PROMPT,
   reviewPrompt: DEFAULT_REVIEW_PROMPT,
   expertisePrompt: DEFAULT_EXPERTISE_PROMPT,
   cardsPrompt: DEFAULT_CARDS_PROMPT,
   reviewLevelGuide: DEFAULT_REVIEW_LEVEL_GUIDE,
+  workflowStepPrompts: DEFAULT_WORKFLOW_STEP_PROMPTS,
   calloutPromptTemplate: DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   imagePromptTemplate: DEFAULT_IMAGE_PROMPT_TEMPLATE
 };
@@ -447,11 +473,47 @@ export function normalizeVisualStylePreset(
   return value in VISUAL_STYLE_PRESET_GUIDES ? value : fallback;
 }
 
+function sanitizeWorkflowStepPrompts(candidate: Partial<Record<EditorialReviewStepId, unknown>> | null | undefined): Record<EditorialReviewStepId, string> {
+  return (Object.keys(DEFAULT_WORKFLOW_STEP_PROMPTS) as EditorialReviewStepId[]).reduce(
+    (result, stepId) => {
+      const value = candidate?.[stepId];
+      result[stepId] = typeof value === "string" && value.trim() ? value.trim() : DEFAULT_WORKFLOW_STEP_PROMPTS[stepId];
+      return result;
+    },
+    {} as Record<EditorialReviewStepId, string>
+  );
+}
+
+function sanitizeProviderApiKeys(candidate: unknown, fallbackProvider: ProviderId, fallbackApiKey: string): Partial<Record<ProviderId, string>> {
+  const apiKeys: Partial<Record<ProviderId, string>> = {};
+
+  if (candidate && typeof candidate === "object") {
+    for (const provider of ["openai", "gemini", "anthropic"] as ProviderId[]) {
+      const value = (candidate as Partial<Record<ProviderId, unknown>>)[provider];
+
+      if (typeof value === "string" && value.trim()) {
+        apiKeys[provider] = value.trim();
+      }
+    }
+  }
+
+  if (fallbackApiKey.trim() && !apiKeys[fallbackProvider]) {
+    apiKeys[fallbackProvider] = fallbackApiKey.trim();
+  }
+
+  return apiKeys;
+}
+
 export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null | undefined): EditorSettings {
+  const provider = normalizeProvider(candidate?.provider ?? DEFAULT_EDITOR_SETTINGS.provider);
+  const legacyApiKey = typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : DEFAULT_EDITOR_SETTINGS.apiKey;
+  const apiKeys = sanitizeProviderApiKeys(candidate?.apiKeys, provider, legacyApiKey);
+
   return {
-    provider: normalizeProvider(candidate?.provider ?? DEFAULT_EDITOR_SETTINGS.provider),
+    provider,
     modelId: typeof candidate?.modelId === "string" ? candidate.modelId.trim() : DEFAULT_EDITOR_SETTINGS.modelId,
-    apiKey: typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : DEFAULT_EDITOR_SETTINGS.apiKey,
+    apiKey: apiKeys[provider] ?? "",
+    apiKeys,
     basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : DEFAULT_EDITOR_SETTINGS.basePrompt,
     reviewPrompt:
       typeof candidate?.reviewPrompt === "string" && candidate.reviewPrompt.trim() ? candidate.reviewPrompt.trim() : DEFAULT_EDITOR_SETTINGS.reviewPrompt,
@@ -463,6 +525,7 @@ export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null
       typeof candidate?.reviewLevelGuide === "string" && candidate.reviewLevelGuide.trim()
         ? candidate.reviewLevelGuide.trim()
         : DEFAULT_EDITOR_SETTINGS.reviewLevelGuide,
+    workflowStepPrompts: sanitizeWorkflowStepPrompts(candidate?.workflowStepPrompts),
     calloutPromptTemplate:
       typeof candidate?.calloutPromptTemplate === "string" && candidate.calloutPromptTemplate.trim()
         ? candidate.calloutPromptTemplate.trim()
@@ -494,8 +557,21 @@ export function readEditorSettings(): EditorSettings {
 
 export function writeEditorSettings(settings: EditorSettings): EditorSettings {
   const sanitized = sanitizeEditorSettings(settings);
+  const apiKeys = {
+    ...sanitized.apiKeys,
+    [sanitized.provider]: sanitized.apiKey.trim()
+  };
+
+  for (const provider of Object.keys(apiKeys) as ProviderId[]) {
+    if (!apiKeys[provider]?.trim()) {
+      delete apiKeys[provider];
+    }
+  }
+
   const persisted = {
     ...sanitized,
+    apiKey: apiKeys[sanitized.provider] ?? "",
+    apiKeys,
     modelId: validateModelId(sanitized.modelId) === "missing" ? normalizeModelId(sanitized.provider, sanitized.modelId) : sanitized.modelId
   } satisfies EditorSettings;
 

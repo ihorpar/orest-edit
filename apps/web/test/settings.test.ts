@@ -9,7 +9,9 @@ import {
   DEFAULT_EXPERTISE_PROMPT,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
   DEFAULT_EDITOR_SETTINGS,
+  DEFAULT_WORKFLOW_STEP_PROMPTS,
   getDefaultProviderModelId,
+  getProviderModelPresets,
   getVisualStylePresetGuide,
   getVisualStylePresetOptions,
   normalizeVisualStylePreset,
@@ -75,6 +77,19 @@ test("Gemini defaults to the flash-lite preset", () => {
   assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gemini-3.1-flash-lite-preview");
 });
 
+test("OpenAI model presets only expose current GPT-5.5 and GPT-5.4 options", () => {
+  assert.deepEqual(
+    getProviderModelPresets("openai").map((preset) => preset.id),
+    ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+  );
+});
+
+test("default editor settings surface every workflow step prompt", () => {
+  assert.deepEqual(Object.keys(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts).sort(), Object.keys(DEFAULT_WORKFLOW_STEP_PROMPTS).sort());
+  assert.match(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts.fact_check, /фактчекер/i);
+  assert.match(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts.emphasis, /смислових акцентів/i);
+});
+
 test("writeEditorSettings persists selected Gemini connection to localStorage", () => {
   const storage = new Map<string, string>();
   const originalWindow = globalThis.window;
@@ -95,12 +110,62 @@ test("writeEditorSettings persists selected Gemini connection to localStorage", 
     writeEditorSettings({
       ...DEFAULT_EDITOR_SETTINGS,
       provider: "gemini",
-      modelId: "gemini-2.5-flash"
+      modelId: "gemini-2.5-flash",
+      apiKey: "gemini-key"
     });
 
     const restored = readEditorSettings();
     assert.equal(restored.provider, "gemini");
     assert.equal(restored.modelId, "gemini-2.5-flash");
+    assert.equal(restored.apiKey, "gemini-key");
+    assert.equal(restored.apiKeys.gemini, "gemini-key");
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+test("writeEditorSettings preserves provider-specific API keys when switching providers", () => {
+  const storage = new Map<string, string>();
+  const originalWindow = globalThis.window;
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        }
+      }
+    }
+  });
+
+  try {
+    writeEditorSettings({
+      ...DEFAULT_EDITOR_SETTINGS,
+      provider: "gemini",
+      modelId: "gemini-3.1-flash-lite-preview",
+      apiKey: "gemini-key",
+      apiKeys: {
+        gemini: "gemini-key"
+      }
+    });
+
+    writeEditorSettings({
+      ...readEditorSettings(),
+      provider: "openai",
+      modelId: "gpt-5.5",
+      apiKey: "openai-key"
+    });
+
+    const restored = readEditorSettings();
+    assert.equal(restored.provider, "openai");
+    assert.equal(restored.apiKey, "openai-key");
+    assert.equal(restored.apiKeys.openai, "openai-key");
+    assert.equal(restored.apiKeys.gemini, "gemini-key");
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,

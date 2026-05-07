@@ -2,9 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Columns2, Keyboard, Redo2, Undo2 } from "lucide-react";
+import { Columns2, Keyboard, Redo2, Sparkles, Undo2 } from "lucide-react";
 
 import type { DocumentTextStats } from "../../lib/editor/document-model";
+import {
+  EDITOR_SETTINGS_UPDATED_EVENT,
+  findProviderModelPreset,
+  getProviderModelPresets,
+  readEditorSettings,
+  writeEditorSettings,
+  type EditorSettings,
+  type ProviderId
+} from "../../lib/editor/settings";
 
 const HOTKEY_SECTIONS = [
   { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
@@ -16,6 +25,8 @@ const HOTKEY_SECTIONS = [
   { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
   { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
 ];
+
+const TOPBAR_MODEL_PROVIDERS: ProviderId[] = ["openai", "gemini"];
 
 export function TopBar({
   activePath = "/editor",
@@ -35,7 +46,25 @@ export function TopBar({
 }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState(false);
+  const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null);
   const hotkeysRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setEditorSettings(readEditorSettings());
+
+    function refreshSettings(event: Event) {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      setEditorSettings(detail ?? readEditorSettings());
+    }
+
+    window.addEventListener(EDITOR_SETTINGS_UPDATED_EVENT, refreshSettings);
+    window.addEventListener("storage", refreshSettings);
+
+    return () => {
+      window.removeEventListener(EDITOR_SETTINGS_UPDATED_EVENT, refreshSettings);
+      window.removeEventListener("storage", refreshSettings);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isHotkeysOpen) {
@@ -83,6 +112,31 @@ export function TopBar({
       window.location.assign("/login");
     }
   }
+
+  function handleTopbarModelChange(value: string) {
+    const [providerValue, modelId] = value.split("::");
+
+    if (!modelId || !TOPBAR_MODEL_PROVIDERS.includes(providerValue as ProviderId)) {
+      return;
+    }
+
+    const provider = providerValue as ProviderId;
+    const currentSettings = editorSettings ?? readEditorSettings();
+    const persisted = writeEditorSettings({
+      ...currentSettings,
+      provider,
+      modelId,
+      apiKey: currentSettings.apiKeys[provider] ?? ""
+    });
+
+    setEditorSettings(persisted);
+    window.dispatchEvent(new CustomEvent(EDITOR_SETTINGS_UPDATED_EVENT, { detail: persisted }));
+  }
+
+  const topbarModelValue =
+    editorSettings && TOPBAR_MODEL_PROVIDERS.includes(editorSettings.provider) && findProviderModelPreset(editorSettings.provider, editorSettings.modelId)
+      ? `${editorSettings.provider}::${editorSettings.modelId}`
+      : "";
 
   return (
     <header className="topbar">
@@ -138,6 +192,34 @@ export function TopBar({
       </div>
 
       <div className="topbar-right">
+        {activePath === "/editor" ? (
+          <label className="topbar-model-picker" title="Модель AI">
+            <Sparkles size={14} aria-hidden="true" />
+            <span className="sr-only">Модель AI</span>
+            <select
+              className="topbar-model-select"
+              value={topbarModelValue}
+              onChange={(event) => handleTopbarModelChange(event.target.value)}
+              aria-label="Модель AI"
+            >
+              {topbarModelValue ? null : <option value="">Модель AI</option>}
+              <optgroup label="OpenAI">
+                {getProviderModelPresets("openai").map((preset) => (
+                  <option key={preset.id} value={`openai::${preset.id}`}>
+                    {preset.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Google Gemini">
+                {getProviderModelPresets("gemini").map((preset) => (
+                  <option key={preset.id} value={`gemini::${preset.id}`}>
+                    {preset.label}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        ) : null}
         {documentStats ? (
           <div
             className="mono-ui topbar-document-stats"

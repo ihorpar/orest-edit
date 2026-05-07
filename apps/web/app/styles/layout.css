@@ -150,6 +150,39 @@
   white-space: nowrap;
 }
 
+.topbar-model-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 4px 0 9px;
+  color: #475569;
+  background: #f8fafc;
+  white-space: nowrap;
+}
+
+.topbar-model-picker svg {
+  flex: 0 0 auto;
+  color: var(--surgical-blue);
+}
+
+.topbar-model-select {
+  appearance: none;
+  width: 156px;
+  border: 0;
+  background: transparent;
+  color: #1e293b;
+  cursor: pointer;
+  font: 650 11px/1.1 var(--font-ui, sans-serif);
+  letter-spacing: 0;
+  outline: none;
+  padding: 0 18px 0 0;
+}
+
+.topbar-model-picker:focus-within {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
 .topbar-hotkeys-button {
   display: inline-flex;
   align-items: center;

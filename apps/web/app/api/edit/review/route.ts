@@ -45,7 +45,7 @@ export async function POST(request: Request) {
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           blockCount: 0,
-          changeLevel: 3,
+          changeLevel: 5,
           returnedItemCount: 0,
           returnedFactCheckCount: 0,
           droppedItemCount: 0,
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
           requestedProvider: "unknown",
           requestedModelId: "unknown",
           blockCount: 0,
-          changeLevel: 3,
+          changeLevel: 5,
           returnedItemCount: 0,
           returnedFactCheckCount: 0,
           droppedItemCount: 0,
@@ -115,7 +115,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
     return { ok: false, error: "Потрібно передати поточний revision рукопису." };
   }
 
-  const changeLevel = typeof record.changeLevel === "number" ? Math.max(1, Math.min(5, Math.floor(record.changeLevel))) : 3;
+  const changeLevel = typeof record.changeLevel === "number" ? Math.max(1, Math.min(5, Math.floor(record.changeLevel))) : 5;
 
   return {
     ok: true,
@@ -130,6 +130,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       expertisePrompt: typeof record.expertisePrompt === "string" && record.expertisePrompt.trim() ? record.expertisePrompt.trim() : undefined,
       cardsPrompt: typeof record.cardsPrompt === "string" && record.cardsPrompt.trim() ? record.cardsPrompt.trim() : undefined,
       reviewLevelGuide: typeof record.reviewLevelGuide === "string" && record.reviewLevelGuide.trim() ? record.reviewLevelGuide.trim() : undefined,
+      workflowStepPrompts: parseWorkflowStepPrompts(record.workflowStepPrompts),
       calloutPromptTemplate:
         typeof record.calloutPromptTemplate === "string" && record.calloutPromptTemplate.trim() ? record.calloutPromptTemplate.trim() : undefined,
       changeLevel: changeLevel as EditorialReviewRequest["changeLevel"],
@@ -164,6 +165,36 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas)
     }
   };
+}
+
+function parseWorkflowStepPrompts(value: unknown): EditorialReviewRequest["workflowStepPrompts"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const stepIds: EditorialReviewStepId[] = [
+    "diagnostics",
+    "fact_check",
+    "structure",
+    "clarity",
+    "interest",
+    "visuals",
+    "formatting",
+    "emphasis",
+    "final_editing"
+  ];
+  const parsed = stepIds.reduce((result, stepId) => {
+    const prompt = record[stepId];
+
+    if (typeof prompt === "string" && prompt.trim()) {
+      result[stepId] = prompt.trim();
+    }
+
+    return result;
+  }, {} as NonNullable<EditorialReviewRequest["workflowStepPrompts"]>);
+
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
 function parseStepId(value: unknown): EditorialReviewStepId | undefined {

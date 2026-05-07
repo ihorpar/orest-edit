@@ -117,6 +117,7 @@ export interface EditorialReviewRequest {
   expertisePrompt?: string;
   cardsPrompt?: string;
   reviewLevelGuide?: string;
+  workflowStepPrompts?: Partial<Record<EditorialReviewStepId, string>>;
   calloutPromptTemplate?: string;
   changeLevel: WholeTextChangeLevel;
   additionalInstructions?: string;

@@ -19,7 +19,7 @@ import {
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import { deriveManuscriptRevisionState, formatParagraphLabel } from "../editor/manuscript-structure.ts";
-import { appendBulletListPunctuationRule, CHANGE_LEVEL_GUIDANCE } from "../editor/settings.ts";
+import { appendBulletListPunctuationRule, DEFAULT_WORKFLOW_STEP_PROMPTS } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -298,15 +298,13 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     id: "diagnostics",
     title: "Діагностика",
     outputKind: "analysis_markdown",
-    systemInstruction:
-      "Зроби глибоку редакторську діагностику рукопису: редакторський вердикт, системні проблеми, критичні ризики, логіка аргументації, науково-медична обережність, читачевий бар'єр і поблочний розбір із доказами. Це review-only крок, без карток дій."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.diagnostics
   },
   fact_check: {
     id: "fact_check",
     title: "Перевірка фактів",
     outputKind: "fact_check_rows",
-    systemInstruction:
-      "Ти працюєш як суворий науковий фактчекер для медично-популярного рукопису. Повертай лише проблемні або сумнівні рядки таблиці, без редакторських карток і без підтвердження коректних тверджень."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.fact_check
   },
   structure: {
     id: "structure",
@@ -315,8 +313,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["subsection", "list", "callout"],
     cardGuidance:
       "Фокус: архітектура розділу, послідовність думки, місця для підзаголовків і дроблення масивних блоків.",
-    systemInstruction:
-      "Оціни та покращ структуру розділу: де додати підзаголовки, де розділити блоки, де корисні локальні врізки."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.structure
   },
   clarity: {
     id: "clarity",
@@ -325,8 +322,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["simplify", "rewrite", "expand"],
     cardGuidance:
       "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
-    systemInstruction:
-      "Працюй як редактор ясності: спрощуй формулювання, прибирай канцеляризм, знижуй зайву категоричність і зберігай структуру подачі. Не перетворюй локальні правки на медичні дисклеймери чи поради звернутися до лікаря."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.clarity
   },
   interest: {
     id: "interest",
@@ -335,8 +331,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["callout", "expand", "rewrite", "visual"],
     cardGuidance:
       "Фокус: читабельний інтерес, зв'язок із реальним життям, практичне застосування і мотивація дочитати розділ.",
-    systemInstruction:
-      "Підсилюй інтерес і застосовність: шукай місця, де читачеві потрібні побутові приклади, практичні кроки або виразні візуальні опори."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.interest
   },
   visuals: {
     id: "visuals",
@@ -345,8 +340,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["visual"],
     cardGuidance:
       "Фокус: де і який візуал дає найбільшу користь. Схема вважається підтипом інфографіки.",
-    systemInstruction:
-      "Генеруй лише рекомендації для візуалів: ілюстрація або інфографіка (включно зі схемою як підтипом інфографіки)."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.visuals
   },
   formatting: {
     id: "formatting",
@@ -355,8 +349,7 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["list", "callout", "subsection"],
     cardGuidance:
       "Фокус: де потрібні списки, підзаголовки, врізки і компактні формати подачі для швидкого сканування.",
-    systemInstruction:
-      "Переформатовуй подачу: шукай місця для списків, підзаголовків і врізок без повного переписування розділу."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.formatting
   },
   emphasis: {
     id: "emphasis",
@@ -365,18 +358,16 @@ const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
     allowedRecommendationTypes: ["rewrite"],
     cardGuidance:
       "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
-    systemInstruction:
-      "Генеруй лише локальні рекомендації для смислових акцентів. Пропонуй картку лише там, де коротке жирне виділення реально підсилить сканування тексту. Не пропонуй повне переписування абзацу."
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.emphasis
   },
   final_editing: {
     id: "final_editing",
-    title: "Фінальна редактура",
+    title: "Власний запит",
     outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["rewrite", "simplify", "list"],
+    allowedRecommendationTypes: ["rewrite", "simplify", "expand", "list", "subsection", "callout", "visual"],
     cardGuidance:
-      "Фокус: правопис, пунктуація, термінологічна послідовність, дрібні стилістичні шорсткості перед фінальним проходом.",
-    systemInstruction:
-      "Проведи фінальну редактуру: виправ орфографію, пунктуацію, стилістичні неузгодженості та дрібні мовні збої."
+      "Фокус: виконай власний запит редактора, але поверни результат тільки як локальні executable-картки. Якщо запит просить врізки, підзаголовки, списки, переписування або візуали, використовуй відповідні recommendationType.",
+    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.final_editing
   }
 };
 
@@ -1054,11 +1045,57 @@ function resolveStepId(request: EditorialReviewRequest): EditorialReviewStepId {
   return "diagnostics";
 }
 
+function buildAutomaticCardDensityGuidance(request: EditorialReviewRequest, step: ReviewStepSpec): string | null {
+  if (step.outputKind !== "recommendation_cards" || step.id === "emphasis") {
+    return null;
+  }
+
+  const { meaningfulBlocks, totalChars } = getReviewDensityStats(request.document.blocks);
+
+  if (meaningfulBlocks === 0 || totalChars === 0) {
+    return "Орієнтир за кількістю карток: документ майже порожній, тому поверни картки лише якщо є реальна локальна дія.";
+  }
+
+  const sizeUnits = Math.max(meaningfulBlocks, Math.ceil(totalChars / 900));
+  const targetCards = clampNumber(Math.round(sizeUnits / 4), 3, 40);
+  const minCards = clampNumber(Math.floor(targetCards * 0.75), 3, targetCards);
+  const maxCards = clampNumber(Math.ceil(targetCards * 1.45), Math.max(minCards + 2, targetCards), 50);
+
+  return [
+    `М'який орієнтир за кількістю карток: приблизно ${minCards}-${maxCards} на ${meaningfulBlocks} змістовних блоків і ${totalChars} знаків.`,
+    "Це не квота і не максимум. Якщо корисних локальних дій більше, поверни більше карток; якщо сильних дій менше, не добирай слабкі або дубльовані ідеї.",
+    "Краще дати редактору трохи більше сильних карток, ніж промовчати про корисні правки, бо частину карток редактор відхилить."
+  ].join(" ");
+}
+
+function getReviewDensityStats(blocks: Block[]): { meaningfulBlocks: number; totalChars: number } {
+  let meaningfulBlocks = 0;
+  let totalChars = 0;
+
+  for (const block of blocks) {
+    const text = getBlockText(block).replace(/\s+/g, " ").trim();
+
+    if (!text) {
+      continue;
+    }
+
+    totalChars += text.length;
+
+    if (text.length >= 40 || block.type === "heading" || block.type === "callout" || block.type === "bullet_list" || block.type === "ordered_list") {
+      meaningfulBlocks += 1;
+    }
+  }
+
+  return { meaningfulBlocks, totalChars };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
-  const levelGuidance = CHANGE_LEVEL_GUIDANCE[request.changeLevel];
-  const blockCount = request.document.blocks.length;
-  const targetCards =
-    step.outputKind === "recommendation_cards" ? Math.max(2, Math.round(blockCount / levelGuidance.blocksPerCard)) : null;
+  const stepInstruction = request.workflowStepPrompts?.[step.id]?.trim() || step.systemInstruction;
+  const cardDensityGuidance = buildAutomaticCardDensityGuidance(request, step);
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
 
   return [
@@ -1066,12 +1103,13 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.outputKind === "analysis_markdown"
       ? appendBulletListPunctuationRule(request.expertisePrompt)
       : appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim()),
-    request.reviewLevelGuide?.trim(),
     `Крок workflow: ${step.title}.`,
-    step.systemInstruction,
-    `Рівень змін: ${request.changeLevel}/5. ${step.outputKind === "analysis_markdown" ? levelGuidance.expertiseTone : levelGuidance.cardsGuidance}`,
+    stepInstruction,
+    step.outputKind === "analysis_markdown"
+      ? "Режим роботи: повний редакторський діагноз без карток дій."
+      : "Режим роботи: повний редакторський прохід у межах цього етапу. Поверни всі сильні локальні рекомендації, які справді допоможуть редактору.",
     step.cardGuidance ? `Окремий фокус кроку: ${step.cardGuidance}` : null,
-    targetCards ? `Орієнтир за кількістю карток: приблизно ${targetCards}, але тільки реальні проблеми.` : null,
+    cardDensityGuidance,
     step.outputKind === "analysis_markdown"
       ? "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN»."
       : null,
@@ -1149,10 +1187,10 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       : null,
     emphasisCoverageGuidance,
     step.id === "emphasis"
-      ? "Це не режим рідкісних винятків. Уже від рівня змін 2/5 багато змістовних абзаців можуть потребувати акценту; пропускай лише справді службові, тривіальні або вже достатньо добре підсвічені абзаци."
+      ? "Це не режим рідкісних винятків. Багато змістовних абзаців можуть потребувати акценту; пропускай лише справді службові, тривіальні або вже достатньо добре підсвічені абзаци."
       : null,
     step.id === "emphasis"
-      ? "На рівні змін 5/5 працюй як щільний фінальний прохід: майже кожен змістовний абзац із самостійною тезою має отримати один короткий акцент, якщо він ще не виділений жирним."
+      ? "Працюй як щільний фінальний прохід: майже кожен змістовний абзац із самостійною тезою має отримати один короткий акцент, якщо він ще не виділений жирним."
       : null,
     step.id === "emphasis"
       ? "Заборонено виділяти цілі речення, більшу частину абзацу, перші слова абзацу без смислової ваги або декоративні фрази. Мета - короткі смислові вузли, а не форматувальний шум."
@@ -1177,8 +1215,13 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     diagnosticsFeedback && step.id !== "diagnostics" ? `Фідбек користувача до діагностики:\n${diagnosticsFeedback}` : null,
     stepFeedback ? `Фідбек користувача для кроку «${step.title}»:\n${stepFeedback}` : null,
     historyLines.length > 0 ? `Релевантний контекст діалогу:\n${historyLines.join("\n")}` : null,
-    `Рівень змін: ${request.changeLevel}/5.`,
     request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
+    step.id === "final_editing" && stepFeedback
+      ? `Власний запит редактора для цього запуску:\n${stepFeedback}`
+      : null,
+    step.id === "final_editing"
+      ? "Виконай саме власний запит редактора, але не редагуй документ напряму. Поверни результат як набір локальних карток за стандартним recommendation-card контрактом."
+      : null,
     step.id === "diagnostics"
       ? "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови."
       : null,
@@ -1225,8 +1268,8 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "emphasis"
       ? "Не будь надто скупим: якщо в абзаці є чітка теза, висновок, причинно-наслідковий вузол, практичний висновок або сильний контраст, який справді варто зчитати за 10-15 секунд, повертай item."
       : null,
-    step.id === "emphasis" && request.changeLevel >= 5
-      ? "Для рівня 5/5 пропускай змістовний абзац лише тоді, коли в ньому немає жодної самостійної тези або він уже має достатньо жирного виділення. Не обмежуйся кількома найочевиднішими місцями."
+    step.id === "emphasis"
+      ? "Пропускай змістовний абзац лише тоді, коли в ньому немає жодної самостійної тези або він уже має достатньо жирного виділення. Не обмежуйся кількома найочевиднішими місцями."
       : null,
     rejectedIdeasPrompt,
     "Документ:",
@@ -1446,36 +1489,16 @@ function buildEmphasisCoverageGuidance(request: EditorialReviewRequest): string 
     return getBlockText(block).replace(/\s+/g, " ").trim().length >= 40;
   }).length;
 
-  const { minShare, maxShare } = getEmphasisCoverageTargets(request.changeLevel);
+  const { minShare, maxShare } = getEmphasisCoverageTargets();
 
   const minItems = Math.max(1, Math.round(eligibleBlocks * minShare));
   const maxItems = Math.max(minItems, Math.round(eligibleBlocks * maxShare));
 
-  const levelFiveGuidance = request.changeLevel >= 5
-    ? " На рівні 5/5 це майже повне покриття змістовних абзаців: краще повернути доречний короткий акцент для кожного сильного абзацу, ніж залишити добрі тези без виділення."
-    : "";
-
-  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але на рівні змін ${request.changeLevel}/5 слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти.${levelFiveGuidance}`;
+  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти. Краще повернути доречний короткий акцент для кожного сильного абзацу, ніж залишити добрі тези без виділення.`;
 }
 
-function getEmphasisCoverageTargets(changeLevel: number): { minShare: number; maxShare: number } {
-  if (changeLevel >= 5) {
-    return { minShare: 0.95, maxShare: 1 };
-  }
-
-  if (changeLevel === 4) {
-    return { minShare: 0.75, maxShare: 0.9 };
-  }
-
-  if (changeLevel === 3) {
-    return { minShare: 0.6, maxShare: 0.78 };
-  }
-
-  if (changeLevel === 2) {
-    return { minShare: 0.45, maxShare: 0.65 };
-  }
-
-  return { minShare: 0.2, maxShare: 0.35 };
+function getEmphasisCoverageTargets(): { minShare: number; maxShare: number } {
+  return { minShare: 0.85, maxShare: 1 };
 }
 
 function getReviewPromptBlockText(block: Block, stepId?: EditorialReviewStepId): string {
@@ -2062,7 +2085,7 @@ function createFallbackEmphasisReviewItems(
     const text = getBlockText(block).replace(/\s+/g, " ").trim();
     return text.length >= 90 && text.length <= 520 && !/[•·]/.test(text) && !/:\s*$/.test(text);
   }).length;
-  const { maxShare } = getEmphasisCoverageTargets(request.changeLevel);
+  const { maxShare } = getEmphasisCoverageTargets();
   const maxFallbackItems = Math.max(8, Math.ceil(eligibleParagraphCount * maxShare));
 
   request.document.blocks.forEach((block, index) => {

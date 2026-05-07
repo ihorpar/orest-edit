@@ -30,6 +30,16 @@ Decision: when an editor rejects a recommendation, the app stores only a compact
 
 Reason: editors should not have to reject the same local editorial move across later stages, but the memory must stay simple and avoid blocking different kinds of useful recommendations for the same paragraph.
 
+### Custom prompt replaces the old final editing stage
+Decision: the visible `Фінальна редактура` workflow stage is replaced by `Власний запит`. The persisted step id remains `final_editing` for draft/history compatibility, but the step now requires an editor instruction and may return any executable recommendation card type, including rewrites, lists, subsections, callouts, and visuals.
+
+Reason: editors were not using a fixed final-editing pass, but they still need a flexible way to ask for a specific editorial operation while preserving the card-first, patch-first review model.
+
+### Review-card density is automatic, not user-selected
+Decision: the visible `Глибина змін` control is removed from workflow settings. Review prompts now receive an automatic soft card-density hint based on meaningful block count and character volume; the hint is explicitly not a quota or cap.
+
+Reason: editors consistently maxed the control out, so it did not represent a useful product choice. Automatic density preserves the model guidance that prevented too-sparse runs while letting editors curate extra cards by accepting or rejecting them.
+
 ## 2026-03-19
 
 ## 2026-03-22

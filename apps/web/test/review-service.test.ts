@@ -76,6 +76,110 @@ test("generateEditorialReview injects strict diagnostics rubric into provider pr
   assert.match(requestBody, /Не відкривай відповідь похвалою/i);
 });
 
+test("generateEditorialReview uses editable workflow step prompt overrides", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key",
+      workflowStepPrompts: {
+        clarity: "Користувацький промпт ясності: прибирай туманні формулювання без медичних застережень."
+      }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ items: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Користувацький промпт ясності/);
+});
+
+test("generateEditorialReview treats final_editing as custom prompt cards with visual support", async () => {
+  let requestBody = "";
+
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      apiKey: "test-key",
+      stepFeedback: "Додай візуал і врізку там, де це допоможе читачеві."
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Додати візуал",
+                  reason: "Фрагмент пояснює механізм, який легше сприйняти як схему.",
+                  recommendation: "Підготувати інфографіку з головними кроками механізму.",
+                  recommendationType: "visual",
+                  suggestedAction: "prepare_visual",
+                  priority: "high",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  excerpt: "Фрагмент",
+                  insertionHint: "after",
+                  visualIntent: "infographic"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.stepId, "final_editing");
+  assert.equal(response.items[0]?.recommendationType, "visual");
+  assert.match(requestBody, /Крок workflow: Власний запит/);
+  assert.match(requestBody, /Власний запит редактора для цього запуску/);
+  assert.match(requestBody, /Додай візуал і врізку/);
+});
+
+test("generateEditorialReview uses automatic card density instead of visible change levels", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ items: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /М'який орієнтир за кількістю карток/);
+  assert.match(requestBody, /Це не квота і не максимум/);
+  assert.doesNotMatch(requestBody, /Рівень змін|1\/5|2\/5|3\/5|4\/5|5\/5/);
+});
+
 test("generateEditorialReview injects rejected ideas into step prompt", async () => {
   let requestBody = "";
   const longRejectedRecommendation = `Повторити вже відхилену ідею. ${"Зайвий контекст. ".repeat(40)}`;
@@ -373,7 +477,7 @@ test("generateEditorialReview includes existing bold markers in emphasis prompt"
   assert.match(requestBody, /blockId/);
 });
 
-test("generateEditorialReview injects aggressive emphasis coverage guidance starting from level 2", async () => {
+test("generateEditorialReview injects automatic emphasis coverage guidance", async () => {
   let requestBody = "";
 
   await generateEditorialReview(
@@ -399,12 +503,13 @@ test("generateEditorialReview injects aggressive emphasis coverage guidance star
     }
   );
 
-  assert.match(requestBody, /Уже від рівня змін 2\/5 багато змістовних абзаців можуть потребувати акценту/);
+  assert.match(requestBody, /Багато змістовних абзаців можуть потребувати акценту/);
   assert.match(requestBody, /М'який орієнтир для цього документа: приблизно \d+-\d+ акцентів/);
   assert.match(requestBody, /слід покривати значну частину змістовного тексту/);
+  assert.doesNotMatch(requestBody, /Рівень змін|рівня змін|2\/5/);
 });
 
-test("generateEditorialReview asks level 5 emphasis to cover nearly every meaningful paragraph", async () => {
+test("generateEditorialReview asks emphasis to cover nearly every meaningful paragraph automatically", async () => {
   const document: EditorDocument = {
     version: 2,
     blocks: Array.from({ length: 20 }, (_, index) => ({
@@ -444,8 +549,8 @@ test("generateEditorialReview asks level 5 emphasis to cover nearly every meanin
     }
   );
 
-  assert.match(requestBody, /19-20/);
-  assert.match(requestBody, /5\/5/);
+  assert.match(requestBody, /17-20/);
+  assert.doesNotMatch(requestBody, /5\/5|Рівень змін/);
 });
 
 test("generateEditorialReview chunks large emphasis runs and merges global anchors", async () => {

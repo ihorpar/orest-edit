@@ -104,9 +104,9 @@ import {
   normalizeEditorialCalloutDepth
 } from "../../lib/editor/review-contract";
 import {
-  CHANGE_LEVEL_GUIDANCE,
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_VISUAL_STYLE_PRESET,
+  EDITOR_SETTINGS_UPDATED_EVENT,
   VISUAL_STYLE_PRESET_STORAGE_KEY,
   normalizeVisualStylePreset,
   readEditorSettings,
@@ -150,7 +150,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
-  SpellCheck,
+  MessageSquareText,
   Stethoscope,
   Table2,
   Target,
@@ -277,7 +277,7 @@ const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
 });
 
 const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInstructions: string } = {
-  changeLevel: 3,
+  changeLevel: 5,
   additionalInstructions: ""
 };
 const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
@@ -302,7 +302,7 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
   { id: "formatting", label: "Форматування", icon: Table2 },
   { id: "spellcheck", label: "Правопис", icon: Languages },
   { id: "emphasis", label: "Акценти", icon: Highlighter },
-  { id: "final_editing", label: "Фінальна редактура", icon: SpellCheck }
+  { id: "final_editing", label: "Власний запит", icon: MessageSquareText }
 ];
 
 const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
@@ -315,7 +315,7 @@ const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
   formatting: "Списки, врізки й таблиці для швидкого сканування.",
   spellcheck: "Орфографія, пунктуація, граматика й типографічна чистота.",
   emphasis: "Смислові акценти для швидкого сканування ключових тез.",
-  final_editing: "Остаточне шліфування мови, стилю й послідовності."
+  final_editing: "Будь-який редакторський запит, повернений як локальні картки."
 };
 
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
@@ -516,6 +516,21 @@ export default function EditorPage() {
     }
 
     setHasHydratedDraft(true);
+  }, []);
+
+  useEffect(() => {
+    function handleSettingsUpdated(event: Event) {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      setSettings(detail ?? readEditorSettings());
+    }
+
+    window.addEventListener(EDITOR_SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
+    window.addEventListener("storage", handleSettingsUpdated);
+
+    return () => {
+      window.removeEventListener(EDITOR_SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
+      window.removeEventListener("storage", handleSettingsUpdated);
+    };
   }, []);
 
   useEffect(() => {
@@ -2080,6 +2095,9 @@ export default function EditorPage() {
             provider: settings.provider,
             modelId: settings.modelId,
             apiKey: settings.apiKey || undefined,
+            basePrompt: settings.basePrompt,
+            cardsPrompt: settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined,
+            workflowStepPrompts: settings.workflowStepPrompts,
             changeLevel: reviewComposer.changeLevel,
             additionalInstructions: reviewComposer.additionalInstructions,
             stepId,
@@ -2096,7 +2114,7 @@ export default function EditorPage() {
             basePrompt: settings.basePrompt,
             expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
             cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
-            reviewLevelGuide: settings.reviewLevelGuide,
+            workflowStepPrompts: settings.workflowStepPrompts,
             changeLevel: reviewComposer.changeLevel,
             additionalInstructions: reviewComposer.additionalInstructions,
             stepId,
@@ -2499,8 +2517,7 @@ export default function EditorPage() {
     if (isReplaceProposal) {
       return {
         ...baseRequest,
-        basePrompt: settings.basePrompt,
-        reviewLevelGuide: settings.reviewLevelGuide
+        basePrompt: settings.basePrompt
       };
     }
 
@@ -3440,6 +3457,7 @@ export default function EditorPage() {
   const ActiveStepIcon = activeStepMeta.icon;
   const activeStepSummary = WORKFLOW_STEP_SUMMARIES[activeWorkflowStep];
   const activeEditorialStepId = isEditorialReviewStepId(activeWorkflowStep) ? activeWorkflowStep : null;
+  const activeStepFeedbackValue = activeEditorialStepId ? stepFeedback[activeEditorialStepId].trim() : "";
   const activeStepIndex = Math.max(
     1,
     WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
@@ -3541,14 +3559,10 @@ export default function EditorPage() {
     && activeWorkflowStep !== "spellcheck"
     && activeWorkflowStep !== "emphasis";
   const usesPrototypeShell = true;
-  const reviewModeSummary = useMemo(
-    () => buildReviewModeSummary(reviewComposer.changeLevel, document.blocks.length),
-    [reviewComposer.changeLevel, document.blocks.length]
-  );
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const feedbackPresentation = presentRequestFeedback(feedback);
   const globalContextHelpText =
-    "Глобальний контекст — це ваші загальні вимоги до всіх наступних етапів (тон, стиль, глибина правок). Він не змінює текст напряму, а впливає на те, які рекомендації пропонує ШІ.";
+    "Глобальний контекст — це ваші загальні вимоги до всіх наступних етапів (тон, стиль, пріоритети). Він не змінює текст напряму, а впливає на те, які рекомендації пропонує ШІ.";
   const activeStepHasExistingResult =
     activeWorkflowStep === "diagnostics"
       ? Boolean(reviewExpertise)
@@ -3564,13 +3578,16 @@ export default function EditorPage() {
         ? canRunSpellcheck
         : activeWorkflowStep === "emphasis"
           ? canRequestReview
-        : canRunDownstreamStep;
+          : activeWorkflowStep === "final_editing"
+            ? canRunDownstreamStep && Boolean(activeStepFeedbackValue)
+            : canRunDownstreamStep;
   const activeStepRunDisabledReason = getActiveStepRunDisabledReason({
     stepId: activeWorkflowStep,
     canRun: activeStepCanRun,
     canRequestReview,
     canRunSpellcheck,
     reviewExpertise,
+    stepFeedback: activeStepFeedbackValue,
     isReviewRequestInFlight,
     isSpellcheckRequestInFlight
   });
@@ -3633,14 +3650,14 @@ export default function EditorPage() {
                 zeroResultMessage: "Етап завершено без нових акцентів."
               })
           : getStepWorkspaceStatus(activeWorkflowStep, {
-              canRun: canRunDownstreamStep,
+              canRun: activeWorkflowStep === "final_editing" ? activeStepCanRun : canRunDownstreamStep,
               hasPrerequisite: Boolean(reviewExpertise),
               isInFlight: isReviewRequestInFlight,
               hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
               zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
-              activeMessage: "Готуємо рекомендації для поточного етапу.",
-              idleMessage: "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
-              waitingMessage: "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
+              activeMessage: activeWorkflowStep === "final_editing" ? "Готуємо картки за власним запитом." : "Готуємо рекомендації для поточного етапу.",
+              idleMessage: activeWorkflowStep === "final_editing" ? "Опишіть власний запит, щоб отримати локальні картки до рукопису." : "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
+              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? "Напишіть власний запит для цього етапу." : "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
               successMessage: "Рекомендації готові. Можна переглядати та застосовувати картки.",
               zeroResultMessage: "Етап завершено без нових карток."
             });
@@ -3731,27 +3748,6 @@ export default function EditorPage() {
               }
             />
           </div>
-          <div className="step-review-prototype-settings-field">
-            <label>Глибина змін</label>
-            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
-              {[1, 2, 3, 4, 5].map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  className="step-review-prototype-level-button"
-                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                  onClick={() =>
-                    setReviewComposer((current) => ({
-                      ...current,
-                      changeLevel: level as WholeTextChangeLevel
-                    }))
-                  }
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       );
     }
@@ -3782,27 +3778,6 @@ export default function EditorPage() {
               onChange={(event) => updateStepFeedbackValue("fact_check", event.target.value)}
             />
           </div>
-          <div className="step-review-prototype-settings-field">
-            <label>Глибина змін</label>
-            <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
-              {[1, 2, 3, 4, 5].map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  className="step-review-prototype-level-button"
-                  data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                  onClick={() =>
-                    setReviewComposer((current) => ({
-                      ...current,
-                      changeLevel: level as WholeTextChangeLevel
-                    }))
-                  }
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       );
     }
@@ -3831,9 +3806,13 @@ export default function EditorPage() {
             id="prototype-step-focus"
             className="step-review-prototype-input"
             rows={3}
-            placeholder={activeWorkflowStep === "emphasis"
-              ? "Наприклад: лише ключові тези, без декоративних виділень і без суцільного жирного."
-              : "Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."}
+            placeholder={
+              activeWorkflowStep === "emphasis"
+                ? "Наприклад: лише ключові тези, без декоративних виділень і без суцільного жирного."
+                : activeWorkflowStep === "final_editing"
+                  ? "Наприклад: додай глибокі врізки, списки й візуали там, де вони допоможуть читачеві."
+                  : "Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
+            }
             value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
             onChange={(event) => {
               if (activeEditorialStepId) {
@@ -3841,27 +3820,6 @@ export default function EditorPage() {
               }
             }}
           />
-        </div>
-        <div className="step-review-prototype-settings-field">
-          <label>Глибина змін</label>
-          <div className="step-review-prototype-levels" role="group" aria-label="Глибина змін">
-            {[1, 2, 3, 4, 5].map((level) => (
-              <button
-                key={level}
-                type="button"
-                className="step-review-prototype-level-button"
-                data-active={reviewComposer.changeLevel === level ? "true" : "false"}
-                onClick={() =>
-                  setReviewComposer((current) => ({
-                    ...current,
-                    changeLevel: level as WholeTextChangeLevel
-                  }))
-                }
-              >
-                {level}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     );
@@ -4667,9 +4625,7 @@ export default function EditorPage() {
                     }
                   })();
                 }}
-                reviewChangeLevel={reviewComposer.changeLevel}
                 reviewAdditionalInstructions={reviewComposer.additionalInstructions}
-                onReviewChangeLevel={(level: WholeTextChangeLevel) => setReviewComposer((current) => ({ ...current, changeLevel: level }))}
                 onReviewAdditionalInstructionsChange={(value) => setReviewComposer((current) => ({ ...current, additionalInstructions: value }))}
                 onRequestReview={() => void requestWorkflowStep(isEditorialReviewStepId(activeWorkflowStep) ? activeWorkflowStep : "final_editing")}
                 patchLoading={isPatchRequestInFlight}
@@ -6528,7 +6484,15 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
   }
 
   if (stepId === "final_editing") {
-    return item.recommendationType === "rewrite" || item.recommendationType === "simplify";
+    return (
+      item.recommendationType === "rewrite" ||
+      item.recommendationType === "simplify" ||
+      item.recommendationType === "expand" ||
+      item.recommendationType === "list" ||
+      item.recommendationType === "subsection" ||
+      item.recommendationType === "callout" ||
+      item.recommendationType === "visual"
+    );
   }
 
   return false;
@@ -6578,27 +6542,13 @@ function getRejectedReviewIdeaKey(idea: RejectedReviewIdea): string {
   return `${idea.recommendationType}:${idea.blockIds.join("|")}`;
 }
 
-function buildReviewModeSummary(level: WholeTextChangeLevel, blockCount: number): string {
-  const focusSummary = getReviewModeFocusSummary(level);
-
-  if (blockCount <= 0) {
-    return `Орієнтовно: 0 карток · Фокус: ${focusSummary}`;
-  }
-
-  const blocksPerCard = CHANGE_LEVEL_GUIDANCE[level].blocksPerCard;
-  const targetCards = Math.max(2, Math.round(blockCount / blocksPerCard));
-  const minCards = Math.max(2, Math.floor(targetCards * 0.75));
-  const maxCards = Math.max(minCards, Math.ceil(targetCards * 1.25));
-
-  return `Орієнтовно: ${minCards}–${maxCards} карток · Фокус: ${focusSummary}`;
-}
-
 function getActiveStepRunDisabledReason(input: {
   stepId: WorkflowStepId;
   canRun: boolean;
   canRequestReview: boolean;
   canRunSpellcheck: boolean;
   reviewExpertise: string | null;
+  stepFeedback?: string;
   isReviewRequestInFlight: boolean;
   isSpellcheckRequestInFlight: boolean;
 }): string | undefined {
@@ -6630,31 +6580,15 @@ function getActiveStepRunDisabledReason(input: {
     return "Спочатку запустіть діагностику, щоб дати етапу контекст.";
   }
 
+  if (input.stepId === "final_editing" && !input.stepFeedback?.trim()) {
+    return "Напишіть власний запит для цього етапу.";
+  }
+
   if (input.isReviewRequestInFlight) {
     return "Дочекайтеся завершення поточного запуску.";
   }
 
   return "Ця дія тимчасово недоступна.";
-}
-
-function getReviewModeFocusSummary(level: WholeTextChangeLevel): string {
-  if (level === 1) {
-    return "лише явні проблеми, без перебудови";
-  }
-
-  if (level === 2) {
-    return "локальне шліфування, без серйозної перебудови";
-  }
-
-  if (level === 3) {
-    return "спрощення + локальні структурні покращення";
-  }
-
-  if (level === 4) {
-    return "глибоке перепакування проблемних місць";
-  }
-
-  return "радикальна перебудова подачі фрагментів";
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {

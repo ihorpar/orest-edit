@@ -230,6 +230,13 @@
   gap: 16px;
 }
 
+.settings-step-prompt-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
 .settings-actions-row {
   display: flex;
   align-items: center;

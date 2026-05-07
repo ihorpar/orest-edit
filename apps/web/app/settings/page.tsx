@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { StatusDot } from "../../components/ui/StatusDot";
 import { Textarea } from "../../components/ui/Textarea";
+import type { EditorialReviewStepId } from "../../lib/editor/review-contract";
 import {
   CUSTOM_MODEL_OPTION,
   DEFAULT_BASE_PROMPT,
@@ -15,8 +16,8 @@ import {
   DEFAULT_EXPERTISE_PROMPT,
   DEFAULT_CARDS_PROMPT,
   DEFAULT_IMAGE_PROMPT_TEMPLATE,
-  DEFAULT_REVIEW_LEVEL_GUIDE,
   DEFAULT_REVIEW_PROMPT,
+  DEFAULT_WORKFLOW_STEP_PROMPTS,
   findProviderModelPreset,
   getDefaultProviderModelId,
   getProviderEnvKey,
@@ -43,18 +44,22 @@ interface ConnectionStatusSnapshot {
   validatedAt: string | null;
 }
 
-function mergePersistedConnectionSettings(persisted: EditorSettings, current: EditorSettings, currentModelId: string): EditorSettings {
-  return {
-    ...persisted,
-    provider: current.provider,
-    modelId: currentModelId,
-    apiKey: current.apiKey
-  };
-}
+const WORKFLOW_STEP_PROMPT_OPTIONS: Array<{ value: EditorialReviewStepId; label: string }> = [
+  { value: "diagnostics", label: "Діагностика" },
+  { value: "fact_check", label: "Перевірка фактів" },
+  { value: "structure", label: "Структура" },
+  { value: "clarity", label: "Ясність" },
+  { value: "interest", label: "Інтерес" },
+  { value: "visuals", label: "Візуали" },
+  { value: "formatting", label: "Форматування" },
+  { value: "emphasis", label: "Акценти" },
+  { value: "final_editing", label: "Власний запит" }
+];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [persistedSettings, setPersistedSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
+  const [activeStepPromptId, setActiveStepPromptId] = useState<EditorialReviewStepId>("diagnostics");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [validationNonce, setValidationNonce] = useState(0);
@@ -166,23 +171,6 @@ export default function SettingsPage() {
           validatedAt: payload.validatedAt
         });
 
-        if (payload.state === "valid") {
-          const nextPersistedSettings = writeEditorSettings(mergePersistedConnectionSettings(persistedSettings, settings, currentModelId));
-          const connectionChanged =
-            !areConnectionSettingsEqual(persistedSettings, nextPersistedSettings) ||
-            !areConnectionSettingsEqual(settings, nextPersistedSettings);
-
-          if (connectionChanged) {
-            setPersistedSettings(nextPersistedSettings);
-            setSettings((current) => ({
-              ...current,
-              provider: nextPersistedSettings.provider,
-              modelId: nextPersistedSettings.modelId,
-              apiKey: nextPersistedSettings.apiKey
-            }));
-            setSaveMessage("Підключення збережено локально в браузері.");
-          }
-        }
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -266,7 +254,8 @@ export default function SettingsPage() {
                       setSettings((current) => ({
                         ...current,
                         provider,
-                        modelId: getDefaultProviderModelId(provider)
+                        modelId: getDefaultProviderModelId(provider),
+                        apiKey: current.apiKeys[provider] ?? ""
                       }));
                       setSaveMessage(null);
                     }}
@@ -338,7 +327,15 @@ export default function SettingsPage() {
                       type={showApiKey ? "text" : "password"}
                       value={settings.apiKey}
                       onChange={(event) => {
-                        setSettings((current) => ({ ...current, apiKey: event.target.value }));
+                        const apiKey = event.target.value;
+                        setSettings((current) => ({
+                          ...current,
+                          apiKey,
+                          apiKeys: {
+                            ...current.apiKeys,
+                            [current.provider]: apiKey
+                          }
+                        }));
                         setSaveMessage(null);
                       }}
                       placeholder={`Залиште порожнім, щоб сервер узяв ${providerEnvKey} із .env`}
@@ -420,6 +417,34 @@ export default function SettingsPage() {
                 </div>
               </label>
 
+              <label className="settings-field" htmlFor="review-prompt">
+                <span className="mono-ui settings-label">Загальний промпт review</span>
+                <Textarea
+                  id="review-prompt"
+                  rows={8}
+                  value={settings.reviewPrompt}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, reviewPrompt: event.target.value }));
+                    setSaveMessage(null);
+                  }}
+                  className="settings-textarea"
+                />
+                <div className="settings-textarea-toolbar">
+                  <p className="settings-field-note">Сумісний fallback для старих review-запитів, якщо окремі промпти експертизи або карток порожні.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setSettings((current) => ({ ...current, reviewPrompt: DEFAULT_REVIEW_PROMPT }));
+                      setSaveMessage(null);
+                    }}
+                  >
+                    Типовий промпт
+                  </Button>
+                </div>
+              </label>
+
               <label className="settings-field" htmlFor="cards-prompt">
                 <span className="mono-ui settings-label">Промпт генерації карток</span>
                 <Textarea
@@ -448,33 +473,57 @@ export default function SettingsPage() {
                 </div>
               </label>
 
-              <label className="settings-field" htmlFor="review-level-guide">
-                <span className="mono-ui settings-label">Маппінг рівнів 1-5</span>
+              <div className="settings-field">
+                <label className="settings-field" htmlFor="workflow-step-prompt">
+                  <span className="mono-ui settings-label">Промпти кроків workflow</span>
+                  <div className="settings-step-prompt-head">
+                    <Select
+                      id="workflow-step-prompt"
+                      value={activeStepPromptId}
+                      onChange={(event) => setActiveStepPromptId(event.target.value as EditorialReviewStepId)}
+                    >
+                      {WORKFLOW_STEP_PROMPT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        setSettings((current) => ({
+                          ...current,
+                          workflowStepPrompts: {
+                            ...current.workflowStepPrompts,
+                            [activeStepPromptId]: DEFAULT_WORKFLOW_STEP_PROMPTS[activeStepPromptId]
+                          }
+                        }));
+                        setSaveMessage(null);
+                      }}
+                    >
+                      Типовий крок
+                    </Button>
+                  </div>
+                </label>
                 <Textarea
-                  id="review-level-guide"
-                  rows={8}
-                  value={settings.reviewLevelGuide}
+                  rows={7}
+                  value={settings.workflowStepPrompts[activeStepPromptId]}
                   onChange={(event) => {
-                    setSettings((current) => ({ ...current, reviewLevelGuide: event.target.value }));
+                    setSettings((current) => ({
+                      ...current,
+                      workflowStepPrompts: {
+                        ...current.workflowStepPrompts,
+                        [activeStepPromptId]: event.target.value
+                      }
+                    }));
                     setSaveMessage(null);
                   }}
                   className="settings-textarea"
                 />
-                <div className="settings-textarea-toolbar">
-                  <p className="settings-field-note">Цей блок задає поведінку рівнів від `Легкий марафет` до `Згорів сарай — гори хата`.</p>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    onClick={() => {
-                      setSettings((current) => ({ ...current, reviewLevelGuide: DEFAULT_REVIEW_LEVEL_GUIDE }));
-                      setSaveMessage(null);
-                    }}
-                  >
-                    Типовий маппінг
-                  </Button>
-                </div>
-              </label>
+                <p className="settings-field-note">Це інструкція саме для вибраного етапу: діагностика, фактчек, структура, ясність, візуали, акценти тощо.</p>
+              </div>
 
               <label className="settings-field" htmlFor="callout-prompt">
                 <span className="mono-ui settings-label">Prompt для врізок</span>
@@ -552,6 +601,7 @@ export default function SettingsPage() {
                   const persisted = writeEditorSettings(settings);
                   setSettings(persisted);
                   setPersistedSettings(persisted);
+                  window.dispatchEvent(new CustomEvent("orest-editor-settings-updated", { detail: persisted }));
                   setSaveMessage("Налаштування збережено локально в браузері.");
                 }}
               >
@@ -583,18 +633,31 @@ function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
     left.provider === right.provider &&
     left.modelId === right.modelId &&
     left.apiKey === right.apiKey &&
+    areProviderApiKeysEqual(left.apiKeys, right.apiKeys) &&
     left.basePrompt === right.basePrompt &&
     left.reviewPrompt === right.reviewPrompt &&
     left.expertisePrompt === right.expertisePrompt &&
     left.cardsPrompt === right.cardsPrompt &&
     left.reviewLevelGuide === right.reviewLevelGuide &&
+    areWorkflowStepPromptsEqual(left.workflowStepPrompts, right.workflowStepPrompts) &&
     left.calloutPromptTemplate === right.calloutPromptTemplate &&
     left.imagePromptTemplate === right.imagePromptTemplate
   );
 }
 
-function areConnectionSettingsEqual(left: EditorSettings, right: EditorSettings) {
-  return left.provider === right.provider && left.modelId === right.modelId && left.apiKey === right.apiKey;
+function areWorkflowStepPromptsEqual(
+  left: EditorSettings["workflowStepPrompts"],
+  right: EditorSettings["workflowStepPrompts"]
+) {
+  return WORKFLOW_STEP_PROMPT_OPTIONS.every((option) => left[option.value] === right[option.value]);
+}
+
+function areProviderApiKeysEqual(left: Partial<Record<ProviderId, string>>, right: Partial<Record<ProviderId, string>>) {
+  return (
+    (left.openai ?? "") === (right.openai ?? "") &&
+    (left.gemini ?? "") === (right.gemini ?? "") &&
+    (left.anthropic ?? "") === (right.anthropic ?? "")
+  );
 }
 
 function getConnectionLabel(state: SettingsConnectionState) {
