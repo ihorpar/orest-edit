@@ -9,6 +9,8 @@ export interface ProviderModelPreset {
   id: string;
   label: string;
   description: string;
+  smartness?: number;
+  priceTier?: 1 | 2 | 3 | 4;
 }
 
 export interface EditorSettings {
@@ -315,17 +317,23 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
     {
       id: "gpt-5.5",
       label: "GPT-5.5",
-      description: "Найсильніший OpenAI-профіль для складного editorial review і точних локальних правок."
+      description: "Найсильніший OpenAI-профіль для складного editorial review і точних локальних правок.",
+      smartness: 10,
+      priceTier: 4
     },
     {
       id: "gpt-5.4",
       label: "GPT-5.4",
-      description: "Найсильніша якість редагування й найкращий кандидат для складних локальних правок та editorial review."
+      description: "Найсильніша якість редагування й найкращий кандидат для складних локальних правок та editorial review.",
+      smartness: 9,
+      priceTier: 3
     },
     {
       id: "gpt-5.4-mini",
-      label: "GPT-5.4 Mini",
-      description: "Швидший і дешевший OpenAI-профіль для легших правок та чернеткових проходів."
+      label: "GPT-5.4-mini",
+      description: "Швидший і дешевший OpenAI-профіль для легших правок та чернеткових проходів.",
+      smartness: 7,
+      priceTier: 2
     }
   ],
   anthropic: [
@@ -349,17 +357,23 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
     {
       id: "gemini-3-flash-preview",
       label: "Gemini 3 Flash",
-      description: "Швидкий і збалансований варіант за замовчуванням для повсякденних patch-запитів та editorial review."
+      description: "Швидкий і збалансований варіант за замовчуванням для повсякденних patch-запитів та editorial review.",
+      smartness: 8,
+      priceTier: 2
     },
     {
       id: "gemini-3.1-pro-preview",
-      label: "Gemini 3.1 Pro Preview",
-      description: "Найсильніший Gemini-профіль для довших рукописів, глобального review і складної структурної правки."
+      label: "Gemini 3.1 Pro",
+      description: "Найсильніший Gemini-профіль для довших рукописів, глобального review і складної структурної правки.",
+      smartness: 9,
+      priceTier: 3
     },
     {
       id: "gemini-3.1-flash-lite-preview",
-      label: "Gemini 3.1 Flash Lite Preview",
-      description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів."
+      label: "Gemini 3.1 Flash-Lite",
+      description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів.",
+      smartness: 7,
+      priceTier: 1
     }
   ]
 };
@@ -381,6 +395,22 @@ export function getDefaultProviderModelId(provider: ProviderId): string {
 export function findProviderModelPreset(provider: ProviderId, modelId: string): ProviderModelPreset | null {
   const normalized = modelId.trim();
   return PROVIDER_MODEL_PRESETS[provider].find((preset) => preset.id === normalized) ?? null;
+}
+
+export function getModelPresetPriceLabel(preset: ProviderModelPreset): string | null {
+  return preset.priceTier ? "$".repeat(preset.priceTier) : null;
+}
+
+export function getModelPresetSmartnessLabel(preset: ProviderModelPreset): string | null {
+  return typeof preset.smartness === "number" ? `${preset.smartness}/10` : null;
+}
+
+export function getModelPresetOptionLabel(preset: ProviderModelPreset): string {
+  const smartness = getModelPresetSmartnessLabel(preset);
+  const price = getModelPresetPriceLabel(preset);
+  const suffix = smartness && price ? ` [💡 ${smartness} | ${price}]` : "";
+
+  return `${preset.label}${suffix}`;
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {

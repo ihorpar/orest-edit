@@ -1298,6 +1298,7 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items"]);
   assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
+  assert.equal("temperature" in (requestBody ?? {}), false);
   assert.match(String(requestBody?.input ?? ""), /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /ключових думок/i);
   assert.match(String(requestBody?.input ?? ""), /кожному змістовому пункті/i);

@@ -100,7 +100,6 @@ async function pingOpenAiModel(modelId: string, apiKey: string, fetchImpl: Fetch
         model: modelId,
         input: "Reply with OK.",
         instructions: "Reply with exactly OK.",
-        temperature: 0,
         max_output_tokens: 16,
         store: false
       })

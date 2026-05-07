@@ -20,6 +20,9 @@ import {
   DEFAULT_WORKFLOW_STEP_PROMPTS,
   findProviderModelPreset,
   getDefaultProviderModelId,
+  getModelPresetOptionLabel,
+  getModelPresetPriceLabel,
+  getModelPresetSmartnessLabel,
   getProviderEnvKey,
   getProviderLabel,
   getProviderModelPresets,
@@ -211,6 +214,7 @@ export default function SettingsPage() {
                   <p className="mono-ui settings-summary-label">Поточний провайдер</p>
                   <p className="settings-summary-value">{providerLabel}</p>
                   <p className="settings-summary-copy">{selectedPreset?.label ?? (currentModelId || "Буде вибрано після збереження.")}</p>
+                  {selectedPreset ? <ModelPresetChips preset={selectedPreset} /> : null}
                 </article>
 
                 <article className="settings-summary-card" data-tone={connectionStatus.state}>
@@ -284,7 +288,7 @@ export default function SettingsPage() {
                   >
                     {modelPresets.map((preset) => (
                       <option key={preset.id} value={preset.id}>
-                        {preset.label}
+                        {getModelPresetOptionLabel(preset)}
                       </option>
                     ))}
                     <option value={CUSTOM_MODEL_OPTION}>Ввести вручну</option>
@@ -313,6 +317,7 @@ export default function SettingsPage() {
                       <StatusDot state={connectionStatus.state} />
                       <span>{getConnectionLabel(connectionStatus.state)}</span>
                     </span>
+                    {selectedPreset ? <ModelPresetChips preset={selectedPreset} /> : null}
                     <span className="settings-validation-text">
                       {selectedPreset ? selectedPreset.description : getManualModelHelp(modelState)}
                     </span>
@@ -657,6 +662,22 @@ function areProviderApiKeysEqual(left: Partial<Record<ProviderId, string>>, righ
     (left.openai ?? "") === (right.openai ?? "") &&
     (left.gemini ?? "") === (right.gemini ?? "") &&
     (left.anthropic ?? "") === (right.anthropic ?? "")
+  );
+}
+
+function ModelPresetChips({ preset }: { preset: NonNullable<ReturnType<typeof findProviderModelPreset>> }) {
+  const smartness = getModelPresetSmartnessLabel(preset);
+  const price = getModelPresetPriceLabel(preset);
+
+  if (!smartness && !price) {
+    return null;
+  }
+
+  return (
+    <span className="settings-model-chip-row" aria-label="Оцінка моделі">
+      {smartness ? <span className="settings-model-chip">💡 {smartness}</span> : null}
+      {price ? <span className="settings-model-chip">{price}</span> : null}
+    </span>
   );
 }
 

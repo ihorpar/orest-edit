@@ -307,6 +307,7 @@ test("generatePatchResponse sends strict OpenAI patch schema with closed objects
 
   assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.additionalProperties, false);
   assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.properties?.newBlocks?.items?.additionalProperties, false);
+  assert.equal("temperature" in payload, false);
 });
 
 test("generatePatchResponse fallback rewrites standalone lists into a visible paragraph draft", async () => {

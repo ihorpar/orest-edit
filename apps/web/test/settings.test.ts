@@ -11,6 +11,7 @@ import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_WORKFLOW_STEP_PROMPTS,
   getDefaultProviderModelId,
+  getModelPresetOptionLabel,
   getProviderModelPresets,
   getVisualStylePresetGuide,
   getVisualStylePresetOptions,
@@ -18,6 +19,7 @@ import {
   writeEditorSettings,
   readEditorSettings
 } from "../lib/editor/settings.ts";
+import { validateSettingsModel } from "../lib/server/settings-validation.ts";
 
 test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind explicitly", () => {
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /mechanism:/i);
@@ -82,6 +84,50 @@ test("OpenAI model presets only expose current GPT-5.5 and GPT-5.4 options", () 
     getProviderModelPresets("openai").map((preset) => preset.id),
     ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
   );
+});
+
+test("model presets expose compact labels with smartness and price metadata", () => {
+  const openAiLabels = getProviderModelPresets("openai").map((preset) => getModelPresetOptionLabel(preset));
+  const geminiLabels = getProviderModelPresets("gemini").map((preset) => getModelPresetOptionLabel(preset));
+
+  assert.deepEqual(openAiLabels, [
+    "GPT-5.5 [💡 10/10 | $$$$]",
+    "GPT-5.4 [💡 9/10 | $$$]",
+    "GPT-5.4-mini [💡 7/10 | $$]"
+  ]);
+  assert.deepEqual(geminiLabels, [
+    "Gemini 3 Flash [💡 8/10 | $$]",
+    "Gemini 3.1 Pro [💡 9/10 | $$$]",
+    "Gemini 3.1 Flash-Lite [💡 7/10 | $]"
+  ]);
+  assert.ok(geminiLabels.every((label) => !/preview/i.test(label)));
+});
+
+test("OpenAI settings validation does not send temperature", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+
+  const result = await validateSettingsModel(
+    {
+      provider: "openai",
+      modelId: "gpt-5.5",
+      apiKey: "openai-key"
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(JSON.stringify({ output_text: "OK" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      },
+      now: () => "2026-05-07T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(result.state, "valid");
+  assert.equal(requestBody?.model, "gpt-5.5");
+  assert.equal("temperature" in (requestBody ?? {}), false);
 });
 
 test("default editor settings surface every workflow step prompt", () => {

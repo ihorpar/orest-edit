@@ -147,6 +147,7 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
 
   assert.equal(response.stepId, "final_editing");
   assert.equal(response.items[0]?.recommendationType, "visual");
+  assert.equal(JSON.parse(requestBody).temperature, undefined);
   assert.match(requestBody, /Крок workflow: Власний запит/);
   assert.match(requestBody, /Власний запит редактора для цього запуску/);
   assert.match(requestBody, /Додай візуал і врізку/);

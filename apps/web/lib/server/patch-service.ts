@@ -386,7 +386,6 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
       },
       body: JSON.stringify({
         model: request.modelId,
-        temperature: request.mode === "custom" ? 0.4 : 0.2,
         instructions: buildSystemPrompt(request.basePrompt),
         input: buildUserPrompt(request),
         text: {

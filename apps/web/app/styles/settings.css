@@ -152,6 +152,25 @@
   gap: 8px;
 }
 
+.settings-model-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-model-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+
 .settings-section {
   border-top: 1px solid #eef2f7;
   padding-top: 24px;

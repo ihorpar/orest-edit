@@ -623,7 +623,6 @@ async function createOpenAiEditorialReview(
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       model: request.modelId,
-      temperature: 0.2,
       instructions: buildStepSystemPrompt(request, stepSpec),
       input: buildStepUserPrompt(request, stepSpec)
     };
