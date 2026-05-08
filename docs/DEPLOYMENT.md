@@ -32,7 +32,7 @@ Supported server-side keys:
 - `APP_PASSWORD` (enables in-app password gate for `/editor`, `/settings`, and API routes)
 
 Local developer behavior:
-- if the settings form leaves the API key blank, the server checks process env first
+- provider keys are resolved server-side from environment values
 - for local workspace runs, the server also reads the repo-root `.env` and `.env.local`
 - if `APP_PASSWORD` is missing in development, password auth is bypassed; in production, missing `APP_PASSWORD` keeps protected pages unavailable
 

@@ -64,7 +64,6 @@ export default function SettingsPage() {
   const [persistedSettings, setPersistedSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [activeStepPromptId, setActiveStepPromptId] = useState<EditorialReviewStepId>("diagnostics");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [validationNonce, setValidationNonce] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusSnapshot>({
     provider: DEFAULT_EDITOR_SETTINGS.provider,
@@ -76,7 +75,7 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    const restored = readEditorSettings();
+    const restored = stripClientApiKeys(readEditorSettings());
     setSettings(restored);
     setPersistedSettings(restored);
   }, []);
@@ -91,7 +90,7 @@ export default function SettingsPage() {
   const hasUnsavedChanges = !areSettingsEqual(settings, persistedSettings);
 
   useEffect(() => {
-    const validationKeySource: SettingsKeySource = settings.apiKey.trim() ? "api_key" : "missing";
+    const validationKeySource: SettingsKeySource = "missing";
 
     if (modelState !== "valid") {
       setConnectionStatus({
@@ -111,7 +110,7 @@ export default function SettingsPage() {
         provider: settings.provider,
         modelId: currentModelId,
         state: "checking",
-        keySource: settings.apiKey.trim() ? "api_key" : current.keySource,
+        keySource: current.keySource,
         message: "Перевіряю модель…",
         validatedAt: current.validatedAt
       }));
@@ -125,8 +124,7 @@ export default function SettingsPage() {
           },
           body: JSON.stringify({
             provider: settings.provider,
-            modelId: currentModelId,
-            apiKey: settings.apiKey || undefined
+            modelId: currentModelId
           }),
           signal: controller.signal
         });
@@ -140,7 +138,7 @@ export default function SettingsPage() {
             provider: settings.provider,
             modelId: currentModelId,
             state: "auth_error",
-            keySource: settings.apiKey.trim() ? "api_key" : "missing",
+            keySource: "missing",
             message: authError,
             validatedAt: new Date().toISOString()
           });
@@ -158,7 +156,7 @@ export default function SettingsPage() {
             provider: settings.provider,
             modelId: currentModelId,
             state: "network_error",
-            keySource: settings.apiKey.trim() ? "api_key" : "missing",
+            keySource: "missing",
             message: "Сервер повернув некоректну відповідь.",
             validatedAt: new Date().toISOString()
           });
@@ -183,7 +181,7 @@ export default function SettingsPage() {
           provider: settings.provider,
           modelId: currentModelId,
           state: "network_error",
-          keySource: settings.apiKey.trim() ? "api_key" : "missing",
+          keySource: "missing",
           message: error instanceof Error ? error.message : "Не вдалося перевірити модель.",
           validatedAt: new Date().toISOString()
         });
@@ -194,7 +192,7 @@ export default function SettingsPage() {
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [currentModelId, modelState, settings.apiKey, settings.provider, validationNonce]);
+  }, [currentModelId, modelState, settings.provider, validationNonce]);
 
   return (
     <main className="app-shell">
@@ -258,8 +256,7 @@ export default function SettingsPage() {
                       setSettings((current) => ({
                         ...current,
                         provider,
-                        modelId: getDefaultProviderModelId(provider),
-                        apiKey: current.apiKeys[provider] ?? ""
+                        modelId: getDefaultProviderModelId(provider)
                       }));
                       setSaveMessage(null);
                     }}
@@ -324,37 +321,10 @@ export default function SettingsPage() {
                   </div>
                 </label>
 
-                <label className="settings-field" htmlFor="api-key">
-                  <span className="mono-ui settings-label">API-ключ</span>
-                  <div className="settings-inline-field">
-                    <Input
-                      id="api-key"
-                      type={showApiKey ? "text" : "password"}
-                      value={settings.apiKey}
-                      onChange={(event) => {
-                        const apiKey = event.target.value;
-                        setSettings((current) => ({
-                          ...current,
-                          apiKey,
-                          apiKeys: {
-                            ...current.apiKeys,
-                            [current.provider]: apiKey
-                          }
-                        }));
-                        setSaveMessage(null);
-                      }}
-                      placeholder={`Залиште порожнім, щоб сервер узяв ${providerEnvKey} із .env`}
-                    />
-                    <Button variant="secondary" size="sm" type="button" onClick={() => setShowApiKey((current) => !current)}>
-                      {showApiKey ? "Сховати" : "Показати"}
-                    </Button>
-                  </div>
-                  <p className="settings-field-note">
-                    {settings.apiKey.trim()
-                      ? "Ключ збережеться локально в браузері для цього редактора."
-                      : `Якщо поле порожнє, сервер спробує взяти \`${providerEnvKey}\` із .env.`}
-                  </p>
-                </label>
+                <div className="settings-field">
+                  <span className="mono-ui settings-label">Ключ провайдера</span>
+                  <p className="settings-field-note">Ключ береться тільки із серверного оточення: <code>{providerEnvKey}</code>.</p>
+                </div>
               </div>
             </section>
 
@@ -591,8 +561,7 @@ export default function SettingsPage() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  setSettings(DEFAULT_EDITOR_SETTINGS);
-                  setShowApiKey(false);
+                  setSettings(stripClientApiKeys(DEFAULT_EDITOR_SETTINGS));
                   setSaveMessage(null);
                 }}
               >
@@ -603,7 +572,7 @@ export default function SettingsPage() {
                 variant="primary"
                 disabled={!hasUnsavedChanges}
                 onClick={() => {
-                  const persisted = writeEditorSettings(settings);
+                  const persisted = writeEditorSettings(stripClientApiKeys(settings));
                   setSettings(persisted);
                   setPersistedSettings(persisted);
                   window.dispatchEvent(new CustomEvent("orest-editor-settings-updated", { detail: persisted }));
@@ -637,8 +606,6 @@ function areSettingsEqual(left: EditorSettings, right: EditorSettings) {
   return (
     left.provider === right.provider &&
     left.modelId === right.modelId &&
-    left.apiKey === right.apiKey &&
-    areProviderApiKeysEqual(left.apiKeys, right.apiKeys) &&
     left.basePrompt === right.basePrompt &&
     left.reviewPrompt === right.reviewPrompt &&
     left.expertisePrompt === right.expertisePrompt &&
@@ -657,12 +624,12 @@ function areWorkflowStepPromptsEqual(
   return WORKFLOW_STEP_PROMPT_OPTIONS.every((option) => left[option.value] === right[option.value]);
 }
 
-function areProviderApiKeysEqual(left: Partial<Record<ProviderId, string>>, right: Partial<Record<ProviderId, string>>) {
-  return (
-    (left.openai ?? "") === (right.openai ?? "") &&
-    (left.gemini ?? "") === (right.gemini ?? "") &&
-    (left.anthropic ?? "") === (right.anthropic ?? "")
-  );
+function stripClientApiKeys(settings: EditorSettings): EditorSettings {
+  return {
+    ...settings,
+    apiKey: "",
+    apiKeys: {}
+  };
 }
 
 function ModelPresetChips({ preset }: { preset: NonNullable<ReturnType<typeof findProviderModelPreset>> }) {

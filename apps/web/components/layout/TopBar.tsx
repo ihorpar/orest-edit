@@ -128,7 +128,7 @@ export function TopBar({
       ...currentSettings,
       provider,
       modelId,
-      apiKey: currentSettings.apiKeys[provider] ?? ""
+      apiKey: ""
     });
 
     setEditorSettings(persisted);

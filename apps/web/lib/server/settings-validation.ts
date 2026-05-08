@@ -39,7 +39,7 @@ export async function validateSettingsModel(
       modelId: input.modelId,
       state: "missing_key",
       keySource,
-      message: `Немає ключа в полі або \`${envKey}\` у .env.`,
+      message: `Немає \`${envKey}\` у серверному оточенні.`,
       validatedAt: now()
     };
   }
@@ -58,7 +58,7 @@ export async function validateSettingsModel(
       modelId: input.modelId,
       state: "valid",
       keySource,
-      message: keySource === "env" ? `Модель відповідає через \`${envKey}\` із .env.` : "Модель відповідає коректно.",
+      message: keySource === "env" ? `Модель відповідає через \`${envKey}\` у серверному оточенні.` : "Модель відповідає коректно.",
       validatedAt: now()
     };
   } catch (error) {

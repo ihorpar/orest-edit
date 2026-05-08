@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeModelId, normalizeProvider, validateModelId, type SettingsValidationResult } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
+import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import { validateSettingsModel } from "../../../../lib/server/settings-validation";
 
 export const runtime = "nodejs";
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
   const response = await validateSettingsModel({
     provider,
     modelId,
-    apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined
+    apiKey: resolveClientProvidedApiKey(record.apiKey)
   });
 
   return NextResponse.json<SettingsValidationResult>(response, {

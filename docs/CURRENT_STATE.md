@@ -183,8 +183,8 @@ Status: Active handoff
 - Browser draft persistence uses `orest-editor-draft-v3`
 - `.docx` export renders directly from the block document model
 - Browser-local image assets use the existing asset store
-- Settings live at `/settings` and still provide provider/model/API-key configuration with live validation
-- Successful connection checks on `/settings` now also persist the selected provider/model/API-key locally, so `/editor` reuses the validated connection on the next load
+- Settings live at `/settings` and provide provider/model/prompt configuration with live validation
+- Provider API keys are now server-side only: `/settings` no longer sends or stores provider keys in browser state, and runtime AI requests rely on server environment keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`)
 - In-app password auth still gates `/editor`, `/settings`, and API routes through `/login`
 - A repo-native production deploy fallback now exists at `.github/workflows/vercel-production-deploy.yml` (push to `master` -> `vercel build --prod` -> `vercel deploy --prebuilt --prod`)
 - Ukrainian UI copy remains the product baseline

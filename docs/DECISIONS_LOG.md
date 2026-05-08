@@ -550,3 +550,10 @@ Date: 2026-04-29
 Decision: the `Структура` step should present a chapter outline grouped by manuscript headings and attached structure actions, while preserving `EditorialReviewItem` cards as the only executable units for apply/regenerate/dismiss.
 
 Reason: editors need to see the reading route before deciding on local structure edits, but one broad structural problem can require several separate heading/list/callout insertions. Keeping each insertion as a card preserves the patch-first execution model and avoids a risky whole-outline apply operation.
+
+## 2026-05-07
+
+### Provider keys are server-only in production
+Decision: browser clients must not send provider API keys in runtime AI request payloads. In production, server routes ignore any client-provided `apiKey` and use only server environment keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`).
+
+Reason: sending provider secrets from the frontend exposes them in browser tooling and increases leak risk. The app already has server-side route boundaries and Vercel environment configuration, so server-only key resolution is the correct security boundary.

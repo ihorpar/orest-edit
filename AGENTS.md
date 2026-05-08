@@ -12,6 +12,7 @@ The main job is to turn dense scientific language into simple, readable Ukrainia
 - Diff-first: all proposed changes must be visible before acceptance.
 - Every change must include a short reason.
 - Keep edits local to the selected fragment.
+- Fail loud on LLM errors: if a provider/API call fails, times out, has no key, or returns invalid/empty output, surface the actual error state and do not render synthetic fallback AI responses or local drafts that could look like successful model output.
 - UI language is Ukrainian.
 - Preferred visual baseline is `docs/sample4.html`.
 

@@ -358,7 +358,7 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
       id: "gemini-3-flash-preview",
       label: "Gemini 3 Flash",
       description: "Швидкий і збалансований варіант за замовчуванням для повсякденних patch-запитів та editorial review.",
-      smartness: 8,
+      smartness: 6,
       priceTier: 2
     },
     {
@@ -372,7 +372,7 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
       id: "gemini-3.1-flash-lite-preview",
       label: "Gemini 3.1 Flash-Lite",
       description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів.",
-      smartness: 7,
+      smartness: 5,
       priceTier: 1
     }
   ]

@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import type { ReviewImageGenerationRequest, ReviewImageGenerationResponse } from "../../../../../lib/editor/review-contract";
 import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
+import { resolveClientProvidedApiKey } from "../../../../../lib/server/client-api-key-policy";
 import {
   buildReviewImageJobResponse,
   createQueuedReviewImageJob,
@@ -128,7 +129,7 @@ function parseImageRequest(body: unknown): { ok: true; value: ReviewImageGenerat
     ok: true,
     value: {
       prompt: record.prompt,
-      apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,
+      apiKey: resolveClientProvidedApiKey(record.apiKey),
       async: record.async === true
     }
   };

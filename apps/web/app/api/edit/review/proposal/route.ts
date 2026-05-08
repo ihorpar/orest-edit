@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ReviewActionRequest, ReviewActionResponse } from "../../../../../lib/editor/review-contract";
 import { normalizeModelId, normalizeProvider, normalizeVisualStylePreset } from "../../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
+import { resolveClientProvidedApiKey } from "../../../../../lib/server/client-api-key-policy";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
 
 export const runtime = "nodejs";
@@ -118,7 +119,7 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
           : undefined,
       provider,
       modelId,
-      apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,
+      apiKey: resolveClientProvidedApiKey(record.apiKey),
       basePrompt: typeof record.basePrompt === "string" && record.basePrompt.trim() ? record.basePrompt.trim() : undefined,
       reviewPrompt: typeof record.reviewPrompt === "string" && record.reviewPrompt.trim() ? record.reviewPrompt.trim() : undefined,
       expertisePrompt: typeof record.expertisePrompt === "string" && record.expertisePrompt.trim() ? record.expertisePrompt.trim() : undefined,

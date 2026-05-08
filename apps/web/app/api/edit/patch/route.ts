@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PatchRequest, PatchResponse } from "../../../../lib/editor/patch-contract";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
+import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import { generatePatchResponse } from "../../../../lib/server/patch-service";
 
 export const runtime = "nodejs";
@@ -97,7 +98,7 @@ function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | {
       prompt: typeof record.prompt === "string" ? record.prompt.trim() : undefined,
       provider,
       modelId,
-      apiKey: typeof record.apiKey === "string" && record.apiKey.trim() ? record.apiKey.trim() : undefined,
+      apiKey: resolveClientProvidedApiKey(record.apiKey),
       basePrompt: typeof record.basePrompt === "string" && record.basePrompt.trim() ? record.basePrompt.trim() : undefined
     }
   };

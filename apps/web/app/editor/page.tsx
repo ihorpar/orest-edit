@@ -306,7 +306,7 @@ const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof St
 ];
 
 const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
-  diagnostics: "Редакторський огляд логіки, щільності й ризикових місць.",
+  diagnostics: "Короткий розбір: де текст збиває читача, де він перевантажений і що треба перебудувати.",
   fact_check: "Перевірка тверджень за доказовою наукою й джерелами.",
   structure: "Архітектура розділу, послідовність думки й дроблення матеріалу.",
   clarity: "Спрощення складних формулювань без втрати точності.",
@@ -1512,7 +1512,6 @@ export default function EditorPage() {
         prompt: mode === "custom" ? (promptOverride ?? customPrompt).trim() : undefined,
         provider: settings.provider,
         modelId: settings.modelId,
-        apiKey: settings.apiKey || undefined,
         basePrompt: settings.basePrompt
       };
 
@@ -2094,7 +2093,6 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
-            apiKey: settings.apiKey || undefined,
             basePrompt: settings.basePrompt,
             cardsPrompt: settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined,
             workflowStepPrompts: settings.workflowStepPrompts,
@@ -2110,7 +2108,6 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
-            apiKey: settings.apiKey || undefined,
             basePrompt: settings.basePrompt,
             expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
             cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
@@ -2510,8 +2507,7 @@ export default function EditorPage() {
       item: compactItem,
       editorialInstruction: editorialInstruction?.trim() || undefined,
       provider: settings.provider,
-      modelId: settings.modelId,
-      apiKey: settings.apiKey || undefined
+      modelId: settings.modelId
     };
 
     if (isReplaceProposal) {
@@ -3135,8 +3131,7 @@ export default function EditorPage() {
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: activeProposal.imageDraft.prompt,
-          apiKey: settings.apiKey || undefined
+          prompt: activeProposal.imageDraft.prompt
         })
       });
       const payload = (await response.json()) as { asset?: GeneratedReviewImageAsset; error?: string };
@@ -3666,9 +3661,9 @@ export default function EditorPage() {
             });
   const shouldShowPrototypeStatusStrip =
     activeWorkflowStep !== "spellcheck" &&
+    activeWorkflowStep !== "diagnostics" &&
     (
-      activeWorkflowStep === "diagnostics"
-      || activeWorkflowStep === "fact_check"
+      activeWorkflowStep === "fact_check"
       || showRecommendationStatusStrip
     );
   const prototypeStatusMessage =
