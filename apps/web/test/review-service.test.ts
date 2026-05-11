@@ -111,6 +111,7 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
   const response = await generateEditorialReview(
     createRequest({
       stepId: "final_editing",
+      runMode: "replace",
       apiKey: "test-key",
       stepFeedback: "Додай візуал і врізку там, де це допоможе читачеві."
     }),
@@ -146,6 +147,7 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
   );
 
   assert.equal(response.stepId, "final_editing");
+  assert.equal(response.runMode, "preserve");
   assert.equal(response.items[0]?.recommendationType, "visual");
   assert.equal(JSON.parse(requestBody).temperature, undefined);
   assert.match(requestBody, /Крок workflow: Власний промпт/);

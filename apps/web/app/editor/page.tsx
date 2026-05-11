@@ -2054,7 +2054,7 @@ export default function EditorPage() {
 
     setIsReviewRequestInFlight(true);
     setFeedback(null);
-    const runMode = stepRunModeByStep[stepId] ?? "replace";
+    const runMode: EditorialStepRunMode = stepId === "final_editing" ? "preserve" : stepRunModeByStep[stepId] ?? "replace";
     const currentStepFeedback = stepFeedback[stepId]?.trim();
     const diagnosticsFeedback = stepFeedback.diagnostics?.trim();
     const historyMessages: ChatMessage[] = [];
@@ -3591,9 +3591,7 @@ export default function EditorPage() {
       ? true
       : Boolean(reviewExpertise);
   const activeStepHasSettings = activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "final_editing";
-  const shouldShowFinalPromptInput =
-    activeWorkflowStep === "final_editing" &&
-    !activeStepHasExistingResult;
+  const shouldShowFinalPromptInput = activeWorkflowStep === "final_editing";
   const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
   const activeStepRunButtonLabel = activeStepHasExistingResult ? "Перезапуск" : "Запустити";
   const activeStepRunButtonLoadingLabel = activeStepHasExistingResult ? "Перезапускаємо…" : "Запускаємо…";

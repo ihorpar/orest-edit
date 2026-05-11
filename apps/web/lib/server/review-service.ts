@@ -412,7 +412,7 @@ export async function generateEditorialReview(
 ): Promise<EditorialReviewResponse> {
   const stepId = resolveStepId(request);
   const stepSpec = REVIEW_STEP_SPECS[stepId];
-  const runMode: EditorialStepRunMode = request.runMode === "preserve" ? "preserve" : "replace";
+  const runMode: EditorialStepRunMode = stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace";
   const requestId = createPatchId("review");
   const reviewSessionId = createPatchId("review-session");
   const stepRunId = createPatchId(`step-run-${stepId}`);
