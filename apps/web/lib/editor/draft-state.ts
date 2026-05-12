@@ -1,4 +1,4 @@
-import type { EditorDocument } from "./document-model";
+import { sanitizeEditorDocumentText, type EditorDocument } from "./document-model";
 import type { CompareHistoryEntry } from "./change-history";
 import type { PatchOperation, PatchResponseDiagnostics, PatchSelection } from "./patch-contract";
 import type { ManuscriptRevisionState } from "./manuscript-structure";
@@ -121,6 +121,7 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
 
     return {
       ...parsed,
+      document: sanitizeEditorDocumentText(parsed.document),
       reviewExpertise: typeof parsed.reviewExpertise === "string" ? parsed.reviewExpertise : null,
       rejectedReviewIdeas: Array.isArray(parsed.rejectedReviewIdeas) ? parsed.rejectedReviewIdeas : [],
       factCheckRows: Array.isArray(parsed.factCheckRows) ? parsed.factCheckRows : [],
@@ -163,6 +164,7 @@ function sanitizePersistedEditorDraftState(state: PersistedEditorDraftState): Pe
 
   return {
     ...state,
+    document: sanitizeEditorDocumentText(state.document),
     activeProposal,
     reviewImageAssets
   };

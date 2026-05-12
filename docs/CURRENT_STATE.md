@@ -30,7 +30,9 @@ Status: Active handoff
 - Whole-text review anchors resolve by block IDs and block fingerprints
 - Whole-text review prompt assembly now preserves explicit image markers in document lines (`[image] alt: ...; caption: ...`) instead of flattening image blocks into plain text
 - `/editor` now renders a unified step workspace shell with manuscript + draggable resizer + flyout review drawer + icon-first mini-hub (Lucide) for 8-step navigation
-- `/api/edit/review` is now step-aware: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, and optional `factCheckRows`
+- `/api/edit/review` is now step-aware and job-backed by default: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, optional `factCheckRows`, and optional in-memory `job` metadata; direct synchronous calls remain available with `async: false`
+- Long workflow reviews now use a 300-second Vercel route duration with an internal provider abort below the platform limit, so slow LLM analysis can return a clean app error instead of a hard `FUNCTION_INVOCATION_TIMEOUT`
+- Review jobs use the same lightweight in-memory server pattern as image jobs; this avoids new infrastructure for v1, but a job can be lost if the serverless instance is recycled, in which case the UI asks the editor to rerun the step
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, and the persisted `final_editing` step now shown as `Власний запит`
 - The old visible `Фінальна редактура` stage is replaced by `Власний запит`; it requires an editor instruction and can generate all executable recommendation card types while keeping the internal `final_editing` id for draft/history compatibility
 - The visible `Глибина змін` selector has been removed from workflow settings; review-card prompts use automatic soft density guidance derived from manuscript size instead of a user-selected 1-5 level
@@ -178,6 +180,7 @@ Status: Active handoff
 - Reusable browser QA command now exists at `npm run qa:inline-review -w @orest/web` (password-gated login + inline execution lane assertions + screenshot)
 - The manuscript top action bar now separates document-level actions from block formatting: `Відкрити` menu on the left, `Зберегти` menu on the right, plus red clear-document icon and debug `Скинути`
 - Import v1 now exists through `Відкрити`: `.txt`, `.docx`, and clipboard text/HTML are normalized into the block document model before replacing the current manuscript
+- Imported and persisted editor text is sanitized for hidden Word/layout characters: non-breaking Unicode spaces become normal spaces, zero-width/bidi/soft-hyphen controls are removed, and unsupported control characters are stripped while app-supported `\n` soft breaks remain
 - DOCX import now preserves embedded images by extracting `word/media/*` assets into browser-local image storage and creating manuscript `image` blocks in document order
 - Save v1 now supports both `.docx` and `.txt` from the same `Зберегти` menu
 - Browser draft persistence uses `orest-editor-draft-v3`

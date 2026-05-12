@@ -7,7 +7,8 @@ import {
   createEmptyParagraphBlock,
   createInlineText,
   ensureDocumentHasBlocks,
-  normalizeInlineNodes
+  normalizeInlineNodes,
+  sanitizeEditorDocumentText
 } from "./document-model";
 
 export type ImportedDocumentFormat = "txt" | "docx" | "clipboard_text" | "clipboard_html";
@@ -191,7 +192,7 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
   flushPendingList(blocks, pendingList);
 
   return {
-    document: ensureDocumentHasBlocks({ version: 2, blocks }),
+    document: sanitizeEditorDocumentText(ensureDocumentHasBlocks({ version: 2, blocks })),
     warnings: Array.from(context.warnings),
     format: "docx",
     assets: context.assets
@@ -213,7 +214,7 @@ export function importHtmlToDocument(html: string, fallbackText = ""): ImportedD
   const blocks = collectHtmlBlocks(parsed.body, warnings);
 
   return {
-    document: ensureDocumentHasBlocks({ version: 2, blocks }),
+    document: sanitizeEditorDocumentText(ensureDocumentHasBlocks({ version: 2, blocks })),
     warnings: Array.from(warnings),
     format: "clipboard_html"
   };

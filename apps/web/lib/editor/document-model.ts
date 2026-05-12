@@ -52,7 +52,15 @@ export const EMPTY_BLOCK_SELECTION: BlockSelection = {
 };
 
 export function createInlineText(text: string, marks: Omit<InlineNode, "text"> = {}): InlineNode {
-  return { text, ...marks };
+  return { text: sanitizeEditorText(text), ...marks };
+}
+
+export function sanitizeEditorText(text: string): string {
+  return text
+    .replace(/[\u2028\u2029]/g, "\n")
+    .replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, " ")
+    .replace(/[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
 }
 
 export function createBlockId(prefix = "block", suffix?: string): string {
@@ -106,6 +114,75 @@ export function cloneEditorDocument(document: EditorDocument): EditorDocument {
     version: 2,
     blocks: document.blocks.map((block) => cloneBlock(block))
   };
+}
+
+export function sanitizeEditorDocumentText(document: EditorDocument): EditorDocument {
+  let changed = false;
+
+  const sanitizeInlineNodes = (nodes: InlineNode[] | undefined): InlineNode[] => {
+    const hasSourceNodes = Array.isArray(nodes);
+    const source = hasSourceNodes ? nodes : [createInlineText("")];
+    const sanitized = source.map((node) => ({
+      ...(node && typeof node === "object" ? node : {}),
+      text: sanitizeEditorText(typeof node?.text === "string" ? node.text : "")
+    }));
+    const textChanged = sanitized.some((node, index) => node.text !== source[index]?.text);
+
+    if (!hasSourceNodes || sanitized.some((node, index) => node !== source[index] && source[index] == null)) {
+      changed = true;
+      return normalizeInlineNodes(sanitized);
+    }
+
+    if (!textChanged) {
+      return source;
+    }
+
+    changed = true;
+    return normalizeInlineNodes(sanitized);
+  };
+
+  const sanitizeText = (text: string): string => {
+    const nextText = sanitizeEditorText(text);
+
+    if (nextText !== text) {
+      changed = true;
+    }
+
+    return nextText;
+  };
+
+  const blocks = document.blocks.map((block) => {
+    switch (block.type) {
+      case "paragraph":
+        return { ...block, content: sanitizeInlineNodes(block.content) };
+      case "heading":
+        return { ...block, content: sanitizeInlineNodes(block.content) };
+      case "bullet_list":
+      case "ordered_list":
+        return { ...block, items: block.items.map((item) => sanitizeInlineNodes(item)) };
+      case "image":
+        return {
+          ...block,
+          alt: sanitizeText(block.alt),
+          caption: block.caption ? sanitizeInlineNodes(block.caption) : undefined
+        };
+      case "callout":
+        return {
+          ...block,
+          title: sanitizeInlineNodes(block.title),
+          body: block.body.map((paragraph) => sanitizeInlineNodes(paragraph))
+        };
+      case "table":
+        return {
+          ...block,
+          rows: block.rows.map((row) => row.map((cell) => sanitizeInlineNodes(cell)))
+        };
+      case "divider":
+        return { ...block };
+    }
+  });
+
+  return changed ? { version: 2, blocks } : document;
 }
 
 export function sliceDocumentForBlockRange(
@@ -183,7 +260,7 @@ export function normalizeInlineNodes(nodes: InlineNode[]): InlineNode[] {
   const normalized: InlineNode[] = [];
 
   for (const node of nodes) {
-    const text = typeof node.text === "string" ? node.text : "";
+    const text = sanitizeEditorText(typeof node.text === "string" ? node.text : "");
 
     if (!text && normalized.length > 0) {
       continue;

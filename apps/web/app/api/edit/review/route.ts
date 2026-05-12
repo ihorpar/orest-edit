@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
+  type EditorialReviewJobResponse,
   normalizeRejectedReviewIdeas,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
@@ -9,10 +10,63 @@ import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
+import {
+  buildEditorialReviewJobResponse,
+  createQueuedEditorialReviewJob,
+  processQueuedEditorialReviewJob,
+  readEditorialReviewJob
+} from "../../../../lib/server/review-job-service";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const authFailure = await requireApiSession(request);
+
+  if (authFailure) {
+    return authFailure;
+  }
+
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get("jobId")?.trim();
+
+  if (!jobId) {
+    return NextResponse.json<EditorialReviewJobResponse>(
+      {
+        job: buildMissingEditorialReviewJob(),
+        error: "Потрібно передати jobId."
+      },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const job = readEditorialReviewJob(jobId);
+
+  if (!job) {
+    return NextResponse.json<EditorialReviewJobResponse>(
+      {
+        job: buildMissingEditorialReviewJob(jobId),
+        error: "Чергу review не знайдено або вона вже протермінована. Запустіть крок ще раз."
+      },
+      { status: 404, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const payload = buildEditorialReviewJobResponse(job);
+  const status =
+    job.status === "failed"
+      ? 500
+      : job.status === "completed" && "error" in payload && payload.error
+        ? 502
+        : 200;
+
+  return NextResponse.json(payload, {
+    status,
+    headers: { "Cache-Control": "no-store" }
+  });
+}
 
 export async function POST(request: Request) {
   const authFailure = await requireApiSession(request);
@@ -91,10 +145,50 @@ export async function POST(request: Request) {
     );
   }
 
+  if (parsed.value.async !== false) {
+    const job = createQueuedEditorialReviewJob();
+
+    scheduleAfter(async () => {
+      try {
+        await processQueuedEditorialReviewJob(job.id, parsed.value);
+      } catch (error) {
+        console.error("Не вдалося завершити editorial review job.", error);
+      }
+    });
+
+    return NextResponse.json<EditorialReviewJobResponse>({ job }, { status: 202 });
+  }
+
   const response = await generateEditorialReview(parsed.value);
   const status = response.providerUsed === "invalid-text" ? 400 : response.error ? 502 : 200;
 
   return NextResponse.json<EditorialReviewResponse>(response, { status });
+}
+
+function scheduleAfter(task: () => Promise<void>) {
+  try {
+    after(task);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("outside a request scope")) {
+      void task();
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function buildMissingEditorialReviewJob(id = "review-job-missing"): EditorialReviewJobResponse["job"] {
+  const timestamp = new Date().toISOString();
+
+  return {
+    id,
+    status: "failed",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    expiresAt: timestamp,
+    pollAfterMs: 0
+  };
 }
 
 function parseEditorialReviewRequest(body: unknown): { ok: true; value: EditorialReviewRequest } | { ok: false; error: string } {
@@ -126,6 +220,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       provider,
       modelId,
       apiKey: resolveClientProvidedApiKey(record.apiKey),
+      async: record.async !== false,
       basePrompt: typeof record.basePrompt === "string" && record.basePrompt.trim() ? record.basePrompt.trim() : undefined,
       reviewPrompt: typeof record.reviewPrompt === "string" && record.reviewPrompt.trim() ? record.reviewPrompt.trim() : undefined,
       expertisePrompt: typeof record.expertisePrompt === "string" && record.expertisePrompt.trim() ? record.expertisePrompt.trim() : undefined,

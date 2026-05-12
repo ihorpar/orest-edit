@@ -6,10 +6,88 @@ import {
   convertBlockToParagraphBlock,
   getDocumentTextStats,
   mergeTextBlockIntoPrevious,
+  normalizeInlineNodes,
   replaceTextInDocument,
+  sanitizeEditorDocumentText,
+  sanitizeEditorText,
   sliceDocumentForBlockRange,
   type EditorDocument
 } from "../lib/editor/document-model.ts";
+
+test("sanitizeEditorText removes hidden editing hazards while keeping visible prose", () => {
+  const dirty =
+    "у\u00a0кумулятивному\u202fефекті\u2007текст\u200b\u200c\u200d\u2060\ufeff\u00ad\u200e\u200f\u202aabc\u202c\r\u0007line\u2028next\u2029end\tok";
+
+  assert.equal(sanitizeEditorText(dirty), "у кумулятивному ефекті текстabcline\nnext\nend\tok");
+});
+
+test("normalizeInlineNodes sanitizes text and preserves marks", () => {
+  const normalized = normalizeInlineNodes([
+    { text: "Антропогенні\u00a0", bold: true },
+    { text: "\u200bчинники", bold: true },
+    { text: "\u2028діють", italic: true }
+  ]);
+
+  assert.deepEqual(normalized, [
+    { text: "Антропогенні чинники", bold: true, italic: undefined, link: undefined },
+    { text: "\nдіють", bold: undefined, italic: true, link: undefined }
+  ]);
+});
+
+test("sanitizeEditorDocumentText repairs all text-bearing block surfaces without changing ids", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p-1", type: "paragraph", content: [{ text: "A\u00a0B" }] },
+      { id: "h-1", type: "heading", level: 2, content: [{ text: "H\u200b1" }] },
+      { id: "l-1", type: "bullet_list", items: [[{ text: "L\u202f1" }]] },
+      {
+        id: "c-1",
+        type: "callout",
+        kind: "mechanism",
+        title: [{ text: "T\ufeffitle" }],
+        body: [[{ text: "Body\u2028line" }]]
+      },
+      { id: "i-1", type: "image", assetId: "asset-1", alt: "Alt\u00adtext", caption: [{ text: "Cap\u2007tion" }] },
+      { id: "t-1", type: "table", rows: [[[{ text: "Cell\u2060text" }]]] }
+    ]
+  };
+
+  const repaired = sanitizeEditorDocumentText(document);
+
+  assert.deepEqual(
+    repaired.blocks.map((block) => block.id),
+    ["p-1", "h-1", "l-1", "c-1", "i-1", "t-1"]
+  );
+  assert.equal(repaired.blocks[0]?.type === "paragraph" ? repaired.blocks[0].content[0]?.text : "", "A B");
+  assert.equal(repaired.blocks[1]?.type === "heading" ? repaired.blocks[1].content[0]?.text : "", "H1");
+  assert.equal(repaired.blocks[2]?.type === "bullet_list" ? repaired.blocks[2].items[0]?.[0]?.text : "", "L 1");
+  assert.equal(repaired.blocks[3]?.type === "callout" ? repaired.blocks[3].title[0]?.text : "", "Title");
+  assert.equal(repaired.blocks[3]?.type === "callout" ? repaired.blocks[3].body[0]?.[0]?.text : "", "Body\nline");
+  assert.equal(repaired.blocks[4]?.type === "image" ? repaired.blocks[4].alt : "", "Alttext");
+  assert.equal(repaired.blocks[4]?.type === "image" ? repaired.blocks[4].caption?.[0]?.text : "", "Cap tion");
+  assert.equal(repaired.blocks[5]?.type === "table" ? repaired.blocks[5].rows[0]?.[0]?.[0]?.text : "", "Celltext");
+});
+
+test("sanitizeEditorDocumentText persists structural repairs for malformed inline arrays", () => {
+  const malformedDocument = {
+    version: 2,
+    blocks: [
+      { id: "p-1", type: "paragraph" },
+      { id: "h-1", type: "heading", level: 2 },
+      { id: "c-1", type: "callout", kind: "mechanism", body: [[]] },
+      { id: "t-1", type: "table", rows: [[[undefined]]] }
+    ]
+  } as unknown as EditorDocument;
+
+  const repaired = sanitizeEditorDocumentText(malformedDocument);
+
+  assert.notEqual(repaired, malformedDocument);
+  assert.equal(repaired.blocks[0]?.type === "paragraph" ? repaired.blocks[0].content[0]?.text : "missing", "");
+  assert.equal(repaired.blocks[1]?.type === "heading" ? repaired.blocks[1].content[0]?.text : "missing", "");
+  assert.equal(repaired.blocks[2]?.type === "callout" ? repaired.blocks[2].title[0]?.text : "missing", "");
+  assert.equal(repaired.blocks[3]?.type === "table" ? repaired.blocks[3].rows[0]?.[0]?.[0]?.text : "missing", "");
+});
 
 test("mergeTextBlockIntoPrevious merges paragraph text into the previous text block and returns the join offset", () => {
   const document: EditorDocument = {

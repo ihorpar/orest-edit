@@ -107,6 +107,34 @@ test("importDocxArrayBuffer groups list items and preserves tables", async () =>
   );
 });
 
+test("importDocxArrayBuffer normalizes hidden Word characters in imported text", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:r><w:t>Антропогенні\u00a0чинники\u200b діють\u2028системно</w:t></w:r>
+          <w:proofErr w:type="spellStart"/>
+          <w:r><w:t>\u00adрідко</w:t></w:r>
+          <w:proofErr w:type="spellEnd"/>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const block = result.document.blocks[0];
+
+  assert.equal(block?.type, "paragraph");
+  assert.equal(
+    block?.type === "paragraph" ? block.content.map((node) => node.text).join("") : "",
+    "Антропогенні чинники діють\nсистемнорідко"
+  );
+});
+
 test("importDocxArrayBuffer promotes full-bold heading-like paragraphs to h2", async () => {
   const zip = new JSZip();
   zip.file(

@@ -111,6 +111,7 @@ export interface EditorialReviewRequest {
   provider: string;
   modelId: string;
   apiKey?: string;
+  async?: boolean;
   basePrompt?: string;
   /** @deprecated Use expertisePrompt + cardsPrompt instead */
   reviewPrompt?: string;
@@ -212,9 +213,26 @@ export interface EditorialReviewResponse {
   expertise?: string;
   providerUsed: string;
   usedFallback: boolean;
+  job?: EditorialReviewJob;
   error?: string;
   diagnostics: EditorialReviewDiagnostics;
 }
+
+export type EditorialReviewJobStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface EditorialReviewJob {
+  id: string;
+  status: EditorialReviewJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  pollAfterMs: number;
+}
+
+export type EditorialReviewJobResponse = Partial<EditorialReviewResponse> & {
+  job: EditorialReviewJob;
+  error?: string;
+};
 
 export interface ReviewActionRequest {
   document: EditorDocument;

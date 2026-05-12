@@ -91,6 +91,8 @@ import {
   type GeneratedReviewImageAsset,
   type ChatMessage,
   type EditorialReviewDiagnostics,
+  type EditorialReviewJob,
+  type EditorialReviewJobResponse,
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
@@ -326,6 +328,8 @@ function isLocalActionRoutePayload(value: LocalActionRouteResponse | { error?: s
   return "executor" in value;
 }
 
+const REVIEW_JOB_SUPERSEDED_ERROR = "review_job_superseded";
+
 function createBlankDocument(): EditorDocument {
   return {
     version: 2,
@@ -419,6 +423,7 @@ export default function EditorPage() {
   const reviewNoOpStreakRef = useRef<Record<string, number>>({});
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeReviewJobRunRef = useRef<string | null>(null);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const spellcheckDictionarySet = useMemo(() => createSpellcheckDictionarySet(spellcheckDictionaryWords), [spellcheckDictionaryWords]);
@@ -516,6 +521,12 @@ export default function EditorPage() {
     }
 
     setHasHydratedDraft(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activeReviewJobRunRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -2052,6 +2063,8 @@ export default function EditorPage() {
       return;
     }
 
+    const reviewRunToken = createPatchId("review-job-run");
+    activeReviewJobRunRef.current = reviewRunToken;
     setIsReviewRequestInFlight(true);
     setFeedback(null);
     const runMode: EditorialStepRunMode = stepId === "final_editing" ? "preserve" : stepRunModeByStep[stepId] ?? "replace";
@@ -2093,6 +2106,7 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
+            async: true,
             basePrompt: settings.basePrompt,
             cardsPrompt: settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined,
             workflowStepPrompts: settings.workflowStepPrompts,
@@ -2108,6 +2122,7 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
+            async: true,
             basePrompt: settings.basePrompt,
             expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
             cardsPrompt: stepId === "diagnostics" ? undefined : downstreamPrompt,
@@ -2136,7 +2151,16 @@ export default function EditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody)
       });
-      const payload = (await response.json()) as EditorialReviewResponse;
+      const initialPayload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
+      const payload =
+        response.status === 202 && initialPayload.job
+          ? await pollEditorialReviewJob(initialPayload.job, reviewRunToken)
+          : initialPayload as EditorialReviewResponse;
+      const responseOk = response.status === 202 ? !payload.error : response.ok;
+
+      if (activeReviewJobRunRef.current !== reviewRunToken) {
+        return;
+      }
 
       if (payload.stepId !== stepId) {
         throw new Error(`Очікували відповідь для кроку «${stepId}», але сервер повернув «${payload.stepId}».`);
@@ -2186,11 +2210,11 @@ export default function EditorPage() {
         setReviewItems(nextItems);
       }
 
-      const nextFeedback = buildReviewFeedbackMessage(payload, response.ok, sectionItemCount);
+      const nextFeedback = buildReviewFeedbackMessage(payload, responseOk, sectionItemCount);
 
       if (
         !payload.error
-        && response.ok
+        && responseOk
         && payload.stepId !== "diagnostics"
         && payload.stepId !== "fact_check"
         && payload.stepId !== "emphasis"
@@ -2265,12 +2289,63 @@ export default function EditorPage() {
         closeComposer(); // Keep sidebar open if it's already open by other means
       }
     } catch (error) {
+      if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+        return;
+      }
+
       setFeedback({
         tone: "error",
         message: error instanceof Error ? error.message : "Не вдалося запустити review."
       });
     } finally {
-      setIsReviewRequestInFlight(false);
+      if (activeReviewJobRunRef.current === reviewRunToken) {
+        activeReviewJobRunRef.current = null;
+        setIsReviewRequestInFlight(false);
+      }
+    }
+  }
+
+  async function pollEditorialReviewJob(job: EditorialReviewJob, reviewRunToken: string): Promise<EditorialReviewResponse> {
+    let currentJob = job;
+
+    while (true) {
+      if (activeReviewJobRunRef.current !== reviewRunToken) {
+        throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+      }
+
+      const pollAfterMs = Math.max(300, currentJob.pollAfterMs || 1500);
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, pollAfterMs);
+      });
+
+      if (activeReviewJobRunRef.current !== reviewRunToken) {
+        throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+      }
+
+      const response = await fetch(`/api/edit/review?jobId=${encodeURIComponent(currentJob.id)}`, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { "Cache-Control": "no-store" }
+      });
+      const payload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
+
+      if ("reviewSessionId" in payload && payload.reviewSessionId && payload.job?.status === "completed") {
+        return payload as EditorialReviewResponse;
+      }
+
+      if (!payload.job) {
+        throw new Error(payload.error || "Сервер повернув некоректний стан review job.");
+      }
+
+      if (payload.job.status === "failed") {
+        throw new Error(payload.error || "Review job завершився з помилкою. Запустіть крок ще раз.");
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Не вдалося прочитати стан review job.");
+      }
+
+      currentJob = payload.job;
     }
   }
 

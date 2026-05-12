@@ -10,6 +10,11 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-05-12
 
+### Editor text sanitizes hidden Word/layout characters
+Decision: imported, parsed, and persisted editor prose now normalizes layout-only Unicode spaces to ordinary spaces, removes zero-width/bidi/soft-hyphen controls, converts Unicode line separators to supported soft breaks, and strips unsupported control characters.
+
+Reason: Word-only hidden characters such as `U+00A0` can make `contentEditable` serialize text differently from the editor's canonical HTML, causing unnecessary DOM resyncs and caret jumps during manual editing.
+
 ### Subsection proposals are heading-only
 Decision: `subsection` proposal generation now asks for one ready-to-insert H3 title only. The execution card no longer exposes an optional lead field, and applying a subsection inserts only the H3 heading.
 

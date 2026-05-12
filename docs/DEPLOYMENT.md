@@ -75,8 +75,11 @@ Operational note:
 
 Runtime behavior prepared in this repo:
 - all AI API routes are pinned to `runtime = "nodejs"`
-- all AI API routes export `maxDuration = 60`
-- image generation upstream timeout is capped below route duration so requests fail gracefully instead of hitting hard platform timeout
+- `/api/edit/review` exports `maxDuration = 300` for long workflow review jobs
+- `/api/edit/review/proposal` exports `maxDuration = 120`
+- `/api/edit/patch` and `/api/edit/review/image` export `maxDuration = 60`
+- smaller utility routes keep shorter limits where appropriate
+- image generation and review upstream timeouts are capped below route duration so requests fail gracefully instead of hitting hard platform timeout
 
 Configured API routes:
 - `apps/web/app/api/edit/patch/route.ts`
@@ -90,6 +93,12 @@ Configured API routes:
 Review-image route behavior:
 - `POST /api/edit/review/image` supports async enqueue (`async: true`) and returns `202` with a job id
 - `GET /api/edit/review/image?jobId=...` returns queue status and final asset/error (`Cache-Control: no-store`)
+
+Review route behavior:
+- `POST /api/edit/review` starts an in-memory async job by default and returns `202` with a job id
+- `GET /api/edit/review?jobId=...` returns queue status and the final review payload/error (`Cache-Control: no-store`)
+- `POST /api/edit/review` with `async: false` keeps the direct synchronous path for debugging and tests
+- the in-memory job queue is a lightweight v1 and can be lost if Vercel recycles the function instance; rerun the review step if a job expires or cannot be found
 
 If your Vercel project uses a different function mode/limit profile, increase route `maxDuration` and keep upstream provider timeouts slightly lower than that value.
 
