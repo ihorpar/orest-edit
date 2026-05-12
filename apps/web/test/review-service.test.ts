@@ -1363,6 +1363,7 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.match(String(requestBody?.instructions ?? ""), /для кроку «ясність» пропонуй лише мовні й локально-структурні правки/i);
   assert.match(String(requestBody?.instructions ?? ""), /для «ясність» не пропонуй підзаголовки, врізки, таблиці або зміни макроструктури/i);
   assert.match(String(requestBody?.instructions ?? ""), /одна картка має охоплювати лише один суцільний діапазон абзаців без розривів/i);
+  assert.match(String(requestBody?.instructions ?? ""), /subsection.*одна картка означає рівно одну дію/i);
   assert.match(String(requestBody?.instructions ?? ""), /якщо одна проблема є в несуміжних місцях/i);
   assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.instructions ?? ""), /починається з малої літери/i);

@@ -65,7 +65,7 @@ test("local action router builds normalized patch prompts for structured text in
 
   assert.ok(shortenPrompt);
   assert.match(shortenPrompt, /Скороти виділений фрагмент/i);
-  assert.match(buildPatchPromptForTextIntent("subsection", "лиш короткі заголовки") ?? "", /H3-підзаголовки/i);
+  assert.match(buildPatchPromptForTextIntent("subsection", "лиш короткі заголовки") ?? "", /один короткий H3-підзаголовок/i);
   assert.equal(buildPatchPromptForTextIntent("rewrite", ""), null);
 });
 
@@ -77,10 +77,10 @@ test("local action router maps subheaders to review-backed subsection proposals"
 
   assert.equal(plan.executor, "review");
   assert.equal(plan.recommendationType, "subsection");
-  assert.equal(plan.actionLabel, "Підзаголовки");
+  assert.equal(plan.actionLabel, "Підзаголовок");
   assert.deepEqual(
     getLocalActionTextIntentOptions().map((option) => option.label),
-    ["Переписати", "Скоротити", "Список", "Підзаголовки"]
+    ["Переписати", "Скоротити", "Список", "Підзаголовок"]
   );
 });
 

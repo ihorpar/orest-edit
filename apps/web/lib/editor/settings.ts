@@ -172,6 +172,7 @@ export const DEFAULT_CARDS_PROMPT = appendBulletListPunctuationRule(`Ти ген
 Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.
 replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.
 Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.
+Для subsection одна картка означає рівно одну дію: вставити один конкретний H3-підзаголовок перед одним місцем. Якщо потрібно два підзаголовки, поверни дві окремі subsection-картки.
 Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.
 Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.
 Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.

@@ -2651,7 +2651,7 @@ export default function EditorPage() {
                 ...entry,
                 subsectionDraft: {
                   title: payload.proposal.subsectionDraft!.title,
-                  lead: payload.proposal.subsectionDraft!.lead,
+                  lead: "",
                   prompt: payload.proposal.subsectionDraft!.prompt
                 },
                 status: "ready"
@@ -2758,7 +2758,6 @@ export default function EditorPage() {
     }
 
     const title = item.subsectionDraft.title.trim();
-    const lead = item.subsectionDraft.lead?.trim() ?? "";
 
     if (!title) {
       return;
@@ -2772,16 +2771,6 @@ export default function EditorPage() {
         content: parseBoldMarkdownToInlineNodes(title)
       }
     ];
-
-    if (lead) {
-      blocks.push(
-        ...splitTextIntoParagraphBlocks(lead).map((part) => ({
-          id: createBlockId("paragraph"),
-          type: "paragraph" as const,
-          content: parseBoldMarkdownToInlineNodes(part)
-        }))
-      );
-    }
 
     commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks), {
       history: {
@@ -2979,7 +2968,7 @@ export default function EditorPage() {
           ...entry,
           subsectionDraft: {
             title,
-            lead: entry.subsectionDraft?.lead ?? "",
+            lead: "",
             prompt: entry.subsectionDraft?.prompt ?? ""
           }
         };
@@ -2996,39 +2985,6 @@ export default function EditorPage() {
         subsectionDraft: {
           ...current.subsectionDraft,
           title
-        }
-      };
-    });
-  }
-
-  function updateActiveSubsectionLead(item: EditorialReviewItem, lead: string) {
-    setReviewItems((current) =>
-      current.map((entry) => {
-        if (entry.id !== item.id) {
-          return entry;
-        }
-
-        return {
-          ...entry,
-          subsectionDraft: {
-            title: entry.subsectionDraft?.title ?? entry.title,
-            lead,
-            prompt: entry.subsectionDraft?.prompt ?? ""
-          }
-        };
-      })
-    );
-
-    setActiveProposal((current) => {
-      if (!current || current.kind !== "subsection_prompt" || current.reviewItemId !== item.id || !current.subsectionDraft) {
-        return current;
-      }
-
-      return {
-        ...current,
-        subsectionDraft: {
-          ...current.subsectionDraft,
-          lead
         }
       };
     });
@@ -4599,7 +4555,6 @@ export default function EditorPage() {
               onUpdateActiveCalloutTitle={updateActiveCalloutTitle}
               onUpdateActiveCalloutBody={updateActiveCalloutBody}
               onUpdateActiveSubsectionTitle={updateActiveSubsectionTitle}
-              onUpdateActiveSubsectionLead={updateActiveSubsectionLead}
               onUpdateActiveVisualIntent={updateActiveVisualIntent}
               onUpdateActiveImagePrompt={updateActiveImagePrompt}
               onUpdateActiveImageCaption={updateActiveImageCaption}
@@ -6790,16 +6745,6 @@ function linkifyParagraphRefs(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function splitTextIntoParagraphBlocks(text: string): string[] {
-  const parts = text
-    .replace(/\r\n?/g, "\n")
-    .split(/\n\s*\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  return parts.length > 0 ? parts : [text.trim()];
 }
 
 function maybeEscalateReviewNoOpWarning(

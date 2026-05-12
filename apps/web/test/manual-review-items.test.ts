@@ -176,7 +176,7 @@ test("buildManualReviewItem supports local subsection generation as H3 insertion
   assert.equal(item.suggestedAction, "insert_text");
   assert.equal(item.insertionPoint.mode, "before");
   assert.equal(item.insertionPoint.anchorBlockId, "p2");
-  assert.match(item.title, /підзаголовки/i);
-  assert.match(item.recommendation, /H3-підзаголовки/i);
+  assert.match(item.title, /підзаголовок/i);
+  assert.match(item.recommendation, /один H3-підзаголовок/i);
   assert.match(item.reason, /Без довгого ліду/i);
 });

@@ -68,7 +68,7 @@ const TEXT_INTENT_LABELS: Record<LocalActionTextIntent, string> = {
   rewrite: "Переписати",
   shorten: "Скоротити",
   list: "Список",
-  subsection: "Підзаголовки"
+  subsection: "Підзаголовок"
 };
 
 const CLARIFY_PATTERNS = /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i;
@@ -208,7 +208,7 @@ export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, pro
     intent === "shorten"
       ? "Скороти виділений фрагмент, збережи зміст, логіку й тон."
       : intent === "subsection"
-        ? "Запропонуй короткі H3-підзаголовки для виділеного фрагмента українською без зміни змісту."
+        ? "Запропонуй один короткий H3-підзаголовок для виділеного фрагмента українською без зміни змісту."
         : "Перетвори виділений фрагмент на компактний список українською без втрати змісту.";
 
   return trimmedPrompt ? `${baseInstruction}\n\nДодаткова інструкція: ${trimmedPrompt}` : baseInstruction;

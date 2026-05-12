@@ -250,7 +250,7 @@ export async function generateReviewAction(
           canApplyDirectly: true,
           subsectionDraft: {
             title: explicitDraft.title,
-            lead: explicitDraft.lead,
+            lead: "",
             prompt: buildProviderPrompt(normalizedRequest, "subsection")
           }
         },
@@ -707,7 +707,7 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
     canApplyDirectly: true,
     subsectionDraft: {
       title: parsed.title,
-      lead: parsed.lead,
+      lead: "",
       prompt
     }
   };
@@ -807,7 +807,7 @@ async function createSubsectionProposal(
       canApplyDirectly: true,
       subsectionDraft: {
         title: parsed.title,
-        lead: parsed.lead,
+        lead: "",
         prompt
       }
     }
@@ -914,9 +914,9 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     return [
       "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
       BULLET_LIST_PUNCTUATION_RULE,
-      "Поверни лише JSON-об'єкт без іншого markdown, окрім дозволеного **жирного** у lead: {\"title\":\"...\",\"lead\":\"...\"}.",
-      "title: короткий і точний підзаголовок (plain text, один рядок).",
-      "lead: необов'язковий короткий вступний абзац; активно використовуй **жирний** для ключових думок. Якщо lead містить більше одного речення, виділи 1-2 короткі ключові фрази; якщо lead містить короткий label-line, оформи його як **жирний** рядок із 1-3 слів; без #, ## або HTML-заголовків; можна порожній рядок.",
+      "Поверни лише JSON-об'єкт без іншого markdown: {\"title\":\"...\"}.",
+      "title: готовий короткий і точний H3-підзаголовок для вставки в рукопис (plain text, один рядок).",
+      "Не повертай lead, вступ, пояснення, редакторський коментар або опис ролі фрагмента.",
       "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
       `Рекомендація: ${request.item.recommendation}`,
       request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
@@ -2130,15 +2130,13 @@ function parseSubsectionDraftOutput(
 ): { title: string; lead: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "subheading"]) : null;
-  const objectLead = parsedObject ? pickString(parsedObject, ["lead", "intro", "body", "text"]) : null;
 
   const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
-  const fallbackLeadValue = sanitizeCalloutText(fallback.lead);
 
-  if (objectTitle || objectLead) {
+  if (objectTitle) {
     return {
       title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
-      lead: sanitizeCalloutText(objectLead ?? fallbackLeadValue)
+      lead: ""
     };
   }
 
@@ -2146,15 +2144,10 @@ function parseSubsectionDraftOutput(
   const lines = plain.split("\n").map((line) => line.trimEnd());
   const titleLineIndex = lines.findIndex((line) => line.trim());
   const title = titleLineIndex >= 0 ? lines[titleLineIndex]!.trim() : fallbackTitleValue;
-  const lead = lines
-    .slice(titleLineIndex >= 0 ? titleLineIndex + 1 : 1)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 
   return {
     title: sanitizeCalloutTitle(title || fallbackTitleValue),
-    lead: sanitizeCalloutText(lead || fallbackLeadValue)
+    lead: ""
   };
 }
 
@@ -2166,22 +2159,19 @@ function parseSubsectionDraftFromRecommendation(value: string): { title: string;
   }
 
   const titleMatch = /(?:^|\n|\s)(?:підзаголовок|заголовок)\s*:\s*(.+?)(?=(?:\n|\s)+(?:текст|рамка)\s*:|$)/i.exec(normalized);
-  const leadMatch = /(?:^|\n|\s)(?:текст|рамка)\s*:\s*([\s\S]+)$/i.exec(normalized);
-
-  if (!titleMatch?.[1] || !leadMatch?.[1]) {
+  if (!titleMatch?.[1]) {
     return null;
   }
 
   const title = sanitizeCalloutTitle(titleMatch[1]);
-  const lead = sanitizeCalloutText(leadMatch[1]).slice(0, 1800);
 
-  if (!title || !lead) {
+  if (!title) {
     return null;
   }
 
   return {
     title,
-    lead
+    lead: ""
   };
 }
 

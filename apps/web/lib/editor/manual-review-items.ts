@@ -79,7 +79,7 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
         : recommendationType === "visual"
           ? "Ручний візуал"
           : recommendationType === "subsection"
-            ? "Ручні підзаголовки"
+            ? "Ручний підзаголовок"
             : "Ручний список",
     reason: `Ручний запит із панелі локальної правки.${instructionSuffix}`,
     recommendation:
@@ -88,7 +88,7 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
         : recommendationType === "visual"
           ? `Згенерувати візуал для виділеного фрагмента.${instructionSuffix}`
           : recommendationType === "subsection"
-            ? `Запропонувати H3-підзаголовки для виділеного фрагмента.${instructionSuffix}`
+            ? `Запропонувати один H3-підзаголовок для виділеного фрагмента.${instructionSuffix}`
             : `Перетворити виділений фрагмент на компактний список.${instructionSuffix}`,
     recommendationType,
     suggestedAction,

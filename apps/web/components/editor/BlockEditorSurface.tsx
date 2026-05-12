@@ -212,7 +212,6 @@ export function BlockEditorSurface({
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
-  onUpdateActiveSubsectionLead,
   onUpdateActiveVisualIntent,
   onUpdateActiveImagePrompt,
   onUpdateActiveImageCaption,
@@ -269,7 +268,6 @@ export function BlockEditorSurface({
   onUpdateActiveCalloutTitle?: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody?: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle?: (item: EditorialReviewItem, title: string) => void;
-  onUpdateActiveSubsectionLead?: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveVisualIntent?: (item: EditorialReviewItem, intent: EditorialVisualIntent) => void;
   onUpdateActiveImagePrompt?: (prompt: string) => void;
   onUpdateActiveImageCaption?: (caption: string) => void;
@@ -1347,7 +1345,6 @@ export function BlockEditorSurface({
                       onUpdateActiveCalloutTitle={(item, title) => onUpdateActiveCalloutTitle?.(item, title)}
                       onUpdateActiveCalloutBody={(item, body) => onUpdateActiveCalloutBody?.(item, body)}
                       onUpdateActiveSubsectionTitle={(item, title) => onUpdateActiveSubsectionTitle?.(item, title)}
-                      onUpdateActiveSubsectionLead={(item, lead) => onUpdateActiveSubsectionLead?.(item, lead)}
                       onUpdateActiveVisualIntent={(item, intent) => onUpdateActiveVisualIntent?.(item, intent)}
                       onUpdateActiveImagePrompt={(prompt) => onUpdateActiveImagePrompt?.(prompt)}
                       onUpdateActiveImageCaption={(caption) => onUpdateActiveImageCaption?.(caption)}

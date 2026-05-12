@@ -8,6 +8,18 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-03-14
 
+## 2026-05-12
+
+### Subsection proposals are heading-only
+Decision: `subsection` proposal generation now asks for one ready-to-insert H3 title only. The execution card no longer exposes an optional lead field, and applying a subsection inserts only the H3 heading.
+
+Reason: generated leads tended to summarize or describe the following paragraphs instead of adding useful manuscript text. Keeping subsection actions atomic makes the UI match the existing one-card, one-heading insertion model.
+
+### Manual subsection intent is singular
+Decision: the local editor intent is labeled `Підзаголовок`, not `Підзаголовки`.
+
+Reason: the action creates one review-backed subsection card and one H3 insertion. Singular wording avoids promising multi-heading generation in a single executable card.
+
 ## 2026-04-27
 
 ### Review-card deduplication is anchor-based, not title-based

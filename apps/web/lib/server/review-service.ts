@@ -1165,6 +1165,9 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
       ? "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один конкретний H3-підзаголовок перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків."
+      : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
       ? "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент."
       : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis"

@@ -47,7 +47,6 @@ export function ReviewRecommendationDetail({
   onUpdateActiveCalloutTitle,
   onUpdateActiveCalloutBody,
   onUpdateActiveSubsectionTitle,
-  onUpdateActiveSubsectionLead,
   onUpdateActiveVisualIntent,
   onUpdateActiveImagePrompt,
   onUpdateActiveImageCaption,
@@ -76,7 +75,6 @@ export function ReviewRecommendationDetail({
   onUpdateActiveCalloutTitle: (item: EditorialReviewItem, title: string) => void;
   onUpdateActiveCalloutBody: (item: EditorialReviewItem, body: string) => void;
   onUpdateActiveSubsectionTitle: (item: EditorialReviewItem, title: string) => void;
-  onUpdateActiveSubsectionLead: (item: EditorialReviewItem, lead: string) => void;
   onUpdateActiveVisualIntent: (item: EditorialReviewItem, intent: EditorialVisualIntent) => void;
   onUpdateActiveImagePrompt: (prompt: string) => void;
   onUpdateActiveImageCaption: (caption: string) => void;
@@ -372,12 +370,6 @@ export function ReviewRecommendationDetail({
               className="editorial-review-callout-title-input"
               value={subsectionDraft?.title ?? ""}
               onChange={(event) => onUpdateActiveSubsectionTitle(currentItem, event.target.value)}
-            />
-            <p className="editorial-review-detail-label">Вступ (опційно)</p>
-            <textarea
-              className="editorial-review-callout-body-input"
-              value={subsectionDraft?.lead ?? ""}
-              onChange={(event) => onUpdateActiveSubsectionLead(currentItem, event.target.value)}
             />
           </div>
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}

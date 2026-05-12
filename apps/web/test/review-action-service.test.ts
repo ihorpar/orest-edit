@@ -81,7 +81,22 @@ test("generateReviewAction builds subsection draft deterministically from explic
   assert.equal(response.providerUsed, "deterministic:subsection");
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри без самодіагностики");
-  assert.match(response.proposal.subsectionDraft?.lead ?? "", /Шкірні ознаки часто неспецифічні/i);
+  assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
+});
+
+test("generateReviewAction builds subsection draft deterministically from explicit heading-only instruction", async () => {
+  const request = createRequest();
+  request.item.recommendation = "Вставити перед фрагментом. Підзаголовок: Як токсиканти накопичуються в організмі";
+
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
+
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.providerUsed, "deterministic:subsection");
+  assert.equal(response.proposal.kind, "subsection_prompt");
+  assert.equal(response.proposal.subsectionDraft?.title, "Як токсиканти накопичуються в організмі");
+  assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
 });
 
 test("generateReviewAction injects explicit callout-kind guidance into provider prompt", async () => {
@@ -945,7 +960,7 @@ test("generateReviewAction preserves leading numeric lines in callout body clean
   assert.match(body, /^1\)\s500 мг/m);
 });
 
-test("generateReviewAction keeps subsection lead paragraph breaks from plain-text output", async () => {
+test("generateReviewAction ignores subsection lead prose from plain-text output", async () => {
   const request = createRequest();
 
   const response = await generateReviewAction(request, {
@@ -961,10 +976,7 @@ test("generateReviewAction keeps subsection lead paragraph breaks from plain-tex
 
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри");
-  assert.equal(
-    response.proposal.subsectionDraft?.lead,
-    "Перший абзац пояснює, що симптоми часто неспецифічні.\n\nДругий абзац нагадує дивитися на тривалість і супутні ознаки."
-  );
+  assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
 });
 
 test("generateReviewAction constrains rewrite output to the original block count", async () => {
@@ -1932,9 +1944,8 @@ test("generateReviewAction uses Gemini header auth and parses subsection output"
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
   assert.match(requestPrompt, /Рекомендація:/i);
   assert.match(requestPrompt, /Щільний абзац/i);
-  assert.match(requestPrompt, /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
-  assert.match(requestPrompt, /label-line/i);
-  assert.match(requestPrompt, /1-2 короткі ключові фрази/i);
+  assert.match(requestPrompt, /\{"title":"\.\.\."\}/i);
+  assert.match(requestPrompt, /Не повертай lead, вступ, пояснення/i);
 });
 
 test("generateReviewAction uses Anthropic headers and parses subsection output", async () => {
