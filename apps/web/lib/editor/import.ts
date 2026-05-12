@@ -64,6 +64,8 @@ const xmlParser = new XMLParser({
 const LIST_BULLET_PATTERN = /^[-*•]\s+/;
 const LIST_ORDERED_PATTERN = /^\d+[.)]\s+/;
 const HEADING_PATTERN = /^(#{1,3})\s+(.+)$/;
+const FULL_BOLD_HEADING_MAX_CHARACTERS = 160;
+const FULL_BOLD_HEADING_MAX_WORDS = 18;
 const HTML_BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -486,11 +488,7 @@ function buildParagraphBlocksFromParts(
       return;
     }
 
-    blocks.push({
-      id: createBlockId("p"),
-      type: "paragraph",
-      content: normalizedInlineNodes
-    });
+    blocks.push(createParagraphOrFullBoldHeadingBlock(normalizedInlineNodes));
   };
 
   for (const part of parts) {
@@ -743,11 +741,7 @@ function collectHtmlBlocks(root: ParentNode, warnings: Set<string>): Block[] {
       const content = htmlNodeToInlineNodes(child);
 
       if (content.some((entry) => entry.text.trim())) {
-        blocks.push({
-          id: createBlockId("p"),
-          type: "paragraph",
-          content
-        });
+        blocks.push(tagName === "P" ? createParagraphOrFullBoldHeadingBlock(content) : createParagraphBlock(content));
       }
 
       continue;
@@ -811,15 +805,50 @@ function collectHtmlBlocks(root: ParentNode, warnings: Set<string>): Block[] {
     const content = htmlNodeToInlineNodes(child);
 
     if (content.some((entry) => entry.text.trim())) {
-      blocks.push({
-        id: createBlockId("p"),
-        type: "paragraph",
-        content
-      });
+      blocks.push(createParagraphOrFullBoldHeadingBlock(content));
     }
   }
 
   return blocks;
+}
+
+function createParagraphBlock(content: InlineNode[]): Block {
+  return {
+    id: createBlockId("p"),
+    type: "paragraph",
+    content: normalizeInlineNodes(content)
+  };
+}
+
+function createParagraphOrFullBoldHeadingBlock(content: InlineNode[]): Block {
+  const normalizedContent = normalizeInlineNodes(content);
+
+  if (!shouldPromoteFullBoldParagraphToHeading(normalizedContent)) {
+    return createParagraphBlock(normalizedContent);
+  }
+
+  return {
+    id: createBlockId("heading"),
+    type: "heading",
+    level: 2,
+    content: normalizeInlineNodes(normalizedContent.map((node) => ({ ...node, bold: undefined })))
+  };
+}
+
+function shouldPromoteFullBoldParagraphToHeading(content: InlineNode[]): boolean {
+  const visibleText = content.map((node) => node.text).join("").replace(/[ \t]+/g, " ").trim();
+
+  if (!visibleText || visibleText.length > FULL_BOLD_HEADING_MAX_CHARACTERS || visibleText.includes("\n")) {
+    return false;
+  }
+
+  const words = Array.from(visibleText.matchAll(/[\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*/gu)).length;
+
+  if (words > FULL_BOLD_HEADING_MAX_WORDS || /[.!?…]$/u.test(visibleText)) {
+    return false;
+  }
+
+  return content.every((node) => !node.text.trim() || node.bold === true);
 }
 
 function htmlNodeToInlineNodes(node: Node, marks: Omit<InlineNode, "text"> = {}): InlineNode[] {

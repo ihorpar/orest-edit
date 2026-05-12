@@ -107,6 +107,71 @@ test("importDocxArrayBuffer groups list items and preserves tables", async () =>
   );
 });
 
+test("importDocxArrayBuffer promotes full-bold heading-like paragraphs to h2", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:r>
+            <w:rPr><w:b/></w:rPr>
+            <w:t>Архітектура кісткового ремоделювання: баланс як основа довголіття</w:t>
+          </w:r>
+        </w:p>
+        <w:p>
+          <w:r><w:t>Звичайний абзац із </w:t></w:r>
+          <w:r>
+            <w:rPr><w:b/></w:rPr>
+            <w:t>частковим виділенням</w:t>
+          </w:r>
+          <w:r><w:t>.</w:t></w:r>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const heading = result.document.blocks[0];
+  const paragraph = result.document.blocks[1];
+
+  assert.deepEqual(result.document.blocks.map((block) => block.type), ["heading", "paragraph"]);
+  assert.equal(heading?.type === "heading" ? heading.level : 0, 2);
+  assert.equal(
+    heading?.type === "heading" ? heading.content[0]?.text : "",
+    "Архітектура кісткового ремоделювання: баланс як основа довголіття"
+  );
+  assert.equal(heading?.type === "heading" ? heading.content[0]?.bold : undefined, undefined);
+  assert.equal(paragraph?.type === "paragraph" ? paragraph.content[1]?.bold : undefined, true);
+});
+
+test("importDocxArrayBuffer keeps long full-bold paragraphs as paragraphs", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:r>
+            <w:rPr><w:b/></w:rPr>
+            <w:t>Цей довгий абзац спеціально залишається жирним, бо він схожий на змістове виділення всередині рукопису, а не на короткий підзаголовок для структури розділу.</w:t>
+          </w:r>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const block = result.document.blocks[0];
+
+  assert.equal(block?.type, "paragraph");
+  assert.equal(block?.type === "paragraph" ? block.content[0]?.bold : undefined, true);
+});
+
 test("importDocxArrayBuffer preserves embedded images as image blocks with assets", async () => {
   const zip = new JSZip();
   zip.file(
