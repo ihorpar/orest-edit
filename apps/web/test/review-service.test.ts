@@ -723,11 +723,11 @@ test("generateEditorialReview normalizes provider emphasis items to exact target
                   excerpt: "Шкіра часто першою показує, як організм реагує на стрес.",
                   priority: "medium",
                   emphasisText: "першою показує",
-                occurrence: 1
-              }
-            ]
-          })
-        }),
+                  occurrence: null
+                }
+              ]
+            })
+          }),
         { status: 200, headers: { "content-type": "application/json" } }
       ),
     now: () => "2026-03-10T12:00:00.000Z"

@@ -187,9 +187,9 @@ const openAiEmphasisSchema = {
           excerpt: { type: "string" },
           priority: { type: "string", enum: ["high", "medium", "low"] },
           emphasisText: { type: "string" },
-          occurrence: { type: "integer" }
+          occurrence: { anyOf: [{ type: "integer" }, { type: "null" }] }
         },
-        required: ["blockId", "excerpt", "priority", "emphasisText"]
+        required: ["blockId", "excerpt", "priority", "emphasisText", "occurrence"]
       }
     }
   },
