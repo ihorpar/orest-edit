@@ -4816,6 +4816,13 @@ export default function EditorPage() {
                     </section>
                   ) : null}
 
+                  {feedbackPresentation ? (
+                    <div className="step-review-feedback" data-tone={feedbackPresentation.tone} role="status" aria-live="polite">
+                      <span className="step-review-feedback-label">{feedbackPresentation.label}</span>
+                      <p className="step-review-feedback-copy">{feedbackPresentation.message}</p>
+                    </div>
+                  ) : null}
+
                   {renderPrototypeStepContent()}
                 </div>
               </div>
@@ -5947,6 +5954,16 @@ function createHistoryEntry(
   };
 }
 
+function withReviewRequestId(message: string, requestId: string | null | undefined): string {
+  const trimmed = message.trim();
+
+  if (!requestId) {
+    return trimmed;
+  }
+
+  return `${trimmed} (requestId: ${requestId})`;
+}
+
 function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean): RequestFeedback {
   if (payload.usedFallback && payload.operations.length > 0) {
     if (payload.diagnostics.appliedMode === "default") {
@@ -6011,10 +6028,17 @@ function buildLocalPatchProposal(
 }
 
 function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk: boolean, sectionItemCount?: number): RequestFeedback {
-  if (!responseOk || payload.error) {
+  if (payload.error) {
     return {
-      tone: responseOk ? "info" : "error",
-      message: payload.error || "Не вдалося отримати review."
+      tone: "error",
+      message: withReviewRequestId(payload.error, payload.diagnostics.requestId)
+    };
+  }
+
+  if (!responseOk) {
+    return {
+      tone: "error",
+      message: withReviewRequestId("Не вдалося отримати review.", payload.diagnostics.requestId)
     };
   }
 
