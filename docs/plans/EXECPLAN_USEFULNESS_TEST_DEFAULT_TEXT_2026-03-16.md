@@ -31,7 +31,7 @@ Run a practical usefulness test of all AI features in the app except image gener
 - Decision: Use sub-agents for execution in parallel (review-step run vs action-generation run) and aggregate centrally.
   Rationale: Matches user request and shortens cycle time while keeping each subtask bounded.
   Date/Author: 2026-03-16 / Codex
-- Decision: Use provider/model defaults (`gemini` + `gemini-3-flash-preview`) and environment keys from `.env`.
+- Decision: Use provider/model defaults (`gemini` + `gemini-3.5-flash`) and environment keys from `.env`.
   Rationale: This reflects current product defaults and user instruction to use `.env` keys.
   Date/Author: 2026-03-17 / Codex
 

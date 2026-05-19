@@ -890,7 +890,7 @@ test("generateEditorialReview sends grounded Gemini fact-check request via heade
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3-flash-preview",
+      modelId: "gemini-3.5-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -976,7 +976,7 @@ test("generateEditorialReview preserves parsed row sources when grounded mapping
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3-flash-preview",
+      modelId: "gemini-3.5-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),

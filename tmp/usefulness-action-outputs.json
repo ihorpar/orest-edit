@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-03-17T03:22:20.133Z",
   "provider": "gemini",
-  "modelId": "gemini-3-flash-preview",
+  "modelId": "gemini-3.5-flash",
   "changeLevel": 3,
   "actions": [
     {
