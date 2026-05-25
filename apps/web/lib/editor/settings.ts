@@ -357,7 +357,7 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   gemini: [
     {
       id: "gemini-3.5-flash",
-      label: "Gemini 3 Flash",
+      label: "Gemini 3.5 Flash",
       description: "Швидкий і збалансований варіант за замовчуванням для повсякденних patch-запитів та editorial review.",
       smartness: 6,
       priceTier: 2
