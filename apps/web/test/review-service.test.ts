@@ -606,6 +606,118 @@ test("generateEditorialReview chunks large emphasis runs and merges global ancho
   );
 });
 
+test("generateEditorialReview retries transient chunked emphasis fetch failures", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: Array.from({ length: 30 }, (_, index) => ({
+      id: `p${index + 1}`,
+      type: "paragraph" as const,
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту повторних спроб у кроці акцентів.` }]
+    }))
+  };
+  let requestCount = 0;
+  let sleepCalls = 0;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "emphasis",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        requestCount += 1;
+
+        if (requestCount === 2) {
+          throw new TypeError("Failed to fetch");
+        }
+
+        const blockId = requestCount <= 1 ? "p1" : "p17";
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  blockId,
+                  excerpt: "тест",
+                  priority: "medium",
+                  emphasisText: "ключову тезу"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      sleepImpl: async () => {
+        sleepCalls += 1;
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(requestCount, 3);
+  assert.equal(sleepCalls, 1);
+  assert.equal(response.error, undefined);
+  assert.deepEqual(
+    response.items.map((item) => item.anchor.blockIds[0]),
+    ["p1", "p17"]
+  );
+});
+
+test("generateEditorialReview does not retry invalid chunked emphasis output", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: Array.from({ length: 30 }, (_, index) => ({
+      id: `p${index + 1}`,
+      type: "paragraph" as const,
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту помилки схеми акцентів.` }]
+    }))
+  };
+  let requestCount = 0;
+  let sleepCalls = 0;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "emphasis",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        requestCount += 1;
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  blockId: "p1",
+                  excerpt: "тест",
+                  priority: "medium"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      sleepImpl: async () => {
+        sleepCalls += 1;
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(requestCount, 2);
+  assert.equal(sleepCalls, 0);
+  assert.equal(response.error, undefined);
+  assert.equal(response.items.length, 0);
+  assert.equal(response.diagnostics.droppedItemCount, 2);
+  assert.equal(response.diagnostics.droppedItemCountsByReason?.missing_required_fields, 2);
+});
+
 test("generateEditorialReview repairs emphasis anchor when blockId is wrong but phrase is unique", async () => {
   const document: EditorDocument = {
     version: 2,

@@ -33,6 +33,8 @@ const groundedSourceResolveTimeoutMs = 4000;
 const emphasisChunkSize = 18;
 const emphasisChunkOverlap = 2;
 const emphasisChunkThreshold = 24;
+const emphasisChunkRetryAttempts = 3;
+const emphasisChunkRetryBaseDelayMs = 600;
 const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
 const suspiciousMeasurementExplanation =
   "У твердженні є число або одиниця вимірювання, які можуть змінити медичний зміст. Перевірте діапазон, конверсію одиниць і актуальний клінічний контекст за надійним джерелом.";
@@ -404,6 +406,7 @@ export interface GenerateEditorialReviewOptions {
   fetchImpl?: FetchLike;
   now?: () => string;
   readEnvValue?: (key: string) => string | null;
+  sleepImpl?: (ms: number) => Promise<void>;
 }
 
 export async function generateEditorialReview(
@@ -418,6 +421,7 @@ export async function generateEditorialReview(
   const stepRunId = createPatchId(`step-run-${stepId}`);
   const fetchImpl = options.fetchImpl ?? fetch;
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
+  const sleepImpl = options.sleepImpl ?? defaultSleep;
   const now = options.now ?? (() => new Date().toISOString());
   const blockCount = request.document.blocks.length;
 
@@ -471,7 +475,7 @@ export async function generateEditorialReview(
   try {
     const result =
       stepId === "emphasis"
-        ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+        ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
         : request.provider === "gemini"
           ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
           : request.provider === "anthropic"
@@ -1295,7 +1299,8 @@ async function createChunkedEmphasisReview(
   stepRunId: string,
   stepSpec: ReviewStepSpec,
   apiKey: string,
-  fetchImpl: FetchLike
+  fetchImpl: FetchLike,
+  sleepImpl: (ms: number) => Promise<void>
 ): Promise<EditorialReviewProviderResult> {
   if (request.document.blocks.length <= emphasisChunkThreshold) {
     return request.provider === "gemini"
@@ -1324,12 +1329,17 @@ async function createChunkedEmphasisReview(
       document: chunkDocument,
       revision: deriveManuscriptRevisionState(chunkDocument)
     };
-    const chunkResult =
-      request.provider === "gemini"
-        ? await createGeminiEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl)
-        : request.provider === "anthropic"
-          ? await createAnthropicEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl)
-          : await createOpenAiEditorialReview(chunkRequest, reviewSessionId, `${stepRunId}:chunk-${chunkIndex + 1}`, stepSpec, apiKey, fetchImpl);
+    const chunkResult = await runChunkedEmphasisProviderRequestWithRetry({
+      chunkRequest,
+      reviewSessionId,
+      stepRunId,
+      chunkIndex,
+      totalChunks: chunks.length,
+      stepSpec,
+      apiKey,
+      fetchImpl,
+      sleepImpl
+    });
 
     providerUsed = `${chunkResult.providerUsed}:chunked`;
     droppedItemCount += chunkResult.droppedItemCount;
@@ -1390,6 +1400,95 @@ async function createChunkedEmphasisReview(
     providerUsed,
     rawOutput: rawOutputs.join("\n\n")
   };
+}
+
+async function runChunkedEmphasisProviderRequestWithRetry(input: {
+  chunkRequest: EditorialReviewRequest;
+  reviewSessionId: string;
+  stepRunId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  stepSpec: ReviewStepSpec;
+  apiKey: string;
+  fetchImpl: FetchLike;
+  sleepImpl: (ms: number) => Promise<void>;
+}): Promise<EditorialReviewProviderResult> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= emphasisChunkRetryAttempts; attempt += 1) {
+    try {
+      return input.chunkRequest.provider === "gemini"
+        ? await createGeminiEditorialReview(
+          input.chunkRequest,
+          input.reviewSessionId,
+          `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+          input.stepSpec,
+          input.apiKey,
+          input.fetchImpl
+        )
+        : input.chunkRequest.provider === "anthropic"
+          ? await createAnthropicEditorialReview(
+            input.chunkRequest,
+            input.reviewSessionId,
+            `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+            input.stepSpec,
+            input.apiKey,
+            input.fetchImpl
+          )
+          : await createOpenAiEditorialReview(
+            input.chunkRequest,
+            input.reviewSessionId,
+            `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+            input.stepSpec,
+            input.apiKey,
+            input.fetchImpl
+          );
+    } catch (error) {
+      lastError = error;
+
+      if (!shouldRetryChunkedEmphasisError(error) || attempt >= emphasisChunkRetryAttempts) {
+        break;
+      }
+
+      const delayMs = emphasisChunkRetryBaseDelayMs * 2 ** (attempt - 1);
+      await input.sleepImpl(delayMs);
+    }
+  }
+
+  throw new Error(buildChunkedEmphasisFailureMessage(lastError, input.chunkIndex, input.totalChunks));
+}
+
+function shouldRetryChunkedEmphasisError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return error.name === "AbortError"
+    || message.includes("failed to fetch")
+    || message.includes("fetch failed")
+    || message.includes("network")
+    || message.includes("econnreset")
+    || message.includes("socket hang up")
+    || message.includes("etimedout")
+    || message.includes("timed out")
+    || message.includes("timeout")
+    || message.includes("terminated");
+}
+
+function buildChunkedEmphasisFailureMessage(error: unknown, chunkIndex: number, totalChunks: number): string {
+  const detail = error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : "Невідома помилка провайдера.";
+  const attemptLabel = `${emphasisChunkRetryAttempts} спроб`;
+
+  return `Акценти: збій на chunk ${chunkIndex + 1}/${totalChunks} після ${attemptLabel}. ${detail}`;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function createDocumentChunks(blocks: Block[], chunkSize: number, overlap: number): Array<{ start: number; end: number; blocks: Block[] }> {
