@@ -57,6 +57,13 @@ Decision: the visible `Глибина змін` control is removed from workflow
 
 Reason: editors consistently maxed the control out, so it did not represent a useful product choice. Automatic density preserves the model guidance that prevented too-sparse runs while letting editors curate extra cards by accepting or rejecting them.
 
+## 2026-05-25
+
+### Step review keeps mixed recommendation types in the originating step
+Decision: recommendation-step prompts still steer the model toward the intended editorial focus, but the server no longer drops cards solely because their `recommendationType` falls outside that step's old type bucket. Mixed outputs remain visible in the step that generated them, and the success banner no longer reports per-step filter drops.
+
+Reason: hiding useful findings because they landed in the "wrong" bucket made the workflow feel arbitrary and cost editors real recommendations. Seeing all findings in context is more important than preserving rigid per-step type purity.
+
 ## 2026-03-19
 
 ## 2026-03-22

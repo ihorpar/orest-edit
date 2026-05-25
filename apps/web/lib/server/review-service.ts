@@ -595,10 +595,9 @@ function buildFallbackEditorialReviewResponse(input: {
     stepSpec.outputKind === "recommendation_cards"
       ? createFallbackEditorialReviewItems(input.request, input.reviewSessionId, input.stepId, input.stepRunId)
       : [];
-  const filteredFallback = filterStepItems(rawFallbackItems, stepSpec.allowedRecommendationTypes);
-  const rejectedFilteredFallback = filterRejectedReviewIdeas(filteredFallback.items, input.request.rejectedIdeas);
+  const rejectedFilteredFallback = filterRejectedReviewIdeas(rawFallbackItems, input.request.rejectedIdeas);
   const fallbackItems = rejectedFilteredFallback.items;
-  const fallbackDroppedCount = filteredFallback.droppedCount + rejectedFilteredFallback.droppedCount;
+  const fallbackDroppedCount = rejectedFilteredFallback.droppedCount;
   const fallbackFactRows = stepSpec.outputKind === "fact_check_rows"
     ? finalizeActionableFactCheckRows(input.request, createFallbackFactCheckRows(input.request))
     : [];
@@ -620,10 +619,9 @@ function buildFallbackEditorialReviewResponse(input: {
     expertise: fallbackExpertise,
     droppedItemCount: fallbackDroppedCount,
     droppedItemCountsByReason: mergeCountMaps(
-      filteredFallback.droppedCount > 0 ? { filtered_by_step_type: filteredFallback.droppedCount } : undefined,
       rejectedFilteredFallback.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFilteredFallback.droppedCount } : undefined
     ),
-    filteredItemCountsByType: filteredFallback.droppedByType,
+    filteredItemCountsByType: undefined,
     usedFallback: true,
     error: input.error,
     generatedAt: input.generatedAt
@@ -916,12 +914,10 @@ function buildNormalizedReviewResult(
     items: items && typeof items === "object" && "items" in (items as Record<string, unknown>) ? (items as { items: unknown }).items : items
   });
 
-  const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
-  const rejectedFiltered = filterRejectedReviewIdeas(filtered.items, request.rejectedIdeas);
-  const droppedCount = normalized.droppedCount + filtered.droppedCount + rejectedFiltered.droppedCount;
+  const rejectedFiltered = filterRejectedReviewIdeas(normalized.items, request.rejectedIdeas);
+  const droppedCount = normalized.droppedCount + rejectedFiltered.droppedCount;
   const droppedByReason = mergeCountMaps(
     normalized.droppedByReason,
-    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined,
     rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
   );
 
@@ -932,47 +928,9 @@ function buildNormalizedReviewResult(
     factCheckRows: [],
     droppedItemCount: droppedCount,
     droppedItemCountsByReason: droppedByReason,
-    filteredItemCountsByType: filtered.droppedByType,
+    filteredItemCountsByType: undefined,
     providerUsed,
     rawOutput
-  };
-}
-
-function filterStepItems(
-  items: EditorialReviewItem[],
-  allowedRecommendationTypes?: EditorialReviewRecommendationType[]
-): {
-  items: EditorialReviewItem[];
-  droppedCount: number;
-  droppedByType: Partial<Record<EditorialReviewRecommendationType, number>>;
-} {
-  if (!allowedRecommendationTypes || allowedRecommendationTypes.length === 0) {
-    return {
-      items,
-      droppedCount: 0,
-      droppedByType: {}
-    };
-  }
-
-  const allowed = new Set(allowedRecommendationTypes);
-  const kept: EditorialReviewItem[] = [];
-  const droppedByType: Partial<Record<EditorialReviewRecommendationType, number>> = {};
-  let droppedCount = 0;
-
-  for (const item of items) {
-    if (allowed.has(item.recommendationType)) {
-      kept.push(item);
-      continue;
-    }
-
-    droppedCount += 1;
-    droppedByType[item.recommendationType] = (droppedByType[item.recommendationType] ?? 0) + 1;
-  }
-
-  return {
-    items: kept,
-    droppedCount,
-    droppedByType
   };
 }
 
@@ -1415,11 +1373,9 @@ async function createChunkedEmphasisReview(
     stepRunId,
     items: dedupeChunkedEmphasisItems(mergedRawItems)
   });
-  const filtered = filterStepItems(normalized.items, stepSpec.allowedRecommendationTypes);
-  const rejectedFiltered = filterRejectedReviewIdeas(filtered.items, request.rejectedIdeas);
+  const rejectedFiltered = filterRejectedReviewIdeas(normalized.items, request.rejectedIdeas);
   const normalizedDropReasons = mergeCountMaps(
     normalized.droppedByReason,
-    filtered.droppedCount > 0 ? { filtered_by_step_type: filtered.droppedCount } : undefined,
     rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
   );
 
@@ -1428,9 +1384,9 @@ async function createChunkedEmphasisReview(
     stepRunId,
     items: rejectedFiltered.items,
     factCheckRows: [],
-    droppedItemCount: droppedItemCount + normalized.droppedCount + filtered.droppedCount + rejectedFiltered.droppedCount,
+    droppedItemCount: droppedItemCount + normalized.droppedCount + rejectedFiltered.droppedCount,
     droppedItemCountsByReason: mergeCountMaps(droppedByReason, normalizedDropReasons),
-    filteredItemCountsByType: mergeRecommendationTypeCounts(filteredByType, filtered.droppedByType),
+    filteredItemCountsByType: filteredByType,
     providerUsed,
     rawOutput: rawOutputs.join("\n\n")
   };

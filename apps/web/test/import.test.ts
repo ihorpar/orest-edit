@@ -107,6 +107,47 @@ test("importDocxArrayBuffer groups list items and preserves tables", async () =>
   );
 });
 
+test("importDocxArrayBuffer resolves heading levels from DOCX styles.xml style IDs", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:pPr>
+            <w:pStyle w:val="1"/>
+          </w:pPr>
+          <w:r><w:t>Головний заголовок</w:t></w:r>
+        </w:p>
+        <w:p>
+          <w:r><w:t>Звичайний абзац.</w:t></w:r>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+  zip.file(
+    "word/styles.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:style w:type="paragraph" w:styleId="1">
+        <w:name w:val="heading 1"/>
+        <w:pPr>
+          <w:outlineLvl w:val="0"/>
+        </w:pPr>
+      </w:style>
+    </w:styles>`
+  );
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const heading = result.document.blocks[0];
+
+  assert.equal(heading?.type, "heading");
+  assert.equal(heading?.type === "heading" ? heading.level : 0, 1);
+  assert.equal(heading?.type === "heading" ? heading.content[0]?.text : "", "Головний заголовок");
+});
+
 test("importDocxArrayBuffer normalizes hidden Word characters in imported text", async () => {
   const zip = new JSZip();
   zip.file(
@@ -258,4 +299,29 @@ test("importDocxArrayBuffer preserves embedded images as image blocks with asset
   assert.equal(result.assets?.[0]?.assetId, imageBlock?.type === "image" ? imageBlock.assetId : "");
   assert.equal(result.assets?.[0]?.mimeType, "image/png");
   assert.equal(result.assets?.[0]?.blob.size, 8);
+});
+
+test("importDocxArrayBuffer preserves numeric DOCX text nodes inside citations", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:r><w:t>Текст перед цитатою </w:t></w:r>
+          <w:r><w:t>[</w:t></w:r>
+          <w:r><w:t>5</w:t></w:r>
+          <w:r><w:t>]</w:t></w:r>
+        </w:p>
+      </w:body>
+    </w:document>`
+  );
+
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const result = await importDocxArrayBuffer(buffer);
+  const block = result.document.blocks[0];
+
+  assert.equal(block?.type, "paragraph");
+  assert.equal(block?.type === "paragraph" ? block.content.map((node) => node.text).join("") : "", "Текст перед цитатою [5]");
 });

@@ -33,6 +33,7 @@ interface ListContext {
 
 interface DocxImportContext {
   numberingByNumId: Map<string, "bullet_list" | "ordered_list">;
+  headingLevelByStyleId: Map<string, 1 | 2 | 3>;
   imagesByRelationshipId: Map<string, ImportedDocxImage>;
   assets: ImportedDocumentAsset[];
   warnings: Set<string>;
@@ -129,11 +130,13 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
   }
 
   const numberingXml = await zip.file("word/numbering.xml")?.async("string");
+  const stylesXml = await zip.file("word/styles.xml")?.async("string");
   const relationshipsXml = await zip.file("word/_rels/document.xml.rels")?.async("string");
   const warnings = new Set<string>();
   const { imagesByRelationshipId, assets } = await buildDocxImageMap(zip, relationshipsXml, warnings);
   const context: DocxImportContext = {
     numberingByNumId: buildDocxNumberingMap(numberingXml),
+    headingLevelByStyleId: buildDocxHeadingStyleMap(stylesXml),
     imagesByRelationshipId,
     assets,
     warnings
@@ -364,6 +367,48 @@ function buildDocxNumberingMap(numberingXml: string | undefined): Map<string, "b
   return numberingByNumId;
 }
 
+function buildDocxHeadingStyleMap(stylesXml: string | undefined): Map<string, 1 | 2 | 3> {
+  if (!stylesXml) {
+    return new Map();
+  }
+
+  const stylesDocument = xmlParser.parse(stylesXml) as Record<string, unknown>;
+  const stylesRoot = asRecord(stylesDocument["w:styles"]);
+
+  if (!stylesRoot) {
+    return new Map();
+  }
+
+  const headingLevelByStyleId = new Map<string, 1 | 2 | 3>();
+
+  for (const entry of asArray(stylesRoot["w:style"])) {
+    const styleNode = asRecord(entry);
+
+    if (styleNode["w:type"] !== "paragraph") {
+      continue;
+    }
+
+    const styleId = typeof styleNode["w:styleId"] === "string" ? styleNode["w:styleId"].trim() : "";
+
+    if (!styleId) {
+      continue;
+    }
+
+    const nameNode = asRecord(styleNode["w:name"]);
+    const styleName = typeof nameNode["w:val"] === "string" ? nameNode["w:val"] : "";
+    const paragraphProps = asRecord(styleNode["w:pPr"]);
+    const outlineNode = asRecord(paragraphProps["w:outlineLvl"]);
+    const outlineValue = typeof outlineNode["w:val"] === "string" ? Number.parseInt(outlineNode["w:val"], 10) : Number.NaN;
+    const headingLevel = resolveHeadingLevelFromStyleMetadata(styleId, styleName, outlineValue);
+
+    if (headingLevel) {
+      headingLevelByStyleId.set(styleId, headingLevel);
+    }
+  }
+
+  return headingLevelByStyleId;
+}
+
 async function buildDocxImageMap(
   zip: JSZip,
   relationshipsXml: string | undefined,
@@ -448,13 +493,18 @@ function parseDocxParagraph(nodes: XmlOrderedNode[], context: DocxImportContext)
 
   return buildParagraphBlocksFromParts(parts, {
     styleValue,
-    listType
+    listType,
+    headingLevelByStyleId: context.headingLevelByStyleId
   });
 }
 
 function buildParagraphBlocksFromParts(
   parts: DocxRunPart[],
-  props: { styleValue: string; listType: "bullet_list" | "ordered_list" | null }
+  props: {
+    styleValue: string;
+    listType: "bullet_list" | "ordered_list" | null;
+    headingLevelByStyleId: Map<string, 1 | 2 | 3>;
+  }
 ): Block[] {
   const blocks: Block[] = [];
   let pendingInlineNodes: InlineNode[] = [];
@@ -477,7 +527,7 @@ function buildParagraphBlocksFromParts(
       return;
     }
 
-    const headingLevel = resolveHeadingLevel(props.styleValue);
+    const headingLevel = resolveHeadingLevel(props.styleValue, props.headingLevelByStyleId);
 
     if (headingLevel) {
       blocks.push({
@@ -931,7 +981,10 @@ function findOrderedNodeAttribute(node: XmlOrderedNode, attributeNames: string[]
 
 function getOrderedNodeText(nodes: XmlOrderedNode[]): string {
   return nodes
-    .map((node) => (typeof node["#text"] === "string" ? node["#text"] : ""))
+    .map((node) => {
+      const text = node["#text"];
+      return typeof text === "string" || typeof text === "number" ? String(text) : "";
+    })
     .join("");
 }
 
@@ -945,18 +998,57 @@ function findOrderedChild(nodes: XmlOrderedNode[], key: string): XmlOrderedNode[
   return [];
 }
 
-function resolveHeadingLevel(styleValue: string): 1 | 2 | 3 | null {
-  const normalized = styleValue.trim().toLowerCase();
+function resolveHeadingLevel(styleValue: string, headingLevelByStyleId: Map<string, 1 | 2 | 3>): 1 | 2 | 3 | null {
+  const normalized = styleValue.trim();
 
-  if (normalized.endsWith("heading1") || normalized === "h1") {
+  if (!normalized) {
+    return null;
+  }
+
+  const mappedLevel = headingLevelByStyleId.get(normalized);
+
+  if (mappedLevel) {
+    return mappedLevel;
+  }
+
+  const normalizedLower = normalized.toLowerCase();
+
+  if (normalizedLower.endsWith("heading1") || normalizedLower === "h1") {
     return 1;
   }
 
-  if (normalized.endsWith("heading2") || normalized === "h2") {
+  if (normalizedLower.endsWith("heading2") || normalizedLower === "h2") {
     return 2;
   }
 
-  if (normalized.endsWith("heading3") || normalized === "h3") {
+  if (normalizedLower.endsWith("heading3") || normalizedLower === "h3") {
+    return 3;
+  }
+
+  return null;
+}
+
+function resolveHeadingLevelFromStyleMetadata(styleId: string, styleName: string, outlineLevel: number): 1 | 2 | 3 | null {
+  const normalizedStyleId = styleId.trim().toLowerCase();
+  const normalizedStyleName = styleName.trim().toLowerCase();
+
+  if (normalizedStyleName === "title" || normalizedStyleId === "title") {
+    return 1;
+  }
+
+  if (Number.isInteger(outlineLevel) && outlineLevel >= 0 && outlineLevel <= 2) {
+    return (outlineLevel + 1) as 1 | 2 | 3;
+  }
+
+  if (normalizedStyleName === "heading 1" || normalizedStyleId === "heading1" || normalizedStyleId === "1" || normalizedStyleId === "h1") {
+    return 1;
+  }
+
+  if (normalizedStyleName === "heading 2" || normalizedStyleId === "heading2" || normalizedStyleId === "2" || normalizedStyleId === "h2") {
+    return 2;
+  }
+
+  if (normalizedStyleName === "heading 3" || normalizedStyleId === "heading3" || normalizedStyleId === "3" || normalizedStyleId === "h3") {
     return 3;
   }
 

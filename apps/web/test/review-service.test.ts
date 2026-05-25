@@ -1370,7 +1370,7 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.match(String(requestBody?.input ?? ""), /збережи короткі окремі пункти/i);
 });
 
-test("generateEditorialReview enforces step-specific card type boundaries", async () => {
+test("generateEditorialReview keeps mixed recommendation types visible within the originating step", async () => {
   const providerItems = [
     {
       title: "Переписати речення",
@@ -1476,22 +1476,22 @@ test("generateEditorialReview enforces step-specific card type boundaries", asyn
     { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
   );
 
+  const expectedRecommendationTypes = ["callout", "expand", "list", "rewrite", "simplify", "subsection"];
+
   assert.deepEqual(
     structureResponse.items.map((item) => item.recommendationType).sort(),
-    ["callout", "list", "subsection"]
+    expectedRecommendationTypes
   );
   assert.deepEqual(
     clarityResponse.items.map((item) => item.recommendationType).sort(),
-    ["expand", "rewrite", "simplify"]
+    expectedRecommendationTypes
   );
   assert.deepEqual(
     formattingResponse.items.map((item) => item.recommendationType).sort(),
-    ["callout", "list", "subsection"]
+    expectedRecommendationTypes
   );
-  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.list ?? 0) >= 1);
-  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.subsection ?? 0) >= 1);
-  assert.ok((clarityResponse.diagnostics.filteredItemCountsByType?.callout ?? 0) >= 1);
-  assert.ok((clarityResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type ?? 0) >= 3);
+  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType, undefined);
+  assert.equal(clarityResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, undefined);
 });
 
 test("generateEditorialReview injects structure and formatting scope guardrails into prompts", async () => {

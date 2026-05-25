@@ -6075,10 +6075,7 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
   if (payload.items.length === 0) {
     return {
       tone: "info",
-      message:
-        payload.diagnostics.droppedItemCount > 0
-          ? `ШІ не повернув валідних карток для цього кроку. Відхилено під час нормалізації/фільтрації: ${payload.diagnostics.droppedItemCount}.`
-          : "ШІ не знайшов сильних локальних рекомендацій."
+      message: "ШІ не знайшов сильних локальних рекомендацій."
     };
   }
 
@@ -6088,12 +6085,8 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
   return {
     tone: "info",
     message: stepLabel
-      ? payload.diagnostics.droppedItemCount > 0
-        ? `У кроці «${stepLabel}» підготовлено ${count} карток, відхилено: ${payload.diagnostics.droppedItemCount}.`
-        : `У кроці «${stepLabel}» підготовлено ${count} карток з рекомендаціями.`
-      : payload.diagnostics.droppedItemCount > 0
-        ? `Підготовлено ${count} карток для цього кроку, відхилено: ${payload.diagnostics.droppedItemCount}.`
-        : `Підготовлено ${count} карток з рекомендаціями для цього кроку.`
+      ? `У кроці «${stepLabel}» підготовлено ${count} карток з рекомендаціями.`
+      : `Підготовлено ${count} карток з рекомендаціями для цього кроку.`
   };
 }
 
