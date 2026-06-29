@@ -105,7 +105,7 @@ export function ReviewRecommendationDetail({
   const activeCalloutDepth = calloutDraft?.calloutDepth ?? currentItem.calloutDepth ?? "brief";
   const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
   const canInsertSubsection = Boolean(subsectionDraft?.title?.trim());
-  const rangeLabel = revision ? getReviewParagraphRangeLabel(currentItem, revision) : null;
+  const rangeLabel = revision ? getReviewParagraphRangeLabel(currentItem, revision, locale) : null;
   const insertionCopy = revision ? getInsertionContextCopy(currentItem, revision, detail) : null;
   const visualStyleOptions = getVisualStylePresetOptions();
   const visualIntentOptions = getEditorialVisualIntentOptions(locale);

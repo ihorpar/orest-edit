@@ -260,7 +260,9 @@ test("review helpers expose dynamic Ukrainian paragraph ranges and type labels",
   });
 
   assert.equal(getReviewParagraphRangeLabel(normalized.items[0]!, revision), "Абз. 002-003");
+  assert.equal(getReviewParagraphRangeLabel(normalized.items[0]!, revision, "en"), "Para. 002-003");
   assert.equal(getEditorialRecommendationTypeLabel("simplify"), "спростити");
+  assert.equal(getEditorialRecommendationTypeLabel("rewrite", "en"), "rewrite");
 });
 
 test("normalizeEditorialReviewItems resolves insertion anchors by mode when anchorBlockId is missing", () => {

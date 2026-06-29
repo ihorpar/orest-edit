@@ -2336,13 +2336,14 @@ export default function EditorPage() {
 
       const nextFeedback = buildReviewFeedbackMessage(payload, responseOk, locale, sectionItemCount);
 
-      if (
+      const isRecommendationStepRun =
         !payload.error
         && responseOk
         && payload.stepId !== "diagnostics"
         && payload.stepId !== "fact_check"
-        && payload.stepId !== "emphasis"
-      ) {
+        && payload.stepId !== "emphasis";
+
+      if (isRecommendationStepRun) {
         setShowRecommendationStatusStrip(true);
       }
 
@@ -2395,7 +2396,7 @@ export default function EditorPage() {
       }
 
       setReviewDiagnostics(payload.diagnostics);
-      setFeedback(nextFeedback);
+      setFeedback(isRecommendationStepRun ? null : nextFeedback);
       pushHistoryEntry(
         createHistoryEntry(
           "review",
@@ -3746,7 +3747,14 @@ export default function EditorPage() {
     && activeWorkflowStep !== "emphasis";
   const usesPrototypeShell = true;
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
-  const feedbackPresentation = presentRequestFeedback(feedback, locale);
+  const shouldSuppressRecommendationFeedback =
+    isRecommendationStep
+    && showRecommendationStatusStrip
+    && feedback?.tone === "info";
+  const feedbackPresentation = presentRequestFeedback(
+    shouldSuppressRecommendationFeedback ? null : feedback,
+    locale
+  );
   const globalContextHelpText = editorCopy.globalContextHelp;
   const activeStepHasExistingResult =
     activeWorkflowStep === "diagnostics"

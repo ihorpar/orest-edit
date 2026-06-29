@@ -79,7 +79,11 @@ test("local action router maps subheaders to review-backed subsection proposals"
   assert.equal(plan.recommendationType, "subsection");
   assert.equal(plan.actionLabel, "Підзаголовок");
   assert.deepEqual(
-    getLocalActionTextIntentOptions().map((option) => option.label),
+    getLocalActionTextIntentOptions("en").map((option) => option.label),
+    ["Rewrite", "Shorten", "List", "Subheading"]
+  );
+  assert.deepEqual(
+    getLocalActionTextIntentOptions("uk").map((option) => option.label),
     ["Переписати", "Скоротити", "Список", "Підзаголовок"]
   );
 });

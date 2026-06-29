@@ -1818,7 +1818,7 @@ function EditableCalloutBlock({
             aria-label={be.calloutType}
             title={getEditorialCalloutKindLabel(block.kind, locale)}
           >
-            {getEditorialCalloutKindOptions().map((option) => (
+            {getEditorialCalloutKindOptions(locale).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -1837,9 +1837,9 @@ function EditableCalloutBlock({
             }}
             disabled={disabled}
             aria-label={be.calloutDepth}
-            title={getEditorialCalloutDepthLabel(block.depth ?? "brief")}
+            title={getEditorialCalloutDepthLabel(block.depth ?? "brief", locale)}
           >
-            {getEditorialCalloutDepthOptions().map((option) => (
+            {getEditorialCalloutDepthOptions(locale).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

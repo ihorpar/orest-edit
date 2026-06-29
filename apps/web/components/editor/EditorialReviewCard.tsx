@@ -124,7 +124,7 @@ export function EditorialReviewCard({
               <span className="loading-inline-dots"><span></span><span></span><span></span></span>
             ) : (
               <>
-                <span className="err-compact-type">{getEditorialRecommendationTypeLabel(item.recommendationType)}</span>
+                <span className="err-compact-type">{getEditorialRecommendationTypeLabel(item.recommendationType, locale)}</span>
                 {shouldShowStatus ? (
                   <>
                     <span className="err-compact-separator">•</span>

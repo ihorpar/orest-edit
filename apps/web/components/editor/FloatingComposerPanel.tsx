@@ -21,7 +21,7 @@ import {
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
 import { type SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
-import { useProductCopy } from "../providers/ProductLocaleProvider";
+import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 
 type LocalSurfaceMode = "edit" | "proof" | "callout" | "visual";
 
@@ -121,6 +121,7 @@ export function FloatingComposerPanel({
   onClose: () => void;
 }) {
   const editorCopy = useProductCopy().editor;
+  const { locale } = useProductLocale();
   const cp = editorCopy.composer;
   const be = editorCopy.blockEditor;
   const localSurfaceModeLabels: Record<LocalSurfaceMode, string> = {
@@ -130,9 +131,9 @@ export function FloatingComposerPanel({
     visual: editorCopy.localModes.visual
   };
   const isReview = mode === "review";
-  const calloutOptions = getEditorialCalloutKindOptions();
-  const calloutDepthOptions = getEditorialCalloutDepthOptions();
-  const visualOptions = getEditorialVisualIntentOptions();
+  const calloutOptions = getEditorialCalloutKindOptions(locale);
+  const calloutDepthOptions = getEditorialCalloutDepthOptions(locale);
+  const visualOptions = getEditorialVisualIntentOptions(locale);
   const visualStyleOptions = getVisualStylePresetOptions();
   const manualInFlight = Boolean(manualLoadingKind);
   const localBusy = Boolean(patchLoading || manualInFlight || spellcheckLoading);
@@ -147,7 +148,7 @@ export function FloatingComposerPanel({
   const [floatingBridgePosition, setFloatingBridgePosition] = useState<FloatingBridgePosition | null>(null);
   const [hasCustomFloatingBridgePosition, setHasCustomFloatingBridgePosition] = useState(false);
   const [isDraggingFloatingBridge, setIsDraggingFloatingBridge] = useState(false);
-  const textIntentOptions = getLocalActionTextIntentOptions();
+  const textIntentOptions = getLocalActionTextIntentOptions(locale);
   const showAutoTextModes =
     localActionRoute.executor === "patch" || localActionRoute.executor === "review" || localActionRoute.executor === "clarify";
   const localSurfaceMode = useMemo<LocalSurfaceMode>(() => {
@@ -522,7 +523,7 @@ export function FloatingComposerPanel({
                   ) : (
                     <div className="floating-bridge-segmented floating-bridge-segmented-ghost">
                       <button type="button" className="floating-bridge-segmented-option" disabled>
-                        {getLocalActionTextIntentOptions().find((option) => option.value === localTextIntent)?.label ?? cp.rewrite}
+                        {textIntentOptions.find((option) => option.value === localTextIntent)?.label ?? cp.rewrite}
                       </button>
                     </div>
                   )}
