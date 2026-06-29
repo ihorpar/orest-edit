@@ -532,7 +532,8 @@ function buildReplaceOperation(
     request.item.recommendationType,
     normalizedOperation.oldBlocks,
     normalizedOperation.newBlocks,
-    request.item.stepId
+    request.item.stepId,
+    request.locale ?? "uk"
   );
 
   return {
@@ -1042,7 +1043,8 @@ function detectReplaceNoOpWarning(
   recommendationType: EditorialReviewRecommendationType,
   oldBlocks: Block[],
   newBlocks: Block[],
-  stepId?: ReviewActionRequest["item"]["stepId"]
+  stepId: ReviewActionRequest["item"]["stepId"],
+  locale: AppLocale
 ): { code: "no_op"; message: string; similarity: number } | null {
   if (stepId === "emphasis") {
     return null;
@@ -1067,7 +1069,7 @@ function detectReplaceNoOpWarning(
 
   return {
     code: "no_op",
-    message: "Чернетка майже не змінює текст. Перегенеруйте, щоб отримати виразнішу правку.",
+    message: getReviewActionErrors(locale).replaceNoOpWarning,
     similarity
   };
 }

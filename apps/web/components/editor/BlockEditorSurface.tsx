@@ -2,7 +2,7 @@
 
 import type { ChangeEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useProductCopy } from "../providers/ProductLocaleProvider";
+import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import { createEditorAssetToken } from "../../lib/editor/asset-store";
 import type {
   Block,
@@ -288,6 +288,7 @@ export function BlockEditorSurface({
   editorHotkeyCommandNonce?: number;
 }) {
   const { blockEditor: be, spellcheckUi: sc } = useProductCopy().editor;
+  const { locale } = useProductLocale();
   const shellRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const editableRefs = useRef(new Map<string, HTMLElement>());
@@ -739,7 +740,7 @@ export function BlockEditorSurface({
       }
 
       if (action === "callout") {
-        transformed.push(toCalloutBlock(block));
+        transformed.push(toCalloutBlock(block, locale));
         continue;
       }
 
@@ -1193,7 +1194,7 @@ export function BlockEditorSurface({
                 type: "callout",
                 kind: "mechanism",
                 depth: "brief",
-                title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
+                title: [createInlineText(getEditorialCalloutKindTitle("mechanism", locale))],
                 body: [[createInlineText("")]]
               }))
             }
@@ -1792,6 +1793,7 @@ function EditableCalloutBlock({
   onSoftBreak: (context: RichTextContext) => void;
 }) {
   const be = useProductCopy().editor.blockEditor;
+  const { locale } = useProductLocale();
   return (
     <div className="block-callout-shell" data-kind={block.kind}>
       <div className="block-callout-head">
@@ -1802,8 +1804,8 @@ function EditableCalloutBlock({
             onChange={(event) => {
               const nextKind = event.target.value as EditorialCalloutKind;
               const currentTitle = getInlineText(block.title).trim();
-              const currentDefaultTitle = getEditorialCalloutKindTitle(block.kind);
-              const nextDefaultTitle = getEditorialCalloutKindTitle(nextKind);
+              const currentDefaultTitle = getEditorialCalloutKindTitle(block.kind, locale);
+              const nextDefaultTitle = getEditorialCalloutKindTitle(nextKind, locale);
               const shouldReplaceTitle = currentTitle.length === 0 || currentTitle === currentDefaultTitle;
 
               onBlockChange({
@@ -1814,7 +1816,7 @@ function EditableCalloutBlock({
             }}
             disabled={disabled}
             aria-label={be.calloutType}
-            title={getEditorialCalloutKindLabel(block.kind)}
+            title={getEditorialCalloutKindLabel(block.kind, locale)}
           >
             {getEditorialCalloutKindOptions().map((option) => (
               <option key={option.value} value={option.value}>
@@ -2216,13 +2218,13 @@ function toListBlock(block: Block, type: "bullet_list" | "ordered_list"): Bullet
   return convertBlockToListBlock(block, type);
 }
 
-function toCalloutBlock(block: Block): CalloutBlock {
+function toCalloutBlock(block: Block, locale: import("../../lib/i18n/product-locale").AppLocale): CalloutBlock {
   return {
     id: block.id,
     type: "callout",
     kind: "mechanism",
     depth: "brief",
-    title: [createInlineText(getEditorialCalloutKindTitle("mechanism"))],
+    title: [createInlineText(getEditorialCalloutKindTitle("mechanism", locale))],
     body: [[createInlineText(getBlockPreviewText(block))]]
   };
 }

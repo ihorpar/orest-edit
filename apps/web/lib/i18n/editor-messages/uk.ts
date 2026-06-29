@@ -557,7 +557,13 @@ const editorUk = {
     clipboardText: "Текст із буфера",
     imported: (format: string) => `${format} імпортовано.`,
     clipboardReadFailed: "Не вдалося прочитати буфер обміну.",
-    importFailed: "Не вдалося імпортувати файл."
+    importFailed: "Не вдалося імпортувати файл.",
+    importWarnings: {
+      docx_external_image: "Зовнішні зображення з DOCX поки що не імпортуються.",
+      docx_image_not_found: "Не вдалося знайти зображення всередині DOCX.",
+      docx_image_unsupported: "Зображення з DOCX поки що не імпортуються.",
+      clipboard_image_unsupported: "Зображення з буфера обміну поки що не імпортуються."
+    }
   },
   compareKinds: {
     manual: "Ручне",

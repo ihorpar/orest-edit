@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useProductCopy } from "../providers/ProductLocaleProvider";
+import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import {
   getEditorialRecommendationTypeLabel,
@@ -41,10 +41,11 @@ export function EditorialReviewCard({
 }) {
   const rc = useProductCopy().editor.reviewCard;
   const sc = useProductCopy().editor.spellcheckUi;
+  const { locale } = useProductLocale();
   const [isExpanded, setIsExpanded] = useState(false);
   const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status, rc);
   const shouldShowStatus = item.status !== "pending";
-  const rangeLabel = rangeLabelOverride ?? getReviewParagraphRangeLabel(item, revision);
+  const rangeLabel = rangeLabelOverride ?? getReviewParagraphRangeLabel(item, revision, locale);
   const recommendationText = item.recommendation.trim();
   const titleText = item.title.trim() || recommendationText;
   const titleContent = title ?? titleText;

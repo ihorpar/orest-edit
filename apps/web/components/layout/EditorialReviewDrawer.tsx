@@ -3,8 +3,7 @@
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { ReviewSessionStatus, WholeTextChangeLevel } from "../../lib/editor/review-contract";
-import type { AppLocale } from "../../lib/i18n/product-locale";
-import type { EditorMessages } from "../../lib/i18n/editor-messages";
+import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
 import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import { Button } from "../ui/Button";
 
@@ -47,7 +46,10 @@ export function EditorialReviewDrawer({
     const isSetup = status === "expertise" && !hasExpertise;
     const canGenerateCards = hasExpertise && !reviewLoading;
     const expertiseForDisplay = useMemo(
-        () => (expertise ? localizeExpertiseMarkdown(expertise, locale, drawer) : null),
+        () =>
+          expertise
+            ? linkifyExpertiseParagraphRefs(localizeExpertiseMarkdown(expertise, locale, drawer), locale)
+            : null,
         [drawer, expertise, locale]
     );
 
@@ -218,44 +220,7 @@ export function EditorialReviewDrawer({
 
 }
 
-function localizeExpertiseMarkdown(
-    value: string,
-    locale: AppLocale,
-    drawer: EditorMessages["reviewDrawer"]
-): string {
-    let next = value.replace(/\r\n?/g, "\n");
-    const fieldLabels = drawer.expertiseFieldLabels;
-
-    next = next
-        .replace(/Suggested Action\s*:/gi, fieldLabels.suggestedAction)
-        .replace(/Callout Kind\s*:/gi, fieldLabels.calloutKind)
-        .replace(/Visual Intent\s*:/gi, fieldLabels.visualIntent)
-        .replace(/Recommendation\s*:/gi, fieldLabels.recommendation)
-        .replace(/What doesn't work\s*:/gi, fieldLabels.whatDoesntWork);
-
-    for (const [token, label] of Object.entries(drawer.expertiseTokens)) {
-        const pattern = new RegExp(`\\b${escapeRegExp(token)}\\b`, "gi");
-        next = next.replace(pattern, label);
-    }
-
-    const paragraphPattern = locale === "en"
-        ? /(?:para\.|paragraph|p\.)\s*0*(\d+)(?:\s*-\s*0*(\d+))?/gi
-        : /абз\.\s*0*(\d+)(?:\s*-\s*0*(\d+))?/gi;
-
-    next = next.replace(paragraphPattern, (match, p1) => {
-        const idx = parseInt(p1, 10);
-        if (isNaN(idx)) return match;
-        return `[${match}](#block-${idx - 1})`;
-    });
-
-    return next;
-}
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function pluralizeCards(count: number, drawer: EditorMessages["reviewDrawer"]): string {
+function pluralizeCards(count: number, drawer: import("../../lib/i18n/editor-messages").EditorMessages["reviewDrawer"]): string {
     if (drawer.cardsWordFew === drawer.cardsWordMany) {
         return count === 1 ? drawer.cardsWordOne : drawer.cardsWordMany;
     }

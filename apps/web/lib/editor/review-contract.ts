@@ -428,6 +428,13 @@ const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
   myths_vs_truth: "міфи й правда",
   top_list: "список"
 };
+const CALLOUT_KIND_TITLE_LABELS_EN: Record<EditorialCalloutKind, string> = {
+  mechanism: "How it works",
+  analogy: "Analogy",
+  everyday_application: "In everyday life",
+  myths_vs_truth: "Myths vs truth",
+  top_list: "Key points"
+};
 const CALLOUT_KIND_TITLE_LABELS: Record<EditorialCalloutKind, string> = {
   mechanism: "Як це працює",
   analogy: "Аналогія",
@@ -576,8 +583,8 @@ export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind, locale:
   return CALLOUT_KIND_LABELS[kind];
 }
 
-export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string {
-  return CALLOUT_KIND_TITLE_LABELS[kind];
+export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {
+  return locale === "en" ? CALLOUT_KIND_TITLE_LABELS_EN[kind] : CALLOUT_KIND_TITLE_LABELS[kind];
 }
 
 export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {

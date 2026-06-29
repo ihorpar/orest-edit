@@ -35,6 +35,8 @@ import {
 } from "../../lib/editor/document-model";
 import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, type PersistedWorkflowStepId } from "../../lib/editor/draft-state";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
+import { buildImportFeedback } from "../../lib/editor/import-feedback";
+import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
 import { importFileToDocument, importHtmlToDocument, importPlainTextToDocument, type ImportedDocumentResult } from "../../lib/editor/import";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
 import { splitCalloutDraftIntoParagraphs } from "../../lib/editor/callout-preview";
@@ -493,8 +495,9 @@ export default function EditorPage() {
       return null;
     }
 
-    return linkifyParagraphRefs(localizeExpertiseMarkdown(reviewExpertise));
-  }, [reviewExpertise]);
+    const drawer = getEditorMessages(locale).reviewDrawer;
+    return linkifyExpertiseParagraphRefs(localizeExpertiseMarkdown(reviewExpertise, locale, drawer), locale);
+  }, [locale, reviewExpertise]);
   const canRunDownstreamStep = Boolean(reviewExpertise?.trim()) && !isReviewRequestInFlight;
   const workflowSteps = useMemo(
     () =>
@@ -2823,9 +2826,9 @@ export default function EditorPage() {
       }
 
       if (payload.proposal.kind === "text_diff" && payload.proposal.textDiff) {
-        const proposal = maybeEscalateReviewNoOpWarning(payload.proposal, item.id, reviewNoOpStreakRef.current);
+        const proposal = maybeEscalateReviewNoOpWarning(payload.proposal, item.id, reviewNoOpStreakRef.current, locale);
         const textDiff = proposal.textDiff!;
-        const paragraphLabel = getReviewParagraphRangeLabel(item, revision);
+        const paragraphLabel = getReviewParagraphRangeLabel(item, revision, locale);
         setActiveProposal(proposal);
         setOperations((current) => [
           ...current,
@@ -2949,7 +2952,7 @@ export default function EditorPage() {
       type: "callout",
       kind: item.calloutDraft.calloutKind,
       depth: item.calloutDraft.calloutDepth,
-      title: parseBoldMarkdownToInlineNodes(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind)),
+      title: parseBoldMarkdownToInlineNodes(item.calloutDraft.title || getEditorialCalloutKindTitle(item.calloutDraft.calloutKind, locale)),
       body: splitCalloutDraftIntoParagraphs(item.calloutDraft.previewText, item.calloutDraft.calloutKind)
     };
 
@@ -3012,7 +3015,7 @@ export default function EditorPage() {
           return entry;
         }
 
-        const fallbackTitle = getEditorialCalloutKindTitle(kind);
+        const fallbackTitle = getEditorialCalloutKindTitle(kind, locale);
         const depth = normalizeEditorialCalloutDepth(entry.calloutDraft?.calloutDepth ?? entry.calloutDepth);
         const draft = entry.calloutDraft ?? {
           calloutKind: kind,
@@ -3041,7 +3044,7 @@ export default function EditorPage() {
         return current;
       }
 
-      const fallbackTitle = getEditorialCalloutKindTitle(kind);
+      const fallbackTitle = getEditorialCalloutKindTitle(kind, locale);
       const depth = normalizeEditorialCalloutDepth(current.calloutDraft?.calloutDepth);
       const draft = current.calloutDraft ?? {
         calloutKind: kind,
@@ -3077,7 +3080,7 @@ export default function EditorPage() {
           calloutDraft: {
             calloutKind: kind,
             calloutDepth: depth,
-            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
+            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind, locale),
             prompt: entry.calloutDraft?.prompt ?? "",
             previewText: entry.calloutDraft?.previewText ?? ""
           }
@@ -3151,7 +3154,7 @@ export default function EditorPage() {
           calloutDraft: {
             calloutKind: kind,
             calloutDepth: depth,
-            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind),
+            title: entry.calloutDraft?.title ?? getEditorialCalloutKindTitle(kind, locale),
             prompt: entry.calloutDraft?.prompt ?? "",
             previewText: body
           }
@@ -3543,7 +3546,7 @@ export default function EditorPage() {
       }
 
       await persistImportedAssets(imported);
-      replaceEditorSession(imported.document, buildImportFeedback(imported));
+      replaceEditorSession(imported.document, buildImportFeedback(imported.format, imported.warnings, locale));
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -3572,7 +3575,7 @@ export default function EditorPage() {
     try {
       const imported = await importFileToDocument(file);
       await persistImportedAssets(imported);
-      replaceEditorSession(imported.document, buildImportFeedback(imported));
+      replaceEditorSession(imported.document, buildImportFeedback(imported.format, imported.warnings, locale));
     } catch (error) {
       setFeedback({
         tone: "error",
@@ -4431,7 +4434,7 @@ export default function EditorPage() {
                 const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
                 const rangeLabel = suggestion?.paragraphLabel
                   ? ss.paragraph(suggestion.paragraphLabel)
-                  : getReviewParagraphRangeLabel(item, revision);
+                  : getReviewParagraphRangeLabel(item, revision, locale);
 
                 return (
                   <EditorialReviewCard
@@ -5220,7 +5223,7 @@ export default function EditorPage() {
                           const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
                           const rangeLabel = suggestion?.paragraphLabel
                             ? ss.paragraph(suggestion.paragraphLabel)
-                            : getReviewParagraphRangeLabel(item, revision);
+                            : getReviewParagraphRangeLabel(item, revision, locale);
 
                           return (
                             <EditorialReviewCard
@@ -6601,7 +6604,7 @@ function buildStructureOutline(
 
     targetNode.actions.push({
       item,
-      rangeLabel: getReviewParagraphRangeLabel(item, revision),
+      rangeLabel: getReviewParagraphRangeLabel(item, revision, locale),
       label: getStructureActionLabel(item, locale),
       statusLabel: getStructureActionStatusLabel(item.status, locale),
       isHidden: !showCompletedCards && (item.status === "applied" || item.status === "dismissed")
@@ -6834,36 +6837,6 @@ function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | 
   return "unknown";
 }
 
-function buildImportFeedback(result: ImportedDocumentResult): RequestFeedback {
-  const label = formatImportedDocumentLabel(result.format);
-
-  if (result.warnings.length === 0) {
-    return {
-      tone: "info",
-      message: `${label} імпортовано.`
-    };
-  }
-
-  return {
-    tone: "info",
-    message: `${label} імпортовано. ${result.warnings.join(" ")}`
-  };
-}
-
-function formatImportedDocumentLabel(format: ImportedDocumentResult["format"]): string {
-  switch (format) {
-    case "docx":
-      return "DOCX";
-    case "clipboard_html":
-      return "Вміст із буфера";
-    case "clipboard_text":
-      return "Текст із буфера";
-    case "txt":
-    default:
-      return "TXT";
-  }
-}
-
 function EditorActionMenu({
   label,
   icon: Icon,
@@ -6947,65 +6920,11 @@ function EditorActionMenu({
   );
 }
 
-const expertiseTokenMap: Record<string, string> = {
-  rewrite_text: "переписати фрагмент",
-  insert_text: "додати вставку",
-  prepare_callout: "підготувати врізку",
-  prepare_visual: "підготувати візуал",
-  rewrite: "переписати",
-  simplify: "спростити",
-  expand: "розширити",
-  list: "оформити списком",
-  subsection: "додати підзаголовок",
-  callout: "врізка",
-  visual: "візуал",
-  mechanism: "механізм",
-  analogy: "аналогія",
-  everyday_application: "практичне застосування",
-  myths_vs_truth: "міфи та правда",
-  top_list: "топ-список",
-  infographic: "інфографіка",
-  illustration: "ілюстрація"
-};
-
-function localizeExpertiseMarkdown(value: string): string {
-  let next = value.replace(/\r\n?/g, "\n");
-
-  next = next
-    .replace(/Suggested Action\s*:/gi, "Рекомендована дія:")
-    .replace(/Callout Kind\s*:/gi, "Тип врізки:")
-    .replace(/Visual Intent\s*:/gi, "Тип візуалу:")
-    .replace(/Recommendation\s*:/gi, "Рекомендація:")
-    .replace(/What doesn't work\s*:/gi, "Що не працює:");
-
-  for (const [token, label] of Object.entries(expertiseTokenMap)) {
-    const pattern = new RegExp(`\\b${escapeRegExp(token)}\\b`, "gi");
-    next = next.replace(pattern, label);
-  }
-
-  return next;
-}
-
-function linkifyParagraphRefs(value: string): string {
-  return value.replace(/абз\.\s*0*(\d+)(?:\s*-\s*0*(\d+))?/gi, (match, firstRaw) => {
-    const index = Number.parseInt(firstRaw, 10);
-
-    if (Number.isNaN(index) || index < 1) {
-      return match;
-    }
-
-    return `[${match}](#block-${index - 1})`;
-  });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function maybeEscalateReviewNoOpWarning(
   proposal: ReviewActionProposal,
   itemId: string,
-  streakState: Record<string, number>
+  streakState: Record<string, number>,
+  locale: AppLocale
 ): ReviewActionProposal {
   if (proposal.kind !== "text_diff" || !proposal.textDiff?.warning || proposal.textDiff.warning.code !== "no_op") {
     streakState[itemId] = 0;
@@ -7025,8 +6944,7 @@ function maybeEscalateReviewNoOpWarning(
       ...proposal.textDiff,
       warning: {
         ...proposal.textDiff.warning,
-        message:
-          "Друга no-op чернетка поспіль. Поточна інструкція занадто розмита: уточніть, що саме переписати/спростити, для кого і який формат результату очікуєте."
+        message: getEditorMessages(locale).feedback.localEditNoOpRepeat
       }
     }
   };

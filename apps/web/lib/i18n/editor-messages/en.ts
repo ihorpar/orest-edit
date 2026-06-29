@@ -553,7 +553,13 @@ const editorEn = {
     clipboardText: "Clipboard text",
     imported: (format: string) => `${format} imported.`,
     clipboardReadFailed: "Could not read clipboard.",
-    importFailed: "Could not import file."
+    importFailed: "Could not import file.",
+    importWarnings: {
+      docx_external_image: "External DOCX images are not imported yet.",
+      docx_image_not_found: "Could not find an image inside the DOCX file.",
+      docx_image_unsupported: "DOCX images are not imported yet.",
+      clipboard_image_unsupported: "Clipboard images are not imported yet."
+    }
   },
   compareKinds: {
     manual: "Manual",

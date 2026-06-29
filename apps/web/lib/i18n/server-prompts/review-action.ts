@@ -37,7 +37,8 @@ const REVIEW_ACTION_ERRORS = {
     openAiIncompleteWithReason: (fallbackMessage: string, reason: string) => `${fallbackMessage} Причина: ${reason}.`,
     openAiIncomplete: (fallbackMessage: string) => `${fallbackMessage} Відповідь incomplete.`,
     emptyLocalEditResponse: "OpenAI повернув порожню відповідь для локальної правки.",
-    emptyProposalResponse: "OpenAI повернув порожню відповідь для proposal."
+    emptyProposalResponse: "OpenAI повернув порожню відповідь для proposal.",
+    replaceNoOpWarning: "Чернетка майже не змінює текст. Перегенеруйте, щоб отримати виразнішу правку."
   },
   en: {
     staleAnchorMismatch: "The recommendation anchor no longer matches the current document.",
@@ -51,7 +52,8 @@ const REVIEW_ACTION_ERRORS = {
     openAiIncompleteWithReason: (fallbackMessage: string, reason: string) => `${fallbackMessage} Reason: ${reason}.`,
     openAiIncomplete: (fallbackMessage: string) => `${fallbackMessage} Response incomplete.`,
     emptyLocalEditResponse: "OpenAI returned an empty response for the local edit.",
-    emptyProposalResponse: "OpenAI returned an empty response for the proposal."
+    emptyProposalResponse: "OpenAI returned an empty response for the proposal.",
+    replaceNoOpWarning: "The draft barely changes the text. Regenerate for a more noticeable edit."
   }
 } as const;
 

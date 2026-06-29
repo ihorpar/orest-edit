@@ -13,9 +13,15 @@ import {
 
 export type ImportedDocumentFormat = "txt" | "docx" | "clipboard_text" | "clipboard_html";
 
+export type ImportWarningCode =
+  | "docx_external_image"
+  | "docx_image_not_found"
+  | "docx_image_unsupported"
+  | "clipboard_image_unsupported";
+
 export interface ImportedDocumentResult {
   document: EditorDocument;
-  warnings: string[];
+  warnings: ImportWarningCode[];
   format: ImportedDocumentFormat;
   assets?: ImportedDocumentAsset[];
 }
@@ -36,7 +42,7 @@ interface DocxImportContext {
   headingLevelByStyleId: Map<string, 1 | 2 | 3>;
   imagesByRelationshipId: Map<string, ImportedDocxImage>;
   assets: ImportedDocumentAsset[];
-  warnings: Set<string>;
+  warnings: Set<ImportWarningCode>;
 }
 
 type XmlOrderedNode = Record<string, unknown>;
@@ -132,7 +138,7 @@ export async function importDocxArrayBuffer(arrayBuffer: ArrayBuffer): Promise<I
   const numberingXml = await zip.file("word/numbering.xml")?.async("string");
   const stylesXml = await zip.file("word/styles.xml")?.async("string");
   const relationshipsXml = await zip.file("word/_rels/document.xml.rels")?.async("string");
-  const warnings = new Set<string>();
+  const warnings = new Set<ImportWarningCode>();
   const { imagesByRelationshipId, assets } = await buildDocxImageMap(zip, relationshipsXml, warnings);
   const context: DocxImportContext = {
     numberingByNumId: buildDocxNumberingMap(numberingXml),
@@ -213,7 +219,7 @@ export function importHtmlToDocument(html: string, fallbackText = ""): ImportedD
 
   const parser = new DOMParser();
   const parsed = parser.parseFromString(html, "text/html");
-  const warnings = new Set<string>();
+  const warnings = new Set<ImportWarningCode>();
   const blocks = collectHtmlBlocks(parsed.body, warnings);
 
   return {
@@ -412,7 +418,7 @@ function buildDocxHeadingStyleMap(stylesXml: string | undefined): Map<string, 1 
 async function buildDocxImageMap(
   zip: JSZip,
   relationshipsXml: string | undefined,
-  warnings: Set<string>
+  warnings: Set<ImportWarningCode>
 ): Promise<{ imagesByRelationshipId: Map<string, ImportedDocxImage>; assets: ImportedDocumentAsset[] }> {
   const imagesByRelationshipId = new Map<string, ImportedDocxImage>();
   const assets: ImportedDocumentAsset[] = [];
@@ -436,7 +442,7 @@ async function buildDocxImageMap(
     }
 
     if (targetMode.toLowerCase() === "external") {
-      warnings.add("Зовнішні зображення з DOCX поки що не імпортуються.");
+      warnings.add("docx_external_image");
       continue;
     }
 
@@ -444,7 +450,7 @@ async function buildDocxImageMap(
     const imageFile = zip.file(imagePath);
 
     if (!imageFile) {
-      warnings.add("Не вдалося знайти зображення всередині DOCX.");
+      warnings.add("docx_image_not_found");
       continue;
     }
 
@@ -650,7 +656,7 @@ function parseDocxRunWithImages(
     }
 
     if ((node["w:drawing"] || node["w:pict"]) && !image) {
-      context.warnings.add("Зображення з DOCX поки що не імпортуються.");
+      context.warnings.add("docx_image_unsupported");
     }
   }
 
@@ -748,7 +754,7 @@ function parseDocxTable(nodes: XmlOrderedNode[], context: DocxImportContext): Bl
   };
 }
 
-function collectHtmlBlocks(root: ParentNode, warnings: Set<string>): Block[] {
+function collectHtmlBlocks(root: ParentNode, warnings: Set<ImportWarningCode>): Block[] {
   const blocks: Block[] = [];
 
   for (const child of Array.from(root.childNodes)) {
@@ -844,7 +850,7 @@ function collectHtmlBlocks(root: ParentNode, warnings: Set<string>): Block[] {
     }
 
     if (tagName === "IMG") {
-      warnings.add("Зображення з буфера обміну поки що не імпортуються.");
+      warnings.add("clipboard_image_unsupported");
       continue;
     }
 

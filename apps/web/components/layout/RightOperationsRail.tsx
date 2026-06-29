@@ -204,7 +204,7 @@ export function RightOperationsRail({
                       ? {
                         recommendation: sourceItem.recommendation,
                         reason: sourceItem.reason,
-                        paragraphLabel: getReviewParagraphRangeLabel(sourceItem, reviewRevision)
+                        paragraphLabel: getReviewParagraphRangeLabel(sourceItem, reviewRevision, locale)
                       }
                       : undefined
                   }
