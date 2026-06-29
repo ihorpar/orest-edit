@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 export interface ReviewWorkspaceStep {
   id: string;
@@ -31,6 +32,7 @@ export function StepReviewWorkspaceShell({
   maxDrawerWidth?: number;
   minManuscriptWidth?: number;
 }) {
+  const ws = useProductCopy().editor.workspace;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [drawerWidth, setDrawerWidth] = useState(initialDrawerWidth);
@@ -92,8 +94,8 @@ export function StepReviewWorkspaceShell({
       <button
         type="button"
         className="step-review-resizer"
-        aria-label="Змінити ширину панелі аналізу"
-        title="Змінити ширину панелі аналізу"
+        aria-label={ws.resizePanel}
+        title={ws.resizePanel}
         data-active={isResizing ? "true" : "false"}
         onPointerDown={(event) => {
           event.preventDefault();
@@ -105,7 +107,7 @@ export function StepReviewWorkspaceShell({
         {drawer}
       </aside>
 
-      <nav className="step-review-mini-hub" aria-label="Кроки перевірки">
+      <nav className="step-review-mini-hub" aria-label={ws.reviewSteps}>
         {steps.map((step) => {
           const isActive = step.id === activeStepId;
           const Icon = step.icon;

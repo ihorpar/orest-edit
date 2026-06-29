@@ -1,3 +1,5 @@
+import editor from "../editor-messages/en";
+
 const en = {
   appTitle: "Orest Edit | AI Manuscript Editor",
   generic: {
@@ -6,7 +8,8 @@ const en = {
     save: "Save",
     cancel: "Cancel",
     close: "Close",
-    check: "Check"
+    check: "Check",
+    waiting: "Please wait…"
   },
   login: {
     kicker: "Access",
@@ -32,7 +35,17 @@ const en = {
     words: "words",
     charactersShort: "chars",
     statsTitle: "Words and characters with spaces",
-    modelRating: "Model rating"
+    modelRating: "Model rating",
+    hotkeyItems: [
+      { shortcut: "Ctrl/Cmd+B", label: "Bold" },
+      { shortcut: "Ctrl/Cmd+I", label: "Italic" },
+      { shortcut: "Shift+Enter", label: "Line break inside paragraph" },
+      { shortcut: "Ctrl/Cmd+Shift+8", label: "Bulleted list" },
+      { shortcut: "Ctrl/Cmd+H", label: "Global replace" },
+      { shortcut: "Ctrl/Cmd+Z", label: "Undo" },
+      { shortcut: "Ctrl/Cmd+Shift+Z", label: "Redo" },
+      { shortcut: "Ctrl+Y", label: "Redo on Windows" }
+    ]
   },
   settings: {
     title: "Settings",
@@ -58,6 +71,36 @@ const en = {
     connectionModelError: "Model unavailable",
     connectionNetworkError: "Network",
     connectionPrompt: "Choose a model to check the connection.",
+    connectionKicker: "Connection",
+    connectionTitle: "What the editor needs to work",
+    validateChecking: "Checking…",
+    modelPlaceholder: "For example: gpt-5.4",
+    pendingModelSelection: "Will be selected after saving.",
+    connectionModelMissing: "Choose or enter a model id to check the connection.",
+    connectionModelInvalid: "Model id has an invalid format.",
+    connectionCheckingMessage: "Checking model…",
+    authSessionError: "API rejected the session. Refresh the page and sign in again if the problem persists.",
+    serverInvalidResponse: "Server returned an invalid response.",
+    modelCheckFailed: "Could not validate the model.",
+    manualModelHelpMissing: "Enter the exact model id if you need a preview or internal model name that is not in the presets.",
+    manualModelHelpInvalid: "Model id contains invalid characters or an empty format.",
+    manualModelHelpValid: "This is a manual model id. After you change it, the page will automatically check whether the model responds.",
+    basePromptLabel: "What to tell the model before each request",
+    expertisePromptLabel: "Expertise prompt",
+    reviewPromptLabel: "General review prompt",
+    cardsPromptLabel: "Card generation prompt",
+    workflowStepPromptsLabel: "Workflow step prompts",
+    calloutPromptLabel: "Callout prompt",
+    imagePromptLabel: "Image generation prompt",
+    basePromptNote: "This text affects both local patch requests and whole-text editorial review.",
+    expertisePromptNote: "This prompt is used during expertise — a high-level overview and block-by-block analysis without technical codes.",
+    reviewPromptNote: "Compatibility fallback for older review requests when separate expertise or card prompts are empty.",
+    cardsPromptNote: "This prompt is used during card generation — enum types, suggestedAction, and insertionHint live here.",
+    workflowStepPromptNote: "Instructions for the selected step: diagnostics, fact-check, structure, clarity, visuals, emphasis, and so on.",
+    calloutPromptNote: "Placeholders: {{calloutKindLabel}}, {{calloutDepth}}, {{calloutDepthLabel}}, {{fragment}}, {{recommendation}}. The prompt can use callout type and depth as separate parameters.",
+    imagePromptNote: "Placeholders: {{visualIntent}}, {{visualStyleGuide}}, {{fragment}}, {{recommendation}}.",
+    defaultPrompt: "Default prompt",
+    defaultStep: "Default step",
     language: {
       label: "App language",
       note: "Switches the UI, prompt defaults, LanguageTool, and export language. It does not translate the current manuscript.",
@@ -104,7 +147,8 @@ const en = {
     severityError: "error",
     severityWarning: "warning",
     severitySuggestion: "suggestion"
-  }
+  },
+  editor
 } as const;
 
 export default en;

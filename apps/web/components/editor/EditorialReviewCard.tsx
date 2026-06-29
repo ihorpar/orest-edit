@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import {
   getEditorialRecommendationTypeLabel,
@@ -38,8 +39,10 @@ export function EditorialReviewCard({
   hideMeta?: boolean;
   isHidden?: boolean;
 }) {
+  const rc = useProductCopy().editor.reviewCard;
+  const sc = useProductCopy().editor.spellcheckUi;
   const [isExpanded, setIsExpanded] = useState(false);
-  const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status);
+  const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status, rc);
   const shouldShowStatus = item.status !== "pending";
   const rangeLabel = rangeLabelOverride ?? getReviewParagraphRangeLabel(item, revision);
   const recommendationText = item.recommendation.trim();
@@ -51,7 +54,7 @@ export function EditorialReviewCard({
       ? recommendationText.length > 0 && recommendationText !== titleText
       : Boolean(descriptionContent);
   const isCompleted = item.status === "applied" || item.status === "dismissed";
-  const primaryActionLabel = item.status === "ready" ? "Відкрити деталі" : "Підготувати";
+  const primaryActionLabel = item.status === "ready" ? rc.openDetails : rc.prepare;
 
   useEffect(() => {
     if (isActive) {
@@ -77,7 +80,7 @@ export function EditorialReviewCard({
       tabIndex={isHidden ? -1 : 0}
       aria-expanded={!isHidden && canExpand ? isExpanded : undefined}
       aria-hidden={isHidden || undefined}
-      aria-label={`Рекомендація: ${rangeLabel}`}
+      aria-label={rc.recommendationAria(rangeLabel)}
       onClick={isHidden ? undefined : () => onFocus(item)}
       onKeyDown={isHidden ? undefined : (event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -100,8 +103,8 @@ export function EditorialReviewCard({
                 setIsExpanded((current) => !current);
               }}
               disabled={isHidden}
-              aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
-              title={isExpanded ? "Згорнути деталі" : "Показати деталі"}
+              aria-label={isExpanded ? sc.collapseDetails : sc.showDetails}
+              title={isExpanded ? sc.collapseDetails : sc.showDetails}
             >
               {isExpanded ? (
                 <ChevronUp aria-hidden="true" width={16} height={16} />
@@ -162,7 +165,7 @@ export function EditorialReviewCard({
                       }}
                       disabled={isHidden}
                     >
-                      Перейти до абзацу
+                      {rc.goToParagraph}
                     </button>
                     <button
                       type="button"
@@ -173,7 +176,7 @@ export function EditorialReviewCard({
                       }}
                       disabled={isHidden}
                     >
-                      Відхилити
+                      {rc.dismiss}
                     </button>
                   </>
                 ) : (
@@ -186,7 +189,7 @@ export function EditorialReviewCard({
                     }}
                     disabled={isHidden}
                   >
-                    Перейти до абзацу
+                    {rc.goToParagraph}
                   </button>
                 )}
               </div>
@@ -198,29 +201,32 @@ export function EditorialReviewCard({
   );
 }
 
-function getReviewStatusPresentation(status: EditorialReviewItem["status"]): {
-  label: "погоджено" | "відхилено" | "очікує" | "готово" | "застаріло" | "готується";
+function getReviewStatusPresentation(
+  status: EditorialReviewItem["status"],
+  rc: ReturnType<typeof useProductCopy>["editor"]["reviewCard"]
+): {
+  label: string;
   tone: "accepted" | "rejected" | "pending" | "ready" | "stale" | "preparing";
 } {
   if (status === "applied") {
-    return { label: "погоджено", tone: "accepted" };
+    return { label: rc.statusAccepted, tone: "accepted" };
   }
 
   if (status === "dismissed") {
-    return { label: "відхилено", tone: "rejected" };
+    return { label: rc.statusDismissed, tone: "rejected" };
   }
 
   if (status === "ready") {
-    return { label: "готово", tone: "ready" };
+    return { label: rc.statusReady, tone: "ready" };
   }
 
   if (status === "stale") {
-    return { label: "застаріло", tone: "stale" };
+    return { label: rc.statusStale, tone: "stale" };
   }
 
   if (status === "preparing") {
-    return { label: "готується", tone: "preparing" };
+    return { label: rc.statusPreparing, tone: "preparing" };
   }
 
-  return { label: "очікує", tone: "pending" };
+  return { label: rc.statusPending, tone: "pending" };
 }

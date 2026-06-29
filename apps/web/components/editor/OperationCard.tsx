@@ -1,4 +1,7 @@
+"use client";
+
 import type { PatchOperation } from "../../lib/editor/patch-contract";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 export interface OperationCardContext {
   recommendation: string;
@@ -17,6 +20,7 @@ export function OperationCard({
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
 }) {
+  const oc = useProductCopy().editor.operationCard;
   const title = context?.recommendation?.trim() ? context.recommendation.trim() : operation.reason;
   const detail =
     context?.reason && context.reason.trim() && context.reason.trim() !== title
@@ -33,12 +37,12 @@ export function OperationCard({
               {context?.paragraphLabel ? <span className="err-compact-range">{context.paragraphLabel}</span> : null}
               <span className="mono-ui editor-note-badge">{operation.type}</span>
             </div>
-            <div className="operation-note-actions" role="group" aria-label="Дії правки">
+            <div className="operation-note-actions" role="group" aria-label={oc.actionsGroup}>
               <button
                 type="button"
                 className="operation-note-action operation-note-action-reject"
-                aria-label="Відхилити правку"
-                title="Відхилити"
+                aria-label={oc.rejectAria}
+                title={oc.rejectTitle}
                 onClick={() => onReject(operation.id)}
               >
                 <svg viewBox="0 0 12 12" aria-hidden="true" width="12" height="12">
@@ -48,8 +52,8 @@ export function OperationCard({
               <button
                 type="button"
                 className="operation-note-action operation-note-action-accept"
-                aria-label="Прийняти правку"
-                title="Прийняти"
+                aria-label={oc.acceptAria}
+                title={oc.acceptTitle}
                 onClick={() => onAccept(operation.id)}
               >
                 <svg viewBox="0 0 12 12" aria-hidden="true" width="12" height="12">

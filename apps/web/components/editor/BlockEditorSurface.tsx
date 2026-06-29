@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 import { createEditorAssetToken } from "../../lib/editor/asset-store";
 import type {
   Block,
@@ -286,6 +287,7 @@ export function BlockEditorSurface({
   editorHotkeyCommand?: ExternalEditorCommand | null;
   editorHotkeyCommandNonce?: number;
 }) {
+  const { blockEditor: be, spellcheckUi: sc } = useProductCopy().editor;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const editableRefs = useRef(new Map<string, HTMLElement>());
@@ -742,7 +744,7 @@ export function BlockEditorSurface({
       }
 
       if (action === "table") {
-        transformed.push(toTableBlock(block));
+        transformed.push(toTableBlock(block, be.column1, be.column2));
         continue;
       }
     }
@@ -1019,8 +1021,8 @@ export function BlockEditorSurface({
           type="button"
           className="block-editor-toolbar-rescue-button"
           onClick={() => applyToolbarRescue("manual")}
-          aria-label="Повернути меню форматування"
-          title="Повернути меню форматування (Cmd/Ctrl+.)"
+          aria-label={be.restoreToolbar}
+          title={be.restoreToolbarHotkey}
         >
           <LocateFixed />
         </button>
@@ -1034,15 +1036,15 @@ export function BlockEditorSurface({
       >
         <div className="block-editor-toolbar-scroll">
           {historyControls ? (
-            <div className="block-editor-toolbar-group" role="group" aria-label="Історія змін">
+            <div className="block-editor-toolbar-group" role="group" aria-label={be.changeHistory}>
               <button
                 type="button"
                 className="block-toolbar-button"
                 onMouseDown={handleToolbarMouseDown}
                 onClick={historyControls.onUndo}
                 disabled={!historyControls.canUndo}
-                title="Скасувати (Ctrl/Cmd+Z)"
-                aria-label="Скасувати"
+                title={be.undoHotkey}
+                aria-label={be.undo}
               >
                 <Undo2 />
               </button>
@@ -1052,8 +1054,8 @@ export function BlockEditorSurface({
                 onMouseDown={handleToolbarMouseDown}
                 onClick={historyControls.onRedo}
                 disabled={!historyControls.canRedo}
-                title="Повернути (Ctrl/Cmd+Shift+Z)"
-                aria-label="Повернути"
+                title={be.redoHotkey}
+                aria-label={be.redo}
               >
                 <Redo2 />
               </button>
@@ -1063,8 +1065,8 @@ export function BlockEditorSurface({
                 onMouseDown={handleToolbarMouseDown}
                 onClick={historyControls.onCompare}
                 disabled={!historyControls.canCompare}
-                title="Історія змін"
-                aria-label="Історія змін"
+                title={be.changeHistory}
+                aria-label={be.changeHistory}
               >
                 <Columns2 />
               </button>
@@ -1077,8 +1079,8 @@ export function BlockEditorSurface({
               className="block-toolbar-button"
               onMouseDown={(event) => handleInlineFormatMouseDown(event, "bold")}
               disabled={disabled}
-              title="Жирний"
-              aria-label="Жирний"
+              title={be.bold}
+              aria-label={be.bold}
             >
               <Bold />
             </button>
@@ -1087,8 +1089,8 @@ export function BlockEditorSurface({
               className="block-toolbar-button"
               onMouseDown={(event) => handleInlineFormatMouseDown(event, "italic")}
               disabled={disabled}
-              title="Курсив"
-              aria-label="Курсив"
+              title={be.italic}
+              aria-label={be.italic}
             >
               <Italic />
             </button>
@@ -1101,8 +1103,8 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("paragraph")}
             disabled={disabled}
-            title="Абзац"
-            aria-label="Абзац"
+            title={be.paragraph}
+            aria-label={be.paragraph}
             data-active={getBlock(document, focusedBlockId)?.type === "paragraph"}
           >
             <span className="block-toolbar-text-icon" aria-hidden="true">Т</span>
@@ -1114,7 +1116,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-1")}
             disabled={disabled}
             title="H1"
-            aria-label="Заголовок 1"
+            aria-label={be.heading1}
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 1}
           >
             <Heading1 />
@@ -1126,7 +1128,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-2")}
             disabled={disabled}
             title="H2"
-            aria-label="Заголовок 2"
+            aria-label={be.heading2}
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 2}
           >
             <Heading2 />
@@ -1138,7 +1140,7 @@ export function BlockEditorSurface({
             onClick={() => handleBlockFormat("heading-3")}
             disabled={disabled}
             title="H3"
-            aria-label="Заголовок 3"
+            aria-label={be.heading3}
             data-active={getBlock(document, focusedBlockId)?.type === "heading" && (getBlock(document, focusedBlockId) as HeadingBlock).level === 3}
           >
             <Heading3 />
@@ -1149,8 +1151,8 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("bullet-list")}
             disabled={disabled}
-            title="Список"
-            aria-label="Маркований список"
+            title={be.listTitle}
+            aria-label={be.bulletList}
             data-active={getBlock(document, focusedBlockId)?.type === "bullet_list"}
           >
             <List />
@@ -1161,8 +1163,8 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => handleBlockFormat("ordered-list")}
             disabled={disabled}
-            title="Нумерований список"
-            aria-label="Нумерований список"
+            title={be.numberedList}
+            aria-label={be.numberedList}
             data-active={getBlock(document, focusedBlockId)?.type === "ordered_list"}
           >
             <ListOrdered />
@@ -1176,8 +1178,8 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => createEmptyParagraphBlock())}
             disabled={disabled}
-            title="Додати абзац"
-            aria-label="Додати абзац"
+            title={be.addParagraph}
+            aria-label={be.addParagraph}
           >
             <Plus />
           </button>
@@ -1196,8 +1198,8 @@ export function BlockEditorSurface({
               }))
             }
             disabled={disabled}
-            title="Врізка"
-            aria-label="Додати врізку"
+            title={be.calloutTitle}
+            aria-label={be.addCallout}
           >
             <Quote />
           </button>
@@ -1207,8 +1209,8 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("divider"), type: "divider" as DividerBlock["type"] }))}
             disabled={disabled}
-            title="Роздільник"
-            aria-label="Додати роздільник"
+            title={be.dividerTitle}
+            aria-label={be.addDivider}
           >
             <Minus />
           </button>
@@ -1218,14 +1220,14 @@ export function BlockEditorSurface({
             onMouseDown={handleToolbarMouseDown}
             onClick={() => insertBlockAfterCurrent(() => ({ id: createBlockId("table"), type: "table", rows: [[[createInlineText("")], [createInlineText("")]], [[createInlineText("")], [createInlineText("")]]] }))}
             disabled={disabled}
-            title="Таблиця"
-            aria-label="Додати таблицю"
+            title={be.tableTitle}
+            aria-label={be.addTable}
           >
             <Table />
           </button>
-          <label className="block-toolbar-button block-toolbar-button-file" title="Зображення" aria-label="Додати зображення">
+          <label className="block-toolbar-button block-toolbar-button-file" title={be.imageTitle} aria-label={be.addImage}>
             <ImageIcon />
-            <span className="sr-only">Додати зображення</span>
+            <span className="sr-only">{be.addImage}</span>
             <input type="file" accept="image/*" onChange={handleFileSelection} disabled={disabled} />
           </label>
           </div>
@@ -1272,14 +1274,14 @@ export function BlockEditorSurface({
                 className="block-editor-gutter"
                 onMouseDown={(event) => handleGutterMouseDown(block.id, event)}
                 onMouseEnter={(event) => handleGutterMouseEnter(block.id, event)}
-                title="Виділити блок або діапазон"
-                aria-label={`Виділити абзац ${formatParagraphLabel(index)}`}
+                title={be.selectBlock}
+                aria-label={be.selectParagraphLabel(formatParagraphLabel(index))}
               >
                 {formatParagraphLabel(index)}
               </button>
 
               <div className="block-editor-block">
-                <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title="Видалити блок" aria-label="Видалити блок">
+                <button type="button" className="block-row-action" onClick={() => deleteBlock(block.id)} title={be.deleteBlock} aria-label={be.deleteBlock}>
                   <Trash2 size={14} />
                 </button>
                 <BlockRenderer
@@ -1363,7 +1365,7 @@ export function BlockEditorSurface({
 
       <div className="block-editor-status mono-ui">
         {hasSelectedBlocks(normalizedSelection)
-          ? `AI: ${normalizedSelection.blockIds.length} блок(и)`
+          ? be.aiSelection(normalizedSelection.blockIds.length)
           : null}
       </div>
 
@@ -1391,7 +1393,7 @@ export function BlockEditorSurface({
                 <button
                   type="button"
                   className="spellcheck-popover-close"
-                  aria-label="Залишити слово без змін і закрити"
+                  aria-label={be.keepWordClose}
                   onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
                 >
                   <X size={14} aria-hidden="true" />
@@ -1429,7 +1431,7 @@ export function BlockEditorSurface({
                         setActiveSpellcheckPopover(null);
                       }}
                     >
-                      Видалити
+                      {sc.delete}
                     </button>
                   ) : null}
                   <button
@@ -1437,14 +1439,14 @@ export function BlockEditorSurface({
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
                     onClick={() => addSpellcheckPopoverWordToDictionary(activeSpellcheckPopover.blockId, issue.id, issue.badText)}
                   >
-                    Додати у словник
+                    {sc.addToDictionary}
                   </button>
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
                     onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
                   >
-                    Залишити як є
+                    {sc.leaveAsIs}
                   </button>
                 </div>
               ) : (
@@ -1462,7 +1464,7 @@ export function BlockEditorSurface({
                         setActiveSpellcheckPopover(null);
                       }}
                     >
-                      Видалити
+                      {sc.delete}
                     </button>
                   ) : null}
                   <button
@@ -1470,14 +1472,14 @@ export function BlockEditorSurface({
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
                     onClick={() => addSpellcheckPopoverWordToDictionary(activeSpellcheckPopover.blockId, issue.id, issue.badText)}
                   >
-                    Додати у словник
+                    {sc.addToDictionary}
                   </button>
                   <button
                     type="button"
                     className="spellcheck-popover-suggestion spellcheck-popover-suggestion-muted"
                     onClick={() => dismissSpellcheckPopoverIssue(activeSpellcheckPopover.blockId, issue.id)}
                   >
-                    Залишити як є
+                    {sc.leaveAsIs}
                   </button>
                 </div>
               )}
@@ -1510,7 +1512,7 @@ export function BlockEditorSurface({
                 <button
                   type="button"
                   className="spellcheck-popover-close"
-                  aria-label="Закрити підказки"
+                  aria-label={be.closeSuggestions}
                   onClick={() => setActiveEmphasisPopover(null)}
                 >
                   <X size={14} aria-hidden="true" />
@@ -1525,7 +1527,7 @@ export function BlockEditorSurface({
                     setActiveEmphasisPopover(null);
                   }}
                 >
-                  Погодити
+                  {be.accept}
                 </button>
                 <button
                   type="button"
@@ -1535,7 +1537,7 @@ export function BlockEditorSurface({
                     setActiveEmphasisPopover(null);
                   }}
                 >
-                  Відхилити
+                  {be.reject}
                 </button>
               </div>
             </div>
@@ -1789,6 +1791,7 @@ function EditableCalloutBlock({
   onBlockChange: (block: CalloutBlock) => void;
   onSoftBreak: (context: RichTextContext) => void;
 }) {
+  const be = useProductCopy().editor.blockEditor;
   return (
     <div className="block-callout-shell" data-kind={block.kind}>
       <div className="block-callout-head">
@@ -1810,7 +1813,7 @@ function EditableCalloutBlock({
               });
             }}
             disabled={disabled}
-            aria-label="Тип врізки"
+            aria-label={be.calloutType}
             title={getEditorialCalloutKindLabel(block.kind)}
           >
             {getEditorialCalloutKindOptions().map((option) => (
@@ -1831,7 +1834,7 @@ function EditableCalloutBlock({
               });
             }}
             disabled={disabled}
-            aria-label="Глибина врізки"
+            aria-label={be.calloutDepth}
             title={getEditorialCalloutDepthLabel(block.depth ?? "brief")}
           >
             {getEditorialCalloutDepthOptions().map((option) => (
@@ -1908,6 +1911,7 @@ function EditableTableBlock({
   onAddColumn: (block: TableBlock) => void;
   onRemoveColumn: (block: TableBlock) => void;
 }) {
+  const be = useProductCopy().editor.blockEditor;
   return (
     <div className="block-table-shell">
       <table className="block-table">
@@ -1939,10 +1943,10 @@ function EditableTableBlock({
       </table>
 
       <div className="block-inline-actions">
-        <button type="button" className="block-mini-action" onClick={() => onAddRow(block)} title="Додати рядок">+↕</button>
-        <button type="button" className="block-mini-action" onClick={() => onRemoveRow(block)} title="Видалити рядок">−↕</button>
-        <button type="button" className="block-mini-action" onClick={() => onAddColumn(block)} title="Додати колонку">+↔</button>
-        <button type="button" className="block-mini-action" onClick={() => onRemoveColumn(block)} title="Видалити колонку">−↔</button>
+        <button type="button" className="block-mini-action" onClick={() => onAddRow(block)} title={be.addRow}>+↕</button>
+        <button type="button" className="block-mini-action" onClick={() => onRemoveRow(block)} title={be.deleteRow}>−↕</button>
+        <button type="button" className="block-mini-action" onClick={() => onAddColumn(block)} title={be.addColumn}>+↔</button>
+        <button type="button" className="block-mini-action" onClick={() => onRemoveColumn(block)} title={be.deleteColumn}>−↔</button>
       </div>
     </div>
   );
@@ -2223,11 +2227,11 @@ function toCalloutBlock(block: Block): CalloutBlock {
   };
 }
 
-function toTableBlock(block: Block): TableBlock {
+function toTableBlock(block: Block, column1: string, column2: string): TableBlock {
   return {
     id: block.id,
     type: "table",
-    rows: [[[createInlineText("Колонка 1")], [createInlineText("Колонка 2")]], [[createInlineText(getBlockPreviewText(block))], [createInlineText("")]]]
+    rows: [[[createInlineText(column1)], [createInlineText(column2)]], [[createInlineText(getBlockPreviewText(block))], [createInlineText("")]]]
   };
 }
 

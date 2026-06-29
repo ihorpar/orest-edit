@@ -4,6 +4,7 @@ import { normalizeModelId, normalizeProvider, normalizeVisualStylePreset } from 
 import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../../lib/server/client-api-key-policy";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
+import { isAppLocale, type AppLocale } from "../../../../../lib/i18n/product-locale";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -113,6 +114,7 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
       document: record.document as ReviewActionRequest["document"],
       currentRevision: record.currentRevision as ReviewActionRequest["currentRevision"],
       item: record.item as ReviewActionRequest["item"],
+      locale: parseAppLocale(record.locale),
       editorialInstruction:
         typeof record.editorialInstruction === "string" && record.editorialInstruction.trim()
           ? record.editorialInstruction.trim()
@@ -132,4 +134,8 @@ function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionReq
       visualStylePreset: normalizeVisualStylePreset(record.visualStylePreset)
     }
   };
+}
+
+function parseAppLocale(value: unknown): AppLocale {
+  return isAppLocale(value) ? value : "uk";
 }

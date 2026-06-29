@@ -11,6 +11,8 @@ import { TopBar } from "../../components/layout/TopBar";
 import { type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
 import { Button } from "../../components/ui/Button";
+import { useProductLocale, useProductLocaleConfig, useProductCopy } from "../../components/providers/ProductLocaleProvider";
+import type { AppLocale } from "../../lib/i18n/product-locale";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block, InlineNode } from "../../lib/editor/document-model";
 import {
   countTextOccurrencesInDocument,
@@ -109,7 +111,6 @@ import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_VISUAL_STYLE_PRESET,
   EDITOR_SETTINGS_UPDATED_EVENT,
-  VISUAL_STYLE_PRESET_STORAGE_KEY,
   normalizeVisualStylePreset,
   readEditorSettings,
   type EditorSettings
@@ -136,6 +137,9 @@ import {
   presentRequestFeedback,
   type RequestFeedback
 } from "../../lib/editor/workflow-ui";
+import { getProductLocaleConfig, getVisualStylePresetStorageKey } from "../../lib/i18n/product-locale";
+import { getWorkflowStepLabel, getEditorMessages } from "../../lib/i18n/editor-messages";
+import { buildFactCheckActionInstruction } from "../../lib/i18n/server-prompts/review-action";
 import {
   ChevronDown,
   ChevronUp,
@@ -273,11 +277,6 @@ interface EditorSessionSnapshot {
   reviewRefineInstruction: string;
 }
 
-const historyTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
-  hour: "2-digit",
-  minute: "2-digit"
-});
-
 const defaultReviewComposer: { changeLevel: WholeTextChangeLevel; additionalInstructions: string } = {
   changeLevel: 5,
   additionalInstructions: ""
@@ -294,30 +293,17 @@ type ManualGenerationKind = "callout" | "visual" | "list" | "subsection";
 type WorkflowStepId = PersistedWorkflowStepId;
 type TopActionMenuId = "open" | "save" | null;
 
-const WORKFLOW_STEPS: Array<{ id: WorkflowStepId; label: string; icon: typeof Stethoscope }> = [
-  { id: "diagnostics", label: "Діагностика", icon: Stethoscope },
-  { id: "fact_check", label: "Перевірка фактів", icon: Search },
-  { id: "structure", label: "Структура", icon: LayoutGrid },
-  { id: "clarity", label: "Ясність", icon: Sparkles },
-  { id: "interest", label: "Інтерес і застосовність", icon: Target },
-  { id: "visuals", label: "Візуали", icon: ImageIcon },
-  { id: "formatting", label: "Форматування", icon: Table2 },
-  { id: "spellcheck", label: "Правопис", icon: Languages },
-  { id: "emphasis", label: "Акценти", icon: Highlighter },
-  { id: "final_editing", label: "Власний промпт", icon: MessageSquareText }
-];
-
-const WORKFLOW_STEP_SUMMARIES: Record<WorkflowStepId, string> = {
-  diagnostics: "Короткий розбір: де текст збиває читача, де він перевантажений і що треба перебудувати.",
-  fact_check: "Перевірка тверджень за доказовою наукою й джерелами.",
-  structure: "Архітектура розділу, послідовність думки й дроблення матеріалу.",
-  clarity: "Спрощення складних формулювань без втрати точності.",
-  interest: "Практична цінність, життєві приклади й читабельність.",
-  visuals: "Місця для ілюстрацій, схем та інфографіки.",
-  formatting: "Списки, врізки й таблиці для швидкого сканування.",
-  spellcheck: "Орфографія, пунктуація, граматика й типографічна чистота.",
-  emphasis: "Смислові акценти для швидкого сканування ключових тез.",
-  final_editing: "Будь-який редакторський промпт, повернений як локальні картки."
+const WORKFLOW_STEP_ICONS: Record<WorkflowStepId, typeof Stethoscope> = {
+  diagnostics: Stethoscope,
+  fact_check: Search,
+  structure: LayoutGrid,
+  clarity: Sparkles,
+  interest: Target,
+  visuals: ImageIcon,
+  formatting: Table2,
+  spellcheck: Languages,
+  emphasis: Highlighter,
+  final_editing: MessageSquareText
 };
 
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
@@ -338,6 +324,37 @@ function createBlankDocument(): EditorDocument {
 }
 
 export default function EditorPage() {
+  const { locale } = useProductLocale();
+  const copy = useProductCopy();
+  const editorCopy = copy.editor;
+  const fb = editorCopy.feedback;
+  const hl = editorCopy.historyLabels;
+  const fc = editorCopy.factCheck;
+  const sc = editorCopy.spellcheckUi;
+  const cs = editorCopy.cardStats;
+  const ss = editorCopy.spellcheckStats;
+  const es = editorCopy.emphasisStats;
+  const st = editorCopy.structure;
+  const cd = editorCopy.cards;
+  const localeConfig = useProductLocaleConfig();
+  const baseWorkflowSteps = useMemo(
+    () =>
+      (Object.keys(WORKFLOW_STEP_ICONS) as WorkflowStepId[]).map((id) => ({
+        id,
+        label: editorCopy.workflowSteps[id],
+        icon: WORKFLOW_STEP_ICONS[id]
+      })),
+    [editorCopy]
+  );
+  const workflowStepSummaries = editorCopy.workflowSummaries;
+  const historyTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(localeConfig.displayLocale, {
+        hour: "2-digit",
+        minute: "2-digit"
+      }),
+    [localeConfig.displayLocale]
+  );
   const initialDocumentRef = useRef<EditorDocument | null>(null);
   if (initialDocumentRef.current === null) {
     initialDocumentRef.current = createBlankDocument();
@@ -424,9 +441,13 @@ export default function EditorPage() {
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const activeReviewJobRunRef = useRef<string | null>(null);
+  const activeLocaleRef = useRef(locale);
+  const localeEpochRef = useRef(0);
+  const hydratedLocaleRef = useRef<string | null>(null);
+  const skipNextDraftPersistRef = useRef(false);
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
-  const spellcheckDictionarySet = useMemo(() => createSpellcheckDictionarySet(spellcheckDictionaryWords), [spellcheckDictionaryWords]);
+  const spellcheckDictionarySet = useMemo(() => createSpellcheckDictionarySet(spellcheckDictionaryWords, locale), [locale, spellcheckDictionaryWords]);
   const globalReplaceMatchCount = useMemo(
     () => countTextOccurrencesInDocument(document, globalReplaceSearch),
     [document, globalReplaceSearch]
@@ -434,6 +455,7 @@ export default function EditorPage() {
   const localActionRoute = useMemo<LocalActionRouteResponse>(
     () =>
       inferLocalActionRoute({
+        locale,
         prompt:
           localActionMode === "callout"
             ? manualCalloutPrompt
@@ -447,14 +469,14 @@ export default function EditorPage() {
         visualIntent: manualVisualIntent,
         visualStylePreset: visualStylePreset
       }),
-    [customPrompt, localActionMode, localTextIntent, manualCalloutDepth, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
+    [customPrompt, localActionMode, localTextIntent, locale, manualCalloutDepth, manualCalloutKind, manualCalloutPrompt, manualVisualIntent, manualVisualPrompt, visualStylePreset]
   );
   const localModeSuggestion = useMemo<{ mode: SuggestedLocalActionMode; label: string } | null>(() => {
     if (localActionMode !== "edit" && localActionMode !== "auto") {
       return null;
     }
 
-    const suggestedMode = inferSuggestedLocalActionMode(customPrompt);
+    const suggestedMode = inferSuggestedLocalActionMode(customPrompt, locale);
 
     if (!suggestedMode) {
       return null;
@@ -462,9 +484,9 @@ export default function EditorPage() {
 
     return {
       mode: suggestedMode,
-      label: suggestedMode === "spellcheck" ? "Правопис" : suggestedMode === "callout" ? "Врізка" : "Візуал"
+      label: suggestedMode === "spellcheck" ? editorCopy.localModes.spellcheck : suggestedMode === "callout" ? editorCopy.localModes.callout : editorCopy.localModes.visual
     };
-  }, [customPrompt, localActionMode]);
+  }, [customPrompt, localActionMode, locale, editorCopy]);
   const stepItems = useMemo(() => mapReviewItemsByStep(reviewItems), [reviewItems]);
   const expertiseForDisplay = useMemo(() => {
     if (!reviewExpertise) {
@@ -476,7 +498,7 @@ export default function EditorPage() {
   const canRunDownstreamStep = Boolean(reviewExpertise?.trim()) && !isReviewRequestInFlight;
   const workflowSteps = useMemo(
     () =>
-      WORKFLOW_STEPS.map((step) => ({
+      baseWorkflowSteps.map((step) => ({
         ...step,
         completed:
           step.id === "diagnostics"
@@ -487,16 +509,23 @@ export default function EditorPage() {
                 ? Boolean(spellcheckSummary || spellcheckResults.length > 0)
                 : stepItems[step.id].length > 0
       })),
-    [factCheckRows.length, reviewExpertise, spellcheckResults.length, spellcheckSummary, stepItems]
+    [baseWorkflowSteps, factCheckRows.length, reviewExpertise, spellcheckResults.length, spellcheckSummary, stepItems]
   );
 
   useEffect(() => {
-    setSettings(readEditorSettings());
-    const lastVisualStyle = normalizeVisualStylePreset(window.localStorage.getItem(VISUAL_STYLE_PRESET_STORAGE_KEY), defaultVisualStylePreset);
-    setVisualStylePreset(lastVisualStyle);
-    const draft = readEditorDraftState();
+    const isLocaleSwitch = hydratedLocaleRef.current !== null && hydratedLocaleRef.current !== locale;
 
-    if (draft) {
+    if (isLocaleSwitch) {
+      localeEpochRef.current += 1;
+    }
+
+    activeLocaleRef.current = locale;
+    setSettings(readEditorSettings(locale));
+    const lastVisualStyle = normalizeVisualStylePreset(window.localStorage.getItem(getVisualStylePresetStorageKey(locale)), defaultVisualStylePreset);
+    setVisualStylePreset(lastVisualStyle);
+    const draft = readEditorDraftState(locale);
+
+    if (!hasHydratedDraft && draft) {
       setDocument(draft.document);
       setRevision(draft.revision);
       setSelection(draft.selection);
@@ -520,8 +549,40 @@ export default function EditorPage() {
       setFocusedBlockId(draft.selection.focusBlockId ?? draft.document.blocks[0]?.id ?? null);
     }
 
+    if (isLocaleSwitch) {
+      skipNextDraftPersistRef.current = true;
+      activeReviewJobRunRef.current = null;
+      setOperations([]);
+      setReviewItems([]);
+      setRejectedReviewIdeas([]);
+      setPatchDiagnostics(null);
+      setReviewDiagnostics(null);
+      setReviewExpertise(null);
+      setFactCheckRows([]);
+      setActiveWorkflowStep("diagnostics");
+      setStepRunHistory(createEmptyStepRunHistory());
+      setStepFeedback(createDefaultStepFeedbackMap());
+      setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
+      setFeedback(null);
+      setHistory([]);
+      setMutationHistoryPast([]);
+      setMutationHistoryFuture([]);
+      setCompareHistory([]);
+      setActiveCompareEntryId(null);
+      setExpandedCompareEntryId(null);
+      setActiveReviewItemId(null);
+      setActiveProposal(null);
+      setReviewRefineInstruction("");
+      clearSpellcheckResults();
+      setIsReviewRequestInFlight(false);
+      setIsPatchRequestInFlight(false);
+      setIsSpellcheckRequestInFlight(false);
+      setIsReviewImageRequestInFlight(false);
+    }
+
+    hydratedLocaleRef.current = locale;
     setHasHydratedDraft(true);
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     return () => {
@@ -532,7 +593,7 @@ export default function EditorPage() {
   useEffect(() => {
     function handleSettingsUpdated(event: Event) {
       const detail = event instanceof CustomEvent ? event.detail : null;
-      setSettings(detail ?? readEditorSettings());
+      setSettings(detail ?? readEditorSettings(locale));
     }
 
     window.addEventListener(EDITOR_SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
@@ -542,7 +603,7 @@ export default function EditorPage() {
       window.removeEventListener(EDITOR_SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
       window.removeEventListener("storage", handleSettingsUpdated);
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     setReviewRefineInstruction("");
@@ -698,7 +759,7 @@ export default function EditorPage() {
     applySnapshot(entry.before);
     setMutationHistoryPast((current) => current.slice(0, -1));
     setMutationHistoryFuture((current) => [...current, entry]);
-    setFeedback({ tone: "info", message: `Скасовано: ${entry.label.toLowerCase()}.` });
+    setFeedback({ tone: "info", message: fb.undone(entry.label) });
   }
 
   function redoLastMutation() {
@@ -711,7 +772,7 @@ export default function EditorPage() {
     applySnapshot(entry.after);
     setMutationHistoryFuture((current) => current.slice(0, -1));
     setMutationHistoryPast((current) => [...current.slice(Math.max(0, current.length - 49)), entry]);
-    setFeedback({ tone: "info", message: `Повторено: ${entry.label.toLowerCase()}.` });
+    setFeedback({ tone: "info", message: fb.redone(entry.label) });
   }
 
   function handleManualDocumentChange(nextDocument: EditorDocument) {
@@ -720,7 +781,7 @@ export default function EditorPage() {
     commitDocument(nextDocument, {
       history: {
         kind: "manual_edit",
-        label: "Ручне редагування",
+        label: hl.manualEdit,
         blockIds: changedBlockIds,
         mergeKey: changedBlockIds.length > 0 ? `manual:${changedBlockIds.join("|")}` : "manual"
       }
@@ -756,7 +817,7 @@ export default function EditorPage() {
     results: SpellcheckBlockResult[],
     dictionaryWords = spellcheckDictionaryWords
   ): SpellcheckBlockResult[] {
-    const dictionary = createSpellcheckDictionarySet(dictionaryWords);
+    const dictionary = createSpellcheckDictionarySet(dictionaryWords, locale);
 
     if (dictionary.size === 0) {
       return results;
@@ -764,7 +825,7 @@ export default function EditorPage() {
 
     return results.map((result) => ({
       ...result,
-      issues: filterSpellcheckIssuesByDictionary(result.issues, dictionary)
+      issues: filterSpellcheckIssuesByDictionary(result.issues, dictionary, locale)
     }));
   }
 
@@ -785,20 +846,20 @@ export default function EditorPage() {
   ): EditorSpellcheckSnapshot {
     const nextSummary =
       meta.issueCount > 0
-        ? `Знайдено ${meta.issueCount} проблем у ${results.filter((result) => result.issues.length > 0).length} абз.`
-        : `Помилок не знайдено у ${meta.checkedBlockCount} абз.`;
+        ? fb.spellcheckIssuesFound(meta.issueCount, results.filter((result) => result.issues.length > 0).length)
+        : fb.spellcheckNoIssues(meta.checkedBlockCount);
     const secondaryParts: string[] = [];
 
     if (meta.skippedCount > 0) {
-      secondaryParts.push(`Пропущено блоків: ${meta.skippedCount}`);
+      secondaryParts.push(fb.skippedBlocks(meta.skippedCount));
     }
 
     if (meta.errorCount > 0) {
-      secondaryParts.push(`З помилкою запиту: ${meta.errorCount}`);
+      secondaryParts.push(fb.requestErrors(meta.errorCount));
     }
 
     if (invalidatedCount > 0) {
-      secondaryParts.push(`Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`);
+      secondaryParts.push(fb.changedParasRecheck(invalidatedCount));
     }
 
     return {
@@ -814,8 +875,8 @@ export default function EditorPage() {
     return {
       results: [],
       meta: null,
-      summary: "У перевірених абзацах є зміни.",
-      secondarySummary: `Змінено абз.: ${invalidatedCount} · перевірте їх ще раз`,
+      summary: fb.checkedParagraphsChanged,
+      secondarySummary: fb.changedParasRecheck(invalidatedCount),
       invalidatedCount
     };
   }
@@ -906,12 +967,21 @@ export default function EditorPage() {
   function persistVisualStylePreset(preset: VisualStylePreset) {
     setVisualStylePreset(preset);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(VISUAL_STYLE_PRESET_STORAGE_KEY, preset);
+      window.localStorage.setItem(getVisualStylePresetStorageKey(locale), preset);
     }
+  }
+
+  function isCurrentLocaleRequest(expectedLocale: typeof locale, expectedEpoch: number): boolean {
+    return activeLocaleRef.current === expectedLocale && localeEpochRef.current === expectedEpoch;
   }
 
   useEffect(() => {
     if (!hasHydratedDraft) {
+      return;
+    }
+
+    if (skipNextDraftPersistRef.current) {
+      skipNextDraftPersistRef.current = false;
       return;
     }
 
@@ -938,7 +1008,7 @@ export default function EditorPage() {
       activeProposal,
       reviewImageAssets: {},
       reviewComposer
-    });
+    }, locale);
   }, [
     activeProposal,
     activeReviewItemId,
@@ -960,7 +1030,8 @@ export default function EditorPage() {
     activeWorkflowStep,
     stepRunHistory,
     stepFeedback,
-    stepRunModeByStep
+    stepRunModeByStep,
+    locale
   ]);
 
   function openComposer(nextMode: ComposerMode) {
@@ -1075,10 +1146,10 @@ export default function EditorPage() {
   useEffect(() => {
     let cancelled = false;
 
-    void readSpellcheckDictionaryWords()
+    void readSpellcheckDictionaryWords(locale)
       .then((words) => {
         if (!cancelled) {
-          setSpellcheckDictionaryWords(Array.from(createSpellcheckDictionarySet(words)));
+          setSpellcheckDictionaryWords(Array.from(createSpellcheckDictionarySet(words, locale)));
         }
       })
       .catch(() => undefined);
@@ -1086,7 +1157,7 @@ export default function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     function handleUndoRedoHotkeys(event: KeyboardEvent) {
@@ -1182,28 +1253,28 @@ export default function EditorPage() {
     const searchText = globalReplaceSearch;
 
     if (!searchText) {
-      setFeedback({ tone: "error", message: "Вкажіть текст для заміни." });
+      setFeedback({ tone: "error", message: fb.enterReplaceText });
       return;
     }
 
     const result = replaceTextInDocument(document, searchText, globalReplaceReplacement);
 
     if (result.replacementCount === 0) {
-      setFeedback({ tone: "info", message: "Збігів не знайдено." });
+      setFeedback({ tone: "info", message: fb.noMatches });
       return;
     }
 
     commitDocument(result.document, {
       history: {
         kind: "manual_edit",
-        label: "Глобальна заміна",
+        label: editorCopy.globalReplace.label,
         blockIds: result.changedBlockIds
       }
     });
     focusAndHighlightChangedBlocks(result.changedBlockIds);
     setFeedback({
       tone: "info",
-      message: `Замінено: ${result.replacementCount} · Абз. зі змінами: ${result.changedBlockIds.length}.`
+      message: fb.globalReplaceDone(result.replacementCount, result.changedBlockIds.length)
     });
     setIsGlobalReplaceOpen(false);
   }
@@ -1463,7 +1534,7 @@ export default function EditorPage() {
     commitDocument(nextDocument, {
       history: {
         kind: "manual_edit",
-        label: "Ручне редагування з порівняння",
+        label: hl.manualEditCompare,
         blockIds: activeCompareEntry.blockIds,
         mergeKey: `compare-edit:${activeCompareEntry.blockIds.join("|")}`
       }
@@ -1500,9 +1571,11 @@ export default function EditorPage() {
 
   async function requestPatch(mode: RequestMode, promptOverride?: string): Promise<boolean> {
     const targetBlockIds = resolveTargetBlockIds();
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
 
     if (targetBlockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Оберіть блоки для локальної правки." });
+      setFeedback({ tone: "error", message: fb.selectBlocksLocalEdit });
       return false;
     }
 
@@ -1523,7 +1596,8 @@ export default function EditorPage() {
         prompt: mode === "custom" ? (promptOverride ?? customPrompt).trim() : undefined,
         provider: settings.provider,
         modelId: settings.modelId,
-        basePrompt: settings.basePrompt
+        basePrompt: settings.basePrompt,
+        locale
       };
 
       const response = await fetch("/api/edit/patch", {
@@ -1533,7 +1607,12 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as PatchResponse;
-      let nextFeedback = buildPatchFeedbackMessage(payload, response.ok);
+
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
+      let nextFeedback = buildPatchFeedbackMessage(payload, response.ok, locale);
       const noOpAssessment = assessPatchNoOp(payload.operations);
       const patchStreakKey = `${mode}:${targetBlockIds.join("|")}`;
 
@@ -1544,8 +1623,8 @@ export default function EditorPage() {
           tone: "info",
           message:
             nextStreak >= 2
-              ? "Повторна локальна чернетка майже без змін. Уточніть інструкцію: що саме спростити або переписати і в якому форматі очікуєте результат."
-              : "Локальна чернетка майже не змінює текст. Уточніть запит або перегенеруйте."
+              ? fb.localEditNoOpRepeat
+              : fb.localEditNoOp
         };
       } else if (response.ok && !payload.error) {
         patchNoOpStreakRef.current[patchStreakKey] = 0;
@@ -1583,24 +1662,32 @@ export default function EditorPage() {
       setPatchDiagnostics(payload.diagnostics);
       setFeedback(nextFeedback);
       pushHistoryEntry(
-        createHistoryEntry(mode, payload.providerUsed, settings.provider, settings.modelId, payload.operations.length, payload.diagnostics.droppedOperationCount, payload.usedFallback, nextFeedback)
+        createHistoryEntry(mode, payload.providerUsed, settings.provider, settings.modelId, payload.operations.length, payload.diagnostics.droppedOperationCount, payload.usedFallback, nextFeedback, historyTimeFormatter)
       );
       return response.ok && !payload.error && payload.operations.length > 0;
     } catch (error) {
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося виконати локальну правку."
+        message: error instanceof Error ? error.message : fb.localEditFailed
       });
       return false;
     } finally {
-      setIsPatchRequestInFlight(false);
+      if (isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        setIsPatchRequestInFlight(false);
+      }
     }
   }
 
   async function requestSpellcheck(targetBlockIds = document.blocks.map((block) => block.id)): Promise<boolean> {
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
 
     if (targetBlockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для перевірки правопису." });
+      setFeedback({ tone: "error", message: fb.selectParagraphsSpellcheck });
       return false;
     }
 
@@ -1608,7 +1695,7 @@ export default function EditorPage() {
     const skippedCount = targetBlockIds.length - spellcheckTargets.length;
 
     if (spellcheckTargets.length === 0) {
-      setFeedback({ tone: "error", message: "Для перевірки правопису наразі доступні лише текстові абзаци та заголовки." });
+      setFeedback({ tone: "error", message: fb.spellcheckTextBlocksOnly });
       clearSpellcheckResults();
       return false;
     }
@@ -1639,8 +1726,9 @@ export default function EditorPage() {
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            locale,
             documentRevisionId: revision.documentRevisionId,
-            language: "uk-UA",
+            language: localeConfig.spellcheckLanguage,
             provider: "languagetool_public",
             trigger: "manual",
             selection: {
@@ -1691,6 +1779,11 @@ export default function EditorPage() {
       const runResults = spellcheckTargets
         .map((target) => resultsMap.get(target.blockId))
         .filter((result): result is SpellcheckBlockResult => Boolean(result));
+
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
       const filteredRunResults = filterSpellcheckResultsWithDictionary(runResults);
       const mergedResults = mergeSpellcheckBlockResults(spellcheckResults, filteredRunResults);
       const issueCount = countSpellcheckIssues(filteredRunResults);
@@ -1700,8 +1793,8 @@ export default function EditorPage() {
       updateSpellcheckSummary(mergedResults, summary, 0);
       const nextSummary =
         issueCount > 0
-          ? `Знайдено ${issueCount} проблем у ${filteredRunResults.filter((result) => result.issues.length > 0).length} абз.`
-          : `Помилок не знайдено у ${filteredRunResults.length} абз.`;
+          ? fb.spellcheckIssuesFound(issueCount, filteredRunResults.filter((result) => result.issues.length > 0).length)
+          : fb.spellcheckNoIssues(filteredRunResults.length);
       setFeedback({
         tone: errorCount > 0 ? "error" : "info",
         message: nextSummary
@@ -1711,26 +1804,33 @@ export default function EditorPage() {
           "spellcheck",
           "languagetool_public",
           "languagetool_public",
-          "uk-UA",
+          localeConfig.spellcheckLanguage,
           issueCount,
           skippedCount,
           false,
           {
             tone: errorCount > 0 ? "error" : "info",
             message: nextSummary
-          }
+          },
+          historyTimeFormatter
         )
       );
       return true;
     } catch (error) {
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
       clearSpellcheckResults();
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося перевірити правопис."
+        message: error instanceof Error ? error.message : fb.spellcheckFailed
       });
       return false;
     } finally {
-      setIsSpellcheckRequestInFlight(false);
+      if (isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        setIsSpellcheckRequestInFlight(false);
+      }
     }
   }
 
@@ -1810,13 +1910,13 @@ export default function EditorPage() {
       spellcheckState: createSpellcheckState(filteredSpellcheckResults, summaryMeta, 0),
       history: {
         kind: "spellcheck_apply",
-        label: "Виправлення правопису",
+        label: hl.spellingFix,
         blockIds: [input.blockId],
         compare:
           previousChangedBlock && nextChangedBlock
             ? {
                 kind: "spellcheck_apply",
-                label: "Виправлення правопису",
+                label: hl.spellingFix,
                 blockIds: [input.blockId],
                 beforeBlocks: [previousChangedBlock],
                 afterBlocks: [nextChangedBlock]
@@ -1825,7 +1925,7 @@ export default function EditorPage() {
       }
     });
     updateSpellcheckSummary(filteredSpellcheckResults, summaryMeta, 0);
-    setFeedback({ tone: "info", message: input.suggestion.length === 0 ? "Фрагмент видалено." : "Правопис виправлено." });
+    setFeedback({ tone: "info", message: input.suggestion.length === 0 ? fb.fragmentRemoved : fb.spellingFixed });
   }
 
   function dismissSpellcheckIssue(input: { blockId: string; issueId: string }) {
@@ -1848,7 +1948,7 @@ export default function EditorPage() {
 
     setSpellcheckInvalidatedCount(0);
     updateSpellcheckSummary(filteredSpellcheckResults, summaryMeta, 0);
-    setFeedback({ tone: "info", message: "Варіант залишено без змін." });
+    setFeedback({ tone: "info", message: fb.leftUnchanged });
   }
 
   async function addSpellcheckWordToDictionary(input: { blockId: string; issueId: string; word: string }) {
@@ -1860,48 +1960,55 @@ export default function EditorPage() {
       return;
     }
 
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
+
     try {
-      await addSpellcheckDictionaryWord(word);
-      const nextDictionaryWords = Array.from(createSpellcheckDictionarySet([...spellcheckDictionaryWords, word]));
+      await addSpellcheckDictionaryWord(word, locale);
+      const nextDictionaryWords = Array.from(createSpellcheckDictionarySet([...spellcheckDictionaryWords, word], locale));
       const nextSpellcheckResults = filterSpellcheckResultsWithDictionary(spellcheckResults, nextDictionaryWords);
       const summaryMeta = buildSpellcheckSummaryMeta(nextSpellcheckResults, spellcheckMeta?.skippedCount ?? 0);
 
       setSpellcheckDictionaryWords(nextDictionaryWords);
       updateSpellcheckSummary(nextSpellcheckResults, summaryMeta, spellcheckInvalidatedCount);
-      setFeedback({ tone: "info", message: `Слово «${word}» додано до словника.` });
+      setFeedback({ tone: "info", message: fb.wordAddedToDictionary(word) });
     } catch (error) {
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося додати слово до словника."
+        message: error instanceof Error ? error.message : fb.dictionaryAddFailed
       });
     }
   }
 
   function applyEmphasisSuggestion(input: { itemId: string }) {
-    const suggestion = deriveEmphasisSuggestions(reviewItems, document, revision).find((entry) => entry.itemId === input.itemId);
+    const suggestion = deriveEmphasisSuggestions(reviewItems, document, revision, locale).find((entry) => entry.itemId === input.itemId);
 
     if (!suggestion) {
-      setFeedback({ tone: "error", message: "Акцент більше не прив'язується до поточного тексту." });
+      setFeedback({ tone: "error", message: fb.emphasisStale });
       return;
     }
 
     const result = applyEmphasisSuggestionsToDocument(document, [suggestion]);
 
     if (result.changedBlockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Акцент не вдалося застосувати." });
+      setFeedback({ tone: "error", message: fb.emphasisApplyFailed });
       return;
     }
 
     commitDocument(result.document, {
       history: {
         kind: "ai_apply",
-        label: "Смисловий акцент",
+        label: hl.semanticEmphasis,
         blockIds: result.changedBlockIds,
         compare:
           result.beforeBlocks.length > 0 && result.afterBlocks.length > 0
             ? {
                 kind: "ai_apply",
-                label: `Акцент: ${suggestion.phrase}`,
+                label: editorCopy.emphasisLabel(suggestion.phrase),
                 blockIds: result.changedBlockIds,
                 beforeBlocks: result.beforeBlocks,
                 afterBlocks: result.afterBlocks
@@ -1915,23 +2022,23 @@ export default function EditorPage() {
     setActiveProposal((current) => (current?.reviewItemId === input.itemId ? null : current));
     setActiveReviewItemId((current) => (current === input.itemId ? null : current));
     focusAndHighlightChangedBlocks(result.changedBlockIds);
-    setFeedback({ tone: "info", message: "Акцент застосовано." });
+    setFeedback({ tone: "info", message: fb.emphasisApplied });
   }
 
   function applyAllEmphasisSuggestions() {
-    const actionableSuggestions = deriveEmphasisSuggestions(reviewItems, document, revision).filter(
+    const actionableSuggestions = deriveEmphasisSuggestions(reviewItems, document, revision, locale).filter(
       (entry) => entry.status !== "applied" && entry.status !== "dismissed"
     );
 
     if (actionableSuggestions.length === 0) {
-      setFeedback({ tone: "info", message: "Немає активних акцентів для застосування." });
+      setFeedback({ tone: "info", message: fb.noActiveEmphasis });
       return;
     }
 
     const result = applyEmphasisSuggestionsToDocument(document, actionableSuggestions);
 
     if (result.changedBlockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Акценти не вдалося застосувати." });
+      setFeedback({ tone: "error", message: fb.emphasisBulkFailed });
       return;
     }
 
@@ -1940,13 +2047,13 @@ export default function EditorPage() {
     commitDocument(result.document, {
       history: {
         kind: "ai_apply",
-        label: "Прийняти всі акценти",
+        label: hl.acceptAllEmphasis,
         blockIds: result.changedBlockIds,
         compare:
           result.beforeBlocks.length > 0 && result.afterBlocks.length > 0
             ? {
                 kind: "ai_apply",
-                label: `Акценти: ${appliedItemIds.size}`,
+                label: editorCopy.emphasisBulkLabel(appliedItemIds.size),
                 blockIds: result.changedBlockIds,
                 beforeBlocks: result.beforeBlocks,
                 afterBlocks: result.afterBlocks
@@ -1966,7 +2073,7 @@ export default function EditorPage() {
     setActiveReviewItemId((current) => (current && appliedItemIds.has(current) ? null : current));
     setFeedback({
       tone: "info",
-      message: `Застосовано ${appliedItemIds.size} акцентів у ${result.changedBlockIds.length} абз.`
+      message: fb.emphasisBulkApplied(appliedItemIds.size, result.changedBlockIds.length)
     });
   }
 
@@ -1976,9 +2083,11 @@ export default function EditorPage() {
 
   async function requestResolvedLocalAction(): Promise<boolean> {
     const targetBlockIds = resolveTargetBlockIds();
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
 
     if (targetBlockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Оберіть блоки для локальної дії." });
+      setFeedback({ tone: "error", message: fb.selectBlocksLocalAction });
       return false;
     }
 
@@ -1988,6 +2097,7 @@ export default function EditorPage() {
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          locale,
           prompt:
             localActionMode === "callout"
               ? manualCalloutPrompt
@@ -2008,13 +2118,13 @@ export default function EditorPage() {
       if (!response.ok || !isLocalActionRoutePayload(payload)) {
         setFeedback({
           tone: "error",
-          message: "error" in payload && payload.error ? payload.error : "Не вдалося визначити локальну дію."
+          message: "error" in payload && payload.error ? payload.error : fb.localActionFailed
         });
         return false;
       }
 
       if (payload.executor === "clarify") {
-        setFeedback({ tone: "info", message: "Уточніть, що саме зробити: правка, врізка чи візуал." });
+        setFeedback({ tone: "info", message: fb.clarifyLocalAction });
         return false;
       }
 
@@ -2047,9 +2157,13 @@ export default function EditorPage() {
         editorialInstruction: payload.prompt
       });
     } catch (error) {
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
+
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося виконати локальну дію."
+        message: error instanceof Error ? error.message : fb.localActionRunFailed
       });
       return false;
     }
@@ -2059,7 +2173,7 @@ export default function EditorPage() {
     const requiresDiagnosticsContext = stepId !== "diagnostics" && stepId !== "emphasis";
 
     if (requiresDiagnosticsContext && !reviewExpertise?.trim()) {
-      setFeedback({ tone: "error", message: "Спочатку запустіть діагностику, щоб дати контекст для наступних кроків." });
+      setFeedback({ tone: "error", message: fb.runDiagnosticsFirst });
       return;
     }
 
@@ -2076,7 +2190,7 @@ export default function EditorPage() {
       historyMessages.push({
         id: createPatchId("chat"),
         role: "user",
-        content: `[Діагностика] ${diagnosticsFeedback}`,
+        content: editorCopy.diagnosticsContentPrefix(diagnosticsFeedback),
         timestamp: new Date().toISOString()
       });
     }
@@ -2106,6 +2220,7 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
+            locale,
             async: true,
             basePrompt: settings.basePrompt,
             cardsPrompt: settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined,
@@ -2122,6 +2237,7 @@ export default function EditorPage() {
             revision: compactReviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
+            locale,
             async: true,
             basePrompt: settings.basePrompt,
             expertisePrompt: stepId === "diagnostics" ? diagnosticsPrompt : undefined,
@@ -2154,7 +2270,7 @@ export default function EditorPage() {
       const initialPayload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
       const payload =
         response.status === 202 && initialPayload.job
-          ? await pollEditorialReviewJob(initialPayload.job, reviewRunToken)
+          ? await pollEditorialReviewJob(initialPayload.job, reviewRunToken, locale)
           : initialPayload as EditorialReviewResponse;
       const responseOk = response.status === 202 ? !payload.error : response.ok;
 
@@ -2162,8 +2278,12 @@ export default function EditorPage() {
         return;
       }
 
+      if (payload.job?.locale && payload.job.locale !== locale) {
+        throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
+      }
+
       if (payload.stepId !== stepId) {
-        throw new Error(`Очікували відповідь для кроку «${stepId}», але сервер повернув «${payload.stepId}».`);
+        throw new Error(editorCopy.reviewStepMismatch(stepId, payload.stepId));
       }
 
       let sectionItemCount: number | undefined;
@@ -2210,7 +2330,7 @@ export default function EditorPage() {
         setReviewItems(nextItems);
       }
 
-      const nextFeedback = buildReviewFeedbackMessage(payload, responseOk, sectionItemCount);
+      const nextFeedback = buildReviewFeedbackMessage(payload, responseOk, locale, sectionItemCount);
 
       if (
         !payload.error
@@ -2281,7 +2401,8 @@ export default function EditorPage() {
           payload.stepId === "fact_check" ? factCheckLinkedItems.length : payload.items.length,
           payload.diagnostics.droppedItemCount,
           payload.usedFallback,
-          nextFeedback
+          nextFeedback,
+          historyTimeFormatter
         )
       );
 
@@ -2295,7 +2416,7 @@ export default function EditorPage() {
 
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося запустити review."
+        message: error instanceof Error ? error.message : editorCopy.reviewFeedback.reviewRunFailed
       });
     } finally {
       if (activeReviewJobRunRef.current === reviewRunToken) {
@@ -2305,12 +2426,16 @@ export default function EditorPage() {
     }
   }
 
-  async function pollEditorialReviewJob(job: EditorialReviewJob, reviewRunToken: string): Promise<EditorialReviewResponse> {
+  async function pollEditorialReviewJob(job: EditorialReviewJob, reviewRunToken: string, expectedLocale = locale): Promise<EditorialReviewResponse> {
     let currentJob = job;
 
     while (true) {
       if (activeReviewJobRunRef.current !== reviewRunToken) {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+      }
+
+      if (currentJob.locale && currentJob.locale !== expectedLocale) {
+        throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
       }
 
       const pollAfterMs = Math.max(300, currentJob.pollAfterMs || 1500);
@@ -2329,20 +2454,24 @@ export default function EditorPage() {
       });
       const payload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
 
+      if (payload.job?.locale && payload.job.locale !== expectedLocale) {
+        throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
+      }
+
       if ("reviewSessionId" in payload && payload.reviewSessionId && payload.job?.status === "completed") {
         return payload as EditorialReviewResponse;
       }
 
       if (!payload.job) {
-        throw new Error(payload.error || "Сервер повернув некоректний стан review job.");
+        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobInvalid);
       }
 
       if (payload.job.status === "failed") {
-        throw new Error(payload.error || "Review job завершився з помилкою. Запустіть крок ще раз.");
+        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobFailed);
       }
 
       if (!response.ok) {
-        throw new Error(payload.error || "Не вдалося прочитати стан review job.");
+        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobReadFailed);
       }
 
       currentJob = payload.job;
@@ -2428,7 +2557,7 @@ export default function EditorPage() {
     const blockIds = resolveTargetBlockIds();
 
     if (blockIds.length === 0) {
-      setFeedback({ tone: "error", message: "Оберіть один або кілька абзаців для ручної генерації." });
+      setFeedback({ tone: "error", message: fb.selectParagraphsManual });
       return false;
     }
 
@@ -2479,11 +2608,11 @@ export default function EditorPage() {
       commitDocument(nextDocument, {
         history: {
           kind: "ai_apply",
-          label: "ШІ правка",
+          label: hl.aiEdit,
           blockIds: activeProposal.textDiff.blockIds,
           compare: {
             kind: "ai_apply",
-            label: activeProposal.summary || activeProposal.textDiff.reason || "ШІ правка",
+            label: activeProposal.summary || activeProposal.textDiff.reason || hl.aiEdit,
             blockIds: activeProposal.textDiff.blockIds,
             beforeBlocks: activeProposal.textDiff.oldBlocks,
             afterBlocks: nextBlocks
@@ -2496,7 +2625,7 @@ export default function EditorPage() {
       setReviewItems((current) =>
         current.map((entry) => (entry.id === activeProposal.reviewItemId ? { ...entry, status: "applied", activeProposalId: undefined } : entry))
       );
-      setFeedback({ tone: "info", message: "Правку застосовано." });
+      setFeedback({ tone: "info", message: fb.editApplied });
     }
 
     setActiveProposal(null);
@@ -2582,7 +2711,8 @@ export default function EditorPage() {
       item: compactItem,
       editorialInstruction: editorialInstruction?.trim() || undefined,
       provider: settings.provider,
-      modelId: settings.modelId
+      modelId: settings.modelId,
+      locale
     };
 
     if (isReplaceProposal) {
@@ -2614,6 +2744,9 @@ export default function EditorPage() {
     item: EditorialReviewItem,
     options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
   ): Promise<boolean> {
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
+
     if (
       item.stepId !== "diagnostics"
       && item.stepId !== "fact_check"
@@ -2643,7 +2776,7 @@ export default function EditorPage() {
       : item;
 
     if (item.status === "stale" && !canRefreshStale) {
-      setFeedback({ tone: "error", message: "Ця рекомендація застаріла після змін структури. Запустіть аналіз кроку повторно." });
+      setFeedback({ tone: "error", message: fb.recommendationStale });
       return false;
     }
 
@@ -2665,7 +2798,7 @@ export default function EditorPage() {
     }
 
     try {
-      const factCheckInstruction = buildFactCheckActionInstruction(requestItem);
+      const factCheckInstruction = buildFactCheckActionInstruction(locale, requestItem);
       const mergedInstruction = [factCheckInstruction, options?.editorialInstruction?.trim()]
         .filter((value): value is string => Boolean(value && value.trim()))
         .join("\n\n");
@@ -2681,6 +2814,10 @@ export default function EditorPage() {
         body: JSON.stringify(requestBody)
       });
       const payload = (await response.json()) as ReviewActionResponse;
+
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return false;
+      }
 
       if (payload.proposal.kind === "text_diff" && payload.proposal.textDiff) {
         const proposal = maybeEscalateReviewNoOpWarning(payload.proposal, item.id, reviewNoOpStreakRef.current);
@@ -2735,7 +2872,7 @@ export default function EditorPage() {
           )
         );
         setReviewRefineInstruction("");
-        setFeedback({ tone: "info", message: "Підзаголовок підготовлено." });
+        setFeedback({ tone: "info", message: fb.subheadingPrepared });
         return true;
       }
 
@@ -2759,7 +2896,7 @@ export default function EditorPage() {
           )
         );
         setReviewRefineInstruction("");
-        setFeedback({ tone: "info", message: "Врізку підготовлено." });
+        setFeedback({ tone: "info", message: fb.calloutPrepared });
         return true;
       }
 
@@ -2773,7 +2910,7 @@ export default function EditorPage() {
           )
         );
         setReviewRefineInstruction("");
-        setFeedback({ tone: "info", message: "Промпт для візуалу підготовлено." });
+        setFeedback({ tone: "info", message: fb.visualPromptPrepared });
         return true;
       }
 
@@ -2789,11 +2926,13 @@ export default function EditorPage() {
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося підготувати рекомендацію."
+        message: error instanceof Error ? error.message : fb.recommendationPrepareFailed
       });
       return false;
     } finally {
-      setPreparingReviewItemId(null);
+      if (isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        setPreparingReviewItemId(null);
+      }
     }
   }
 
@@ -2814,7 +2953,7 @@ export default function EditorPage() {
     commitDocument(insertBlocksAfter(document, item.insertionPoint.anchorBlockId, [block]), {
       history: {
         kind: "insert_block",
-        label: "Вставка врізки",
+        label: hl.insertCallout,
         blockIds: [block.id]
       }
     });
@@ -2824,7 +2963,7 @@ export default function EditorPage() {
     );
     setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     setActiveReviewItemId((current) => (current === item.id ? null : current));
-    setFeedback({ tone: "info", message: "Врізку вставлено." });
+    setFeedback({ tone: "info", message: fb.calloutInserted });
   }
 
   function applyReviewSubsection(item: EditorialReviewItem) {
@@ -2850,7 +2989,7 @@ export default function EditorPage() {
     commitDocument(insertBlocksBefore(document, item.insertionPoint.anchorBlockId, blocks), {
       history: {
         kind: "insert_block",
-        label: "Вставка підзаголовка",
+        label: hl.insertSubheading,
         blockIds: blocks.map((entry) => entry.id)
       }
     });
@@ -2860,7 +2999,7 @@ export default function EditorPage() {
     );
     setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     setActiveReviewItemId((current) => (current === item.id ? null : current));
-    setFeedback({ tone: "info", message: "Підзаголовок вставлено." });
+    setFeedback({ tone: "info", message: fb.subheadingInserted });
   }
 
   function updateActiveCalloutKind(item: EditorialReviewItem, kind: EditorialCalloutKind) {
@@ -3150,6 +3289,8 @@ export default function EditorPage() {
     if (!activeProposal || activeProposal.kind !== "image_prompt" || !activeProposal.imageDraft) {
       return;
     }
+    const requestLocale = locale;
+    const requestLocaleEpoch = localeEpochRef.current;
 
     persistVisualStylePreset(
       normalizeVisualStylePreset(activeProposal.imageDraft.visualStylePreset ?? visualStylePreset, defaultVisualStylePreset)
@@ -3162,13 +3303,18 @@ export default function EditorPage() {
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          locale,
           prompt: activeProposal.imageDraft.prompt
         })
       });
       const payload = (await response.json()) as { asset?: GeneratedReviewImageAsset; error?: string };
 
+      if (!isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        return;
+      }
+
       if (!response.ok || !payload.asset) {
-        setFeedback({ tone: response.ok ? "info" : "error", message: payload.error || "Не вдалося згенерувати візуал." });
+        setFeedback({ tone: response.ok ? "info" : "error", message: payload.error || fb.visualGenerateFailed });
         return;
       }
 
@@ -3185,14 +3331,16 @@ export default function EditorPage() {
           }
         };
       });
-      setFeedback({ tone: "info", message: "Візуал згенеровано." });
+      setFeedback({ tone: "info", message: fb.visualGenerated });
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося згенерувати візуал."
+        message: error instanceof Error ? error.message : fb.visualGenerateFailed
       });
     } finally {
-      setIsReviewImageRequestInFlight(false);
+      if (isCurrentLocaleRequest(requestLocale, requestLocaleEpoch)) {
+        setIsReviewImageRequestInFlight(false);
+      }
     }
   }
 
@@ -3223,7 +3371,7 @@ export default function EditorPage() {
     commitDocument(insertBlocksAfter(document, item?.insertionPoint.anchorBlockId ?? null, [block]), {
       history: {
         kind: "insert_block",
-        label: "Вставка візуалу",
+        label: hl.insertVisual,
         blockIds: [block.id]
       }
     });
@@ -3233,7 +3381,7 @@ export default function EditorPage() {
     );
     setActiveProposal(null);
     setActiveReviewItemId(null);
-    setFeedback({ tone: "info", message: "Візуал вставлено." });
+    setFeedback({ tone: "info", message: fb.visualInserted });
   }
 
   function dismissReviewItem(item: EditorialReviewItem) {
@@ -3294,7 +3442,7 @@ export default function EditorPage() {
     commitDocument(insertBlocksAfter(document, anchorBlockId, [block]), {
       history: {
         kind: "insert_block",
-        label: "Вставка зображення",
+        label: hl.insertImage,
         blockIds: [block.id]
       }
     });
@@ -3305,18 +3453,24 @@ export default function EditorPage() {
     setIsDocxExportInFlight(true);
 
     try {
-      const result = await exportDocumentToDocx({ document });
+      const result = await exportDocumentToDocx({ document, locale });
       const url = URL.createObjectURL(result.blob);
       const anchor = window.document.createElement("a");
       anchor.href = url;
       anchor.download = result.fileName;
       anchor.click();
       URL.revokeObjectURL(url);
-      setFeedback({ tone: "info", message: result.warnings.length > 0 ? "DOCX експортовано з попередженнями." : "DOCX експортовано." });
+      setFeedback({
+        tone: "info",
+        message:
+          result.warnings.length > 0
+            ? editorCopy.exportImport.docxExportedWarnings(result.warnings.length)
+            : editorCopy.exportImport.docxExported
+      });
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося експортувати DOCX."
+        message: error instanceof Error ? error.message : fb.docxExportFailed
       });
     } finally {
       setIsDocxExportInFlight(false);
@@ -3332,14 +3486,14 @@ export default function EditorPage() {
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = buildDocxFileName(deriveDocxFileNameBase(document)).replace(/\.docx$/i, ".txt");
+      anchor.download = buildDocxFileName(deriveDocxFileNameBase(document, locale), locale).replace(/\.docx$/i, ".txt");
       anchor.click();
       URL.revokeObjectURL(url);
-      setFeedback({ tone: "info", message: "TXT експортовано." });
+      setFeedback({ tone: "info", message: editorCopy.exportImport.txtExported });
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося експортувати TXT."
+        message: error instanceof Error ? error.message : fb.txtExportFailed
       });
     }
   }
@@ -3390,7 +3544,7 @@ export default function EditorPage() {
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося прочитати буфер обміну."
+        message: error instanceof Error ? error.message : editorCopy.exportImport.clipboardReadFailed
       });
     } finally {
       setIsImportInFlight(false);
@@ -3419,7 +3573,7 @@ export default function EditorPage() {
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "Не вдалося імпортувати файл."
+        message: error instanceof Error ? error.message : editorCopy.exportImport.importFailed
       });
     } finally {
       setIsImportInFlight(false);
@@ -3447,9 +3601,9 @@ export default function EditorPage() {
     setDestructiveRecoveryState(null);
     setPendingDestructiveAction({
       kind: "clear_document",
-      title: "Очистити весь вміст?",
-      description: "Буде очищено текст і всі результати аналізів у цій локальній сесії.",
-      confirmLabel: "Очистити"
+      title: editorCopy.destructive.clearTitle,
+      description: editorCopy.destructive.clearDescription,
+      confirmLabel: editorCopy.destructive.clearConfirm
     });
   }
 
@@ -3460,11 +3614,11 @@ export default function EditorPage() {
 
     const snapshot = captureEditorSessionSnapshot();
 
-    clearEditorDraftState();
-    replaceEditorSession(createBlankDocument(), { tone: "info", message: "Текст і результати аналізів очищено." });
+    clearEditorDraftState(locale);
+    replaceEditorSession(createBlankDocument(), { tone: "info", message: editorCopy.destructive.cleared });
     setDestructiveRecoveryState({
       kind: "clear_document",
-      message: "Текст і результати аналізів очищено.",
+      message: editorCopy.destructive.cleared,
       snapshot
     });
   }
@@ -3475,18 +3629,18 @@ export default function EditorPage() {
     }
 
     restoreEditorSessionSnapshot(destructiveRecoveryState.snapshot);
-    setFeedback({ tone: "info", message: "Попередній стан відновлено." });
+    setFeedback({ tone: "info", message: editorCopy.destructive.restored });
   }
 
   const canRequestReview = document.blocks.length > 0;
-  const activeStepMeta = WORKFLOW_STEPS.find((step) => step.id === activeWorkflowStep) ?? WORKFLOW_STEPS[0];
+  const activeStepMeta = workflowSteps.find((step) => step.id === activeWorkflowStep) ?? workflowSteps[0];
   const ActiveStepIcon = activeStepMeta.icon;
-  const activeStepSummary = WORKFLOW_STEP_SUMMARIES[activeWorkflowStep];
+  const activeStepSummary = workflowStepSummaries[activeWorkflowStep];
   const activeEditorialStepId = isEditorialReviewStepId(activeWorkflowStep) ? activeWorkflowStep : null;
   const activeStepFeedbackValue = activeEditorialStepId ? stepFeedback[activeEditorialStepId].trim() : "";
   const activeStepIndex = Math.max(
     1,
-    WORKFLOW_STEPS.findIndex((step) => step.id === activeWorkflowStep) + 1
+    workflowSteps.findIndex((step) => step.id === activeWorkflowStep) + 1
   );
   const activeStepItems = activeEditorialStepId ? stepItems[activeEditorialStepId] : [];
   const visibleActiveStepItems = activeStepItems.filter(
@@ -3516,8 +3670,8 @@ export default function EditorPage() {
     }
   }, [expandedSpellcheckBlockId, spellcheckIssueResults]);
   const emphasisSuggestions = useMemo(
-    () => deriveEmphasisSuggestions(reviewItems, document, revision),
-    [document, reviewItems, revision]
+    () => deriveEmphasisSuggestions(reviewItems, document, revision, locale),
+    [document, locale, reviewItems, revision]
   );
   const emphasisStepItems = useMemo(
     () => reviewItems.filter((item) => item.stepId === "emphasis"),
@@ -3553,12 +3707,12 @@ export default function EditorPage() {
         ? "warning"
         : "success";
   const emphasisStatusLabel = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
-    ? "У процесі"
+    ? editorCopy.status.inProgress
     : emphasisStepItems.length === 0
-      ? "Не запускалось"
+      ? editorCopy.status.notRun
       : emphasisStepItems.some((item) => item.status !== "applied" && item.status !== "dismissed")
-        ? "Є акценти"
-        : "Завершено";
+        ? editorCopy.status.emphasisPending
+        : editorCopy.status.complete;
   const spellcheckStatusTone = isSpellcheckRequestInFlight
     ? "active"
     : !hasSpellcheckRun
@@ -3567,14 +3721,14 @@ export default function EditorPage() {
         ? "warning"
         : "success";
   const spellcheckStatusLabel = isSpellcheckRequestInFlight
-    ? "У процесі"
+    ? editorCopy.status.inProgress
     : !hasSpellcheckRun
-      ? "Не запускалось"
+      ? editorCopy.status.notRun
       : spellcheckInvalidatedCount > 0
-        ? "Потрібна перевірка"
+        ? editorCopy.status.recheckNeeded
         : (spellcheckMeta?.issueCount ?? 0) > 0
-          ? "Є зауваги"
-          : "Чисто";
+          ? editorCopy.status.issuesFound
+          : editorCopy.status.clean;
   const activeStepCardStats = useMemo(
     () => (activeEditorialStepId ? getStepCardStats(reviewItems, activeEditorialStepId) : { actionable: 0, applied: 0, dismissed: 0 }),
     [activeEditorialStepId, reviewItems]
@@ -3586,9 +3740,8 @@ export default function EditorPage() {
     && activeWorkflowStep !== "emphasis";
   const usesPrototypeShell = true;
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
-  const feedbackPresentation = presentRequestFeedback(feedback);
-  const globalContextHelpText =
-    "Глобальний контекст — це ваші загальні вимоги до всіх наступних етапів (тон, стиль, пріоритети). Він не змінює текст напряму, а впливає на те, які рекомендації пропонує ШІ.";
+  const feedbackPresentation = presentRequestFeedback(feedback, locale);
+  const globalContextHelpText = editorCopy.globalContextHelp;
   const activeStepHasExistingResult =
     activeWorkflowStep === "diagnostics"
       ? Boolean(reviewExpertise)
@@ -3615,7 +3768,8 @@ export default function EditorPage() {
     reviewExpertise,
     stepFeedback: activeStepFeedbackValue,
     isReviewRequestInFlight,
-    isSpellcheckRequestInFlight
+    isSpellcheckRequestInFlight,
+    disabledReasons: editorCopy.disabledReasons
   });
   const activeStepHasPrerequisite =
     activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" || activeWorkflowStep === "emphasis"
@@ -3623,20 +3777,20 @@ export default function EditorPage() {
       : Boolean(reviewExpertise);
   const activeStepHasSettings = activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "final_editing";
   const shouldShowFinalPromptInput = activeWorkflowStep === "final_editing";
-  const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult });
-  const activeStepRunButtonLabel = activeStepHasExistingResult ? "Перезапуск" : "Запустити";
-  const activeStepRunButtonLoadingLabel = activeStepHasExistingResult ? "Перезапускаємо…" : "Запускаємо…";
+  const activeStepPrimaryAction = getStepPrimaryAction(activeWorkflowStep, { hasExistingResult: activeStepHasExistingResult }, locale);
+  const activeStepRunButtonLabel = activeStepHasExistingResult ? editorCopy.status.rerun : editorCopy.status.run;
+  const activeStepRunButtonLoadingLabel = activeStepHasExistingResult ? editorCopy.status.rerunning : editorCopy.status.running;
   const activeStepWorkspaceStatus =
     activeWorkflowStep === "diagnostics"
       ? getStepWorkspaceStatus("diagnostics", {
           canRun: canRequestReview,
           isInFlight: isReviewRequestInFlight,
           hasExistingResult: Boolean(reviewExpertise),
-          activeMessage: "Аналізуємо рукопис і готуємо редакторський огляд.",
-          idleMessage: "Запустіть діагностику, щоб отримати редакторський огляд документа.",
-          waitingMessage: "Додайте текст рукопису, щоб запустити діагностику.",
-          successMessage: "Діагностику завершено"
-        })
+          activeMessage: editorCopy.stepWorkspace.diagnostics.active,
+          idleMessage: editorCopy.stepWorkspace.diagnostics.idle,
+          waitingMessage: editorCopy.stepWorkspace.diagnostics.waiting,
+          successMessage: editorCopy.stepWorkspace.diagnostics.success
+        }, locale)
       : activeWorkflowStep === "fact_check"
         ? getStepWorkspaceStatus("fact_check", {
             canRun: canRunDownstreamStep,
@@ -3644,25 +3798,25 @@ export default function EditorPage() {
             isInFlight: isReviewRequestInFlight,
             hasExistingResult: activeStepRunCount > 0 || factCheckRows.length > 0,
             zeroResult: activeStepRunCount > 0 && factCheckRows.length === 0 && activeStepItems.length === 0,
-            activeMessage: "Перевіряємо твердження, пояснення і джерела для цього документа.",
-            idleMessage: "Запустіть факт-чек, щоб перевірити твердження і джерела.",
-            waitingMessage: "Спочатку запустіть діагностику, щоб дати факт-чеку контекст рукопису.",
-            successMessage: "Таблиця факт-чеку готова",
-            zeroResultMessage: "Факт-чек завершився без окремих рядків для перевірки."
-          })
+            activeMessage: editorCopy.stepWorkspace.factCheck.active,
+            idleMessage: editorCopy.stepWorkspace.factCheck.idle,
+            waitingMessage: editorCopy.stepWorkspace.factCheck.waiting,
+            successMessage: editorCopy.stepWorkspace.factCheck.success,
+            zeroResultMessage: editorCopy.stepWorkspace.factCheck.zeroResult
+          }, locale)
       : activeWorkflowStep === "spellcheck"
           ? getStepWorkspaceStatus("spellcheck", {
               canRun: canRunSpellcheck,
               isInFlight: isSpellcheckRequestInFlight,
               hasExistingResult: hasSpellcheckRun,
               zeroResult: hasSpellcheckRun && (spellcheckMeta?.issueCount ?? 0) === 0 && spellcheckInvalidatedCount === 0,
-              activeMessage: "Аналізуємо правопис у всьому тексті.",
-              idleMessage: "Запустіть аналіз правопису для всього тексту.",
+              activeMessage: editorCopy.stepWorkspace.spellcheck.active,
+              idleMessage: editorCopy.stepWorkspace.spellcheck.idle,
               successMessage:
                 spellcheckSummary ??
-                "Аналіз правопису готовий. Можна переглядати проблемні абзаци та підказки.",
-              zeroResultMessage: "Помилки не знайдено."
-            })
+                editorCopy.stepWorkspace.spellcheck.successReady,
+              zeroResultMessage: editorCopy.stepWorkspace.spellcheck.successNoIssues
+            }, locale)
           : activeWorkflowStep === "emphasis"
             ? getStepWorkspaceStatus("emphasis", {
                 canRun: canRequestReview,
@@ -3670,24 +3824,24 @@ export default function EditorPage() {
                 isInFlight: isReviewRequestInFlight,
                 hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
                 zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
-                activeMessage: "Шукаємо доречні смислові акценти по всьому тексту.",
-                idleMessage: "Запустіть етап, щоб отримати inline-акценти без переписування тексту.",
-                waitingMessage: "Додайте текст рукопису, щоб запустити акценти.",
-                successMessage: "Акценти готові. Їх можна погоджувати або відхиляти прямо в рукописі.",
-                zeroResultMessage: "Етап завершено без нових акцентів."
-              })
+                activeMessage: editorCopy.stepWorkspace.emphasis.active,
+                idleMessage: editorCopy.stepWorkspace.emphasis.idle,
+                waitingMessage: editorCopy.stepWorkspace.emphasis.waiting,
+                successMessage: editorCopy.stepWorkspace.emphasis.success,
+                zeroResultMessage: editorCopy.stepWorkspace.emphasis.zeroResult
+              }, locale)
           : getStepWorkspaceStatus(activeWorkflowStep, {
               canRun: activeWorkflowStep === "final_editing" ? activeStepCanRun : canRunDownstreamStep,
               hasPrerequisite: Boolean(reviewExpertise),
               isInFlight: isReviewRequestInFlight,
               hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
               zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
-              activeMessage: activeWorkflowStep === "final_editing" ? "Готуємо картки за власним промптом." : "Готуємо рекомендації для поточного етапу.",
-              idleMessage: activeWorkflowStep === "final_editing" ? "Опишіть власний промпт, щоб отримати локальні картки до рукопису." : "Запустіть цей етап, щоб отримати рекомендації до рукопису.",
-              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? "Напишіть власний промпт для цього етапу." : "Спочатку запустіть діагностику, щоб дати наступним етапам контекст рукопису.",
-              successMessage: "Рекомендації готові. Можна переглядати та застосовувати картки.",
-              zeroResultMessage: "Етап завершено без нових карток."
-            });
+              activeMessage: activeWorkflowStep === "final_editing" ? editorCopy.stepWorkspace.finalEditing.active : editorCopy.stepWorkspace.recommendations.active,
+              idleMessage: activeWorkflowStep === "final_editing" ? editorCopy.stepWorkspace.finalEditing.idle : editorCopy.stepWorkspace.recommendations.idle,
+              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? editorCopy.stepWorkspace.finalEditing.waiting : editorCopy.stepWorkspace.recommendations.waiting,
+              successMessage: editorCopy.stepWorkspace.recommendations.success,
+              zeroResultMessage: editorCopy.stepWorkspace.recommendations.zeroResult
+            }, locale);
   const shouldShowPrototypeStatusStrip =
     activeWorkflowStep !== "spellcheck" &&
     activeWorkflowStep !== "diagnostics" &&
@@ -3697,7 +3851,7 @@ export default function EditorPage() {
     );
   const prototypeStatusMessage =
     isRecommendationStep
-      ? "Підготовлено рекомендації для поточного етапу"
+      ? editorCopy.reviewFeedback.recommendationsReady
       : activeStepWorkspaceStatus.message;
   const prototypeStatusCount =
     activeWorkflowStep === "diagnostics"
@@ -3751,24 +3905,24 @@ export default function EditorPage() {
       return (
         <div className="step-review-prototype-settings-grid">
           <div className="step-review-prototype-settings-field">
-            <label htmlFor="prototype-diagnostics-run-mode">Режим оновлення</label>
+            <label htmlFor="prototype-diagnostics-run-mode">{editorCopy.stepSettings.updateMode}</label>
             <select
               id="prototype-diagnostics-run-mode"
               className="step-review-prototype-input"
               value={stepRunModeByStep.diagnostics}
               onChange={(event) => updateStepRunMode("diagnostics", event.target.value as EditorialStepRunMode)}
             >
-              <option value="replace">Замінити попередній запуск</option>
-              <option value="preserve">Зберегти окремим запуском</option>
+              <option value="replace">{editorCopy.stepSettings.replacePrevious}</option>
+              <option value="preserve">{editorCopy.stepSettings.keepSeparate}</option>
             </select>
           </div>
           <div className="step-review-prototype-settings-field">
-            <label htmlFor="prototype-diagnostics-focus">Контекст для наступного запуску</label>
+            <label htmlFor="prototype-diagnostics-focus">{editorCopy.stepSettings.contextNextRun}</label>
             <textarea
               id="prototype-diagnostics-focus"
               className="step-review-prototype-input"
               rows={3}
-              placeholder="Наприклад: більше уваги до структури аргументації й логіки переходів."
+              placeholder={editorCopy.stepPlaceholders.diagnosticsFocus}
               value={reviewComposer.additionalInstructions}
               onChange={(event) =>
                 setReviewComposer((current) => ({ ...current, additionalInstructions: event.target.value }))
@@ -3783,24 +3937,24 @@ export default function EditorPage() {
       return (
         <div className="step-review-prototype-settings-grid">
           <div className="step-review-prototype-settings-field">
-            <label htmlFor="prototype-factcheck-run-mode">Режим оновлення</label>
+            <label htmlFor="prototype-factcheck-run-mode">{editorCopy.stepSettings.updateMode}</label>
             <select
               id="prototype-factcheck-run-mode"
               className="step-review-prototype-input"
               value={stepRunModeByStep.fact_check}
               onChange={(event) => updateStepRunMode("fact_check", event.target.value as EditorialStepRunMode)}
             >
-              <option value="replace">Замінити попередній запуск</option>
-              <option value="preserve">Зберегти окремим запуском</option>
+              <option value="replace">{editorCopy.stepSettings.replacePrevious}</option>
+              <option value="preserve">{editorCopy.stepSettings.keepSeparate}</option>
             </select>
           </div>
           <div className="step-review-prototype-settings-field">
-            <label htmlFor="prototype-factcheck-focus">Фокус для наступного запуску</label>
+            <label htmlFor="prototype-factcheck-focus">{editorCopy.stepSettings.focusNextRun}</label>
             <textarea
               id="prototype-factcheck-focus"
               className="step-review-prototype-input"
               rows={3}
-              placeholder="Наприклад: перевірити сумнівні твердження про біомаркери, гормони та клінічні рекомендації."
+              placeholder={editorCopy.stepPlaceholders.factCheckFocus}
               value={stepFeedback.fact_check}
               onChange={(event) => updateStepFeedbackValue("fact_check", event.target.value)}
             />
@@ -3812,7 +3966,7 @@ export default function EditorPage() {
     return (
       <div className="step-review-prototype-settings-grid">
         <div className="step-review-prototype-settings-field">
-          <label htmlFor="prototype-step-run-mode">Режим оновлення</label>
+          <label htmlFor="prototype-step-run-mode">{editorCopy.stepSettings.updateMode}</label>
           <select
             id="prototype-step-run-mode"
             className="step-review-prototype-input"
@@ -3823,22 +3977,22 @@ export default function EditorPage() {
               }
             }}
           >
-            <option value="replace">Замінити попередній запуск</option>
-            <option value="preserve">Зберегти окремим запуском</option>
+            <option value="replace">{editorCopy.stepSettings.replacePrevious}</option>
+            <option value="preserve">{editorCopy.stepSettings.keepSeparate}</option>
           </select>
         </div>
         <div className="step-review-prototype-settings-field">
-          <label htmlFor="prototype-step-focus">Фокус для наступного запуску</label>
+          <label htmlFor="prototype-step-focus">{editorCopy.stepSettings.focusNextRun}</label>
           <textarea
             id="prototype-step-focus"
             className="step-review-prototype-input"
             rows={3}
             placeholder={
               activeWorkflowStep === "emphasis"
-                ? "Наприклад: лише ключові тези, без декоративних виділень і без суцільного жирного."
+                ? editorCopy.stepPlaceholders.emphasisFocus
                 : activeWorkflowStep === "final_editing"
-                  ? "Наприклад: додай глибокі врізки, списки й візуали там, де вони допоможуть читачеві."
-                  : "Наприклад: менше дроблення на підзаголовки, більше уваги до ритму секцій."
+                  ? editorCopy.stepPlaceholders.customPromptFocus
+                  : editorCopy.stepPlaceholders.structureFocus
             }
             value={activeEditorialStepId ? stepFeedback[activeEditorialStepId] : ""}
             onChange={(event) => {
@@ -3858,14 +4012,14 @@ export default function EditorPage() {
     }
 
     return (
-      <section className="step-review-prototype-final-prompt" aria-label="Власний промпт">
+      <section className="step-review-prototype-final-prompt" aria-label={editorCopy.stepSettings.customPrompt}>
         <div className="step-review-prototype-settings-field">
-          <label htmlFor="prototype-final-prompt">Власний промпт</label>
+          <label htmlFor="prototype-final-prompt">{editorCopy.stepSettings.customPrompt}</label>
           <textarea
             id="prototype-final-prompt"
             className="step-review-prototype-input"
             rows={4}
-            placeholder="Наприклад: додай глибокі врізки, списки й візуали там, де вони допоможуть читачеві."
+            placeholder={editorCopy.stepPlaceholders.customPromptFocus}
             value={stepFeedback.final_editing}
             onChange={(event) => updateStepFeedbackValue("final_editing", event.target.value)}
             disabled={isReviewRequestInFlight}
@@ -3882,12 +4036,12 @@ export default function EditorPage() {
           {reviewExpertise ? (
             <div className="button-row">
               <Button variant="secondary" size="sm" onClick={() => selectWorkflowStep("fact_check")}>
-                До факт-чеку
+                {fc.goToFactCheck}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                title="Скинути результат діагностики і таблицю факт-чеку для повторного старту"
+                title={editorCopy.factCheck.resetHelp}
                 onClick={() => {
                   setReviewExpertise(null);
                   setFactCheckRows([]);
@@ -3915,7 +4069,7 @@ export default function EditorPage() {
                   }));
                 }}
               >
-                Скинути
+                {fc.reset}
               </Button>
             </div>
           ) : null}
@@ -3958,7 +4112,7 @@ export default function EditorPage() {
               </div>
             ) : (
               <p className="step-review-empty-copy">
-                Запустіть діагностику, щоб отримати детальний огляд.
+                {fc.runDiagnosticsHint}
               </p>
             )}
           </div>
@@ -3973,9 +4127,9 @@ export default function EditorPage() {
             <table className="step-review-fact-table">
               <thead>
                 <tr>
-                  <th>Твердження</th>
-                  <th>Статус</th>
-                  <th>Пояснення та джерела</th>
+                  <th>{fc.claim}</th>
+                  <th>{fc.status}</th>
+                  <th>{fc.explanation}</th>
                 </tr>
               </thead>
               <tbody>
@@ -4006,7 +4160,7 @@ export default function EditorPage() {
                             ))}
                           </div>
                         ) : (
-                          <span className="step-review-fact-source-empty">Немає надійного джерела</span>
+                          <span className="step-review-fact-source-empty">{fc.noReliableSource}</span>
                         )}
                       </div>
                     </td>
@@ -4020,19 +4174,19 @@ export default function EditorPage() {
             <>
               <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
                 <div className="step-review-prototype-utility-meta">
-                  <span>{activeStepCardStats.actionable} активних</span>
-                  <span>{activeStepCardStats.applied} погоджено</span>
-                  <span>{activeStepCardStats.dismissed} відхилено</span>
+                  <span>{cs.active(activeStepCardStats.actionable)}</span>
+                  <span>{cs.accepted(activeStepCardStats.applied)}</span>
+                  <span>{cs.dismissed(activeStepCardStats.dismissed)}</span>
                 </div>
                 <button
                   type="button"
                   className="step-review-prototype-utility-toggle"
                   onClick={() => setShowCompletedCards((current) => !current)}
                 >
-                  {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                  {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
                 </button>
               </div>
-              <section className="step-review-prototype-suggestions-list" aria-label="Картки за факт-чеком">
+              <section className="step-review-prototype-suggestions-list" aria-label={editorCopy.factCheck.factCheckCards}>
                 {activeStepItems.map((item) => {
                   const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
                   return (
@@ -4056,7 +4210,7 @@ export default function EditorPage() {
 
           {factCheckRows.length === 0 ? (
             <p className="step-review-empty-copy">
-              Тут з’являться лише твердження, які варто поставити під сумнів або перевірити за джерелами.
+              {fc.factCheckCardsEmpty}
             </p>
           ) : null}
         </div>
@@ -4069,9 +4223,9 @@ export default function EditorPage() {
           {hasSpellcheckRun ? (
             <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
               <div className="step-review-prototype-utility-meta">
-                <span>{spellcheckMeta?.issueCount ?? 0} проблем</span>
-                <span>{spellcheckProblemParagraphCount} абз. з помилками</span>
-                <span>{spellcheckInvalidatedCount} змінено після перевірки</span>
+                <span>{ss.issues(spellcheckMeta?.issueCount ?? 0)}</span>
+                <span>{ss.parasWithErrors(spellcheckProblemParagraphCount)}</span>
+                <span>{ss.changedAfterCheck(spellcheckInvalidatedCount)}</span>
               </div>
               <button
                 type="button"
@@ -4079,7 +4233,7 @@ export default function EditorPage() {
                 onClick={clearSpellcheckResults}
                 disabled={isSpellcheckRequestInFlight || (!spellcheckSummary && spellcheckResults.length === 0)}
               >
-                Очистити
+                {sc.clear}
               </button>
             </div>
           ) : null}
@@ -4098,7 +4252,7 @@ export default function EditorPage() {
                     role="button"
                     tabIndex={0}
                     aria-expanded={isExpanded}
-                    aria-label={`Правопис: абз. ${result.paragraphLabel}`}
+                    aria-label={ss.spellingParagraph(result.paragraphLabel)}
                     onClick={(event) => {
                       if ((event.target as HTMLElement).closest("button")) {
                         return;
@@ -4122,9 +4276,9 @@ export default function EditorPage() {
                   >
                     <div className="step-review-prototype-spellcheck-card-head">
                       <div className="step-review-prototype-spellcheck-card-copy">
-                        <h3 className="step-review-prototype-spellcheck-card-title">{getSpellcheckIssueHeadline(result)}</h3>
+                        <h3 className="step-review-prototype-spellcheck-card-title">{getSpellcheckIssueHeadline(result, locale)}</h3>
                         <div className="step-review-prototype-spellcheck-card-meta">
-                          <span className="step-review-prototype-spellcheck-card-paragraph-label">Абз. {result.paragraphLabel}</span>
+                          <span className="step-review-prototype-spellcheck-card-paragraph-label">{ss.paragraph(result.paragraphLabel)}</span>
                         </div>
                       </div>
                       <button
@@ -4137,7 +4291,7 @@ export default function EditorPage() {
                           event.stopPropagation();
                           setExpandedSpellcheckBlockId((current) => (current === result.blockId ? null : result.blockId));
                         }}
-                        aria-label={isExpanded ? "Згорнути деталі" : "Показати деталі"}
+                        aria-label={isExpanded ? editorCopy.spellcheckUi.collapseDetails : editorCopy.spellcheckUi.showDetails}
                       >
                         {isExpanded ? (
                           <ChevronUp aria-hidden="true" width={16} height={16} />
@@ -4157,7 +4311,7 @@ export default function EditorPage() {
                                 <div className="step-review-prototype-spellcheck-issue-head">
                                   <span className="step-review-prototype-spellcheck-issue-meta">{getSpellcheckCategoryLabel(issue.category)}</span>
                                 </div>
-                                {shouldShowSpellcheckMessage(issue.message) ? (
+                                {shouldShowSpellcheckMessage(issue.message, locale) ? (
                                   <p className="err-compact-description step-review-prototype-spellcheck-issue-copy">{issue.message}</p>
                                 ) : null}
                                 {issue.suggestions.length > 0 ? (
@@ -4195,7 +4349,7 @@ export default function EditorPage() {
                                         });
                                       }}
                                     >
-                                      Видалити
+                                      {sc.delete}
                                     </button>
                                   ) : null}
                                   <button
@@ -4206,7 +4360,7 @@ export default function EditorPage() {
                                       void addSpellcheckWordToDictionary({ blockId: result.blockId, issueId: issue.id, word: issue.badText });
                                     }}
                                   >
-                                    Додати у словник
+                                    {sc.addToDictionary}
                                   </button>
                                   <button
                                     type="button"
@@ -4216,7 +4370,7 @@ export default function EditorPage() {
                                       dismissSpellcheckIssue({ blockId: result.blockId, issueId: issue.id });
                                     }}
                                   >
-                                    Залишити як є
+                                    {sc.leaveAsIs}
                                   </button>
                                 </div>
                               </div>
@@ -4230,9 +4384,9 @@ export default function EditorPage() {
               })}
             </div>
           ) : spellcheckSummary && !isSpellcheckRequestInFlight ? (
-            <p className="step-review-empty-copy">Помилки не знайдено.</p>
+            <p className="step-review-empty-copy">{editorCopy.stepWorkspace.spellcheck.successNoIssues}</p>
           ) : !isSpellcheckRequestInFlight ? (
-            <p className="step-review-empty-copy">Запустіть аналіз правопису для всього тексту.</p>
+            <p className="step-review-empty-copy">{editorCopy.stepWorkspace.spellcheck.idle}</p>
           ) : null}
         </div>
       );
@@ -4244,7 +4398,7 @@ export default function EditorPage() {
           {emphasisStepItems.length > 0 ? (
             <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
               <div className="step-review-prototype-utility-meta">
-                <span>{showCompletedCards ? `${emphasisStepItems.length} акцентів` : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}</span>
+                <span>{showCompletedCards ? es.count(emphasisStepItems.length) : es.remaining(visibleEmphasisStepItems.length)}</span>
               </div>
               <div className="step-review-prototype-utility-actions">
                 {actionableEmphasisSuggestionCount > 0 ? (
@@ -4253,7 +4407,7 @@ export default function EditorPage() {
                     className="step-review-prototype-utility-toggle"
                     onClick={applyAllEmphasisSuggestions}
                   >
-                    Прийняти всі
+                    {sc.acceptAll}
                   </button>
                 ) : null}
                 <button
@@ -4261,19 +4415,19 @@ export default function EditorPage() {
                   className="step-review-prototype-utility-toggle"
                   onClick={() => setShowCompletedCards((current) => !current)}
                 >
-                  {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                  {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
                 </button>
               </div>
             </div>
           ) : null}
 
           {visibleEmphasisStepItems.length > 0 ? (
-            <section className="step-review-prototype-suggestions-list" aria-label="Список акцентів">
+            <section className="step-review-prototype-suggestions-list" aria-label={editorCopy.spellcheckUi.emphasisList}>
               {visibleEmphasisStepItems.map((item) => {
                 const suggestion = emphasisSuggestionByItemId.get(item.id);
                 const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
                 const rangeLabel = suggestion?.paragraphLabel
-                  ? `Абз. ${suggestion.paragraphLabel}`
+                  ? ss.paragraph(suggestion.paragraphLabel)
                   : getReviewParagraphRangeLabel(item, revision);
 
                 return (
@@ -4297,9 +4451,9 @@ export default function EditorPage() {
               })}
             </section>
           ) : activeStepRunCount > 0 && !isReviewRequestInFlight ? (
-            <p className="step-review-empty-copy">Доречних акцентів не знайдено.</p>
+            <p className="step-review-empty-copy">{sc.noEmphasis}</p>
           ) : !isReviewRequestInFlight ? (
-            <p className="step-review-empty-copy">Запустіть етап, щоб побачити inline-акценти в рукописі.</p>
+            <p className="step-review-empty-copy">{sc.runEmphasisHint}</p>
           ) : null}
         </div>
       );
@@ -4315,24 +4469,24 @@ export default function EditorPage() {
         <div className="step-review-prototype-content step-review-prototype-content-structure">
           <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
             <div className="step-review-prototype-utility-meta">
-              <span>{activeStepCardStats.actionable} активних</span>
-              <span>{activeStepCardStats.applied} погоджено</span>
-              <span>{activeStepCardStats.dismissed} відхилено</span>
+              <span>{cs.active(activeStepCardStats.actionable)}</span>
+              <span>{cs.accepted(activeStepCardStats.applied)}</span>
+              <span>{cs.dismissed(activeStepCardStats.dismissed)}</span>
             </div>
             <button
               type="button"
               className="step-review-prototype-utility-toggle"
               onClick={() => setShowCompletedCards((current) => !current)}
             >
-              {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+              {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
             </button>
           </div>
 
-          <section className="step-review-structure-outline" aria-label="План розділу">
+          <section className="step-review-structure-outline" aria-label={editorCopy.structure.sectionOutline}>
             <div className="step-review-structure-outline-head">
               <div>
-                <h3>План розділу</h3>
-                <p>{visibleStructureActionCount > 0 ? `${visibleStructureActionCount} дій у структурі` : "Поточна карта рукопису"}</p>
+                <h3>{st.sectionOutline}</h3>
+                <p>{visibleStructureActionCount > 0 ? editorCopy.structureOutline.actionsInStructure(visibleStructureActionCount) : editorCopy.structureOutline.currentManuscriptMap}</p>
               </div>
               <LayoutGrid aria-hidden="true" width={18} height={18} />
             </div>
@@ -4386,7 +4540,7 @@ export default function EditorPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="step-review-structure-node-empty">Без структурних дій.</p>
+                      <p className="step-review-structure-node-empty">{st.noStructureActions}</p>
                     )}
                   </article>
                 );
@@ -4394,9 +4548,9 @@ export default function EditorPage() {
             </div>
           </section>
 
-          <section className="step-review-structure-cards" aria-label="Картки дій">
+          <section className="step-review-structure-cards" aria-label={editorCopy.cards.actionCards}>
             <div className="step-review-structure-section-head">
-              <h3>Картки дій</h3>
+              <h3>{cd.actionCards}</h3>
             </div>
             <div className="step-review-prototype-suggestions-list step-review-structure-card-list">
               {activeStepItems.map((item) => {
@@ -4419,8 +4573,8 @@ export default function EditorPage() {
               {visibleActiveStepItems.length === 0 ? (
                 <p className="step-review-empty-copy step-review-prototype-empty-copy">
                   {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                    ? "Усі структурні картки вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                    : "Для структури ще немає карток."}
+                    ? editorCopy.structureOutline.allStructureCardsDone
+                    : editorCopy.cards.noStructureCards}
                 </p>
               ) : null}
             </div>
@@ -4433,20 +4587,20 @@ export default function EditorPage() {
       <>
         <div className="step-review-prototype-meta-line">
           <div className="step-review-prototype-utility-meta">
-            <span>{activeStepCardStats.actionable} активних</span>
-            <span>{activeStepCardStats.applied} погоджено</span>
-            <span>{activeStepCardStats.dismissed} відхилено</span>
+            <span>{cs.active(activeStepCardStats.actionable)}</span>
+            <span>{cs.accepted(activeStepCardStats.applied)}</span>
+            <span>{cs.dismissed(activeStepCardStats.dismissed)}</span>
           </div>
           <button
             type="button"
             className="step-review-prototype-utility-toggle"
             onClick={() => setShowCompletedCards((current) => !current)}
           >
-            {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+            {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
           </button>
         </div>
 
-        <section className="step-review-prototype-suggestions-list" aria-label="Список рекомендацій">
+        <section className="step-review-prototype-suggestions-list" aria-label={editorCopy.cards.recommendationsList}>
           {activeStepItems.map((item) => {
             const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
             return (
@@ -4467,8 +4621,8 @@ export default function EditorPage() {
           {visibleActiveStepItems.length === 0 ? (
             <p className="step-review-empty-copy step-review-prototype-empty-copy">
               {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                ? "Усі картки для цього етапу вже завершено. Увімкніть показ завершених, щоб переглянути їх."
-                : "Для цього етапу ще немає карток."}
+                ? editorCopy.structureOutline.allStepCardsDone
+                : editorCopy.cards.noStepCards}
             </p>
           ) : null}
         </section>
@@ -4504,17 +4658,17 @@ export default function EditorPage() {
         <div className="editor-toast-stack" aria-live="polite">
           <div className="editor-toast editor-toast-success" role="status">
             <div className="editor-toast-copy">
-              <span className="editor-toast-label">Готово</span>
+              <span className="editor-toast-label">{editorCopy.toast.done}</span>
               <p className="editor-toast-message">{destructiveRecoveryState.message}</p>
             </div>
             <div className="editor-toast-actions">
               <Button variant="ghost" size="sm" onClick={undoDestructiveAction}>
-                Повернути
+                {editorCopy.toast.undo}
               </Button>
               <button
                 type="button"
                 className="editor-toast-dismiss"
-                aria-label="Сховати повідомлення"
+                aria-label={editorCopy.stepActions.dismissMessage}
                 onClick={() => setDestructiveRecoveryState(null)}
               >
                 <X size={14} aria-hidden="true" />
@@ -4529,14 +4683,14 @@ export default function EditorPage() {
             <div className="editor-page-actions">
               <div className="editor-page-actions-group">
                 <EditorActionMenu
-                  label="Відкрити"
+                  label={editorCopy.toolbar.open}
                   icon={FolderOpen}
                   open={activeTopActionMenu === "open"}
                   busy={isImportInFlight}
                   onToggle={() => setActiveTopActionMenu((current) => (current === "open" ? null : "open"))}
                   items={[
-                    { label: "Файл", icon: Upload, onClick: handleImportFileClick },
-                    { label: "З буфера обміну", icon: Clipboard, onClick: () => void handleImportFromClipboard() }
+                    { label: editorCopy.toolbar.file, icon: Upload, onClick: handleImportFileClick },
+                    { label: editorCopy.toolbar.fromClipboard, icon: Clipboard, onClick: () => void handleImportFromClipboard() }
                   ]}
                 />
                 <input
@@ -4550,7 +4704,7 @@ export default function EditorPage() {
 
               <div className="editor-page-actions-group editor-page-actions-group-end">
                 <EditorActionMenu
-                  label="Зберегти"
+                  label={editorCopy.toolbar.save}
                   icon={Download}
                   open={activeTopActionMenu === "save"}
                   busy={isDocxExportInFlight}
@@ -4568,7 +4722,7 @@ export default function EditorPage() {
                 >
                   <span className="button-content">
                     <Trash2 size={14} aria-hidden="true" />
-                    <span>Очистити</span>
+                    <span>{editorCopy.toolbar.clear}</span>
                   </span>
                 </Button>
               </div>
@@ -4582,7 +4736,7 @@ export default function EditorPage() {
                 </div>
                 <div className="editor-danger-panel-actions">
                   <Button variant="ghost" size="sm" onClick={() => setPendingDestructiveAction(null)}>
-                    Скасувати
+                    {editorCopy.toolbar.cancel}
                   </Button>
                   <Button variant="danger" size="sm" onClick={confirmDestructiveAction}>
                     {pendingDestructiveAction.confirmLabel}
@@ -4748,10 +4902,10 @@ export default function EditorPage() {
                         className="step-review-prototype-accept-all-button"
                         onClick={applyAllEmphasisSuggestions}
                         disabled={isReviewRequestInFlight}
-                        aria-label="Прийняти всі акценти"
+                        aria-label={editorCopy.stepActions.acceptAllEmphasis}
                       >
                         <span className="button-content">
-                          <span>Прийняти всі</span>
+                          <span>{editorCopy.stepActions.acceptAllEmphasis}</span>
                         </span>
                       </Button>
                     ) : null}
@@ -4764,7 +4918,7 @@ export default function EditorPage() {
                       loadingLabel={activeStepRunButtonLoadingLabel}
                       disabled={!activeStepCanRun}
                       disabledReason={activeStepRunDisabledReason}
-                      aria-label={activeStepHasExistingResult ? "Перезапустити етап" : "Запустити етап"}
+                      aria-label={activeStepHasExistingResult ? editorCopy.stepActions.rerunStep : editorCopy.stepActions.runStep}
                     >
                       <span className="button-content">
                         <span>{activeStepRunButtonLabel}</span>
@@ -4786,7 +4940,7 @@ export default function EditorPage() {
                           className="step-review-prototype-settings-button"
                           aria-expanded={stepSettingsOpen}
                           aria-controls="step-review-prototype-settings"
-                          aria-label="Налаштування етапу"
+                          aria-label={editorCopy.stepActions.stepSettings}
                           onClick={() => setStepSettingsOpen((current) => !current)}
                         >
                           <SlidersHorizontal className="step-review-prototype-settings-icon" aria-hidden="true" />
@@ -4855,9 +5009,9 @@ export default function EditorPage() {
 
             {dismissUndoState ? (
               <div className="step-review-undo-toast" role="status" aria-live="polite">
-                <span>Рекомендацію відхилено.</span>
+                <span>{cd.dismissedMessage}</span>
                 <Button size="sm" variant="ghost" onClick={undoDismissReviewItem}>
-                  Повернути
+                  {cd.dismissedUndo}
                 </Button>
               </div>
             ) : null}
@@ -4881,8 +5035,8 @@ export default function EditorPage() {
                             className="step-review-spellcheck-clear"
                             onClick={clearSpellcheckResults}
                             disabled={isSpellcheckRequestInFlight || (!spellcheckSummary && spellcheckResults.length === 0)}
-                            aria-label="Очистити аналіз правопису"
-                            title="Очистити аналіз правопису"
+                            aria-label={editorCopy.stepActions.clearSpellcheckAnalysis}
+                            title={editorCopy.stepActions.clearSpellcheckAnalysis}
                           >
                             <Trash2 size={14} aria-hidden="true" />
                           </button>
@@ -4894,15 +5048,15 @@ export default function EditorPage() {
                       <div className="step-review-spellcheck-metrics">
                         <div className="step-review-spellcheck-metric">
                           <span className="step-review-spellcheck-metric-value">{spellcheckMeta?.issueCount ?? 0}</span>
-                          <span className="step-review-spellcheck-metric-label">проблем</span>
+                          <span className="step-review-spellcheck-metric-label">{ss.issuesLabel}</span>
                         </div>
                         <div className="step-review-spellcheck-metric">
                           <span className="step-review-spellcheck-metric-value">{spellcheckProblemParagraphCount}</span>
-                          <span className="step-review-spellcheck-metric-label">абз. з помилками</span>
+                          <span className="step-review-spellcheck-metric-label">{ss.parasWithErrorsLabel}</span>
                         </div>
                         <div className="step-review-spellcheck-metric">
                           <span className="step-review-spellcheck-metric-value">{spellcheckInvalidatedCount}</span>
-                          <span className="step-review-spellcheck-metric-label">змінено після перевірки</span>
+                          <span className="step-review-spellcheck-metric-label">{ss.changedAfterCheckLabel}</span>
                         </div>
                       </div>
                     ) : null}
@@ -4918,16 +5072,16 @@ export default function EditorPage() {
                             <div className="step-review-spellcheck-card-head">
                               <div className="step-review-spellcheck-card-head-main">
                                 <div className="step-review-spellcheck-card-copy">
-                                  <h3 className="step-review-spellcheck-card-title">{getSpellcheckIssueHeadline(result)}</h3>
-                                  <p className="step-review-spellcheck-card-meta">Абз. {result.paragraphLabel}</p>
+                                  <h3 className="step-review-spellcheck-card-title">{getSpellcheckIssueHeadline(result, locale)}</h3>
+                                  <p className="step-review-spellcheck-card-meta">{ss.paragraph(result.paragraphLabel)}</p>
                                 </div>
                                 <span className="step-review-spellcheck-badge">{result.error ? "!" : result.issues.length}</span>
                               </div>
                               <button
                                 type="button"
                                 className="step-review-spellcheck-focus"
-                                aria-label={`Перейти до абзацу ${result.paragraphLabel}`}
-                                title={`Перейти до абзацу ${result.paragraphLabel}`}
+                                aria-label={editorCopy.reviewCard.goToLabel(ss.paragraph(result.paragraphLabel))}
+                                title={editorCopy.reviewCard.goToLabel(ss.paragraph(result.paragraphLabel))}
                                 onClick={() => focusBlockById(result.blockId, { select: false })}
                               >
                                 <LocateFixed size={14} aria-hidden="true" />
@@ -4944,7 +5098,7 @@ export default function EditorPage() {
                                         {getSpellcheckCategoryLabel(issue.category)}
                                       </span>
                                     </div>
-                                    {shouldShowSpellcheckMessage(issue.message) ? (
+                                    {shouldShowSpellcheckMessage(issue.message, locale) ? (
                                       <p className="step-review-status-copy step-review-spellcheck-issue-copy">{issue.message}</p>
                                     ) : null}
                                     {issue.suggestions.length > 0 ? (
@@ -4979,7 +5133,7 @@ export default function EditorPage() {
                                               });
                                             }}
                                           >
-                                            Видалити
+                                            {sc.delete}
                                           </button>
                                         ) : null}
                                       </div>
@@ -4997,7 +5151,7 @@ export default function EditorPage() {
                                             });
                                           }}
                                         >
-                                          Видалити
+                                          {sc.delete}
                                         </button>
                                       </div>
                                     ) : null}
@@ -5010,11 +5164,11 @@ export default function EditorPage() {
                       </div>
                     ) : spellcheckSummary && !isSpellcheckRequestInFlight ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
-                        <p className="step-review-empty-copy">Помилки не знайдено.</p>
+                        <p className="step-review-empty-copy">{editorCopy.stepWorkspace.spellcheck.successNoIssues}</p>
                       </div>
                     ) : !isSpellcheckRequestInFlight ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
-                        <p className="step-review-empty-copy">Запустіть аналіз правопису для всього тексту.</p>
+                        <p className="step-review-empty-copy">{editorCopy.stepWorkspace.spellcheck.idle}</p>
                       </div>
                     ) : null}
                   </section>
@@ -5027,10 +5181,10 @@ export default function EditorPage() {
                     <div className="step-review-subsection-head">
                       {emphasisStepItems.length > 0 ? (
                         <div className="step-review-subsection-meta">
-                          <p className="step-review-cards-counter" aria-label="Лічильник акцентів">
+                          <p className="step-review-cards-counter" aria-label={editorCopy.stepActions.emphasisCounter}>
                             {showCompletedCards
-                              ? `${emphasisStepItems.length} акцентів`
-                              : `Залишилось ${visibleEmphasisStepItems.length} акцентів`}
+                              ? es.count(emphasisStepItems.length)
+                              : es.remaining(visibleEmphasisStepItems.length)}
                           </p>
                           <div className="step-review-prototype-utility-actions">
                             {actionableEmphasisSuggestionCount > 0 ? (
@@ -5040,7 +5194,7 @@ export default function EditorPage() {
                                 data-active="true"
                                 onClick={applyAllEmphasisSuggestions}
                               >
-                                Прийняти всі
+                                {sc.acceptAll}
                               </button>
                             ) : null}
                             <button
@@ -5049,7 +5203,7 @@ export default function EditorPage() {
                               data-active={showCompletedCards ? "true" : "false"}
                               onClick={() => setShowCompletedCards((current) => !current)}
                             >
-                              {showCompletedCards ? "Сховати завершені" : "Показати завершені"}
+                              {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
                             </button>
                           </div>
                         </div>
@@ -5062,7 +5216,7 @@ export default function EditorPage() {
                           const suggestion = emphasisSuggestionByItemId.get(item.id);
                           const phrase = getEmphasisCardPhrase(item, suggestion?.phrase);
                           const rangeLabel = suggestion?.paragraphLabel
-                            ? `Абз. ${suggestion.paragraphLabel}`
+                            ? ss.paragraph(suggestion.paragraphLabel)
                             : getReviewParagraphRangeLabel(item, revision);
 
                           return (
@@ -5087,11 +5241,11 @@ export default function EditorPage() {
                       </div>
                     ) : activeStepRunCount > 0 && !isReviewRequestInFlight ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
-                        <p className="step-review-empty-copy">Доречних акцентів не знайдено.</p>
+                        <p className="step-review-empty-copy">{sc.noEmphasis}</p>
                       </div>
                     ) : !isReviewRequestInFlight ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
-                        <p className="step-review-empty-copy">Запустіть етап, щоб побачити inline-акценти в рукописі.</p>
+                        <p className="step-review-empty-copy">{sc.runEmphasisHint}</p>
                       </div>
                     ) : null}
                   </section>
@@ -5117,17 +5271,17 @@ export default function EditorPage() {
             }
           }}
         >
-          <section className="global-replace-dialog" role="dialog" aria-modal="true" aria-label="Глобальна заміна">
+          <section className="global-replace-dialog" role="dialog" aria-modal="true" aria-label={editorCopy.globalReplace.title}>
             <header className="global-replace-head">
               <div className="global-replace-head-copy">
                 <p className="global-replace-kicker mono-ui">Ctrl/Cmd+H</p>
-                <h3 className="global-replace-title">Глобальна заміна</h3>
+                <h3 className="global-replace-title">{editorCopy.globalReplace.title}</h3>
               </div>
               <button
                 type="button"
                 className="draft-reset-dialog-close"
                 onClick={closeGlobalReplace}
-                aria-label="Закрити глобальну заміну"
+                aria-label={editorCopy.globalReplace.close}
               >
                 <X className="draft-reset-dialog-close-icon" aria-hidden="true" />
               </button>
@@ -5140,7 +5294,7 @@ export default function EditorPage() {
               }}
             >
               <label className="global-replace-field">
-                <span className="mono-ui global-replace-label">Знайти</span>
+                <span className="mono-ui global-replace-label">{editorCopy.globalReplace.find}</span>
                 <input
                   ref={globalReplaceSearchInputRef}
                   className="global-replace-input"
@@ -5150,7 +5304,7 @@ export default function EditorPage() {
                 />
               </label>
               <label className="global-replace-field">
-                <span className="mono-ui global-replace-label">Замінити на</span>
+                <span className="mono-ui global-replace-label">{editorCopy.globalReplace.replaceWith}</span>
                 <input
                   className="global-replace-input"
                   value={globalReplaceReplacement}
@@ -5161,11 +5315,11 @@ export default function EditorPage() {
               <div className="global-replace-foot">
                 <p className="global-replace-meta mono-ui">
                   <Replace aria-hidden="true" />
-                  <span>Збігів: {globalReplaceMatchCount}</span>
+                  <span>{editorCopy.globalReplace.matchCount(globalReplaceMatchCount)}</span>
                 </p>
                 <div className="global-replace-actions">
                   <Button type="button" variant="ghost" size="sm" onClick={closeGlobalReplace}>
-                    Скасувати
+                    {editorCopy.toolbar.cancel}
                   </Button>
                   <Button
                     type="submit"
@@ -5173,7 +5327,7 @@ export default function EditorPage() {
                     size="sm"
                     disabled={!globalReplaceSearch || globalReplaceMatchCount === 0}
                   >
-                    Замінити всюди
+                    {editorCopy.globalReplace.replaceAll}
                   </Button>
                 </div>
               </div>
@@ -5191,11 +5345,11 @@ export default function EditorPage() {
             }
           }}
         >
-          <section className="change-compare-dialog" role="dialog" aria-modal="true" aria-label="Порівняння правки">
+          <section className="change-compare-dialog" role="dialog" aria-modal="true" aria-label={editorCopy.compare.title}>
             <header className="change-compare-head">
               <div className="change-compare-head-copy">
-                <p className="change-compare-kicker mono-ui">Порівняння правки</p>
-                <h3 className="change-compare-title">Було / Стало</h3>
+                <p className="change-compare-kicker mono-ui">{editorCopy.compare.title}</p>
+                <h3 className="change-compare-title">{editorCopy.compare.before} / {editorCopy.compare.after}</h3>
               </div>
               <button
                 type="button"
@@ -5204,12 +5358,12 @@ export default function EditorPage() {
                   setActiveCompareEntryId(null);
                   setExpandedCompareEntryId(null);
                 }}
-                aria-label="Закрити порівняння"
+                aria-label={editorCopy.compare.close}
               >
                 <X className="draft-reset-dialog-close-icon" aria-hidden="true" />
               </button>
             </header>
-            <div className="change-compare-accordion" role="list" aria-label="Історія правок">
+            <div className="change-compare-accordion" role="list" aria-label={editorCopy.compare.historyTitle}>
               {compareHistory.map((entry) => {
                 const isExpanded = entry.id === expandedCompareEntryId;
 
@@ -5235,7 +5389,7 @@ export default function EditorPage() {
                       }}
                     >
                       <span className="change-compare-item-copy">
-                        <span className="mono-ui change-compare-item-kicker">Правка</span>
+                        <span className="mono-ui change-compare-item-kicker">{editorCopy.compare.edit}</span>
                         <span className="change-compare-item-title">{entry.label}</span>
                       </span>
                       <ChevronDown className="change-compare-item-chevron" aria-hidden="true" />
@@ -5244,21 +5398,21 @@ export default function EditorPage() {
                     {isExpanded ? (
                       <div className="change-compare-item-body">
                         <div className="change-compare-item-summary">
-                          <p className="mono-ui change-compare-item-summary-label">Що зроблено</p>
+                          <p className="mono-ui change-compare-item-summary-label">{editorCopy.compare.whatChanged}</p>
                           <p className="change-compare-item-summary-copy">{entry.label}</p>
                         </div>
                         <div className="change-compare-grid">
                           <section className="change-compare-panel">
                             <div className="change-compare-panel-title-row">
-                              <p className="mono-ui change-compare-panel-title">Було</p>
+                              <p className="mono-ui change-compare-panel-title">{editorCopy.compare.before}</p>
                               <button
                                 type="button"
                                 className="change-compare-panel-anchor mono-ui"
                                 onClick={() => handleCompareParagraphFocus(entry)}
-                                title={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
-                                aria-label={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                                title={editorCopy.reviewCard.goToLabel(getCompareEntryParagraphRangeLabel(entry, revision, locale))}
+                                aria-label={editorCopy.reviewCard.goToLabel(getCompareEntryParagraphRangeLabel(entry, revision, locale))}
                               >
-                                {getCompareEntryParagraphRangeLabel(entry, revision)}
+                                {getCompareEntryParagraphRangeLabel(entry, revision, locale)}
                               </button>
                             </div>
                             <div className="change-compare-text change-compare-block-stack">
@@ -5271,15 +5425,15 @@ export default function EditorPage() {
                           </section>
                           <section className="change-compare-panel">
                             <div className="change-compare-panel-title-row">
-                              <p className="mono-ui change-compare-panel-title">Стало</p>
+                              <p className="mono-ui change-compare-panel-title">{editorCopy.compare.after}</p>
                               <button
                                 type="button"
                                 className="change-compare-panel-anchor mono-ui"
                                 onClick={() => handleCompareParagraphFocus(entry)}
-                                title={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
-                                aria-label={`Перейти до ${getCompareEntryParagraphRangeLabel(entry, revision)}`}
+                                title={editorCopy.reviewCard.goToLabel(getCompareEntryParagraphRangeLabel(entry, revision, locale))}
+                                aria-label={editorCopy.reviewCard.goToLabel(getCompareEntryParagraphRangeLabel(entry, revision, locale))}
                               >
-                                {getCompareEntryParagraphRangeLabel(entry, revision)}
+                                {getCompareEntryParagraphRangeLabel(entry, revision, locale)}
                               </button>
                             </div>
                             {activeCompareEntry?.id === entry.id && canEditActiveCompare ? (
@@ -5299,7 +5453,7 @@ export default function EditorPage() {
                                       }}
                                       onChange={(event) => handleCompareDraftChange(index, event.target.value)}
                                       onInput={(event) => autosizeCompareTextarea(event.currentTarget)}
-                                      aria-label={`Абзац ${index + 1} після правки`}
+                                      aria-label={editorCopy.reviewCard.paragraphAfterEdit(index + 1)}
                                     />
                                   </label>
                                 ))}
@@ -5443,18 +5597,19 @@ function autosizeCompareTextarea(textarea: HTMLTextAreaElement) {
   textarea.style.height = `${Math.max(textarea.scrollHeight, 56)}px`;
 }
 
-function getCompareEntryKindLabel(kind: EditorMutationKind): string {
+function getCompareEntryKindLabel(kind: EditorMutationKind, locale: import("../../lib/i18n/product-locale").AppLocale): string {
+  const labels = getEditorMessages(locale).compareKinds;
   switch (kind) {
     case "manual_edit":
-      return "Ручне";
+      return labels.manual;
     case "spellcheck_apply":
-      return "Правопис";
+      return labels.spellcheck;
     case "ai_apply":
-      return "ШІ";
+      return labels.ai;
     case "insert_block":
-      return "Вставка";
+      return labels.insert;
     default:
-      return "Правка";
+      return labels.edit;
   }
 }
 
@@ -5462,43 +5617,57 @@ function formatCompareEntryBlockCount(entry: CompareHistoryEntry): number {
   return Math.max(entry.blockIds.length, entry.beforeBlocks.length, entry.afterBlocks.length, 1);
 }
 
-function getCompareEntryParagraphRangeLabel(entry: CompareHistoryEntry, revision: ManuscriptRevisionState): string {
+function getCompareEntryParagraphRangeLabel(
+  entry: CompareHistoryEntry,
+  revision: ManuscriptRevisionState,
+  locale: AppLocale
+): string {
+  const ss = getEditorMessages(locale).spellcheckStats;
   const indexes = entry.blockIds
     .map((blockId) => revision.blockOrder.indexOf(blockId))
     .filter((index) => index >= 0);
 
   if (indexes.length === 0) {
-    return "Абз. ?";
+    return ss.unknownParagraph;
   }
 
   const start = formatParagraphLabel(Math.min(...indexes));
   const end = formatParagraphLabel(Math.max(...indexes));
 
-  return start === end ? `Абз. ${start}` : `Абз. ${start}-${end}`;
+  return ss.paragraphRange(start, end);
 }
 
-function shouldShowSpellcheckMessage(message: string): boolean {
+function shouldShowSpellcheckMessage(message: string, locale: AppLocale): boolean {
   const normalized = message.trim().toLowerCase();
 
   if (!normalized) {
     return false;
   }
 
-  return !(
-    normalized === "знайдено потенційну орфографічну помилку." ||
-    normalized === "можлива орфографічна помилка." ||
-    normalized === "ймовірна орфографічна помилка."
-  );
+  const hiddenMessages =
+    locale === "en"
+      ? [
+          "possible spelling mistake found.",
+          "possible spelling mistake.",
+          "possible typo."
+        ]
+      : [
+          "знайдено потенційну орфографічну помилку.",
+          "можлива орфографічна помилка.",
+          "ймовірна орфографічна помилка."
+        ];
+
+  return !hiddenMessages.includes(normalized);
 }
 
-function getSpellcheckIssueHeadline(result: SpellcheckBlockResult): string {
+function getSpellcheckIssueHeadline(result: SpellcheckBlockResult, locale: AppLocale): string {
   const primaryIssue = result.issues[0]?.badText.trim();
 
   if (primaryIssue) {
     return primaryIssue;
   }
 
-  return `Абз. ${result.paragraphLabel}`;
+  return getEditorMessages(locale).spellcheckStats.paragraph(result.paragraphLabel);
 }
 
 function invalidateSpellcheckResultsForChangedBlocks(
@@ -5609,7 +5778,8 @@ function detectSingleTextReplacement(previousText: string, nextText: string): { 
 function deriveEmphasisSuggestions(
   reviewItems: EditorialReviewItem[],
   document: EditorDocument,
-  revision: ManuscriptRevisionState
+  revision: ManuscriptRevisionState,
+  locale: AppLocale
 ): EmphasisSuggestionViewModel[] {
   const suggestions: EmphasisSuggestionViewModel[] = [];
 
@@ -5650,10 +5820,12 @@ function deriveEmphasisSuggestions(
       continue;
     }
 
+    const rangeLabel = getReviewParagraphRangeLabel(item, revision, locale);
+    const paragraphPrefix = getProductLocaleConfig(locale).paragraphShortLabel;
     suggestions.push({
       itemId: item.id,
       blockId,
-      paragraphLabel: getReviewParagraphRangeLabel(item, revision).replace(/^Абз\.\s*/u, ""),
+      paragraphLabel: rangeLabel.startsWith(paragraphPrefix) ? rangeLabel.slice(paragraphPrefix.length).trimStart() : rangeLabel,
       phrase,
       reason: item.reason || undefined,
       status: item.status,
@@ -5937,11 +6109,12 @@ function createHistoryEntry(
   resultCount: number,
   droppedCount: number,
   usedFallback: boolean,
-  feedback: RequestFeedback
+  feedback: RequestFeedback,
+  timestampFormatter: Intl.DateTimeFormat
 ): RequestHistoryItem {
   return {
     id: createPatchId("history"),
-    timestampLabel: historyTimeFormatter.format(new Date()),
+    timestampLabel: timestampFormatter.format(new Date()),
     providerUsed,
     requestedProvider,
     requestedModelId,
@@ -5964,38 +6137,44 @@ function withReviewRequestId(message: string, requestId: string | null | undefin
   return `${trimmed} (requestId: ${requestId})`;
 }
 
-function buildPatchFeedbackMessage(payload: PatchResponse, responseOk: boolean): RequestFeedback {
+function buildPatchFeedbackMessage(
+  payload: PatchResponse,
+  responseOk: boolean,
+  locale: import("../../lib/i18n/product-locale").AppLocale
+): RequestFeedback {
+  const patchFeedback = getEditorMessages(locale).patchFeedback;
+
   if (payload.usedFallback && payload.operations.length > 0) {
     if (payload.diagnostics.appliedMode === "default") {
       return {
         tone: "info",
-        message: "Швидку правку підготовлено в безпечному режимі. Перевірте зміни перед застосуванням."
+        message: patchFeedback.safeModeDraft
       };
     }
 
     return {
       tone: "info",
-      message: payload.error || "Провайдер не повернув придатний diff, тому показано локальну fallback-правку."
+      message: payload.error || patchFeedback.providerInvalidDiff
     };
   }
 
   if (!responseOk || payload.error) {
     return {
       tone: responseOk ? "info" : "error",
-      message: payload.error || "Не вдалося отримати правки."
+      message: payload.error || patchFeedback.fetchFailed
     };
   }
 
   if (payload.operations.length === 0) {
     return {
       tone: "info",
-      message: "Модель не запропонувала локальних правок."
+      message: patchFeedback.noOperations
     };
   }
 
   return {
     tone: "info",
-    message: `Підготовлено ${payload.operations.length} правк${payload.operations.length === 1 ? "у" : payload.operations.length < 5 ? "и" : "ок"}.`
+    message: patchFeedback.operationsPrepared(payload.operations.length)
   };
 }
 
@@ -6027,7 +6206,14 @@ function buildLocalPatchProposal(
   };
 }
 
-function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk: boolean, sectionItemCount?: number): RequestFeedback {
+function buildReviewFeedbackMessage(
+  payload: EditorialReviewResponse,
+  responseOk: boolean,
+  locale: import("../../lib/i18n/product-locale").AppLocale,
+  sectionItemCount?: number
+): RequestFeedback {
+  const reviewFeedback = getEditorMessages(locale).reviewFeedback;
+
   if (payload.error) {
     return {
       tone: "error",
@@ -6038,14 +6224,14 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
   if (!responseOk) {
     return {
       tone: "error",
-      message: withReviewRequestId("Не вдалося отримати review.", payload.diagnostics.requestId)
+      message: withReviewRequestId(reviewFeedback.reviewFetchFailed, payload.diagnostics.requestId)
     };
   }
 
   if (payload.stepId === "diagnostics") {
     return {
       tone: "info",
-      message: payload.expertise?.trim() ? "Діагностику оновлено." : "Діагностику виконано."
+      message: payload.expertise?.trim() ? reviewFeedback.diagnosticsUpdated : reviewFeedback.diagnosticsDone
     };
   }
 
@@ -6054,12 +6240,7 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
     const linkedCardsCount = sectionItemCount ?? 0;
     return {
       tone: "info",
-      message:
-        count > 0
-          ? linkedCardsCount > 0
-            ? `Підготовлено ${count} рядків факт-чеку та ${linkedCardsCount} карт${linkedCardsCount === 1 ? "ку" : linkedCardsCount < 5 ? "ки" : "ок"} для правок.`
-            : `Підготовлено ${count} рядків факт-чеку.`
-          : "Факт-чек не виявив окремих спірних тверджень."
+      message: count > 0 ? reviewFeedback.factCheckRows(count, linkedCardsCount) : reviewFeedback.factCheckClean
     };
   }
 
@@ -6068,25 +6249,23 @@ function buildReviewFeedbackMessage(payload: EditorialReviewResponse, responseOk
 
     return {
       tone: "info",
-      message: count > 0 ? `Підготовлено ${count} акцент${count === 1 ? "" : count < 5 ? "и" : "ів"} для inline-погодження.` : "ШІ не знайшов доречних акцентів."
+      message: count > 0 ? reviewFeedback.emphasisPrepared(count) : reviewFeedback.noEmphasisFound
     };
   }
 
   if (payload.items.length === 0) {
     return {
       tone: "info",
-      message: "ШІ не знайшов сильних локальних рекомендацій."
+      message: reviewFeedback.noStrongRecommendations
     };
   }
 
   const count = sectionItemCount ?? payload.items.length;
-  const stepLabel = WORKFLOW_STEPS.find((step) => step.id === payload.stepId)?.label?.toLowerCase();
+  const stepLabel = getWorkflowStepLabel(locale, payload.stepId).toLowerCase();
 
   return {
     tone: "info",
-    message: stepLabel
-      ? `У кроці «${stepLabel}» підготовлено ${count} карток з рекомендаціями.`
-      : `Підготовлено ${count} карток з рекомендаціями для цього кроку.`
+    message: stepLabel ? reviewFeedback.stepCardsPrepared(stepLabel, count) : reviewFeedback.cardsPrepared(count)
   };
 }
 
@@ -6151,32 +6330,6 @@ function getWorkflowStepForManualKind(kind: ManualGenerationKind): WorkflowStepI
   }
 
   return "formatting";
-}
-
-function buildFactCheckActionInstruction(item: EditorialReviewItem): string | null {
-  if (item.stepId !== "fact_check") {
-    return null;
-  }
-
-  if (item.recommendationType === "callout") {
-    return [
-      "Це картка, згенерована саме з факт-чеку.",
-      "Мета: не дисклеймер і не розмиття тексту, а коротке і предметне пояснення статусу твердження на основі наявних джерел.",
-      "Не додавай фрази типу «усе неоднозначно», «не можна робити висновки», «порадьтеся з лікарем», якщо цього немає у вихідному фрагменті.",
-      "Формулюй нейтрально і редакторськи: що саме перевірено, чого бракує, як обережно подати це твердження без зайвого страхування."
-    ].join("\n");
-  }
-
-  if (isReplaceReviewType(item.recommendationType)) {
-    return [
-      "Це картка, згенерована саме з факт-чеку.",
-      "Перепиши локально й конкретно: прибери категоричність або уточни формулювання, але не перетворюй текст на дисклеймер.",
-      "Заборонено шаблони на кшталт «потребує обережного тлумачення», «усе неоднозначно», «не можна робити висновки», якщо це прямо не випливає з фактичного рядка.",
-      "Ціль: максимально зберегти авторський тон книги, виправивши лише фактологічний ризик у цьому фрагменті."
-    ].join("\n");
-  }
-
-  return null;
 }
 
 const FACT_CHECK_SKIP_TOKENS = new Set([
@@ -6619,6 +6772,7 @@ function getActiveStepRunDisabledReason(input: {
   stepFeedback?: string;
   isReviewRequestInFlight: boolean;
   isSpellcheckRequestInFlight: boolean;
+  disabledReasons: import("../../lib/i18n/editor-messages").EditorMessages["disabledReasons"];
 }): string | undefined {
   if (input.canRun) {
     return undefined;
@@ -6626,37 +6780,37 @@ function getActiveStepRunDisabledReason(input: {
 
   if (input.stepId === "diagnostics" || input.stepId === "emphasis") {
     if (input.isReviewRequestInFlight) {
-      return "Дочекайтеся завершення поточного запуску.";
+      return input.disabledReasons.waitCurrentRun;
     }
 
     if (!input.canRequestReview) {
-      return "Додайте текст рукопису, щоб запустити етап.";
+      return input.disabledReasons.addManuscriptText;
     }
   }
 
   if (input.stepId === "spellcheck") {
     if (input.isSpellcheckRequestInFlight) {
-      return "Дочекайтеся завершення перевірки правопису.";
+      return input.disabledReasons.waitSpellcheck;
     }
 
     if (!input.canRunSpellcheck) {
-      return "Додайте текстові абзаци або заголовки, щоб запустити перевірку.";
+      return input.disabledReasons.addTextBlocks;
     }
   }
 
   if (!input.reviewExpertise?.trim()) {
-    return "Спочатку запустіть діагностику, щоб дати етапу контекст.";
+    return input.disabledReasons.runDiagnosticsContext;
   }
 
   if (input.stepId === "final_editing" && !input.stepFeedback?.trim()) {
-    return "Напишіть власний промпт для цього етапу.";
+    return input.disabledReasons.writeCustomPrompt;
   }
 
   if (input.isReviewRequestInFlight) {
-    return "Дочекайтеся завершення поточного запуску.";
+    return input.disabledReasons.waitCurrentRun;
   }
 
-  return "Ця дія тимчасово недоступна.";
+  return input.disabledReasons.temporarilyUnavailable;
 }
 
 function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | "warning" | "unknown" {

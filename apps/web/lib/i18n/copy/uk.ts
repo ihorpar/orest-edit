@@ -1,3 +1,5 @@
+import editor from "../editor-messages/uk";
+
 const uk = {
   appTitle: "Orest Edit | AI Редактор рукопису",
   generic: {
@@ -6,7 +8,8 @@ const uk = {
     save: "Зберегти",
     cancel: "Скасувати",
     close: "Закрити",
-    check: "Перевірити"
+    check: "Перевірити",
+    waiting: "Зачекайте…"
   },
   login: {
     kicker: "Доступ",
@@ -32,7 +35,17 @@ const uk = {
     words: "слів",
     charactersShort: "симв.",
     statsTitle: "Слова і символи з пробілами",
-    modelRating: "Оцінка моделі"
+    modelRating: "Оцінка моделі",
+    hotkeyItems: [
+      { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
+      { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
+      { shortcut: "Shift+Enter", label: "Новий рядок в абзаці" },
+      { shortcut: "Ctrl/Cmd+Shift+8", label: "Маркований список" },
+      { shortcut: "Ctrl/Cmd+H", label: "Глобальна заміна" },
+      { shortcut: "Ctrl/Cmd+Z", label: "Скасувати" },
+      { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
+      { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
+    ]
   },
   settings: {
     title: "Налаштування",
@@ -58,6 +71,36 @@ const uk = {
     connectionModelError: "Модель недоступна",
     connectionNetworkError: "Мережа",
     connectionPrompt: "Оберіть модель, щоб перевірити підключення.",
+    connectionKicker: "Підключення",
+    connectionTitle: "Що потрібно, щоб редактор працював",
+    validateChecking: "Перевіряю…",
+    modelPlaceholder: "Наприклад: gpt-5.4",
+    pendingModelSelection: "Буде вибрано після збереження.",
+    connectionModelMissing: "Оберіть або введіть model id, щоб перевірити підключення.",
+    connectionModelInvalid: "Model id має невалідний формат.",
+    connectionCheckingMessage: "Перевіряю модель…",
+    authSessionError: "API відхилив сесію. Оновіть сторінку й увійдіть знову, якщо проблема повториться.",
+    serverInvalidResponse: "Сервер повернув некоректну відповідь.",
+    modelCheckFailed: "Не вдалося перевірити модель.",
+    manualModelHelpMissing: "Введіть точний model id, якщо потрібен preview або внутрішня назва моделі, якої немає в пресетах.",
+    manualModelHelpInvalid: "Model id містить недопустимі символи або порожній формат.",
+    manualModelHelpValid: "Це ручний model id. Після зміни сторінка автоматично перевірить, чи модель відповідає.",
+    basePromptLabel: "Що казати моделі перед кожним запитом",
+    expertisePromptLabel: "Промпт експертизи",
+    reviewPromptLabel: "Загальний промпт review",
+    cardsPromptLabel: "Промпт генерації карток",
+    workflowStepPromptsLabel: "Промпти кроків workflow",
+    calloutPromptLabel: "Prompt для врізок",
+    imagePromptLabel: "Prompt для image generation",
+    basePromptNote: "Цей текст впливає і на локальні patch-запити, і на whole-text editorial review.",
+    expertisePromptNote: "Цей промпт використовується на етапі експертизи — загальний огляд та поблочний аналіз без технічних кодів.",
+    reviewPromptNote: "Сумісний fallback для старих review-запитів, якщо окремі промпти експертизи або карток порожні.",
+    cardsPromptNote: "Цей промпт використовується на етапі генерації карток — тут живуть enum-типи, suggestedAction і insertionHint.",
+    workflowStepPromptNote: "Це інструкція саме для вибраного етапу: діагностика, фактчек, структура, ясність, візуали, акценти тощо.",
+    calloutPromptNote: "Плейсхолдери: {{calloutKindLabel}}, {{calloutDepth}}, {{calloutDepthLabel}}, {{fragment}}, {{recommendation}}. Prompt може використати тип і глибину врізки як окремі параметри.",
+    imagePromptNote: "Плейсхолдери: {{visualIntent}}, {{visualStyleGuide}}, {{fragment}}, {{recommendation}}.",
+    defaultPrompt: "Типовий промпт",
+    defaultStep: "Типовий крок",
     language: {
       label: "Мова застосунку",
       note: "Перемикає UI, prompt defaults, LanguageTool і мову експорту. Поточний рукопис не перекладається.",
@@ -104,7 +147,8 @@ const uk = {
     severityError: "помилка",
     severityWarning: "увага",
     severitySuggestion: "порада"
-  }
+  },
+  editor
 } as const;
 
 export default uk;

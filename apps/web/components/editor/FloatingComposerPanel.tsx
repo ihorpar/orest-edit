@@ -21,15 +21,9 @@ import {
 } from "../../lib/editor/review-contract";
 import { getVisualStylePresetOptions } from "../../lib/editor/settings";
 import { type SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 type LocalSurfaceMode = "edit" | "proof" | "callout" | "visual";
-
-const LOCAL_SURFACE_MODE_LABELS: Record<LocalSurfaceMode, string> = {
-  edit: "Правка",
-  proof: "Правопис",
-  callout: "Врізка",
-  visual: "Візуал"
-};
 
 interface FloatingBridgePosition {
   x: number;
@@ -126,6 +120,15 @@ export function FloatingComposerPanel({
   isClosing?: boolean;
   onClose: () => void;
 }) {
+  const editorCopy = useProductCopy().editor;
+  const cp = editorCopy.composer;
+  const be = editorCopy.blockEditor;
+  const localSurfaceModeLabels: Record<LocalSurfaceMode, string> = {
+    edit: editorCopy.localModes.edit,
+    proof: editorCopy.localModes.proof,
+    callout: editorCopy.localModes.callout,
+    visual: editorCopy.localModes.visual
+  };
   const isReview = mode === "review";
   const calloutOptions = getEditorialCalloutKindOptions();
   const calloutDepthOptions = getEditorialCalloutDepthOptions();
@@ -276,19 +279,17 @@ export function FloatingComposerPanel({
 
   const spellcheckStatusCopy =
     spellcheckSummary ??
-    (spellcheckLoading
-      ? "Перевіряємо вибрані текстові блоки."
-      : "Перевірити виділений фрагмент через LanguageTool і показати проблеми в рукописі.");
+    (spellcheckLoading ? cp.checkingBlocks : cp.spellcheckHint);
   const autoCalloutPromptValue = localActionMode === "callout" ? manualCalloutPrompt : customPrompt;
   const autoVisualPromptValue = localActionMode === "visual" ? manualVisualPrompt : customPrompt;
   const isExplicitSpecialMode = localActionMode === "callout" || localActionMode === "visual";
   const sendLabel =
     localActionMode === "callout"
-      ? "Підготувати врізку"
+      ? cp.prepareCallout
       : localActionMode === "visual"
-        ? "Підготувати візуал"
+        ? cp.prepareVisual
         : localActionMode === "spellcheck"
-          ? "Перевірити правопис"
+          ? cp.checkSpelling
           : localActionRoute.actionLabel;
 
   function isExecutorLoading(executor: LocalActionExecutor) {
@@ -428,7 +429,7 @@ export function FloatingComposerPanel({
         className="floating-bridge-shell"
         data-state={isClosing ? "closing" : "open"}
         data-positioned={floatingBridgePosition ? "true" : "false"}
-        aria-label="Локальна правка"
+        aria-label={cp.localEdit}
         style={floatingBridgeStyle}
       >
         <div className="floating-bridge-surface" data-mode={localSurfaceMode}>
@@ -441,7 +442,7 @@ export function FloatingComposerPanel({
             onPointerCancel={handleFloatingBridgePointerRelease}
             onLostPointerCapture={handleFloatingBridgePointerRelease}
           >
-            <div className="floating-bridge-mode-tabs" role="tablist" aria-label="Режими локальної дії">
+            <div className="floating-bridge-mode-tabs" role="tablist" aria-label={cp.localModes}>
               {(["edit", "proof", "callout", "visual"] as LocalSurfaceMode[]).map((surfaceMode) => (
                 <button
                   key={surfaceMode}
@@ -459,11 +460,11 @@ export function FloatingComposerPanel({
                   onClick={() => handleModeSelect(surfaceMode)}
                   disabled={localBusy}
                 >
-                  {LOCAL_SURFACE_MODE_LABELS[surfaceMode]}
+                  {localSurfaceModeLabels[surfaceMode]}
                 </button>
               ))}
             </div>
-            <button type="button" className="floating-bridge-close" onClick={onClose} aria-label="Закрити панель" title="Закрити">
+            <button type="button" className="floating-bridge-close" onClick={onClose} aria-label={cp.closePanel} title={cp.close}>
               <X size={14} />
             </button>
           </div>
@@ -476,7 +477,7 @@ export function FloatingComposerPanel({
                     ref={primaryTextareaRef}
                     className="floating-bridge-textarea"
                     rows={2}
-                    placeholder="Що зробити з виділеним?"
+                    placeholder={cp.whatToDo}
                     value={customPrompt}
                     onChange={(event) => onCustomPromptChange(event.currentTarget.value)}
                     disabled={localBusy}
@@ -484,16 +485,16 @@ export function FloatingComposerPanel({
                 </div>
                 {localActionRoute.executor === "clarify" ? (
                   <div className="floating-bridge-clarify">
-                    <span className="floating-bridge-clarify-label">Уточніть дію</span>
+                    <span className="floating-bridge-clarify-label">{cp.clarifyAction}</span>
                     <div className="floating-bridge-clarify-row">
                       <button type="button" className="floating-bridge-clarify-button" onClick={() => onLocalTextIntentChange("rewrite")}>
-                        Правка
+                        {editorCopy.localModes.edit}
                       </button>
                       <button type="button" className="floating-bridge-clarify-button" onClick={() => handleModeSelect("callout")}>
-                        Врізка
+                        {editorCopy.localModes.callout}
                       </button>
                       <button type="button" className="floating-bridge-clarify-button" onClick={() => handleModeSelect("visual")}>
-                        Візуал
+                        {editorCopy.localModes.visual}
                       </button>
                     </div>
                   </div>
@@ -502,7 +503,7 @@ export function FloatingComposerPanel({
               <div className="floating-bridge-footer">
                 <div className="floating-bridge-footer-left">
                   {showAutoTextModes ? (
-                    <div className="floating-bridge-segmented" role="tablist" aria-label="Режим текстової дії">
+                    <div className="floating-bridge-segmented" role="tablist" aria-label={cp.textActionMode}>
                       {textIntentOptions.map((option) => (
                         <button
                           key={option.value}
@@ -521,7 +522,7 @@ export function FloatingComposerPanel({
                   ) : (
                     <div className="floating-bridge-segmented floating-bridge-segmented-ghost">
                       <button type="button" className="floating-bridge-segmented-option" disabled>
-                        {getLocalActionTextIntentOptions().find((option) => option.value === localTextIntent)?.label ?? "Переписати"}
+                        {getLocalActionTextIntentOptions().find((option) => option.value === localTextIntent)?.label ?? cp.rewrite}
                       </button>
                     </div>
                   )}
@@ -548,7 +549,7 @@ export function FloatingComposerPanel({
                 <p className="floating-bridge-status-copy">{spellcheckStatusCopy}</p>
                 {spellcheckSecondarySummary ? <p className="floating-bridge-status-copy floating-bridge-status-copy-secondary">{spellcheckSecondarySummary}</p> : null}
                 {spellcheckResults.length > 0 ? (
-                  <p className="floating-bridge-status-copy floating-bridge-status-copy-secondary">Проблемні блоки вже підсвічено в рукописі.</p>
+                  <p className="floating-bridge-status-copy floating-bridge-status-copy-secondary">{cp.problemsHighlighted}</p>
                 ) : null}
               </div>
               <div className="floating-bridge-footer">
@@ -577,7 +578,7 @@ export function FloatingComposerPanel({
                     ref={localActionMode === "callout" ? calloutTextareaRef : autoCalloutTextareaRef}
                     className="floating-bridge-textarea"
                     rows={2}
-                    placeholder="Що саме підкреслити у врізці..."
+                    placeholder={cp.calloutPlaceholder}
                     value={autoCalloutPromptValue}
                     onChange={(event) =>
                       localActionMode === "callout"
@@ -595,7 +596,7 @@ export function FloatingComposerPanel({
                       value={manualCalloutKind}
                       onChange={(event) => onManualCalloutKindChange(event.target.value as EditorialCalloutKind)}
                       disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
-                      aria-label="Тип врізки"
+                      aria-label={be.calloutType}
                     >
                       {calloutOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -609,7 +610,7 @@ export function FloatingComposerPanel({
                       value={manualCalloutDepth}
                       onChange={(event) => onManualCalloutDepthChange(event.target.value as EditorialCalloutDepth)}
                       disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
-                      aria-label="Глибина врізки"
+                      aria-label={be.calloutDepth}
                     >
                       {calloutDepthOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -643,7 +644,7 @@ export function FloatingComposerPanel({
                     ref={localActionMode === "visual" ? visualTextareaRef : autoVisualTextareaRef}
                     className="floating-bridge-textarea"
                     rows={2}
-                    placeholder="Що саме має показати візуал..."
+                    placeholder={cp.visualPlaceholder}
                     value={autoVisualPromptValue}
                     onChange={(event) =>
                       localActionMode === "visual"
@@ -675,7 +676,7 @@ export function FloatingComposerPanel({
                       value={manualVisualStylePreset}
                       onChange={(event) => onManualVisualStylePresetChange(event.target.value as VisualStylePreset)}
                       disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
-                      aria-label="Стиль візуалу"
+                      aria-label={cp.visualStyle}
                     >
                       {visualStyleOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -713,25 +714,25 @@ export function FloatingComposerPanel({
       data-mode={mode}
       data-state={isClosing ? "closing" : "open"}
       data-collapsed="false"
-      aria-label={isReview ? "Огляд документа" : "Локальна правка"}
+      aria-label={isReview ? cp.documentReview : cp.localEdit}
     >
       <header className="floating-panel-header">
         <div className="floating-panel-title-stack">
-          <p className="mono-ui">{isReview ? "Огляд документа" : "Локальні дії"}</p>
+          <p className="mono-ui">{isReview ? cp.documentReview : cp.localActions}</p>
           <div className="floating-panel-question">
             {isReview
-              ? "Який фокус дати наступному запуску?"
+              ? cp.focusNextRun
               : localActionMode === "auto"
-                ? "Виконайте локальну дію для виділеного фрагмента"
+                ? cp.runLocalAction
                 : localActionMode === "spellcheck"
-                  ? "Перевірте правопис у виділеному фрагменті"
+                  ? cp.checkSpellingSelection
                   : localActionMode === "callout"
-                    ? "Підготуйте врізку для виділеного фрагмента"
-                    : "Підготуйте візуал для виділеного фрагмента"}
+                    ? cp.prepareCalloutSelection
+                    : cp.prepareVisualSelection}
           </div>
         </div>
         <div className="floating-panel-header-actions">
-          <button type="button" className="panel-toggle" onClick={onClose} aria-label="Закрити панель" title="Закрити">
+          <button type="button" className="panel-toggle" onClick={onClose} aria-label={cp.closePanel} title={cp.close}>
             ×
           </button>
         </div>
@@ -744,7 +745,7 @@ export function FloatingComposerPanel({
                 ref={reviewTextareaRef}
                 className="floating-textarea"
                 rows={3}
-                placeholder="Наприклад: знайди місця для глибоких врізок, списків і візуалів."
+                placeholder={editorCopy.stepPlaceholders.customPromptFocus}
                 value={reviewAdditionalInstructions}
                 onChange={(event) => onReviewAdditionalInstructionsChange(event.currentTarget.value)}
               />
@@ -752,7 +753,7 @@ export function FloatingComposerPanel({
             <div className="floating-footer">
               <div />
               <div className="send-row">
-                <button type="button" className="send-button mono-ui" onClick={onRequestReview} disabled={reviewLoading} aria-label="Запустити огляд" title="Запустити огляд">
+                <button type="button" className="send-button mono-ui" onClick={onRequestReview} disabled={reviewLoading} aria-label={cp.runReview} title={cp.runReview}>
                   {reviewLoading ? "…" : "→"}
                 </button>
               </div>

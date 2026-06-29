@@ -19,7 +19,22 @@ import {
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import { deriveManuscriptRevisionState, formatParagraphLabel } from "../editor/manuscript-structure.ts";
-import { appendBulletListPunctuationRule, DEFAULT_WORKFLOW_STEP_PROMPTS } from "../editor/settings.ts";
+import { appendBulletListPunctuationRule } from "../editor/settings.ts";
+import type { AppLocale } from "../i18n/product-locale.ts";
+import {
+  getAnthropicSystemPromptSuffix,
+  buildChunkedEmphasisFailureMessage,
+  getGeminiGroundedFactCheckSystemSuffix,
+  getOpenAiFactCheckSchema,
+  getOpenAiFactCheckStatusEnum,
+  getReviewPromptScaffold,
+  getReviewServiceErrors,
+  getReviewStepSpec,
+  isEditorialReviewStepId,
+  resolveReviewLocale,
+  type ReviewStepSpec
+} from "../i18n/server-prompts/review.ts";
+import { buildFallbackCalloutPrompt } from "../i18n/server-prompts/review-action.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
@@ -219,40 +234,6 @@ const geminiEmphasisSchema = {
   required: ["items"]
 } as const;
 
-const openAiFactCheckSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    rows: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          claim: { type: "string" },
-          status: { type: "string", enum: ["сумнівно", "не підтверджено"] },
-          explanation: { type: "string" },
-          sources: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                title: { type: "string" },
-                url: { type: "string" },
-                domain: { type: "string" }
-              },
-              required: ["title", "url", "domain"]
-            }
-          }
-        },
-        required: ["claim", "status", "explanation", "sources"]
-      }
-    }
-  },
-  required: ["rows"]
-} as const;
-
 const geminiFactCheckSchema = {
   type: "OBJECT",
   properties: {
@@ -283,95 +264,6 @@ const geminiFactCheckSchema = {
   },
   required: ["rows"]
 } as const;
-
-type StepOutputKind = "analysis_markdown" | "fact_check_rows" | "recommendation_cards";
-
-interface ReviewStepSpec {
-  id: EditorialReviewStepId;
-  title: string;
-  outputKind: StepOutputKind;
-  cardGuidance?: string;
-  allowedRecommendationTypes?: EditorialReviewRecommendationType[];
-  systemInstruction: string;
-}
-
-const REVIEW_STEP_SPECS: Record<EditorialReviewStepId, ReviewStepSpec> = {
-  diagnostics: {
-    id: "diagnostics",
-    title: "Діагностика",
-    outputKind: "analysis_markdown",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.diagnostics
-  },
-  fact_check: {
-    id: "fact_check",
-    title: "Перевірка фактів",
-    outputKind: "fact_check_rows",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.fact_check
-  },
-  structure: {
-    id: "structure",
-    title: "Структура",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["subsection", "list", "callout"],
-    cardGuidance:
-      "Фокус: архітектура розділу, послідовність думки, місця для підзаголовків і дроблення масивних блоків.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.structure
-  },
-  clarity: {
-    id: "clarity",
-    title: "Ясність",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["simplify", "rewrite", "expand"],
-    cardGuidance:
-      "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.clarity
-  },
-  interest: {
-    id: "interest",
-    title: "Інтерес і застосовність",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["callout", "expand", "rewrite", "visual"],
-    cardGuidance:
-      "Фокус: читабельний інтерес, зв'язок із реальним життям, практичне застосування і мотивація дочитати розділ.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.interest
-  },
-  visuals: {
-    id: "visuals",
-    title: "Візуали",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["visual"],
-    cardGuidance:
-      "Фокус: де і який візуал дає найбільшу користь. Схема вважається підтипом інфографіки.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.visuals
-  },
-  formatting: {
-    id: "formatting",
-    title: "Форматування",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["list", "callout", "subsection"],
-    cardGuidance:
-      "Фокус: де потрібні списки, підзаголовки, врізки і компактні формати подачі для швидкого сканування.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.formatting
-  },
-  emphasis: {
-    id: "emphasis",
-    title: "Акценти",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["rewrite"],
-    cardGuidance:
-      "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.emphasis
-  },
-  final_editing: {
-    id: "final_editing",
-    title: "Власний промпт",
-    outputKind: "recommendation_cards",
-    allowedRecommendationTypes: ["rewrite", "simplify", "expand", "list", "subsection", "callout", "visual"],
-    cardGuidance:
-      "Фокус: виконай власний промпт редактора, але поверни результат тільки як локальні executable-картки. Якщо промпт просить врізки, підзаголовки, списки, переписування або візуали, використовуй відповідні recommendationType.",
-    systemInstruction: DEFAULT_WORKFLOW_STEP_PROMPTS.final_editing
-  }
-};
 
 type FetchLike = typeof fetch;
 type EditorialReviewProviderResult = {
@@ -413,8 +305,10 @@ export async function generateEditorialReview(
   request: EditorialReviewRequest,
   options: GenerateEditorialReviewOptions = {}
 ): Promise<EditorialReviewResponse> {
+  const locale = resolveReviewLocale(request);
   const stepId = resolveStepId(request);
-  const stepSpec = REVIEW_STEP_SPECS[stepId];
+  const stepSpec = getReviewStepSpec(stepId, locale);
+  const reviewErrors = getReviewServiceErrors(locale);
   const runMode: EditorialStepRunMode = stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace";
   const requestId = createPatchId("review");
   const reviewSessionId = createPatchId("review-session");
@@ -441,7 +335,7 @@ export async function generateEditorialReview(
       factCheckRows: [],
       droppedItemCount: 0,
       usedFallback: false,
-      error: "Документ порожній. Немає що аналізувати.",
+      error: reviewErrors.emptyDocument,
       generatedAt: now()
     });
   }
@@ -467,7 +361,7 @@ export async function generateEditorialReview(
       droppedItemCountsByReason: undefined,
       filteredItemCountsByType: undefined,
       usedFallback: false,
-      error: `Немає API key для ${providerDisplayName(request.provider)} у формі або .env.`,
+      error: reviewErrors.missingApiKey(providerDisplayName(request.provider)),
       generatedAt: now()
     });
   }
@@ -524,7 +418,7 @@ export async function generateEditorialReview(
       droppedItemCountsByReason: undefined,
       filteredItemCountsByType: undefined,
       usedFallback: false,
-      error: error instanceof Error ? error.message : `${providerDisplayName(request.provider)} недоступний.`,
+      error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(request.provider)),
       generatedAt: now()
     });
   }
@@ -594,7 +488,7 @@ function buildFallbackEditorialReviewResponse(input: {
   error: string;
   generatedAt: string;
 }): EditorialReviewResponse {
-  const stepSpec = REVIEW_STEP_SPECS[input.stepId];
+  const stepSpec = getReviewStepSpec(input.stepId, input.request.locale ?? "uk");
   const rawFallbackItems =
     stepSpec.outputKind === "recommendation_cards"
       ? createFallbackEditorialReviewItems(input.request, input.reviewSessionId, input.stepId, input.stepRunId)
@@ -644,11 +538,12 @@ async function createOpenAiEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
+    const locale = resolveReviewLocale(request);
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       model: request.modelId,
-      instructions: buildStepSystemPrompt(request, stepSpec),
-      input: buildStepUserPrompt(request, stepSpec)
+      instructions: buildStepSystemPrompt(request, stepSpec, locale),
+      input: buildStepUserPrompt(request, stepSpec, locale)
     };
 
     if (expectsJson) {
@@ -659,7 +554,7 @@ async function createOpenAiEditorialReview(
           strict: true,
           schema:
             stepSpec.outputKind === "fact_check_rows"
-              ? openAiFactCheckSchema
+              ? getOpenAiFactCheckSchema(locale)
               : stepSpec.id === "emphasis"
                 ? openAiEmphasisSchema
                 : openAiSchema
@@ -677,7 +572,7 @@ async function createOpenAiEditorialReview(
       signal: controller.signal
     });
 
-    const rawOutput = await readProviderText(response);
+    const rawOutput = await readProviderText(response, locale);
 
     if (stepSpec.outputKind === "analysis_markdown") {
       return {
@@ -729,19 +624,20 @@ async function createGeminiEditorialReview(
         stepId: stepSpec.id,
         stepRunId,
         items: [],
-        factCheckRows: await parseGeminiGroundedFactCheckRows(groundedPayload, fetchImpl),
+        factCheckRows: await parseGeminiGroundedFactCheckRows(groundedPayload, fetchImpl, resolveReviewLocale(request)),
         droppedItemCount: 0,
         providerUsed: `gemini:${geminiGroundedFactCheckModel}:grounded`,
         rawOutput: extractGeminiText(groundedPayload)
       };
     }
 
+    const locale = resolveReviewLocale(request);
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
     const body: any = {
       systemInstruction: {
-        parts: [{ text: buildStepSystemPrompt(request, stepSpec) }]
+        parts: [{ text: buildStepSystemPrompt(request, stepSpec, locale) }]
       },
-      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, stepSpec) }] }],
+      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, stepSpec, locale) }] }],
       generationConfig: {
         temperature: 0.2
       }
@@ -762,7 +658,7 @@ async function createGeminiEditorialReview(
       signal: controller.signal
     });
 
-    const rawOutput = await readGeminiText(response);
+    const rawOutput = await readGeminiText(response, locale);
 
     if (stepSpec.outputKind === "analysis_markdown") {
       return {
@@ -789,6 +685,10 @@ async function createGeminiGroundedFactCheck(
   fetchImpl: FetchLike,
   signal: AbortSignal
 ): Promise<GeminiResponsePayload> {
+  const locale = resolveReviewLocale(request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const factCheckStep = getReviewStepSpec("fact_check", locale);
+
   const response = await fetchImpl(`${geminiBaseUrl}/${geminiGroundedFactCheckModel}:generateContent`, {
     method: "POST",
     headers: {
@@ -800,17 +700,13 @@ async function createGeminiGroundedFactCheck(
         parts: [
           {
             text: [
-              buildStepSystemPrompt(request, REVIEW_STEP_SPECS.fact_check),
-              "Працюй лише як фактчекер. Не вставляй URL, DOI або назви джерел у поле explanation.",
-              "Формуй web search queries англійською мовою, навіть якщо вхідний текст українською.",
-              `Використовуй лише надійні медичні джерела: ${trustedFactCheckDomains.join(", ")}.`,
-              "Якщо для твердження не знайдено надійного джерела з цього списку, залишай sources порожнім масивом.",
-              "Поверни лише JSON за схемою rows[]."
+              buildStepSystemPrompt(request, factCheckStep, locale),
+              getGeminiGroundedFactCheckSystemSuffix(locale, trustedFactCheckDomains)
             ].join("\n\n")
           }
         ]
       },
-      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, REVIEW_STEP_SPECS.fact_check) }] }],
+      contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, factCheckStep, locale) }] }],
       tools: [{ googleSearch: {} }],
       generationConfig: {
         temperature: 0.2,
@@ -824,7 +720,7 @@ async function createGeminiGroundedFactCheck(
   const payload = (await response.json()) as GeminiResponsePayload;
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "Gemini grounding недоступний.");
+    throw new Error(payload.error?.message || reviewErrors.geminiGroundingUnavailable);
   }
 
   return payload;
@@ -842,12 +738,8 @@ async function createAnthropicEditorialReview(
   const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
   try {
-    const systemPrompt =
-      stepSpec.outputKind === "analysis_markdown"
-        ? `${buildStepSystemPrompt(request, stepSpec)} Дай розлогий критичний аналіз тексту.`
-        : stepSpec.id === "emphasis"
-          ? `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown, без reason/title/recommendation і без будь-яких пояснень поза JSON.`
-          : `${buildStepSystemPrompt(request, stepSpec)} Поверни лише JSON-об'єкт без markdown і без пояснень поза JSON.`;
+    const locale = resolveReviewLocale(request);
+    const systemPrompt = `${buildStepSystemPrompt(request, stepSpec, locale)} ${getAnthropicSystemPromptSuffix(stepSpec, locale)}`;
 
     const response = await fetchImpl(anthropicEndpoint, {
       method: "POST",
@@ -861,12 +753,12 @@ async function createAnthropicEditorialReview(
         max_tokens: 3600,
         temperature: 0.2,
         system: systemPrompt,
-        messages: [{ role: "user", content: buildStepUserPrompt(request, stepSpec) }]
+        messages: [{ role: "user", content: buildStepUserPrompt(request, stepSpec, locale) }]
       }),
       signal: controller.signal
     });
 
-    const rawOutput = await readAnthropicText(response);
+    const rawOutput = await readAnthropicText(response, locale);
 
     if (stepSpec.outputKind === "analysis_markdown") {
       return {
@@ -1017,7 +909,7 @@ function mergeRecommendationTypeCounts(
 }
 
 function resolveStepId(request: EditorialReviewRequest): EditorialReviewStepId {
-  if (request.stepId && request.stepId in REVIEW_STEP_SPECS) {
+  if (request.stepId && isEditorialReviewStepId(request.stepId)) {
     return request.stepId;
   }
 
@@ -1028,15 +920,20 @@ function resolveStepId(request: EditorialReviewRequest): EditorialReviewStepId {
   return "diagnostics";
 }
 
-function buildAutomaticCardDensityGuidance(request: EditorialReviewRequest, step: ReviewStepSpec): string | null {
+function buildAutomaticCardDensityGuidance(
+  request: EditorialReviewRequest,
+  step: ReviewStepSpec,
+  locale: AppLocale
+): string | null {
   if (step.outputKind !== "recommendation_cards" || step.id === "emphasis") {
     return null;
   }
 
+  const scaffold = getReviewPromptScaffold(locale);
   const { meaningfulBlocks, totalChars } = getReviewDensityStats(request.document.blocks);
 
   if (meaningfulBlocks === 0 || totalChars === 0) {
-    return "Орієнтир за кількістю карток: документ майже порожній, тому поверни картки лише якщо є реальна локальна дія.";
+    return scaffold.cardDensityEmptyDoc;
   }
 
   const sizeUnits = Math.max(meaningfulBlocks, Math.ceil(totalChars / 900));
@@ -1045,9 +942,9 @@ function buildAutomaticCardDensityGuidance(request: EditorialReviewRequest, step
   const maxCards = clampNumber(Math.ceil(targetCards * 1.45), Math.max(minCards + 2, targetCards), 50);
 
   return [
-    `М'який орієнтир за кількістю карток: приблизно ${minCards}-${maxCards} на ${meaningfulBlocks} змістовних блоків і ${totalChars} знаків.`,
-    "Це не квота і не максимум. Якщо корисних локальних дій більше, поверни більше карток; якщо сильних дій менше, не добирай слабкі або дубльовані ідеї.",
-    "Краще дати редактору трохи більше сильних карток, ніж промовчати про корисні правки, бо частину карток редактор відхилить."
+    scaffold.cardDensityTarget(minCards, maxCards, meaningfulBlocks, totalChars),
+    scaffold.cardDensitySoftTargetTail,
+    scaffold.cardDensityPreferStrongCards
   ].join(" ");
 }
 
@@ -1076,206 +973,128 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
+function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStepSpec, locale: AppLocale): string {
+  const scaffold = getReviewPromptScaffold(locale);
   const stepInstruction = request.workflowStepPrompts?.[step.id]?.trim() || step.systemInstruction;
-  const cardDensityGuidance = buildAutomaticCardDensityGuidance(request, step);
-  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
+  const cardDensityGuidance = buildAutomaticCardDensityGuidance(request, step, locale);
+  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
+  const factCheckStatuses = getOpenAiFactCheckStatusEnum(locale).join("|");
 
   return [
-    appendBulletListPunctuationRule(request.basePrompt),
+    appendBulletListPunctuationRule(request.basePrompt, locale),
     step.outputKind === "analysis_markdown"
-      ? appendBulletListPunctuationRule(request.expertisePrompt)
-      : appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim()),
-    `Крок workflow: ${step.title}.`,
+      ? appendBulletListPunctuationRule(request.expertisePrompt, locale)
+      : appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim(), locale),
+    scaffold.workflowStepPrefix(step.title),
     stepInstruction,
-    step.outputKind === "analysis_markdown"
-      ? "Режим роботи: повний редакторський діагноз без карток дій."
-      : "Режим роботи: повний редакторський прохід у межах цього етапу. Поверни всі сильні локальні рекомендації, які справді допоможуть редактору.",
-    step.cardGuidance ? `Окремий фокус кроку: ${step.cardGuidance}` : null,
+    step.outputKind === "analysis_markdown" ? scaffold.analysisMode : scaffold.cardsMode,
+    step.cardGuidance ? scaffold.stepFocusPrefix(step.cardGuidance) : null,
     cardDensityGuidance,
-    step.outputKind === "analysis_markdown"
-      ? "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN»."
-      : null,
-    step.id === "diagnostics"
-      ? "Працюй у режимі макродіагностики великого розділу: спочатку карта структури й читацького маршруту, потім абзаци як докази системних проблем."
-      : null,
-    step.id === "diagnostics"
-      ? "Для діагностики не підміняй структурний аналіз набором точкових стилістичних зауваг. Локальні фрази використовуй лише як докази макропроблем."
-      : null,
-    step.id === "diagnostics"
-      ? "Починай відповідь відразу з заголовка «## Головний діагноз розділу». Не починай з фраз на кшталт «Ось діагностика», «Нижче аналіз» або загальних ввідних реверансів."
-      : null,
-    step.id === "diagnostics"
-      ? "Не відкривай відповідь похвалою. Якщо текст місцями сильний, назви це коротко лише після того, як уже сформулював головний діагноз і ключові ризики."
-      : null,
-    step.id === "diagnostics"
-      ? "Будь жорсткішим за замовчуванням: шукай слабку архітектуру розділу, дублювання, провисання логіки, втрату читацького маршруту, редакторську млявість, псевдонауковий або рекламний підтекст і зайві бокові блоки."
-      : null,
-    step.outputKind === "fact_check_rows"
-      ? "Формат відповіді: JSON {\"rows\":[{\"claim\":\"...\",\"status\":\"сумнівно|не підтверджено\",\"explanation\":\"...\",\"sources\":[]}]} без markdown. Якщо немає проблемних або сумнівних тверджень, поверни {\"rows\":[]}. Ніколи не повертай рядки зі статусом ok."
-      : null,
-    step.id === "emphasis"
-      ? "Формат відповіді: JSON {\"items\":[{\"blockId\":\"точний id блока з документа\",\"excerpt\":\"...\",\"priority\":\"high|medium|low\",\"emphasisText\":\"точний підрядок із документа\",\"occurrence\":1}]}. Не повертай title, reason, recommendation або будь-які пояснення."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Формат відповіді: JSON {\"items\":[...]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один конкретний H3-підзаголовок перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "calloutDepth='brief' означає коротку врізку для швидкого пояснення в 1-2 коротких абзацах. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах з внутрішньою структурою."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Не обирай brief за замовчуванням. Якщо фрагмент щільний, пояснювальний, вводить механізм, причинно-наслідковий ланцюг, практичні наслідки або потребує розгортання контексту, віддавай перевагу deep."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Для deep-callout вимагай структуровану подачу: не суцільне полотно, а 3-6 абзаців із активним використанням **жирного**. Перед частиною абзаців мають з'являтися короткі **якорі-підзаголовки** з 1-3 слів окремим рядком, а всередині тексту - **ключові думки**. Якщо є природне перерахування причин, кроків, наслідків або прикладів, передбач один короткий список."
-      : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
-      ? "Для deep-callout не використовуй #, ## або HTML-заголовки. Підзаголовки мають бути оформлені тільки як короткі жирні рядки на кшталт **Чому це важливо**."
-      : null,
-    step.id === "clarity"
-      ? "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій."
-      : null,
-    step.id === "clarity"
-      ? "Для «Ясність» не пропонуй підзаголовки, врізки, таблиці або зміни макроструктури. Працюй лише в межах simplify/rewrite/expand."
-      : null,
-    step.id === "clarity"
-      ? "Не пропонуй шаблонних застережень про консультацію з лікарем, самодіагностику, «варто перевірити стан» або інших повторюваних пересторог, якщо цього прямо не просить редактор і цього немає у фрагменті."
-      : null,
-    step.id === "structure"
-      ? "Для «Структура» не витрачай картки на мікролексичні або пунктуаційні правки. Фокус: підзаголовки, сегментація, послідовність блоків, врізки й списки як елементи архітектури читання."
-      : null,
-    step.id === "structure"
-      ? "Якщо один великий блок треба розбити на кілька майбутніх підрозділів, поверни кілька окремих subsection-карток: одна картка = один конкретний підзаголовок перед одним місцем вставки."
-      : null,
-    step.id === "formatting"
-      ? "Для «Форматування» фокусуйся на форматі подачі (list/subsection/callout). Не пропонуй мовне переписування абзаців як окремий тип правки."
-      : null,
-    step.id === "emphasis"
-      ? "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним."
-      : null,
-    step.id === "emphasis"
-      ? "Для кожного item поверни blockId рівно в тому вигляді, як він показаний у квадратних дужках біля відповідного рядка документа."
-      : null,
+    step.outputKind === "analysis_markdown" ? scaffold.analysisMarkdownFormat : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsMacroMode : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsNoMicroStyle : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsStartHeading : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsNoPraiseOpening : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsBeStrict : null,
+    step.outputKind === "fact_check_rows" ? scaffold.factCheckJsonFormat(factCheckStatuses) : null,
+    step.id === "emphasis" ? scaffold.emphasisJsonFormat : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsJsonFormat : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsBlockIndexing : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSingleRange : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSubsectionOneAction : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSplitFragments : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutKindDepth : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutBriefDeep : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutPreferDeep : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutStructure : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutNoHtmlHeadings : null,
+    step.id === "clarity" ? scaffold.clarityScope : null,
+    step.id === "clarity" ? scaffold.clarityNoStructure : null,
+    step.id === "clarity" ? scaffold.clarityNoDisclaimers : null,
+    step.id === "structure" ? scaffold.structureFocus : null,
+    step.id === "structure" ? scaffold.structureSubsectionSplit : null,
+    step.id === "formatting" ? scaffold.formattingFocus : null,
+    step.id === "emphasis" ? scaffold.emphasisNoRewrite : null,
+    step.id === "emphasis" ? scaffold.emphasisBlockIdExact : null,
     emphasisCoverageGuidance,
-    step.id === "emphasis"
-      ? "Це не режим рідкісних винятків. Багато змістовних абзаців можуть потребувати акценту; пропускай лише справді службові, тривіальні або вже достатньо добре підсвічені абзаци."
-      : null,
-    step.id === "emphasis"
-      ? "Працюй як щільний фінальний прохід: майже кожен змістовний абзац із самостійною тезою має отримати один короткий акцент, якщо він ще не виділений жирним."
-      : null,
-    step.id === "emphasis"
-      ? "Заборонено виділяти цілі речення, більшу частину абзацу, перші слова абзацу без смислової ваги або декоративні фрази. Мета - короткі смислові вузли, а не форматувальний шум."
-      : null,
-    "IDs у квадратних дужках призначені лише для прив'язки і не мають з'являтися в user-facing тексті."
+    step.id === "emphasis" ? scaffold.emphasisNotRareExceptions : null,
+    step.id === "emphasis" ? scaffold.emphasisDenseFinalPass : null,
+    step.id === "emphasis" ? scaffold.emphasisNoWholeSentences : null,
+    scaffold.idsInBracketsRule
   ].filter(Boolean).join("\n\n");
 }
 
-function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSpec): string {
-  const lines = request.document.blocks.map(
-    (block, index) => `${index}. абз. ${formatParagraphLabel(index)} [${block.id}] ${getReviewPromptBlockText(block, step.id)}`
+function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSpec, locale: AppLocale): string {
+  const scaffold = getReviewPromptScaffold(locale);
+  const lines = request.document.blocks.map((block, index) =>
+    scaffold.blockLinePrefix(index, formatParagraphLabel(index), block.id, getReviewPromptBlockText(block, step.id))
   );
-  const historyLines = (request.history ?? []).map((msg) => `${msg.role === "user" ? "КОРИСТУВАЧ" : "АСИСТЕНТ"}: ${msg.content}`);
+  const historyLines = (request.history ?? []).map(
+    (msg) => `${msg.role === "user" ? scaffold.historyUserRole : scaffold.historyAssistantRole}: ${msg.content}`
+  );
   const diagnosticsExpertise = request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim();
   const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
   const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
-  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request) : null;
-  const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks);
+  const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
+  const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks, locale);
 
   return [
-    diagnosticsExpertise && step.id !== "diagnostics" ? `Контекст діагностики:\n${diagnosticsExpertise}` : null,
-    diagnosticsFeedback && step.id !== "diagnostics" ? `Фідбек користувача до діагностики:\n${diagnosticsFeedback}` : null,
-    stepFeedback ? `Фідбек користувача для кроку «${step.title}»:\n${stepFeedback}` : null,
-    historyLines.length > 0 ? `Релевантний контекст діалогу:\n${historyLines.join("\n")}` : null,
-    request.additionalInstructions?.trim() ? `Додаткові інструкції редактора: ${request.additionalInstructions.trim()}` : null,
+    diagnosticsExpertise && step.id !== "diagnostics"
+      ? `${scaffold.diagnosticsContextPrefix}\n${diagnosticsExpertise}`
+      : null,
+    diagnosticsFeedback && step.id !== "diagnostics"
+      ? `${scaffold.diagnosticsFeedbackPrefix}\n${diagnosticsFeedback}`
+      : null,
+    stepFeedback ? `${scaffold.stepFeedbackPrefix(step.title)}\n${stepFeedback}` : null,
+    historyLines.length > 0 ? `${scaffold.dialogueContextPrefix}\n${historyLines.join("\n")}` : null,
+    request.additionalInstructions?.trim()
+      ? `${scaffold.additionalInstructionsPrefix} ${request.additionalInstructions.trim()}`
+      : null,
     step.id === "final_editing" && stepFeedback
-      ? `Власний промпт редактора для цього запуску:\n${stepFeedback}`
+      ? `${scaffold.finalEditingCustomPromptPrefix}\n${stepFeedback}`
       : null,
-    step.id === "final_editing"
-      ? "Виконай саме власний промпт редактора, але не редагуй документ напряму. Поверни результат як набір локальних карток за стандартним recommendation-card контрактом."
-      : null,
-    step.id === "diagnostics"
-      ? "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови."
-      : null,
-    step.id === "diagnostics"
-      ? "Використовуй саме такі markdown-заголовки другого рівня: «## Головний діагноз розділу», «## Карта розділу», «## Ключові структурні проблеми», «## Де потрібні підрозділи», «## Що зайве або дубльоване», «## Показові абзаци», «## Пріоритетний план перебудови»."
-      : null,
-    step.id === "diagnostics"
-      ? "У блоці «Карта розділу» покрий увесь документ великими смисловими зонами без пропусків; кожен абзац має належати рівно одній зоні."
-      : null,
-    step.id === "diagnostics"
-      ? "У блоці «Показові абзаци» розбирай 8-15 найпоказовіших абзаців як докази великих проблем. Для кожного абзацу поясни, яку саме системну поломку він доводить."
-      : null,
-    step.id === "fact_check"
-      ? "Не перевіряй і не перераховуй усе підряд. Твоя задача - знайти тільки твердження, які редактор має поставити під сумнів: застаріла або радянська медична рамка, слабка доказовість, надто категоричний причинно-наслідковий висновок, лікувальна або профілактична обіцянка, конкретні числа, відсотки, дозування, тривалість, ризики, лабораторні пороги або підозрілі одиниці вимірювання. Коректні або несуттєві твердження пропускай мовчки."
-      : null,
-    step.id === "fact_check"
-      ? "Оцінюй за стандартами сучасної доказової медицини: актуальні клінічні настанови, систематичні огляди, баланс користі й шкоди, якість доказів, невизначеність. Не покладайся на авторитетність тону рукопису."
-      : null,
-    step.id === "fact_check"
-      ? "Для кожного рядка поясни, що саме насторожує і яку перевірку треба зробити. Не вигадуй джерела, DOI, авторів, роки або URL і не вставляй посилання всередину explanation."
-      : null,
-    step.outputKind === "recommendation_cards"
-      ? "На основі діагностики і фідбеку підготуй локальні картки змін саме для цього кроку. Не переписуй документ цілком."
-      : null,
-    step.outputKind === "recommendation_cards"
-      ? "Якщо пропонуєш врізку, самостійно обери calloutDepth='brief' або calloutDepth='deep' відповідно до контексту статті та фрагмента."
-      : null,
-    step.id === "clarity"
-      ? "Якщо фрагмент уже подано як перелік або серію коротких пунктів, збережи короткі окремі пункти; не роздувай кожен рядок у довгий абзац."
-      : null,
-    step.id === "emphasis"
-      ? "Перевір кожен абзац документа по черзі. Якщо акцент справді покращує діагональне читання, повертай item; якщо ні - просто пропускай абзац."
-      : null,
-    step.id === "emphasis"
-      ? "У кожному item обов'язково поверни blockId саме того рядка, де міститься emphasisText. Не використовуй сусідній blockId навіть якщо абзаци тематично схожі."
-      : null,
-    step.id === "emphasis"
-      ? "Для кроку «Акценти» створюй не більше одного item на абзац. У emphasisText повертай точний підрядок із документа без перефразування, без нового змісту і без уже наявного жирного виділення."
-      : null,
-    emphasisCoverageGuidance ? `Орієнтир покриття:\n${emphasisCoverageGuidance}` : null,
-    step.id === "emphasis"
-      ? "Якщо той самий exact substring трапляється в абзаці кілька разів, додай occurrence: 1, 2, 3... щоб позначити потрібний збіг."
-      : null,
-    step.id === "emphasis"
-      ? "Не будь надто скупим: якщо в абзаці є чітка теза, висновок, причинно-наслідковий вузол, практичний висновок або сильний контраст, який справді варто зчитати за 10-15 секунд, повертай item."
-      : null,
-    step.id === "emphasis"
-      ? "Пропускай змістовний абзац лише тоді, коли в ньому немає жодної самостійної тези або він уже має достатньо жирного виділення. Не обмежуйся кількома найочевиднішими місцями."
-      : null,
+    step.id === "final_editing" ? scaffold.finalEditingExecuteAsCards : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsRubric : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsHeadings : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsSectionMap : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsExemplarParagraphs : null,
+    step.id === "fact_check" ? scaffold.factCheckFocus : null,
+    step.id === "fact_check" ? scaffold.factCheckEvidenceStandards : null,
+    step.id === "fact_check" ? scaffold.factCheckExplanationRules : null,
+    step.outputKind === "recommendation_cards" ? scaffold.recommendationCardsFromDiagnostics : null,
+    step.outputKind === "recommendation_cards" ? scaffold.recommendationCardsCalloutDepthChoice : null,
+    step.id === "clarity" ? scaffold.clarityPreserveListStructure : null,
+    step.id === "emphasis" ? scaffold.emphasisCheckEachParagraph : null,
+    step.id === "emphasis" ? scaffold.emphasisBlockIdRequired : null,
+    step.id === "emphasis" ? scaffold.emphasisOneItemPerParagraph : null,
+    emphasisCoverageGuidance ? `${scaffold.emphasisCoveragePrefix}\n${emphasisCoverageGuidance}` : null,
+    step.id === "emphasis" ? scaffold.emphasisOccurrenceHint : null,
+    step.id === "emphasis" ? scaffold.emphasisNotTooSparse : null,
+    step.id === "emphasis" ? scaffold.emphasisSkipOnlyWhen : null,
     rejectedIdeasPrompt,
-    "Документ:",
+    scaffold.documentLabel,
     lines.join("\n")
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-function buildRejectedIdeasPrompt(rejectedIdeas: RejectedReviewIdea[] | undefined, blocks: Block[]): string | null {
+function buildRejectedIdeasPrompt(
+  rejectedIdeas: RejectedReviewIdea[] | undefined,
+  blocks: Block[],
+  locale: AppLocale
+): string | null {
   if (!rejectedIdeas || rejectedIdeas.length === 0) {
     return null;
   }
 
+  const scaffold = getReviewPromptScaffold(locale);
   const blockIndexById = new Map(blocks.map((block, index) => [block.id, index]));
   const lines = rejectedIdeas.map((idea, index) => {
     const blockLabels = idea.blockIds
       .map((blockId) => {
         const blockIndex = blockIndexById.get(blockId);
-        return blockIndex === undefined ? blockId : `абз. ${formatParagraphLabel(blockIndex)}`;
+        return blockIndex === undefined ? blockId : scaffold.paragraphLabel(blockIndex);
       })
       .join(", ");
     const recommendation = idea.recommendation
@@ -1283,14 +1102,10 @@ function buildRejectedIdeasPrompt(rejectedIdeas: RejectedReviewIdea[] | undefine
       .trim()
       .slice(0, REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH);
 
-    return `${index + 1}. Блоки: ${blockLabels}; тип: ${idea.recommendationType}; рекомендація: ${recommendation}`;
+    return scaffold.rejectedIdeaLine(index + 1, blockLabels, idea.recommendationType, recommendation);
   });
 
-  return [
-    "Ідеї, які редактор уже відхилив:",
-    lines.join("\n"),
-    "Не повторюй ці ідеї як нові рекомендації. Не пропонуй той самий зміст іншими словами. Можеш повернутися до цих блоків лише якщо пропозиція має інший recommendationType або вирішує іншу проблему."
-  ].join("\n");
+  return [scaffold.rejectedIdeasHeader, lines.join("\n"), scaffold.rejectedIdeasFooter].join("\n");
 }
 
 async function createChunkedEmphasisReview(
@@ -1455,7 +1270,15 @@ async function runChunkedEmphasisProviderRequestWithRetry(input: {
     }
   }
 
-  throw new Error(buildChunkedEmphasisFailureMessage(lastError, input.chunkIndex, input.totalChunks));
+  const locale = resolveReviewLocale(input.chunkRequest);
+  throw new Error(
+    buildChunkedEmphasisFailureMessage(locale, {
+      error: lastError,
+      chunkIndex: input.chunkIndex,
+      totalChunks: input.totalChunks,
+      attemptCount: emphasisChunkRetryAttempts
+    })
+  );
 }
 
 function shouldRetryChunkedEmphasisError(error: unknown): boolean {
@@ -1474,15 +1297,6 @@ function shouldRetryChunkedEmphasisError(error: unknown): boolean {
     || message.includes("timed out")
     || message.includes("timeout")
     || message.includes("terminated");
-}
-
-function buildChunkedEmphasisFailureMessage(error: unknown, chunkIndex: number, totalChunks: number): string {
-  const detail = error instanceof Error && error.message.trim()
-    ? error.message.trim()
-    : "Невідома помилка провайдера.";
-  const attemptLabel = `${emphasisChunkRetryAttempts} спроб`;
-
-  return `Акценти: збій на chunk ${chunkIndex + 1}/${totalChunks} після ${attemptLabel}. ${detail}`;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -1559,7 +1373,8 @@ function compareEmphasisCandidates(left: Record<string, unknown>, right: Record<
   return leftLength - rightLength;
 }
 
-function buildEmphasisCoverageGuidance(request: EditorialReviewRequest): string {
+function buildEmphasisCoverageGuidance(request: EditorialReviewRequest, locale: AppLocale): string {
+  const scaffold = getReviewPromptScaffold(locale);
   const eligibleBlocks = request.document.blocks.filter((block) => {
     if (block.type !== "paragraph" && block.type !== "heading") {
       return false;
@@ -1573,7 +1388,7 @@ function buildEmphasisCoverageGuidance(request: EditorialReviewRequest): string 
   const minItems = Math.max(1, Math.round(eligibleBlocks * minShare));
   const maxItems = Math.max(minItems, Math.round(eligibleBlocks * maxShare));
 
-  return `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти. Краще повернути доречний короткий акцент для кожного сильного абзацу, ніж залишити добрі тези без виділення.`;
+  return scaffold.emphasisCoverageTarget(minItems, maxItems, eligibleBlocks);
 }
 
 function getEmphasisCoverageTargets(): { minShare: number; maxShare: number } {
@@ -1630,12 +1445,14 @@ function extractGeminiText(payload: GeminiResponsePayload): string {
 
 async function parseGeminiGroundedFactCheckRows(
   payload: GeminiResponsePayload,
-  fetchImpl: FetchLike
+  fetchImpl: FetchLike,
+  locale: AppLocale
 ): Promise<EditorialFactCheckRow[]> {
+  const reviewErrors = getReviewServiceErrors(locale);
   const rawOutput = extractGeminiText(payload);
 
   if (!rawOutput) {
-    throw new Error("Gemini не повернув текст для grounded fact-check.");
+    throw new Error(reviewErrors.geminiGroundedFactCheckEmpty);
   }
 
   const rows = parseFactCheckRows(rawOutput);
@@ -2132,7 +1949,7 @@ export function createFallbackEditorialReviewItems(
           calloutTitle: "Як це працює",
           calloutPreviewText: nextText.slice(0, fallbackDepth === "deep" ? 420 : 160),
           calloutSummary: "Підсилити пояснення окремою врізкою.",
-          calloutPrompt: buildFallbackCalloutPrompt("mechanism", fallbackDepth, nextText, "Пояснити механізм простими словами."),
+          calloutPrompt: buildFallbackCalloutPrompt(resolveReviewLocale(request), "mechanism", fallbackDepth, nextText, "Пояснити механізм простими словами."),
           visualIntent: null
         });
       }
@@ -2259,6 +2076,8 @@ function pickFallbackEmphasisPhrase(
 }
 
 function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialReviewRequest): EditorialReviewItem[] {
+  const locale = resolveReviewLocale(request);
+
   return items.map((item) => {
     if (item.recommendationType !== "callout" || item.suggestedAction !== "prepare_callout" || item.calloutDraft) {
       return item;
@@ -2275,22 +2094,13 @@ function hydratedReviewItems(items: EditorialReviewItem[], request: EditorialRev
       calloutDraft: {
         calloutKind: kind,
         calloutDepth: depth,
-        title: getEditorialCalloutKindLabel(kind),
-        prompt: buildFallbackCalloutPrompt(kind, depth, excerpt, item.recommendation),
+        title: getEditorialCalloutKindLabel(kind, locale),
+        prompt: buildFallbackCalloutPrompt(locale, kind, depth, excerpt, item.recommendation),
         previewText: excerpt.slice(0, depth === "deep" ? 1200 : 180),
         summary: item.reason
       }
     };
   });
-}
-
-function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, depth: EditorialCalloutDepth, fragment: string, recommendation: string): string {
-  return [
-    `Тип врізки: ${getEditorialCalloutKindLabel(kind)}.`,
-    `Глибина врізки: ${depth === "deep" ? "deep / докладно" : "brief / стисло"}.`,
-    `Фрагмент: ${fragment}`,
-    `Редакторська задача: ${recommendation}`
-  ].join("\n");
 }
 
 function inferCalloutDepth(
@@ -2315,7 +2125,8 @@ function inferCalloutDepth(
   return "brief";
 }
 
-async function readProviderText(response: Response): Promise<string> {
+async function readProviderText(response: Response, locale: AppLocale): Promise<string> {
+  const reviewErrors = getReviewServiceErrors(locale);
   const payload = (await response.json()) as {
     output_text?: string;
     output?: Array<{ content?: Array<{ text?: string }> }>;
@@ -2323,7 +2134,7 @@ async function readProviderText(response: Response): Promise<string> {
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "OpenAI недоступний.");
+    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("OpenAI"));
   }
 
   if (typeof payload.output_text === "string" && payload.output_text.trim()) {
@@ -2333,45 +2144,47 @@ async function readProviderText(response: Response): Promise<string> {
   const content = payload.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n").trim();
 
   if (!content) {
-    throw new Error("OpenAI не повернув коректний JSON.");
+    throw new Error(reviewErrors.invalidProviderJson("OpenAI"));
   }
 
   return content;
 }
 
-async function readGeminiText(response: Response): Promise<string> {
+async function readGeminiText(response: Response, locale: AppLocale): Promise<string> {
+  const reviewErrors = getReviewServiceErrors(locale);
   const payload = (await response.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     error?: { message?: string };
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "Gemini недоступний.");
+    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("Gemini"));
   }
 
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error("Gemini не повернув коректний JSON.");
+    throw new Error(reviewErrors.invalidProviderJson("Gemini"));
   }
 
   return text;
 }
 
-async function readAnthropicText(response: Response): Promise<string> {
+async function readAnthropicText(response: Response, locale: AppLocale): Promise<string> {
+  const reviewErrors = getReviewServiceErrors(locale);
   const payload = (await response.json()) as {
     content?: Array<{ text?: string }>;
     error?: { message?: string };
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || "Anthropic недоступний.");
+    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("Anthropic"));
   }
 
   const text = payload.content?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error("Anthropic не повернув коректний JSON.");
+    throw new Error(reviewErrors.invalidProviderJson("Anthropic"));
   }
 
   return text;

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { buildPatchSystemPrompt } from "../lib/i18n/server-prompts/patch.ts";
 import { generatePatchResponse } from "../lib/server/patch-service.ts";
 import type { PatchRequest } from "../lib/editor/patch-contract.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
@@ -356,4 +357,17 @@ test("generatePatchResponse turns fetch failures into a user-facing provider ava
   assert.equal(response.operations.length, 0);
   assert.match(response.error ?? "", /Gemini недоступний або мережа не відповідає/i);
   assert.match(response.diagnostics.rawError ?? "", /fetch failed/i);
+});
+
+test("buildPatchSystemPrompt returns English instructions for en locale", () => {
+  const prompt = buildPatchSystemPrompt("en");
+
+  assert.match(prompt, /English science-pop or medical-pop manuscript/i);
+  assert.doesNotMatch(prompt, /український науково-популярний рукопис/i);
+});
+
+test("buildPatchSystemPrompt returns Ukrainian instructions for uk locale", () => {
+  const prompt = buildPatchSystemPrompt("uk");
+
+  assert.match(prompt, /український науково-популярний рукопис/i);
 });

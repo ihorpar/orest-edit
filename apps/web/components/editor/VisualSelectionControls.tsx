@@ -1,6 +1,7 @@
 "use client";
 
 import type { EditorialVisualIntent, VisualStylePreset } from "../../lib/editor/review-contract";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 export function VisualIntentToggle({
   value,
@@ -13,8 +14,10 @@ export function VisualIntentToggle({
   onChange: (value: EditorialVisualIntent) => void;
   disabled?: boolean;
 }) {
+  const rd = useProductCopy().editor.reviewDetail;
+
   return (
-    <div className="editorial-review-visual-intent-toggle" role="tablist" aria-label="Тип візуалу">
+    <div className="editorial-review-visual-intent-toggle" role="tablist" aria-label={rd.visualType}>
       {options.map((option) => (
         <button
           key={option.value}
@@ -47,8 +50,10 @@ export function VisualStyleToggle({
   onChange: (value: VisualStylePreset) => void;
   disabled?: boolean;
 }) {
+  const rd = useProductCopy().editor.reviewDetail;
+
   return (
-    <div className="editorial-review-visual-style-grid" role="radiogroup" aria-label="Стиль візуалу">
+    <div className="editorial-review-visual-style-grid" role="radiogroup" aria-label={rd.visualStyle}>
       {options.map((option) => (
         <button
           key={option.value}

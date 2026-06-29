@@ -83,18 +83,25 @@ export const BULLET_LIST_PUNCTUATION_RULE = `Пунктуація списків
 - якщо пункт списку починається з великої літери, він має закінчуватися крапкою (.)
 - не змішуй ; і . в межах одного списку без реальної потреби.`;
 
-export function appendBulletListPunctuationRule(prompt?: string | null): string {
+export const ENGLISH_BULLET_LIST_PUNCTUATION_RULE = `List punctuation:
+- if a list item starts with a lowercase letter, it should end with a semicolon (;)
+- if a list item starts with an uppercase letter, it should end with a period (.)
+- do not mix ; and . within the same list without a real need.`;
+
+export function appendBulletListPunctuationRule(prompt?: string | null, locale: AppLocale = "uk"): string {
+  const rule = locale === "en" ? ENGLISH_BULLET_LIST_PUNCTUATION_RULE : BULLET_LIST_PUNCTUATION_RULE;
+  const marker = locale === "en" ? "List punctuation:" : "Пунктуація списків:";
   const trimmed = prompt?.trim();
 
   if (!trimmed) {
-    return BULLET_LIST_PUNCTUATION_RULE;
+    return rule;
   }
 
-  if (trimmed.includes("Пунктуація списків:")) {
+  if (trimmed.includes(marker)) {
     return trimmed;
   }
 
-  return `${trimmed}\n\n${BULLET_LIST_PUNCTUATION_RULE}`;
+  return `${trimmed}\n\n${rule}`;
 }
 
 export const DEFAULT_EXPERTISE_PROMPT = appendBulletListPunctuationRule(`Працюй у режимі макродіагностики великого розділу. Спочатку побудуй карту структури й читацького маршруту, а вже потім використовуй окремі абзаци як докази системних проблем.

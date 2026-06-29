@@ -392,6 +392,15 @@ const REVIEW_CALLOUT_KINDS: EditorialCalloutKind[] = [
 ];
 const REVIEW_CALLOUT_DEPTHS: EditorialCalloutDepth[] = ["brief", "deep"];
 const REVIEW_VISUAL_INTENTS: EditorialVisualIntent[] = ["infographic", "illustration"];
+const REVIEW_RECOMMENDATION_TYPE_LABELS_EN: Record<EditorialReviewRecommendationType, string> = {
+  rewrite: "rewrite",
+  expand: "expand",
+  simplify: "simplify",
+  list: "list",
+  subsection: "subsection",
+  callout: "callout",
+  visual: "visual"
+};
 const REVIEW_RECOMMENDATION_TYPE_LABELS: Record<EditorialReviewRecommendationType, string> = {
   rewrite: "переписати",
   expand: "дописати",
@@ -433,6 +442,13 @@ const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
   myths_vs_truth: "Подати короткі пари «Міф / Правда» лише для тверджень, що прямо випливають із фрагмента.",
   top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
 };
+const CALLOUT_KIND_DESCRIPTIONS_EN: Record<EditorialCalloutKind, string> = {
+  mechanism: "Explain the cause-and-effect mechanism in simple steps without a lecture tone.",
+  analogy: "Present the idea through a clear analogy and explicitly do not present it as a literal fact.",
+  everyday_application: "Show how the phenomenon appears in the reader's everyday life.",
+  myths_vs_truth: "Present short Myth/Truth pairs only for claims that directly follow from the fragment.",
+  top_list: "Collect 3-5 short points only when the material naturally supports a discrete list."
+};
 const CALLOUT_DEPTH_LABELS: Record<EditorialCalloutDepth, string> = {
   brief: "Стисло",
   deep: "Докладно"
@@ -440,6 +456,10 @@ const CALLOUT_DEPTH_LABELS: Record<EditorialCalloutDepth, string> = {
 const CALLOUT_DEPTH_DESCRIPTIONS: Record<EditorialCalloutDepth, string> = {
   brief: "Коротка врізка у поточному стилі.",
   deep: "Глибокий розбір у 3-6 докладних абзацах; може поєднувати текст і списки."
+};
+const CALLOUT_DEPTH_DESCRIPTIONS_EN: Record<EditorialCalloutDepth, string> = {
+  brief: "A short callout in the current style.",
+  deep: "An in-depth breakdown in 3-6 detailed paragraphs; may combine text and lists."
 };
 const VISUAL_INTENT_LABELS: Record<EditorialVisualIntent, string> = {
   infographic: "інфографіка",
@@ -560,7 +580,11 @@ export function getEditorialCalloutKindTitle(kind: EditorialCalloutKind): string
   return CALLOUT_KIND_TITLE_LABELS[kind];
 }
 
-export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind): string {
+export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return CALLOUT_KIND_DESCRIPTIONS_EN[kind];
+  }
+
   return CALLOUT_KIND_DESCRIPTIONS[kind];
 }
 
@@ -572,7 +596,11 @@ export function getEditorialCalloutDepthLabel(depth: EditorialCalloutDepth, loca
   return CALLOUT_DEPTH_LABELS[depth];
 }
 
-export function getEditorialCalloutDepthDescription(depth: EditorialCalloutDepth): string {
+export function getEditorialCalloutDepthDescription(depth: EditorialCalloutDepth, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return CALLOUT_DEPTH_DESCRIPTIONS_EN[depth];
+  }
+
   return CALLOUT_DEPTH_DESCRIPTIONS[depth];
 }
 
@@ -580,8 +608,44 @@ export function normalizeEditorialCalloutDepth(value: unknown): EditorialCallout
   return parseEditorialCalloutDepth(value) ?? "brief";
 }
 
-export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecommendationType): string {
+export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecommendationType, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return REVIEW_RECOMMENDATION_TYPE_LABELS_EN[type];
+  }
+
   return REVIEW_RECOMMENDATION_TYPE_LABELS[type];
+}
+
+export function getCalloutKindGuardrail(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    if (kind === "analogy") {
+      return "Clearly mark this as an analogy; do not present the analogy as a literal fact.";
+    }
+
+    if (kind === "myths_vs_truth") {
+      return "Add only Myth/Truth pairs that directly follow from the fragment; do not invent claims.";
+    }
+
+    if (kind === "top_list") {
+      return "Present 3-5 points in a multi-line Name: explanation format; stay within the fragment facts and do not invent new sources.";
+    }
+
+    return "Stay within the fragment without invented facts or diagnoses.";
+  }
+
+  if (kind === "analogy") {
+    return "Явно познач, що це аналогія; не подавай аналогію як буквальний факт.";
+  }
+
+  if (kind === "myths_vs_truth") {
+    return "Додавай лише пари «Міф/Правда», які прямо випливають із фрагмента; не вигадуй тверджень.";
+  }
+
+  if (kind === "top_list") {
+    return "Подавай 3-5 пунктів у multi-line форматі «Назва: пояснення»; працюй лише з фактами фрагмента і не вигадуй нові джерела.";
+  }
+
+  return "Залишайся в межах фрагмента без вигаданих фактів чи діагнозів.";
 }
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {

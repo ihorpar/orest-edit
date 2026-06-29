@@ -1,9 +1,12 @@
+"use client";
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import type { Block } from "../../lib/editor/document-model";
 import type { EditorialReviewItem } from "../../lib/editor/review-contract";
 import { getBlockText } from "../../lib/editor/document-model";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../../lib/editor/inline-markup";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 import { Button } from "../ui/Button";
 
 export function BlockDiffOverlay({
@@ -27,13 +30,14 @@ export function BlockDiffOverlay({
   onRefineInstructionChange: (value: string) => void;
   onRegenerate: (instruction?: string) => void;
 }) {
+  const rd = useProductCopy().editor.reviewDetail;
   const [draftTexts, setDraftTexts] = useState(() => newBlocks.map((block) => formatDiffBlockText(block)));
   const [isRefineOpen, setIsRefineOpen] = useState(false);
   const textareaRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const refineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const normalizedRefineInstruction = refineInstruction.trim();
   const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
-  const regenerateLabel = hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати";
+  const regenerateLabel = hasPendingRefineInstruction ? rd.regenerateWithRefine : rd.regenerate;
 
   useEffect(() => {
     if (isRefineOpen) {
@@ -100,12 +104,12 @@ export function BlockDiffOverlay({
       <div className="editorial-review-refine">
         {isRefineOpen ? (
           <div className="editorial-review-field-group">
-            <p className="editorial-review-detail-label">Що змінити в рекомендації</p>
+            <p className="editorial-review-detail-label">{rd.refineLabel}</p>
             <textarea
               ref={refineTextareaRef}
               className="editorial-review-callout-body-input editorial-review-refine-input"
               value={refineInstruction}
-              placeholder="Наприклад: спростити тон, зберегти структуру списку, прибрати канцеляризми"
+              placeholder={rd.refinePlaceholder}
               onChange={(event) => onRefineInstructionChange(event.target.value)}
               onKeyDown={handleRefineKeyDown}
             />
@@ -114,7 +118,7 @@ export function BlockDiffOverlay({
 
         <div className="diff-footer button-row" style={{ marginTop: "8px" }}>
           <Button size="sm" variant="ghost" onClick={onReject}>
-            Відхилити
+            {rd.reject}
           </Button>
           <Button
             size="sm"
@@ -122,14 +126,14 @@ export function BlockDiffOverlay({
             aria-pressed={isRefineOpen}
             onClick={() => setIsRefineOpen((current) => !current)}
           >
-            Уточнити
+            {rd.refine}
           </Button>
           <Button
             size="sm"
             variant={hasPendingRefineInstruction ? "primary" : "secondary"}
             onClick={() => onRegenerate(normalizedRefineInstruction || undefined)}
             disabled={item == null}
-            title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати поточний варіант."}
+            title={hasPendingRefineInstruction ? rd.refineUsedOnRegenerate : rd.regenerateCurrentVariant}
           >
             {regenerateLabel}
           </Button>
@@ -137,10 +141,10 @@ export function BlockDiffOverlay({
             size="sm"
             variant="primary"
             disabled={hasPendingRefineInstruction}
-            title={hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined}
+            title={hasPendingRefineInstruction ? rd.refinePendingTitle : undefined}
             onClick={() => onAccept(newBlocks.map((block, index) => withEditedBlockText(block, draftTexts[index] ?? "")))}
           >
-            Застосувати
+            {rd.apply}
           </Button>
         </div>
       </div>

@@ -19,29 +19,6 @@ import {
   type ProviderId
 } from "../../lib/editor/settings";
 
-const HOTKEY_SECTIONS = {
-  uk: [
-    { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
-    { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
-    { shortcut: "Shift+Enter", label: "Новий рядок в абзаці" },
-    { shortcut: "Ctrl/Cmd+Shift+8", label: "Маркований список" },
-    { shortcut: "Ctrl/Cmd+H", label: "Глобальна заміна" },
-    { shortcut: "Ctrl/Cmd+Z", label: "Скасувати" },
-    { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
-    { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
-  ],
-  en: [
-    { shortcut: "Ctrl/Cmd+B", label: "Bold" },
-    { shortcut: "Ctrl/Cmd+I", label: "Italic" },
-    { shortcut: "Shift+Enter", label: "Line break inside paragraph" },
-    { shortcut: "Ctrl/Cmd+Shift+8", label: "Bulleted list" },
-    { shortcut: "Ctrl/Cmd+H", label: "Global replace" },
-    { shortcut: "Ctrl/Cmd+Z", label: "Undo" },
-    { shortcut: "Ctrl/Cmd+Shift+Z", label: "Redo" },
-    { shortcut: "Ctrl+Y", label: "Redo on Windows" }
-  ]
-} as const;
-
 const TOPBAR_MODEL_PROVIDERS: ProviderId[] = ["openai", "gemini"];
 
 export function TopBar({
@@ -159,7 +136,7 @@ export function TopBar({
       ? findProviderModelPreset(editorSettings.provider, editorSettings.modelId)
       : null;
   const topbarModelValue = editorSettings && selectedTopbarModelPreset ? `${editorSettings.provider}::${editorSettings.modelId}` : "";
-  const hotkeys = locale === "en" ? HOTKEY_SECTIONS.en : HOTKEY_SECTIONS.uk;
+  const hotkeys = copy.topbar.hotkeyItems;
 
   return (
     <header className="topbar">

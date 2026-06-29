@@ -1334,7 +1334,7 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.equal("temperature" in (requestBody ?? {}), false);
   assert.match(String(requestBody?.input ?? ""), /без іншого markdown, окрім дозволеного \*\*жирного\*\*/i);
   assert.match(String(requestBody?.input ?? ""), /ключових думок/i);
-  assert.match(String(requestBody?.input ?? ""), /кожному змістовому пункті/i);
+  assert.match(String(requestBody?.input ?? ""), /кожному змістовному пункті/i);
   assert.match(String(requestBody?.input ?? ""), /Не виділяй жирним цілий пункт/i);
 });
 

@@ -3,7 +3,6 @@ import { computeAnchorFingerprint, type ManuscriptRevisionState } from "../edito
 import { createInlineText, getBlockText, getInlineText, type Block } from "../editor/document-model.ts";
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import type {
-  EditorialCalloutDepth,
   EditorialCalloutKind,
   EditorialReviewRecommendationType,
   EditorialVisualIntent,
@@ -13,31 +12,33 @@ import type {
   ReviewActionResponse
 } from "../editor/review-contract.ts";
 import {
-  getEditorialCalloutKindDescription,
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindTitle,
   isReplaceReviewType,
   normalizeEditorialCalloutDepth
 } from "../editor/review-contract.ts";
 import {
-  appendBulletListPunctuationRule,
-  BULLET_LIST_PUNCTUATION_RULE,
   getVisualStylePresetGuide,
-  getVisualStylePresetLabel,
   normalizeVisualStylePreset
 } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
+import {
+  buildCalloutProviderPrompt,
+  buildFallbackCalloutPrompt,
+  buildFallbackImagePrompt,
+  buildImageProviderPrompt,
+  buildReplaceProviderPrompt,
+  buildReplaceSystemPrompt,
+  buildSubsectionProviderPrompt,
+  getReviewActionErrors
+} from "../i18n/server-prompts/review-action.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const anthropicVersion = "2023-06-01";
 const requestTimeoutMs = 45000;
-const CALLOUT_DEPTH_PROMPT_GUIDANCE: Record<EditorialCalloutDepth, string> = {
-  brief: "Профіль brief / стисло: створи коротку врізку в поточному стилі.",
-  deep: "Профіль deep / докладно: зроби глибокий розбір питання у 3-6 докладних абзацах; body може бути суцільним текстом або поєднанням тексту зі списками."
-};
 
 type FetchLike = typeof fetch;
 type OpenAiResponsePayload = {
@@ -52,9 +53,6 @@ type OpenAiResponsePayload = {
   status?: string;
   incomplete_details?: { reason?: string };
 };
-CALLOUT_DEPTH_PROMPT_GUIDANCE.deep =
-  "Профіль deep / докладно: зроби глибокий розбір питання у 3-6 докладних абзацах. Активно використовуй **жирний** як інструмент структури: став короткі **якорі-підзаголовки** з 1-3 слів над окремими абзацами та виділяй **ключові думки** всередині тексту. Це не має бути суцільне полотно; якщо матеріал містить перелік кроків, причин, наслідків або прикладів, оформи одну частину як короткий список.";
-type InfographicLayout = "comparison" | "process" | "timeline" | "cause_effect" | "layers" | "diagram";
 type ReplaceProposalContentResult = {
   newBlocks: Block[];
   reason: string;
@@ -152,6 +150,8 @@ export async function generateReviewAction(
   options: GenerateReviewActionOptions = {}
 ): Promise<ReviewActionResponse> {
   const normalizedRequest = normalizeReviewActionRequest(request);
+  const locale = normalizedRequest.locale ?? "uk";
+  const actionErrors = getReviewActionErrors(locale);
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date().toISOString());
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
@@ -168,7 +168,8 @@ export async function generateReviewAction(
     normalizedRequest.document,
     normalizedRequest.currentRevision,
     normalizedRequest.item.anchor.blockIds,
-    normalizedRequest.item.anchor.fingerprint
+    normalizedRequest.item.anchor.fingerprint,
+    locale
   );
 
   if (staleReason) {
@@ -189,7 +190,7 @@ export async function generateReviewAction(
 
     if (!apiKey) {
       const proposalKind = getRequestProposalKind(normalizedRequest);
-      const error = `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env.`;
+      const error = actionErrors.missingApiKey(providerDisplayName(normalizedRequest.provider));
 
       return {
         proposal: createErrorProposal(normalizedRequest, proposalKind, error),
@@ -219,7 +220,7 @@ export async function generateReviewAction(
       };
     } catch (error) {
       const proposalKind = getRequestProposalKind(normalizedRequest);
-      const message = formatReplaceProviderErrorMessage(normalizedRequest.provider, error);
+      const message = formatReplaceProviderErrorMessage(normalizedRequest.provider, error, locale);
 
       return {
         proposal: createErrorProposal(normalizedRequest, proposalKind, message),
@@ -268,7 +269,7 @@ export async function generateReviewAction(
 
   if (!apiKey) {
     const proposalKind = getRequestProposalKind(normalizedRequest);
-    const error = `Немає API key для ${providerDisplayName(normalizedRequest.provider)} у формі або .env.`;
+    const error = actionErrors.missingApiKey(providerDisplayName(normalizedRequest.provider));
 
     return {
       proposal: createErrorProposal(normalizedRequest, proposalKind, error),
@@ -302,7 +303,7 @@ export async function generateReviewAction(
     };
   } catch (error) {
     const proposalKind = getRequestProposalKind(normalizedRequest);
-    const message = error instanceof Error ? error.message : "Не вдалося підготувати чернетку.";
+    const message = error instanceof Error ? error.message : actionErrors.genericFailure;
 
     return {
       proposal: createErrorProposal(normalizedRequest, proposalKind, message),
@@ -386,6 +387,7 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
 
   return {
     ...request,
+    locale: request.locale ?? "uk",
     document: compactDocument,
     currentRevision: compactRevision,
     item: compactItem,
@@ -404,15 +406,17 @@ function getStaleReason(
   document: ReviewActionRequest["document"],
   currentRevision: ManuscriptRevisionState,
   blockIds: string[],
-  fingerprint: string
+  fingerprint: string,
+  locale: ReviewActionRequest["locale"] = "uk"
 ): string | null {
+  const errors = getReviewActionErrors(locale ?? "uk");
   const currentFingerprint = computeAnchorFingerprint(document, blockIds);
 
   if (!blockIds.every((blockId) => currentRevision.blockOrder.includes(blockId))) {
-    return "Якір рекомендації вже не збігається з поточним документом.";
+    return errors.staleAnchorMismatch;
   }
 
-  return currentFingerprint === fingerprint ? null : "Після змін документа ця рекомендація застаріла.";
+  return currentFingerprint === fingerprint ? null : errors.staleAfterEdit;
 }
 
 function createStaleProposal(request: ReviewActionRequest, staleReason: string): ReviewActionProposal {
@@ -456,122 +460,14 @@ function createErrorProposal(
   };
 }
 
-function buildReplaceProviderPrompt(request: ReviewActionRequest): string {
-  const selectedBlocks = request.item.anchor.blockIds
-    .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
-    .filter((block): block is Block => Boolean(block));
-  const blockCount = selectedBlocks.length;
-  const emphasisStep = request.item.stepId === "emphasis";
-  const shouldUseEditorialBold =
-    !emphasisStep &&
-    (request.item.recommendationType === "rewrite" ||
-      request.item.recommendationType === "simplify" ||
-      request.item.recommendationType === "expand");
-
-  if (request.item.recommendationType === "list") {
-    return [
-      `Перетвори ${blockCount} вибраних блоків на короткий, читабельний список без нових фактів.`,
-      "Поверни лише JSON без іншого markdown, окрім дозволеного **жирного** у items.",
-      'Схема: {"items":["..."]}.',
-      "items: 2-7 коротких пунктів plain text без маркерів; активно використовуй **жирний** для коротких назв або ключових думок у пунктах; сервер сам збере bullet list.",
-      "У кожному змістовому пункті має бути 1 короткий **жирний** акцент на назві, причині, наслідку або ключовому терміні; у довгому пункті можна 2 акценти.",
-      "Не використовуй #, ##, HTML-заголовки або інший markdown. Не виділяй жирним цілий пункт.",
-      "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
-      `Редакторська рекомендація: ${request.item.recommendation}`,
-      `Причина: ${request.item.reason}`,
-      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
-      "Вибрані блоки:",
-      selectedBlocks.map((block, index) => `[${index + 1}] (${block.type}) ${getBlockText(block)}`).join("\n")
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  return [
-    getReplaceTextInstruction(request.item.recommendationType, blockCount, request.item.stepId),
-    "Редакторська рекомендація описує намір правки, а не текст, який треба буквально вставити.",
-    "Пріоритет: перепиши саме вибрані блоки. Якщо рекомендація ширша за локальний фрагмент, адаптуй лише локальне формулювання.",
-    "Якщо вибраний блок є коротким вступом або lead-in фразою, редагуй саме цю lead-in фразу, не вигадуй відсутній сусідній текст.",
-    "Не додавай загальних пересторог, медичних дисклеймерів, порад звернутися до лікаря, фраз про самодіагностику або консультацію, якщо цього немає в оригіналі і це не є прямою метою рекомендації.",
-    "Якщо джерело є переліком, серією коротких тверджень або ритмічним списком, збережи цю scan-friendly структуру; не перетворюй кожен пункт на розлогий абзац.",
-    "Якщо редактор просить форму вірша, 4 рядки, строфу або короткі рядки, дозволено повертати внутрішні переноси рядка через символ \\n всередині одного replacement string; сервер збереже їх у межах одного блока.",
-    shouldUseEditorialBold
-      ? "Для rewrite/simplify/expand активно використовуй **жирний** як редакторський інструмент: виділяй **ключові думки** короткими фразами і, якщо у replacement є короткий заголовок або label-line, оформлюй його жирним, наприклад **Чому це важливо**."
-      : null,
-    shouldUseEditorialBold
-      ? "Кожен змістовий абзац або replacement block має містити принаймні 1 короткий **жирний** акцент; якщо абзац довгий або містить кілька окремих тез, зроби 2-3 короткі акценти. Не залишай абзац без акценту, якщо в ньому є причина, наслідок, визначення, висновок або важливий термін."
-      : null,
-    shouldUseEditorialBold
-      ? "Не використовуй #, ##, HTML-заголовки або інший markdown. Заголовки в replacement оформлюй тільки через короткий рядок із **жирним** текстом."
-      : null,
-    emphasisStep
-      ? "Для кроку «Акценти» заборонено переписувати зміст. Поверни той самий текст, але за потреби додай лише 1-2 короткі **жирні** акценти на ключових фразах."
-      : null,
-    emphasisStep
-      ? "Не виділяй ціле речення, більшу частину абзацу, перший рядок заголовка або випадкові декоративні слова. Акцент має підсвічувати тезу, а не шуміти."
-      : null,
-    "Поверни лише JSON без іншого markdown, окрім дозволеного **жирного** у replacement strings.",
-    `Схема: {"replacements":["..."]}. replacements має містити рівно ${blockCount} рядків plain text у тому самому порядку, що й вибрані блоки.`,
-    `Редакторська рекомендація: ${request.item.recommendation}`,
-    `Причина: ${request.item.reason}`,
-    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
-    "Вибрані блоки:",
-    selectedBlocks.map((block, index) => `[${index + 1}] (${block.type}) ${getBlockText(block)}`).join("\n")
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function getReplaceTextInstruction(
-  type: EditorialReviewRecommendationType,
-  blockCount: number,
-  stepId?: ReviewActionRequest["item"]["stepId"]
-): string {
-  if (stepId === "emphasis") {
-    return `Підготуй ${blockCount} вибраних блоків для режиму смислових акцентів: не змінюй зміст і формулювання без потреби, а лише точково додай 1-2 короткі **жирні** акценти там, де це справді допомагає скануванню.`;
-  }
-
-  if (type === "simplify") {
-    return `Спрости ${blockCount} вибраних блоків для широкого читача без втрати змісту і без нових фактів.`;
-  }
-
-  if (type === "expand") {
-    return `Локально розгорни ${blockCount} вибраних блоків, додай ясності та зв'язності без нових фактів.`;
-  }
-
-  return `Локально перепиши ${blockCount} вибраних блоків ясніше, природніше і спокійніше без зміни фактичного змісту.`;
-}
-
-function buildReplaceSystemPrompt(request: ReviewActionRequest): string {
-  return [
-    appendBulletListPunctuationRule(request.basePrompt),
-    request.reviewLevelGuide?.trim(),
-    "Ти готуєш локальну block-first заміну вибраних блоків українського рукопису.",
-    getReplaceModeGuardrail(request.item.recommendationType),
-    request.item.stepId === "emphasis"
-      ? "Єдиний дозволений формат акценту — рідкісне **жирне** виділення коротких фраз. Не використовуй інший markdown і не перетворюй завдання на повне переписування."
-      : null,
-    "Відповідь має бути короткою, редакторською і строго в межах JSON-схеми."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function getReplaceModeGuardrail(type: EditorialReviewRecommendationType): string | null {
-  if (type !== "rewrite" && type !== "simplify" && type !== "expand") {
-    return null;
-  }
-
-  return "Не перетворюй локальну редактуру на safety-боілерплейт: не додавай шаблонних медичних застережень, порад звернутися до лікаря, фраз про самодіагностику, «варто перевірити стан» або повторюваних пересторог, якщо цього немає в джерелі і цього прямо не вимагає рекомендація.";
-}
-
 async function createReplaceProposalContent(
   request: ReviewActionRequest,
   apiKey: string,
   fetchImpl: FetchLike
 ): Promise<ReplaceProposalContentResult> {
-  const systemPrompt = buildReplaceSystemPrompt(request);
-  const prompt = buildReplaceProviderPrompt(request);
+  const locale = request.locale ?? "uk";
+  const systemPrompt = buildReplaceSystemPrompt(locale, request);
+  const prompt = buildReplaceProviderPrompt(locale, request);
   const rawOutput =
     request.provider === "gemini"
       ? await runGeminiStructuredReplacePrompt(request, apiKey, systemPrompt, prompt, fetchImpl)
@@ -649,16 +545,18 @@ function getReplaceOldBlocks(request: ReviewActionRequest): Block[] {
     .filter((block): block is Block => Boolean(block));
 }
 
-function formatReplaceProviderErrorMessage(provider: string, error: unknown): string {
+function formatReplaceProviderErrorMessage(provider: string, error: unknown, locale: ReviewActionRequest["locale"] = "uk"): string {
+  const errors = getReviewActionErrors(locale ?? "uk");
+
   if (error instanceof Error && error.name === "AbortError") {
-    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с.`;
+    return errors.providerTimeout(providerDisplayName(provider), Math.round(requestTimeoutMs / 1000));
   }
 
   if (error instanceof Error) {
     return error.message;
   }
 
-  return `${providerDisplayName(provider)} недоступний.`;
+  return errors.providerUnavailable(providerDisplayName(provider));
 }
 
 function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provider: string): string {
@@ -666,6 +564,7 @@ function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provide
 }
 
 function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
+  const locale = request.locale ?? "uk";
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
   const calloutKind: EditorialCalloutKind = request.item.calloutKind ?? "mechanism";
   const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth);
@@ -682,8 +581,8 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
     calloutDraft: {
       calloutKind,
       calloutDepth,
-      title: getEditorialCalloutKindTitle(calloutKind),
-      prompt: buildFallbackCalloutPrompt(calloutKind, calloutDepth, excerpt, request.item.recommendation),
+      title: locale === "en" ? getEditorialCalloutKindLabel(calloutKind, locale) : getEditorialCalloutKindTitle(calloutKind),
+      prompt: buildFallbackCalloutPrompt(locale, calloutKind, calloutDepth, excerpt, request.item.recommendation),
       previewText: normalizeCalloutBodyByKind(excerpt.slice(0, fallbackLength), calloutKind)
     }
   };
@@ -714,9 +613,10 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
 }
 
 function createFallbackImagePromptProposal(request: ReviewActionRequest): ReviewActionProposal {
+  const locale = request.locale ?? "uk";
   const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
-  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
+  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
   const visualIntent = request.item.visualIntent ?? "infographic";
 
   return {
@@ -730,7 +630,7 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     imageDraft: {
       visualIntent,
       visualStylePreset,
-      prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
+      prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
       alt: request.item.title,
       caption: "",
       targetModel: "gemini-3.1-flash-image-preview"
@@ -750,9 +650,10 @@ async function createCalloutProposal(
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const calloutKind = request.item.calloutKind ?? "mechanism";
+  const locale = request.locale ?? "uk";
   const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth);
   const parsed = parseCalloutDraftOutput(result, {
-    title: request.item.calloutDraft?.title ?? getEditorialCalloutKindTitle(calloutKind),
+    title: request.item.calloutDraft?.title ?? (locale === "en" ? getEditorialCalloutKindLabel(calloutKind, locale) : getEditorialCalloutKindTitle(calloutKind)),
     body: request.item.calloutDraft?.previewText ?? request.item.anchor.excerpt.slice(0, calloutDepth === "deep" ? 1200 : 220)
   }, calloutKind);
 
@@ -820,9 +721,10 @@ async function createImagePromptProposal(
   fetchImpl: FetchLike
 ): Promise<{ proposal: ReviewActionProposal; providerUsed: string; rawOutput?: string }> {
   const prompt = buildProviderPrompt(request, "image");
+  const locale = request.locale ?? "uk";
   const excerpt = getRequestExcerpt(request);
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
-  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
+  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
   const visualIntent = request.item.visualIntent ?? "infographic";
   const result = request.provider === "gemini"
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
@@ -830,7 +732,7 @@ async function createImagePromptProposal(
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
   const parsed = parseImageDraftOutput(result, {
-    prompt: buildFallbackImagePrompt(excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
+    prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
     caption: "",
     alt: request.item.title
   });
@@ -859,295 +761,36 @@ async function createImagePromptProposal(
 }
 
 function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "image" | "subsection"): string {
+  const locale = request.locale ?? "uk";
   const excerpt = getRequestExcerpt(request);
 
   if (mode === "callout") {
-    const calloutKind = request.item.calloutKind ?? "mechanism";
-    const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth);
-    const template = appendBulletListPunctuationRule(interpolatePromptTemplate(request.calloutPromptTemplate?.trim(), {
-      calloutKindLabel: getEditorialCalloutKindLabel(calloutKind),
-      calloutDepth,
-      calloutDepthLabel: calloutDepth === "deep" ? "Докладно" : "Стисло",
-      fragment: excerpt,
-      recommendation: request.item.recommendation
-    }));
-
-    return [
-      template,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutKindLabel") ? null : `Тип врізки: ${getEditorialCalloutKindLabel(calloutKind)}`,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutDepth") ? null : `Глибина врізки: ${calloutDepth}.`,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "calloutDepthLabel") ? null : `Профіль глибини: ${calloutDepth === "deep" ? "Докладно" : "Стисло"}.`,
-      CALLOUT_DEPTH_PROMPT_GUIDANCE[calloutDepth],
-      `Що означає цей тип: ${getEditorialCalloutKindDescription(calloutKind)}`,
-      `Додаткове правило для типу: ${getCalloutKindGuardrail(calloutKind)}`,
-      calloutKind === "top_list"
-        ? "Для top_list: body має містити 3-5 рядків; кожен рядок у форматі «Назва (1-2 слова): пояснення (1 речення)»."
-        : null,
-      calloutKind === "top_list"
-        ? "Зберігай multi-line структуру: один пункт = один рядок, не склеюй усе в один абзац."
-        : null,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
-      templateContainsPlaceholder(request.calloutPromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
-      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
-      "Формат відповіді: поверни лише JSON-об'єкт без іншого markdown, окрім дозволеного **жирного** і простих списків у body.",
-      "Схема JSON: {\"title\":\"...\",\"body\":\"...\"}.",
-      "title: короткий заголовок врізки (1 рядок, plain text).",
-      calloutDepth === "deep"
-        ? "body: глибокий розбір у 3-6 докладних абзацах; не роби його суцільним полотном. Для deep активно використовуй **жирний**: став короткі **якорі-підзаголовки** з 1-3 слів окремим рядком перед частиною абзаців і виділяй **ключові думки** всередині тексту."
-        : "body: короткий основний текст врізки для block editor.",
-      calloutDepth === "deep"
-        ? "У кожному змістовому абзаці body має бути принаймні 1 короткий **жирний** акцент; у довгих абзацах або абзацах із кількома тезами зроби 2-3 акценти."
-        : "Якщо body містить більше одного речення, виділи 1 коротку ключову думку через **жирний**.",
-      calloutDepth === "deep"
-        ? "Якщо у фрагменті є природне перерахування причин, наслідків, кроків або проявів, обов'язково оформи одну частину body як короткий список на 3-5 пунктів, кожен в один рядок, без вкладених списків."
-        : null,
-      calloutDepth === "deep"
-        ? "Не використовуй #, ## або HTML-заголовки. Підзаголовок у deep-callout - це окремий короткий рядок у форматі **Чому це важливо** або **Що змінюється**."
-        : null,
-      "У body використовуй лише контрольований **жирний** для коротких змістових акцентів і прості bullet/numbered списки; інший markdown не додавай."
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    return buildCalloutProviderPrompt(locale, {
+      excerpt,
+      calloutKind: request.item.calloutKind ?? "mechanism",
+      calloutDepth: normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth),
+      recommendation: request.item.recommendation,
+      editorialInstruction: request.editorialInstruction,
+      calloutPromptTemplate: request.calloutPromptTemplate
+    });
   }
 
   if (mode === "subsection") {
-    return [
-      "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
-      BULLET_LIST_PUNCTUATION_RULE,
-      "Поверни лише JSON-об'єкт без іншого markdown: {\"title\":\"...\"}.",
-      "title: готовий короткий і точний H3-підзаголовок для вставки в рукопис (plain text, один рядок).",
-      "Не повертай lead, вступ, пояснення, редакторський коментар або опис ролі фрагмента.",
-      "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
-      `Рекомендація: ${request.item.recommendation}`,
-      request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
-      `Фрагмент: ${excerpt}`
-    ].join("\n\n");
+    return buildSubsectionProviderPrompt(locale, {
+      excerpt,
+      recommendation: request.item.recommendation,
+      editorialInstruction: request.editorialInstruction
+    });
   }
 
-  const visualIntent = request.item.visualIntent ?? "infographic";
-  const inferredInfographicLayout = visualIntent === "infographic"
-    ? inferInfographicLayout(excerpt, request.item.recommendation)
-    : null;
-  const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
-  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset);
-  const template = interpolatePromptTemplate(request.imagePromptTemplate?.trim(), {
-    visualIntent,
-    visualStyleGuide,
-    fragment: excerpt,
-    recommendation: request.item.recommendation
+  return buildImageProviderPrompt(locale, {
+    excerpt,
+    recommendation: request.item.recommendation,
+    visualIntent: request.item.visualIntent ?? "infographic",
+    visualStylePreset: normalizeVisualStylePreset(request.visualStylePreset),
+    editorialInstruction: request.editorialInstruction,
+    imagePromptTemplate: request.imagePromptTemplate
   });
-
-  return [
-    template,
-    templateContainsPlaceholder(request.imagePromptTemplate, "fragment") ? null : `Фрагмент: ${excerpt}`,
-    templateContainsPlaceholder(request.imagePromptTemplate, "recommendation") ? null : `Рекомендація: ${request.item.recommendation}`,
-    request.editorialInstruction?.trim() ? `Додаткова вказівка редактора: ${request.editorialInstruction.trim()}` : null,
-    templateContainsPlaceholder(request.imagePromptTemplate, "visualIntent") ? null : `Тип візуалу: ${visualIntent}`,
-    inferredInfographicLayout ? `Автовибраний формат інфографіки: ${getInfographicLayoutLabel(inferredInfographicLayout)}.` : null,
-    templateContainsPlaceholder(request.imagePromptTemplate, "visualStyleGuide")
-      ? null
-      : `Обраний стиль (${getVisualStylePresetLabel(visualStylePreset)}): ${visualStyleGuide}`,
-    `Додаткова вказівка щодо типу візуалу: ${getVisualIntentPromptGuidance(visualIntent, excerpt, request.item.recommendation)}`,
-    "Формат відповіді: поверни рівно один готовий image prompt у plain text (один цілісний блок).",
-    "Не повертай JSON, markdown, нумерацію, секції або службові пояснення.",
-    "Поверни текст тільки українською мовою."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function interpolatePromptTemplate(template: string | undefined, replacements: Record<string, string>): string {
-  if (!template?.trim()) {
-    return "";
-  }
-
-  return Object.entries(replacements).reduce(
-    (result, [key, value]) => result.replaceAll(`{{${key}}}`, value.trim()),
-    template.trim()
-  );
-}
-
-function templateContainsPlaceholder(template: string | undefined, key: string): boolean {
-  return template?.includes(`{{${key}}}`) ?? false;
-}
-
-function getVisualIntentPromptGuidance(
-  visualIntent: EditorialVisualIntent,
-  fragment: string,
-  recommendation: string
-): string {
-  if (visualIntent === "illustration") {
-    return "Побудуй одну цілісну пояснювальну ілюстрацію або сцену без табличної сітки; головну ідею передай через композиційний центр, 1-2 ключові об'єкти й чіткий візуальний акцент.";
-  }
-
-  const layout = inferInfographicLayout(fragment, recommendation);
-  return `Це інфографіка. Автовибраний формат: ${getInfographicLayoutLabel(layout)}. ${getInfographicLayoutGuidance(layout)}`;
-}
-
-function inferInfographicLayout(fragment: string, recommendation: string): InfographicLayout {
-  const source = `${fragment} ${recommendation}`.toLowerCase();
-
-  if (/(порівня|відмін|різниц|vs|versus|до\/після|before\/after|проти)/i.test(source)) {
-    return "comparison";
-  }
-
-  if (/(таймлайн|хронолог|у часі|по роках|рок[ауів]?|місяц|тижд|дн(і|я)|фаза)/i.test(source)) {
-    return "timeline";
-  }
-
-  if (/(крок|послідов|процес|етап|спочатку|далі|потім|шлях)/i.test(source)) {
-    return "process";
-  }
-
-  if (/(причин|наслід|вплив|веде до|виклика|залеж|вісь|cause|effect)/i.test(source)) {
-    return "cause_effect";
-  }
-
-  if (/(шар|зріз|рівень|епідерм|дерм|бар[’']?єр|мембран|структур)/i.test(source)) {
-    return "layers";
-  }
-
-  return "diagram";
-}
-
-function getInfographicLayoutLabel(layout: InfographicLayout): string {
-  switch (layout) {
-    case "comparison":
-      return "порівняння";
-    case "process":
-      return "процес";
-    case "timeline":
-      return "таймлайн";
-    case "cause_effect":
-      return "причина → наслідок";
-    case "layers":
-      return "шари / зріз";
-    case "diagram":
-    default:
-      return "схема зв'язків";
-  }
-}
-
-function getInfographicLayoutGuidance(layout: InfographicLayout): string {
-  switch (layout) {
-    case "comparison":
-      return "Побудуй симетричне порівняння 2 або більше станів в одному масштабі з узгодженими ракурсами та одразу видимою відмінністю.";
-    case "process":
-      return "Покажи послідовність кроків або фаз у правильному напрямку; перехід між етапами має читатися з першого погляду.";
-    case "timeline":
-      return "Побудуй лінію часу з чітким напрямком і короткими етапами без сюжетного шуму.";
-    case "cause_effect":
-      return "Покажи причинно-наслідковий ланцюг із явними зв'язками між тригером, передачею сигналу й результатом.";
-    case "layers":
-      return "Покажи шари або зріз структури з чітким розмежуванням рівнів і мінімумом декоративних деталей.";
-    case "diagram":
-    default:
-      return "Покажи схему з чіткими відношеннями між елементами; головне має зчитуватися через форму, розташування і підписи.";
-  }
-}
-
-function buildReplacePromptByType(
-  type: EditorialReviewRecommendationType,
-  blockCount: number,
-  stepId?: ReviewActionRequest["item"]["stepId"]
-): string {
-  const shared = [
-    "Формат результату: лише повна заміна вибраних блоків у форматі block editor.",
-    "Використовуй лише контрольований акцент через **жирний** на ключових словах або дуже коротких фразах; інший markdown не додавай.",
-    "Кожен змістовий абзац або replacement block має містити принаймні 1 короткий **жирний** акцент; якщо абзац довгий або містить кілька окремих тез, зроби 2-3 короткі акценти.",
-    "Не залишай абзац без акценту, якщо в ньому є причина, наслідок, визначення, висновок, контраст або важливий термін.",
-    "Жирний використовуй змістовно: не виділяй цілі речення, абзаци або кожен пункт списку.",
-    "Система застосовує правки цілими блоками; не пропонуй часткових змін усередині абзацу.",
-    "Не додавай нових фактів.",
-    "Не додавай службових пересторог, моралізаторства або повторюваних застережень, яких не було у джерелі.",
-    "Зміни мають бути відчутними на рівні формулювань, а не косметичними.",
-    "Не повторюй вихідний текст дослівно.",
-    "Міняй синтаксис і лексику: перероби структуру речень, не обмежуйся дрібними підстановками слів."
-  ];
-
-  if (stepId === "emphasis") {
-    return [
-      "Тип правки: emphasis.",
-      "Не переписуй абзац заново і не змінюй фактичний зміст.",
-      "Твоє завдання: залишити текст максимально близьким до оригіналу, але зробити 1-2 короткі смислові акценти через **жирний**.",
-      "Не виділяй цілі речення, початок абзацу без причини, більшу частину блока або випадкові прикметники.",
-      "Якщо сильного акценту немає, краще поверни майже той самий текст без декоративних змін.",
-      `Поверни рівно ${blockCount} replacement blocks.`
-    ]
-      .concat(shared)
-      .join("\n");
-  }
-
-  if (type === "simplify") {
-    return [
-      "Тип правки: simplify.",
-      "Спрости формулювання для широкого читача без втрати змісту.",
-      "Ключові думки необхідно виділяти **жирним** короткими фразами, щоб читач швидше схоплював головне.",
-      "Якщо спрощення додає короткий локальний заголовок або label-line, оформи його тільки як **жирний** рядок із 1-3 слів, без #, ## або HTML-заголовків.",
-      "Пояснюй терміни простими словами, скорочуй перевантажені конструкції, прибирай кальки й мовні огріхи.",
-      "Прибери канцеляризми, складні звороти та зайві вставні конструкції; кожне речення має стати простішим за оригінал.",
-      "Якщо треба знизити категоричність, роби це локально через формулювання, а не через додані поради чи дисклеймери.",
-      `Поверни рівно ${blockCount} replacement blocks.`
-    ]
-      .concat(shared)
-      .join("\n");
-  }
-
-  if (type === "expand") {
-    return [
-      "Тип правки: expand.",
-      "Додай пояснювальні зв'язки і зроби фрагмент яснішим, але без нових фактів.",
-      "Ключові думки необхідно виділяти **жирним** короткими фразами, щоб розгорнутий фрагмент добре сканувався.",
-      "Якщо розгортання додає короткий локальний заголовок або label-line, оформи його тільки як **жирний** рядок із 1-3 слів, без #, ## або HTML-заголовків.",
-      "Додавай лише ті пояснювальні зв'язки, які випливають із наявного тексту; не вставляй загальні перестороги замість пояснення.",
-      `Поверни рівно ${blockCount} replacement blocks.`
-    ]
-      .concat(shared)
-      .join("\n");
-  }
-
-  if (type === "list") {
-    return [
-      "Тип правки: list.",
-      "Переформатуй зміст у list block, коли є дискретні пункти.",
-      "Кожен пункт роби у форматі «Назва: пояснення», де назва коротка (1-2 слова).",
-      "Короткі назви або ключові думки в пунктах можна виділяти **жирним**, але не виділяй жирним увесь пункт.",
-      "Кожен змістовий пункт має мати 1 короткий **жирний** акцент; у довгому пункті можна 2 акценти.",
-      "Не використовуй #, ## або HTML-заголовки; заголовковість передавай лише короткою **жирною** назвою всередині пункту.",
-      `Поверни від 1 до ${blockCount} replacement blocks; ніколи не перевищуй кількість вибраних блоків.`
-    ]
-      .concat(shared)
-      .join("\n");
-  }
-
-  return [
-    "Тип правки: rewrite.",
-    "Перепиши фрагмент ясніше і сильніше стилістично без зміни фактичного змісту.",
-    "Ключові думки необхідно виділяти **жирним** короткими фразами, щоб текст став краще сканованим.",
-    "Якщо у переписаному фрагменті з'являється короткий локальний заголовок або label-line, оформи його тільки як **жирний** рядок із 1-3 слів, без #, ## або HTML-заголовків.",
-    "Перебудуй синтаксис і лексику так, щоб текст читався інакше та легше.",
-    "Якщо треба пом'якшити категоричність, перепиши саму тезу спокійніше й точніше, а не додавай типові застереження про консультацію чи самодіагностику.",
-    "Уникай перефразування на 1-2 слова; потрібна помітна редакторська різниця в кожному блоці.",
-    `Поверни рівно ${blockCount} replacement blocks.`
-  ]
-    .concat(shared)
-    .join("\n");
-}
-
-function getCalloutKindGuardrail(kind: EditorialCalloutKind): string {
-  if (kind === "analogy") {
-    return "Явно познач, що це аналогія; не подавай аналогію як буквальний факт.";
-  }
-
-  if (kind === "myths_vs_truth") {
-    return "Додавай лише пари «Міф/Правда», які прямо випливають із фрагмента; не вигадуй тверджень.";
-  }
-
-  if (kind === "top_list") {
-    return "Подавай 3-5 пунктів у multi-line форматі «Назва: пояснення»; працюй лише з фактами фрагмента і не вигадуй нові джерела.";
-  }
-
-  return "Залишайся в межах фрагмента без вигаданих фактів чи діагнозів.";
 }
 
 function constrainReplaceProposalOperation(
@@ -1972,33 +1615,6 @@ async function runAnthropicTextPrompt(modelId: string, apiKey: string, prompt: s
   }
 }
 
-function buildFallbackCalloutPrompt(kind: EditorialCalloutKind, depth: EditorialCalloutDepth, fragment: string, recommendation: string): string {
-  return [
-    `Тип врізки: ${getEditorialCalloutKindLabel(kind)}.`,
-    `Глибина врізки: ${depth === "deep" ? "deep / докладно" : "brief / стисло"}.`,
-    CALLOUT_DEPTH_PROMPT_GUIDANCE[depth],
-    `Фрагмент: ${fragment}`,
-    `Рекомендація: ${recommendation}`,
-    "Поверни plain text для block editor; можна використовувати контрольований **жирний** для коротких змістових акцентів, а для deep також прості списки."
-  ].join("\n");
-}
-
-function buildFallbackImagePrompt(
-  fragment: string,
-  recommendation: string,
-  visualIntent: EditorialVisualIntent,
-  visualStyleGuide: string
-): string {
-  return [
-    "Створи простий навчальний візуал українською мовою.",
-    getVisualIntentPromptGuidance(visualIntent, fragment, recommendation),
-    `Стиль: ${visualStyleGuide}`,
-    `Спирайся тільки на цей фрагмент: ${fragment}`,
-    `Редакторська ціль: ${recommendation}`,
-    "Без фотореалізму, зайвого декору, медичних кліше та вигаданих фактів."
-  ].join(" ");
-}
-
 function providerDisplayName(provider: string): string {
   if (provider === "gemini") {
     return "Gemini";
@@ -2349,3 +1965,5 @@ function getRequestExcerpt(request: ReviewActionRequest): string {
     request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n")
   );
 }
+
+

@@ -12,6 +12,162 @@ The user-visible outcome is that an editor can choose Ukrainian or English in Se
 
 This is not a manuscript translation feature. The English edition edits English manuscripts in English. A future cross-language translation workflow should be planned separately.
 
+## Milestones
+
+### Milestone 1: Locale Foundation And Decisions
+
+Status: Done.
+
+This milestone establishes the product-language architecture without changing the core editor workflow. It adds the two supported app locales (`uk`, `en`), central locale configuration, copy catalogs, and durable product decisions for same-repo localization, runtime language switching, locale-scoped storage, and English spellcheck scope.
+
+Done:
+- [x] Chose one same-repo app instead of cloning the repository for English.
+- [x] Added the locale foundation under `apps/web/lib/i18n/`.
+- [x] Added `ProductLocaleProvider` so the app can read and switch the active locale at runtime.
+- [x] Added locale copy catalogs for initial high-traffic app copy.
+- [x] Recorded durable decisions in `docs/DECISIONS_LOG.md`.
+
+Proof:
+- `apps/web/lib/i18n/product-locale.ts` defines locale config, storage key helpers, display locale, spellcheck language, DOCX language, and default filename base.
+- `apps/web/components/providers/ProductLocaleProvider.tsx` wraps the app and persists the active locale.
+
+### Milestone 2: Locale-Scoped Settings, Prompts, And Storage Keys
+
+Status: Done.
+
+This milestone makes user-editable settings and default editorial prompts locale-aware, while preserving Ukrainian legacy settings. English defaults are for editing English science-pop and medical-pop manuscripts, not translating Ukrainian manuscripts.
+
+Done:
+- [x] Split default editor settings and prompt defaults by locale.
+- [x] Added locale-scoped settings storage.
+- [x] Added locale-scoped draft, visual style, asset, and spellcheck dictionary key helpers.
+- [x] Preserved legacy Ukrainian settings/draft compatibility.
+- [x] Added the Settings language selector and persisted active locale behavior.
+
+Proof:
+- `apps/web/lib/editor/settings.ts` exposes `getDefaultEditorSettings(locale)`, `readEditorSettings(locale)`, and `writeEditorSettings(settings, locale)`.
+- Settings can store Ukrainian and English custom prompt templates separately.
+
+### Milestone 3: High-Traffic UI Localization
+
+Status: Done.
+
+Done:
+- [x] Localized the Settings language-switch copy.
+- [x] Localized login/top-bar copy.
+- [x] Localized several workflow/UI helper labels and primary action surfaces.
+- [x] Localized some local-action router labels and English keyword detection.
+- [x] Added centralized `editor-messages` uk/en catalogs and attached them to `ProductCopy`.
+- [x] Wired workflow step labels/summaries, step workspace status messages, emphasis/spellcheck status chips, disabled-run reasons, destructive clear panel, review feedback builder, and floating composer mode tabs through locale copy.
+- [x] Finished `/editor` prototype-shell JSX sweep: fact-check table, spellcheck/emphasis panels, global replace, compare dialog, step settings, card stats, toasts, export feedback, and spellcheck summary builders.
+- [x] Localized `FloatingComposerPanel`, `BlockEditorSurface`, and `EditorialReviewCard` through `editor-messages`.
+- [x] Localized Settings page UI chrome (connection, prompts, validation messages, workflow step selector).
+- [x] Localized `ReviewRecommendationDetail`, `EditorialReviewDrawer`, `RightOperationsRail`, `ReviewRecommendationsSidebar`, and TopBar hotkeys through `editor-messages` `reviewDetail` / `reviewDrawer` / `reviewRail` / `reviewSidebar`.
+- [x] Passed `npm run typecheck -w @orest/web` and full `npm run test -w @orest/web` (215/215) after this pass.
+
+- [x] Localized `BlockDiffOverlay`, `OperationCard`, `VisualSelectionControls`, and `Button` loading label.
+- [x] Browser QA: English settings page and editor shell verified 2026-06-29.
+
+### Milestone 4: Review Contracts, Stable Internal Data, And Display Labels
+
+Status: Done.
+
+This milestone keeps provider/data contracts stable while localizing display labels and normalizing legacy localized values. Internal enums should remain language-neutral (`rewrite`, `simplify`, `ok`, `questionable`, `unsupported`, etc.).
+
+Done:
+- [x] Migrated fact-check statuses to stable internal values (`ok`, `questionable`, `unsupported`).
+- [x] Added localized helpers for paragraph labels and several review/callout/visual display labels.
+- [x] Added English paragraph-reference parsing support for forms like `para.`, `paragraph`, and `p.` where current review normalization needs it.
+- [x] Kept structured output enums stable.
+- [x] Localized compact review card labels/status chips in `EditorialReviewCard`.
+- [x] Added optional `locale` to `getEditorialRecommendationTypeLabel`, `getEditorialCalloutKindDescription`, `getEditorialCalloutDepthDescription`, and exported `getCalloutKindGuardrail`.
+- [x] Wired localized review-detail/drawer/rail copy in layout components.
+
+### Milestone 5: Runtime Editor Locale Wiring
+
+Status: Done.
+
+This milestone ensures the live `/editor` runtime actually consumes the locale foundation instead of only exposing helper APIs. The editor keeps the current manuscript visible during a language switch and clears locale-bound analysis state.
+
+Done:
+- [x] `/editor` reads settings with the active locale.
+- [x] `/editor` writes drafts with the active locale.
+- [x] `/editor` stores visual style preference with the active locale.
+- [x] Patch, review, proposal, image, spellcheck, and local-action requests include `locale`.
+- [x] DOCX/TXT export uses the active locale for metadata and filenames.
+- [x] Locale switches clear review/spellcheck/history/feedback derived state while preserving the visible manuscript.
+- [x] Added locale epoch guards so stale patch, spellcheck, local-action, proposal, review-job, and image-generation results cannot apply after a language switch.
+
+Proof:
+- `npm run typecheck -w @orest/web` passed on 2026-06-29.
+- Focused runtime/localization suite passed on 2026-06-29:
+
+      node --import tsx --test apps/web/test/settings.test.ts apps/web/test/draft-state.test.ts apps/web/test/docx-export.test.ts apps/web/test/spellcheck-route.test.ts apps/web/test/spellcheck-service.test.ts apps/web/test/spellcheck-dictionary.test.ts apps/web/test/local-action-router.test.ts apps/web/test/review-job-service.test.ts apps/web/test/review-image-job-service.test.ts apps/web/test/review-service.test.ts apps/web/test/review-action-service.test.ts
+
+- [x] `ProductLocaleProvider` initializes from `readActiveAppLocale()` on client.
+
+### Milestone 6: Spellcheck English Edition
+
+Status: Done.
+
+This milestone makes manual spelling/grammar checks use the selected product locale and isolates ignored-word dictionaries by language.
+
+Done:
+- [x] `SpellcheckLanguage` supports `uk-UA` and `en-US`.
+- [x] Spellcheck route validation accepts only the supported locale/language pair.
+- [x] `/editor` sends `uk-UA` in Ukrainian mode and `en-US` in English mode.
+- [x] Spellcheck dictionary normalization uses the locale display language.
+- [x] IndexedDB spellcheck dictionaries are locale-scoped.
+- [x] Ukrainian legacy dictionary entries migrate into the Ukrainian locale DB on first read.
+- [x] Added dictionary isolation tests.
+
+Proof:
+- `apps/web/test/spellcheck-dictionary.test.ts` covers Ukrainian normalization, English normalization, and per-locale IndexedDB isolation.
+- Spellcheck route/service tests passed in the focused suite.
+
+- [x] Spellcheck UI copy localized through `editor-messages`.
+
+### Milestone 7: Server Prompt Localization And Fail-Loud AI Behavior
+
+Status: Done.
+
+Done:
+- [x] Patch and review paths now fail loud on missing keys/provider errors instead of returning synthetic successful AI content.
+- [x] Review/proposal/image request contracts can carry `locale`.
+- [x] `patch-service.ts` builds system/user prompts from `apps/web/lib/i18n/server-prompts/patch.ts` by request locale.
+- [x] `review-service.ts` now uses `apps/web/lib/i18n/server-prompts/review.ts` for step specs, system/user prompt scaffolding, localized errors, OpenAI fact-check schema enums, Anthropic suffixes, and Gemini grounded fact-check suffixes.
+- [x] `review-action-service.ts` replace-text prompts use `apps/web/lib/i18n/server-prompts/review-action.ts` with `request.locale ?? "uk"`.
+- [x] Added `apps/web/test/review-prompts.test.ts` asserting English OpenAI review/replace prompts exclude Cyrillic scaffolding.
+
+- [x] Callout/subsection/image prompts, fact-check instructions, error helpers; 219 tests pass.
+
+### Milestone 8: Async Job Locale Safety
+
+Status: Done.
+
+This milestone prevents background work started in one language from rehydrating visible state into another language.
+
+Done:
+- [x] Review jobs store and expose `locale`.
+- [x] Image jobs store and expose `locale`.
+- [x] Client review job polling rejects responses whose public job locale no longer matches the active app locale.
+- [x] Non-job editor requests use locale epoch guards to reject stale results after a switch.
+
+Proof:
+- Review job and image job tests passed in the focused suite.
+- A 2026-06-29 plan-implement subagent specifically reviewed stale locale risks; the accepted findings were fixed.
+
+### Milestone 9: Final Verification And Release Readiness
+
+Status: Done.
+
+Done:
+- [x] `npm run typecheck -w @orest/web` and `npm run test -w @orest/web` (219/219).
+- [x] English settings + editor browser QA; uk↔en switch verified.
+- [x] Docs updated.
+
+Deferred (non-blocking): live spellcheck network capture, fail-loud UI click-through, in-flight locale-switch stress test.
+
 ## Progress
 
 - [x] (2026-06-24 23:26-04:00) Read `docs/CURRENT_STATE.md`, `PLANS.md`, archived `docs/plans/archive/PRD_V1.md`, and the relevant app/server/editor modules.
@@ -25,6 +181,37 @@ This is not a manuscript translation feature. The English edition edits English 
 - [x] (2026-06-25) Wired locale-aware LanguageTool selection, locale-aware DOCX export metadata/default filename, locale-aware workflow labels, and stable internal fact-check statuses.
 - [x] (2026-06-25) Kept provider failures fail-loud in patch/review paths and removed fallback expectations from the test surface.
 - [x] (2026-06-25) Passed `npm run typecheck -w @orest/web`, the targeted localization regression suite, and `npm run test -w @orest/web`.
+- [x] (2026-06-29) Continued the runtime localization milestone: `/editor` now passes the active locale into settings, draft persistence, visual style storage, spellcheck requests/dictionary storage, local-action routing, patch/review/proposal/image payloads, and DOCX/TXT export.
+- [x] (2026-06-29) Added client-side locale epoch guards so patch, spellcheck, local-action routing, proposal preparation, review job polling, and image generation results cannot mutate the editor after a language switch.
+- [x] (2026-06-29) Added locale-scoped IndexedDB spellcheck dictionary support with Ukrainian legacy dictionary migration and English dictionary isolation coverage.
+- [x] (2026-06-29) Ran a fresh plan-implement code review subagent for this milestone and triaged its findings: accepted the locale-switch persistence race and stale in-flight request findings; partially addressed proposal-service locale helper usage while leaving the full server prompt-builder copy sweep as follow-up.
+- [x] (2026-06-29) Continued M3 UI localization: added `editor-messages` uk/en catalogs, wired workflow rail labels/summaries, step workspace status, emphasis/spellcheck chips, disabled-run reasons, destructive clear panel, review feedback builder, and floating composer mode tabs through `useProductCopy()`.
+- [x] (2026-06-29) Continued M7 server prompt localization: moved patch-service system/user prompt assembly into `apps/web/lib/i18n/server-prompts/patch.ts` with locale-aware en/uk instructions and added regression tests.
+- [x] (2026-06-29) Passed full `npm run test -w @orest/web` (212/212) and `npm run typecheck -w @orest/web` after the localization copy-catalog pass.
+- [x] (2026-06-29) Completed M7 review/review-action server prompt extraction into `server-prompts/review.ts` and `server-prompts/review-action.ts`; added `review-prompts.test.ts`; localized Anthropic suffixes and Gemini grounded fact-check suffixes.
+- [x] (2026-06-29) Browser QA on English-default dev server: editor workflow UI English, spelling step English, workspace shell aria labels fixed, uk↔en switch preserves manuscript and clears analysis; settings body copy still Ukrainian-heavy.
+- [x] (2026-06-29) Completed M3/M4 UI sweep: settings page full English chrome, review drawer/detail/rail/sidebar, BlockDiffOverlay, OperationCard, VisualSelectionControls, Button loading label; fixed ProductLocaleProvider client init and localized model preset descriptions on settings page.
+- [x] (2026-06-29) Completed M7: callout/subsection/image server prompts, fact-check action instructions, review service error helpers; 219/219 tests pass.
+
+## Outcomes & Retrospective
+
+The English edition localization ExecPlan is **complete for v1 scope**. All nine milestones are done.
+
+Shipped:
+- One repo with `uk`/`en` runtime locale switching via Settings
+- Locale-scoped settings, drafts, dictionaries, and prompt templates
+- Full editor/settings UI copy catalogs (`copy/`, `editor-messages/`)
+- Server prompt localization (`server-prompts/patch.ts`, `review.ts`, `review-action.ts`)
+- Stable internal fact-check statuses; locale-aware spellcheck (`uk-UA` / `en-US`)
+- Locale epoch guards and async job locale fields
+- 219 passing tests; typecheck clean; browser QA on English settings + editor shell
+
+Residual risks (documented, non-blocking):
+- API route HTTP error strings are not localized
+- `page.tsx` Ukrainian stop-word/spellcheck pattern data for uk paths (intentional)
+- Manual stress tests deferred: in-flight review during locale switch, fail-loud UI without key, live spellcheck network capture
+
+Date completed: 2026-06-29
 
 ## Surprises & Discoveries
 
@@ -48,6 +235,12 @@ This is not a manuscript translation feature. The English edition edits English 
 
 - Observation: the current implementation pass landed the locale foundation and helper contracts, but the live `/editor` runtime still does not fully consume them. Draft persistence, spellcheck language/dictionary selection, async job locale guards, and large parts of editor/settings copy remain hardwired to the Ukrainian path.
   Evidence: subagent code review on 2026-06-28 pointed to `apps/web/app/editor/page.tsx`, `apps/web/lib/editor/spellcheck-dictionary.ts`, `apps/web/app/api/edit/review/proposal/route.ts`, and `apps/web/app/settings/page.tsx` as the main incomplete runtime surfaces.
+
+- Observation: merely checking a job response locale is not enough for client safety. Non-job requests can still finish after a language switch and write stale state, and even same-locale strings can become stale if the user switches away and back.
+  Evidence: plan-implement subagent review on 2026-06-29 flagged patch, spellcheck, proposal, and image application paths in `apps/web/app/editor/page.tsx`; the fix uses a locale epoch ref plus active locale ref before applying async results.
+
+- Observation: the full `npm run test -w @orest/web` run reached 209/210 passing tests, then the route test `review route returns provider error status while preserving requested step id` failed once because the expected missing-key error was replaced by `fetch failed`; rerunning `node --import tsx --test apps/web/test/review-route.test.ts` immediately passed all 3 route tests.
+  Evidence: full-suite output on 2026-06-29 showed only that route-test failure; isolated route-test rerun passed.
 
 ## Decision Log
 
@@ -82,21 +275,23 @@ Implemented in the current workspace:
 - one repo with a locale foundation under `apps/web/lib/i18n/`
 - a Settings language switch with persisted active locale
 - locale-scoped settings/draft/job payload support
+- `/editor` runtime now reads/writes locale-scoped settings, draft, visual style, spellcheck dictionary, spellcheck language, local-action route hints, AI route payloads, and export metadata
+- locale epoch guards prevent stale patch, spellcheck, local-action, proposal, review-job, and image-generation results from applying after a language switch
 - locale-aware spellcheck contract (`uk-UA`, `en-US`) and DOCX export metadata
 - stable internal fact-check statuses (`ok`, `questionable`, `unsupported`)
-- green `typecheck` and full `@orest/web` test suite
+- green `typecheck` and focused localization/runtime test suite; full `@orest/web` suite had one transient/env-sensitive route failure that passed when rerun in isolation
 
 Follow-up work still worth doing in a later pass:
 
 - complete the remaining editor/settings string sweep so secondary surfaces do not leak Ukrainian copy in English mode
-- finish locale-aware prompt text inside all server prompt builders, especially `patch-service.ts` and `review-action-service.ts`
-- wire locale-scoped spellcheck dictionaries and locale-switch manuscript/session reset behavior all the way through the live `/editor` runtime
+- finish locale-aware prompt text inside all server prompt builders, especially embedded Ukrainian instructions in `patch-service.ts` and `review-action-service.ts`
+- add browser-level runtime validation for Settings language switching, visible English editor copy, `en-US` spellcheck payloads, and stale in-flight request cancellation
 
 High-priority unfinished items confirmed by subagent review on 2026-06-28:
 
-- `/editor` still reads/writes draft state without passing locale, so locale-scoped persistence and locale-bound analysis reset are not complete
-- spellcheck runtime still behaves as Ukrainian-first: request language, history labels, and IndexedDB dictionary usage are not fully locale-aware
-- async review/image job polling does not yet reject stale results from a previous locale
+- `/editor` draft/settings/spellcheck/export/runtime payload wiring is now locale-aware, but browser-level runtime QA is still needed
+- spellcheck request language and IndexedDB dictionary usage are now locale-aware; remaining spellcheck UI copy still needs the broader copy sweep
+- async review job polling and non-review async editor requests now reject stale locale-epoch results; image job polling is not used by the current editor image path
 - proposal/review/patch prompt builders still contain Ukrainian-only prompt text in several server paths
 - the Settings page and core editor workspace still need a full English copy sweep
 

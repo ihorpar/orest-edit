@@ -16,6 +16,7 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 - Living document: revise Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds while keeping the plan self-contained.
 - Outcome-focused: describe what the user can do after the change and how to see it working; the plan must lead to demonstrably working behavior, not just code edits.
 - Explicit acceptance: state behaviors, commands, and observable outputs that prove success.
+- Milestone tracker required near the top: every ExecPlan must include a dedicated `## Milestones` section immediately after `## Purpose / Big Picture` so overall progress is visible without reading the whole document.
 
 ## Formatting Rules
 - Default envelope is a single fenced code block labeled `md`; do not nest other triple backticks inside—indent commands, transcripts, and diffs instead.
@@ -33,6 +34,9 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 - Tell a story (goal → work → result → proof) for each milestone; keep them narrative rather than bureaucratic.
 - Each milestone must be independently verifiable and incrementally advance the overall goal.
 - Milestones are distinct from Progress: milestones explain the plan; Progress tracks real-time execution.
+
+- The milestone tracker must appear near the top of the plan, before `## Progress`.
+- Each milestone should capture current execution state with brief `Status`, `Done`, `Remaining`, and `Proof` fields so partial completion is obvious.
 
 ## Living Sections (must be present and maintained)
 - Progress: checkbox list with timestamps; every pause should update what is done and what remains.
@@ -55,6 +59,19 @@ If PLANS.md is present in the repo, maintain this document in accordance with it
 
 ## Purpose / Big Picture
 Explain the user-visible behavior gained after this change and how to observe it.
+
+## Milestones
+### Milestone 1: <Short milestone title>
+Status: Not started.
+
+Done:
+- None yet.
+
+Remaining:
+- Describe the work still needed for this milestone.
+
+Proof:
+- Name the file changes, tests, or manual checks that will demonstrate completion.
 
 ## Progress
 - [x] (2025-10-01 13:00Z) Example completed step.

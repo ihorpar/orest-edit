@@ -8,6 +8,7 @@ import {
   type LocalActionTextIntent
 } from "../../../../lib/editor/local-action-router";
 import { normalizeVisualStylePreset } from "../../../../lib/editor/settings";
+import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -52,6 +53,7 @@ function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionR
   return {
     ok: true,
     value: {
+      locale: parseAppLocale(record.locale),
       prompt: typeof record.prompt === "string" ? record.prompt : "",
       explicitMode,
       preferredTextIntent,
@@ -62,6 +64,10 @@ function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionR
         typeof record.visualStylePreset === "string" ? normalizeVisualStylePreset(record.visualStylePreset) : undefined
     }
   };
+}
+
+function parseAppLocale(value: unknown): AppLocale {
+  return isAppLocale(value) ? value : "uk";
 }
 
 function parseExplicitMode(value: unknown): Exclude<LocalActionMode, "auto"> | null {

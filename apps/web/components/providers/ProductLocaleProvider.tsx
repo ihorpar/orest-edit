@@ -20,7 +20,9 @@ interface ProductLocaleContextValue {
 const ProductLocaleContext = createContext<ProductLocaleContextValue | null>(null);
 
 export function ProductLocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<AppLocale>(getDefaultAppLocale());
+  const [locale, setLocaleState] = useState<AppLocale>(() =>
+    typeof window !== "undefined" ? readActiveAppLocale() : getDefaultAppLocale()
+  );
 
   useEffect(() => {
     setLocaleState(readActiveAppLocale());

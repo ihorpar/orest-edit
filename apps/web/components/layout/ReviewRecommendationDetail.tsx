@@ -27,6 +27,8 @@ import { VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelection
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
+import type { EditorMessages } from "../../lib/i18n/editor-messages";
+import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import { ArrowDownToLine, Expand, RefreshCcw, Sparkles, X } from "lucide-react";
 
 export function ReviewRecommendationDetail({
@@ -83,6 +85,9 @@ export function ReviewRecommendationDetail({
   onGenerateActiveReviewImage: () => void;
   onApplyActiveReviewImage: () => void;
 }) {
+  const copy = useProductCopy();
+  const { locale } = useProductLocale();
+  const detail = copy.editor.reviewDetail;
   const imageAssetSource = proposal?.kind === "image_prompt" && proposal.imageDraft?.generatedAsset
     ? resolveReviewImageAssetUrl(proposal.imageDraft.generatedAsset)
     : null;
@@ -101,9 +106,9 @@ export function ReviewRecommendationDetail({
   const canInsertCallout = Boolean(calloutDraft?.previewText?.trim());
   const canInsertSubsection = Boolean(subsectionDraft?.title?.trim());
   const rangeLabel = revision ? getReviewParagraphRangeLabel(currentItem, revision) : null;
-  const insertionCopy = revision ? getInsertionContextCopy(currentItem, revision) : null;
+  const insertionCopy = revision ? getInsertionContextCopy(currentItem, revision, detail) : null;
   const visualStyleOptions = getVisualStylePresetOptions();
-  const visualIntentOptions = getEditorialVisualIntentOptions();
+  const visualIntentOptions = getEditorialVisualIntentOptions(locale);
   const selectedVisualStylePreset = normalizeVisualStylePreset(activeVisualStylePreset ?? imageDraft?.visualStylePreset);
   const selectedVisualIntent = imageDraft?.visualIntent ?? currentItem.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
@@ -113,20 +118,20 @@ export function ReviewRecommendationDetail({
   const visualWorkspacePromptRef = useRef<HTMLTextAreaElement | null>(null);
   const normalizedRefineInstruction = refineInstruction.trim();
   const hasPendingRefineInstruction = normalizedRefineInstruction.length > 0;
-  const pendingRefineTitle = hasPendingRefineInstruction ? "Спершу перегенеруйте варіант або очистіть уточнення." : undefined;
+  const pendingRefineTitle = hasPendingRefineInstruction ? detail.refinePendingTitle : undefined;
   const canPrepareFromCard = currentItem.status === "pending" || currentItem.status === "dismissed";
-  const prepareButtonLabel = currentItem.status === "dismissed" ? "Підготувати знову" : "Підготувати";
-  const textDiffRegenerateLabel = hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати";
+  const prepareButtonLabel = currentItem.status === "dismissed" ? detail.prepareAgain : detail.prepare;
+  const textDiffRegenerateLabel = hasPendingRefineInstruction ? detail.regenerateWithRefine : detail.regenerate;
 
   const calloutInsertDisabledReason = !canInsertCallout
-    ? "Спочатку підготуйте чернетку врізки."
+    ? detail.calloutInsertBlocked
     : pendingRefineTitle;
   const subsectionInsertDisabledReason = !canInsertSubsection
-    ? "Спочатку додайте підзаголовок."
+    ? detail.subheadingInsertBlocked
     : pendingRefineTitle;
   const imageGenerateDisabledReason = hasPendingRefineInstruction ? pendingRefineTitle : undefined;
   const imageApplyDisabledReason = !hasGeneratedAsset
-    ? "Спочатку згенеруйте зображення."
+    ? detail.imageGenerateBlocked
     : pendingRefineTitle;
 
   useEffect(() => {
@@ -179,19 +184,19 @@ export function ReviewRecommendationDetail({
           <div>
             <p className="editorial-review-detail-label">
               {rangeLabel
-                ? `${rangeLabel} • ${getEditorialRecommendationTypeLabel(currentItem.recommendationType)}`
-                : getEditorialRecommendationTypeLabel(currentItem.recommendationType)}
+                ? `${rangeLabel} • ${getEditorialRecommendationTypeLabel(currentItem.recommendationType, locale)}`
+                : getEditorialRecommendationTypeLabel(currentItem.recommendationType, locale)}
             </p>
             <h3 className="editorial-review-detail-title">{currentItem.title}</h3>
           </div>
-          <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(currentItem)} aria-label="Відхилити рекомендацію" title="Відхилити рекомендацію">
+          <button type="button" className="editorial-review-detail-close" onClick={() => onDismiss(currentItem)} aria-label={detail.dismissRecommendation} title={detail.dismissRecommendation}>
             <X className="editorial-review-detail-close-icon" aria-hidden="true" />
           </button>
         </div>
 
       {currentItem.recommendation.trim() && currentItem.recommendation.trim() !== currentItem.title.trim() ? (
         <div className="editorial-review-detail-recommendation">
-          <p className="editorial-review-detail-label">Рекомендація</p>
+          <p className="editorial-review-detail-label">{detail.recommendation}</p>
           <p className="editorial-review-detail-explanation-copy">{currentItem.recommendation}</p>
         </div>
       ) : null}
@@ -200,12 +205,12 @@ export function ReviewRecommendationDetail({
         <div className="editorial-review-refine">
           {isRefineOpen ? (
             <div className="editorial-review-field-group">
-              <p className="editorial-review-detail-label">Що змінити в рекомендації</p>
+              <p className="editorial-review-detail-label">{detail.refineLabel}</p>
               <textarea
                 ref={refineTextareaRef}
                 className="editorial-review-callout-body-input editorial-review-refine-input"
                 value={refineInstruction}
-                placeholder="Наприклад: спростити тон, зберегти локальність правки, переписати коротше"
+                placeholder={detail.refinePlaceholder}
                 onChange={(event) => onRefineInstructionChange(event.target.value)}
                 onKeyDown={handleRefineKeyDown}
               />
@@ -216,7 +221,7 @@ export function ReviewRecommendationDetail({
 
       {isPreparing ? (
         <div className="editorial-review-proposal">
-          <p className="editorial-review-image-status">ШІ готує цю рекомендацію…</p>
+          <p className="editorial-review-image-status">{detail.preparing}</p>
         </div>
       ) : null}
 
@@ -231,7 +236,7 @@ export function ReviewRecommendationDetail({
       {!isPreparing && canPrepareFromCard && currentItem.recommendationType === "visual" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Тип візуалу</p>
+            <p className="editorial-review-detail-label">{detail.visualType}</p>
             <VisualIntentToggle
               value={selectedVisualIntent}
               options={visualIntentOptions}
@@ -239,7 +244,7 @@ export function ReviewRecommendationDetail({
             />
           </div>
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Стиль візуалу</p>
+            <p className="editorial-review-detail-label">{detail.visualStyle}</p>
             <VisualStyleToggle
               value={selectedVisualStylePreset}
               options={visualStyleOptions}
@@ -267,13 +272,13 @@ export function ReviewRecommendationDetail({
           ) : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
-              Уточнити
+              {detail.refine}
             </Button>
             <Button
               size="sm"
               variant={hasPendingRefineInstruction ? "primary" : "secondary"}
               onClick={() => handlePrepare()}
-              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати поточний варіант."}
+              title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : detail.regenerateCurrentVariant}
             >
               {textDiffRegenerateLabel}
             </Button>
@@ -284,51 +289,51 @@ export function ReviewRecommendationDetail({
       {!isPreparing && currentItem.recommendationType === "callout" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Тип врізки</p>
+            <p className="editorial-review-detail-label">{detail.calloutType}</p>
             <select
               className="editorial-review-callout-kind-select"
               value={activeCalloutKind}
               onChange={(event) => onUpdateActiveCalloutKind(currentItem, event.target.value as EditorialCalloutKind)}
             >
-              {getEditorialCalloutKindOptions().map((option) => (
+              {getEditorialCalloutKindOptions(locale).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
             <p className="editorial-review-callout-kind-copy">
-              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutKindLabel(activeCalloutKind)}</strong>
+              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutKindLabel(activeCalloutKind, locale)}</strong>
               {" "}
-              {getEditorialCalloutKindDescription(activeCalloutKind)}
+              {getEditorialCalloutKindDescription(activeCalloutKind, locale)}
             </p>
           </div>
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Глибина врізки</p>
+            <p className="editorial-review-detail-label">{detail.calloutDepth}</p>
             <select
               className="editorial-review-callout-kind-select"
               value={activeCalloutDepth}
               onChange={(event) => onUpdateActiveCalloutDepth(currentItem, event.target.value as EditorialCalloutDepth)}
             >
-              {getEditorialCalloutDepthOptions().map((option) => (
+              {getEditorialCalloutDepthOptions(locale).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
             <p className="editorial-review-callout-kind-copy">
-              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutDepthLabel(activeCalloutDepth)}</strong>
+              <strong className="editorial-review-callout-kind-chip">{getEditorialCalloutDepthLabel(activeCalloutDepth, locale)}</strong>
               {" "}
-              {getEditorialCalloutDepthDescription(activeCalloutDepth)}
+              {getEditorialCalloutDepthDescription(activeCalloutDepth, locale)}
             </p>
           </div>
           <div className="editorial-review-field-group">
-            <p className="editorial-review-detail-label">Заголовок</p>
+            <p className="editorial-review-detail-label">{detail.title}</p>
             <input
               className="editorial-review-callout-title-input"
               value={calloutDraft?.title ?? ""}
               onChange={(event) => onUpdateActiveCalloutTitle(currentItem, event.target.value)}
             />
-            <p className="editorial-review-detail-label">Чернетка</p>
+            <p className="editorial-review-detail-label">{detail.draft}</p>
             <textarea
               className="editorial-review-callout-body-input"
               value={calloutDraft?.previewText ?? ""}
@@ -338,15 +343,15 @@ export function ReviewRecommendationDetail({
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
-              Уточнити
+              {detail.refine}
             </Button>
             <Button
               size="sm"
               variant={hasPendingRefineInstruction ? "primary" : "secondary"}
               onClick={() => handlePrepare()}
-              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : undefined}
+              title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : undefined}
             >
-              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : calloutDraft ? "Перегенерувати" : "Згенерувати"}
+              {hasPendingRefineInstruction ? detail.regenerateWithRefine : calloutDraft ? detail.regenerate : detail.generate}
             </Button>
             <Button
               size="sm"
@@ -356,7 +361,7 @@ export function ReviewRecommendationDetail({
               disabledReason={calloutInsertDisabledReason}
               title={!canInsertCallout ? undefined : pendingRefineTitle}
             >
-              Вставити
+              {detail.insert}
             </Button>
           </div>
         </div>
@@ -365,7 +370,7 @@ export function ReviewRecommendationDetail({
       {!isPreparing && currentItem.recommendationType === "subsection" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-field-group">
-            <p className="editorial-review-detail-label">Підзаголовок</p>
+            <p className="editorial-review-detail-label">{detail.subheading}</p>
             <input
               className="editorial-review-callout-title-input"
               value={subsectionDraft?.title ?? ""}
@@ -375,15 +380,15 @@ export function ReviewRecommendationDetail({
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
-              Уточнити
+              {detail.refine}
             </Button>
             <Button
               size="sm"
               variant={hasPendingRefineInstruction ? "primary" : "secondary"}
               onClick={() => handlePrepare()}
-              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : undefined}
+              title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : undefined}
             >
-              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : subsectionDraft ? "Перегенерувати" : "Згенерувати"}
+              {hasPendingRefineInstruction ? detail.regenerateWithRefine : subsectionDraft ? detail.regenerate : detail.generate}
             </Button>
             <Button
               size="sm"
@@ -393,7 +398,7 @@ export function ReviewRecommendationDetail({
               disabledReason={subsectionInsertDisabledReason}
               title={!canInsertSubsection ? undefined : pendingRefineTitle}
             >
-              Вставити
+              {detail.insert}
             </Button>
           </div>
         </div>
@@ -402,13 +407,13 @@ export function ReviewRecommendationDetail({
       {!isPreparing && imageDraft ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-image-prompt-head">
-            <p className="editorial-review-detail-label">Опис для візуалу</p>
+            <p className="editorial-review-detail-label">{detail.visualDescription}</p>
             <button
               type="button"
               className="editorial-review-focus-button"
               onClick={() => setIsVisualWorkspaceOpen(true)}
-              aria-label="Відкрити фокусний режим для візуалу"
-              title="Відкрити фокусний режим"
+              aria-label={detail.openVisualFocus}
+              title={detail.openVisualFocusTitle}
             >
               <Expand size={16} aria-hidden="true" />
             </button>
@@ -419,7 +424,7 @@ export function ReviewRecommendationDetail({
             onChange={(event) => onUpdateActiveImagePrompt(event.target.value)}
           />
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Тип візуалу</p>
+            <p className="editorial-review-detail-label">{detail.visualType}</p>
             <VisualIntentToggle
               value={selectedVisualIntent}
               options={visualIntentOptions}
@@ -427,7 +432,7 @@ export function ReviewRecommendationDetail({
             />
           </div>
           <div className="editorial-review-callout-kind-row">
-            <p className="editorial-review-detail-label">Стиль візуалу</p>
+            <p className="editorial-review-detail-label">{detail.visualStyle}</p>
             <VisualStyleToggle
               value={selectedVisualStylePreset}
               options={visualStyleOptions}
@@ -435,7 +440,7 @@ export function ReviewRecommendationDetail({
             />
           </div>
           <div className="editorial-review-field-group">
-            <p className="editorial-review-detail-label">Підпис</p>
+            <p className="editorial-review-detail-label">{detail.caption}</p>
             <input
               className="editorial-review-callout-title-input"
               value={imageDraft.caption ?? ""}
@@ -445,15 +450,15 @@ export function ReviewRecommendationDetail({
           {insertionCopy ? <p className="editorial-review-insertion-note">{insertionCopy}</p> : null}
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button size="sm" variant="secondary" aria-pressed={isRefineOpen} onClick={() => setIsRefineOpen((current) => !current)}>
-              Уточнити
+              {detail.refine}
             </Button>
             <Button
               size="sm"
               variant={hasPendingRefineInstruction ? "primary" : "secondary"}
               onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
-              title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати prompt для візуалу."}
+              title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : detail.regenerateVisualPrompt}
             >
-              {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати"}
+              {hasPendingRefineInstruction ? detail.regenerateWithRefine : detail.regenerate}
             </Button>
             <Button
               size="sm"
@@ -470,7 +475,7 @@ export function ReviewRecommendationDetail({
                 ) : (
                   <Sparkles className="editorial-review-button-icon" aria-hidden="true" />
                 )}
-                <span>{hasGeneratedAsset ? "Згенерувати ще раз" : "Згенерувати"}</span>
+                <span>{hasGeneratedAsset ? detail.regenerateAgain : detail.generate}</span>
               </span>
             </Button>
             <Button
@@ -483,17 +488,17 @@ export function ReviewRecommendationDetail({
             >
               <span className="button-content">
                 <ArrowDownToLine className="editorial-review-button-icon" aria-hidden="true" />
-                <span>Вставити в документ</span>
+                <span>{detail.insertIntoDocument}</span>
               </span>
             </Button>
           </div>
           {hasGeneratedAsset ? (
             <div className="editorial-review-image-preview">
               {imageUrl ? <img src={imageUrl} alt={imageDraft.alt} /> : null}
-              <p className="editorial-review-image-status">Зображення готове до вставки.</p>
+              <p className="editorial-review-image-status">{detail.imageReady}</p>
             </div>
           ) : (
-            <p className="editorial-review-image-status">Промпт готовий до генерації.</p>
+            <p className="editorial-review-image-status">{detail.promptReady}</p>
           )}
         </div>
       ) : null}
@@ -516,19 +521,19 @@ export function ReviewRecommendationDetail({
             className="visual-workspace-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Фокусний режим візуалу"
+            aria-label={detail.visualFocusAria}
             onClick={(event) => event.stopPropagation()}
           >
             <header className="visual-workspace-head">
               <div className="visual-workspace-head-copy">
-                <p className="mono-ui visual-workspace-kicker">Фокусний режим</p>
-                <h3 className="visual-workspace-title">Візуал: опис і результат</h3>
+                <p className="mono-ui visual-workspace-kicker">{detail.visualFocusKicker}</p>
+                <h3 className="visual-workspace-title">{detail.visualFocusTitle}</h3>
               </div>
               <button
                 type="button"
                 className="visual-workspace-close"
-                aria-label="Закрити фокусний режим"
-                title="Закрити"
+                aria-label={detail.closeVisualFocus}
+                title={detail.close}
                 onClick={() => setIsVisualWorkspaceOpen(false)}
               >
                 <X size={18} aria-hidden="true" />
@@ -538,7 +543,7 @@ export function ReviewRecommendationDetail({
             <div className="visual-workspace-grid">
               <section className="visual-workspace-panel visual-workspace-panel-form">
                 <div className="visual-workspace-panel-head">
-                  <p className="mono-ui visual-workspace-panel-title">Опис</p>
+                  <p className="mono-ui visual-workspace-panel-title">{detail.description}</p>
                 </div>
                 <textarea
                   ref={visualWorkspacePromptRef}
@@ -548,7 +553,7 @@ export function ReviewRecommendationDetail({
                 />
                 <div className="visual-workspace-controls">
                   <div className="visual-workspace-field">
-                    <p className="editorial-review-detail-label">Тип візуалу</p>
+                    <p className="editorial-review-detail-label">{detail.visualType}</p>
                     <VisualIntentToggle
                       value={selectedVisualIntent}
                       options={visualIntentOptions}
@@ -556,7 +561,7 @@ export function ReviewRecommendationDetail({
                     />
                   </div>
                   <div className="visual-workspace-field">
-                    <p className="editorial-review-detail-label">Стиль візуалу</p>
+                    <p className="editorial-review-detail-label">{detail.visualStyle}</p>
                     <VisualStyleToggle
                       value={selectedVisualStylePreset}
                       options={visualStyleOptions}
@@ -564,7 +569,7 @@ export function ReviewRecommendationDetail({
                     />
                   </div>
                   <div className="visual-workspace-field">
-                    <p className="editorial-review-detail-label">Підпис</p>
+                    <p className="editorial-review-detail-label">{detail.caption}</p>
                     <input
                       className="editorial-review-callout-title-input"
                       value={imageDraft.caption ?? ""}
@@ -577,9 +582,9 @@ export function ReviewRecommendationDetail({
                     size="sm"
                     variant={hasPendingRefineInstruction ? "primary" : "secondary"}
                     onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
-                    title={hasPendingRefineInstruction ? "Уточнення буде використано під час перегенерації." : "Перегенерувати опис для візуалу."}
+                    title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : detail.regenerateDescriptionTitle}
                   >
-                    {hasPendingRefineInstruction ? "Перегенерувати з уточненням" : "Перегенерувати опис"}
+                    {hasPendingRefineInstruction ? detail.regenerateWithRefine : detail.regenerateDescription}
                   </Button>
                   <Button
                     size="sm"
@@ -596,7 +601,7 @@ export function ReviewRecommendationDetail({
                       ) : (
                         <Sparkles className="editorial-review-button-icon" aria-hidden="true" />
                       )}
-                      <span>{hasGeneratedAsset ? "Згенерувати ще раз" : "Згенерувати"}</span>
+                      <span>{hasGeneratedAsset ? detail.regenerateAgain : detail.generate}</span>
                     </span>
                   </Button>
                   <Button
@@ -609,7 +614,7 @@ export function ReviewRecommendationDetail({
                   >
                     <span className="button-content">
                       <ArrowDownToLine className="editorial-review-button-icon" aria-hidden="true" />
-                      <span>Вставити в документ</span>
+                      <span>{detail.insertIntoDocument}</span>
                     </span>
                   </Button>
                 </div>
@@ -617,9 +622,9 @@ export function ReviewRecommendationDetail({
 
               <section className="visual-workspace-panel visual-workspace-panel-preview">
                 <div className="visual-workspace-panel-head">
-                  <p className="mono-ui visual-workspace-panel-title">Результат</p>
+                  <p className="mono-ui visual-workspace-panel-title">{detail.result}</p>
                   <p className="visual-workspace-status">
-                    {hasGeneratedAsset ? "Згенеровано за поточним описом." : "Ще не згенеровано."}
+                    {hasGeneratedAsset ? detail.generatedForPrompt : detail.notGeneratedYet}
                   </p>
                 </div>
                 {hasGeneratedAsset && imageUrl ? (
@@ -628,17 +633,17 @@ export function ReviewRecommendationDetail({
                   </div>
                 ) : (
                   <div className="visual-workspace-preview-empty">
-                    <p>Підготуйте або відредагуйте опис і запустіть генерацію.</p>
+                    <p>{detail.editDescriptionHint}</p>
                   </div>
                 )}
                 <div className="visual-workspace-meta">
                   <div className="visual-workspace-meta-row">
-                    <span className="mono-ui visual-workspace-meta-label">Alt-текст</span>
+                    <span className="mono-ui visual-workspace-meta-label">{detail.altText}</span>
                     <span className="visual-workspace-meta-value">{imageDraft.alt}</span>
                   </div>
                   {imageDraft.caption ? (
                     <div className="visual-workspace-meta-row">
-                      <span className="mono-ui visual-workspace-meta-label">Підпис</span>
+                      <span className="mono-ui visual-workspace-meta-label">{detail.caption}</span>
                       <span className="visual-workspace-meta-value">{imageDraft.caption}</span>
                     </div>
                   ) : null}
@@ -652,7 +657,11 @@ export function ReviewRecommendationDetail({
   );
 }
 
-function getInsertionContextCopy(item: EditorialReviewItem, revision: ManuscriptRevisionState): string | null {
+function getInsertionContextCopy(
+  item: EditorialReviewItem,
+  revision: ManuscriptRevisionState,
+  detail: EditorMessages["reviewDetail"]
+): string | null {
   if (item.insertionPoint.mode !== "before" && item.insertionPoint.mode !== "after") {
     return null;
   }
@@ -664,5 +673,5 @@ function getInsertionContextCopy(item: EditorialReviewItem, revision: Manuscript
   }
 
   const paragraph = formatParagraphLabel(anchorIndex);
-  return item.insertionPoint.mode === "before" ? `Вставка перед Абз. ${paragraph}` : `Вставка після Абз. ${paragraph}`;
+  return item.insertionPoint.mode === "before" ? detail.insertionBefore(paragraph) : detail.insertionAfter(paragraph);
 }

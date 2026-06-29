@@ -10,6 +10,14 @@ import {
 } from "../editor/patch-contract.ts";
 import { appendBulletListPunctuationRule } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
+import type { AppLocale } from "../i18n/product-locale.ts";
+import {
+  buildGeminiPatchSystemPrompt,
+  buildGeminiPatchUserPrompt,
+  buildPatchSystemPrompt,
+  buildPatchUserPrompt,
+  getPatchUserPromptLabels
+} from "../i18n/server-prompts/patch.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
@@ -231,6 +239,8 @@ export async function generatePatchResponse(
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date().toISOString());
+  const locale: AppLocale = patchRequest.locale ?? "uk";
+  const promptLabels = getPatchUserPromptLabels(locale);
 
   if (targetBlocks.length === 0) {
     return buildPatchResponse({
@@ -243,7 +253,7 @@ export async function generatePatchResponse(
       operations: [],
       droppedOperationCount: 0,
       usedFallback: false,
-      error: "Виділення порожнє. Оберіть один або кілька абзаців.",
+      error: promptLabels.emptySelection,
       generatedAt: now()
     });
   }
@@ -274,7 +284,7 @@ export async function generatePatchResponse(
         mode: patchRequest.mode,
         targetBlockCount: targetBlocks.length,
         providerUsed: result.providerUsed,
-        error: "Провайдер повернув невалідний diff.",
+        error: promptLabels.invalidProvider,
         generatedAt: now(),
         rawOutput: result.rawOutput
       });
@@ -290,7 +300,7 @@ export async function generatePatchResponse(
       operations: result.operations,
       droppedOperationCount: result.droppedOperationCount,
       usedFallback: false,
-      error: result.droppedOperationCount > 0 ? `Частину відповіді провайдера відкинуто як невалідну.` : undefined,
+      error: result.droppedOperationCount > 0 ? promptLabels.droppedOps : undefined,
       generatedAt: now(),
       rawOutput: result.rawOutput
     });
@@ -395,7 +405,7 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
       },
       body: JSON.stringify({
         model: request.modelId,
-        instructions: buildSystemPrompt(request.basePrompt),
+        instructions: buildSystemPrompt(request),
         input: buildUserPrompt(request),
         text: {
           format: {
@@ -438,7 +448,7 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
       },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [{ text: buildGeminiSystemPrompt(request.basePrompt) }]
+          parts: [{ text: buildGeminiSystemPrompt(request) }]
         },
         contents: [
           {
@@ -486,7 +496,7 @@ async function createAnthropicOperations(request: PatchRequest, apiKey: string, 
         model: request.modelId,
         max_tokens: 2400,
         temperature: request.mode === "custom" ? 0.4 : 0.2,
-        system: `${buildSystemPrompt(request.basePrompt)} Поверни лише JSON-об'єкт {"operations":[...]} без пояснень поза JSON. Якщо prompt дозволяє **жирний** у текстових полях, зберігай його; інший markdown не додавай.`,
+        system: buildAnthropicSystemPrompt(request),
         messages: [{ role: "user", content: buildUserPrompt(request) }]
       }),
       signal: controller.signal
@@ -705,87 +715,47 @@ function createTextNode(text: string): InlineNode {
   return { text };
 }
 
-function buildSystemPrompt(basePrompt?: string): string {
-  return [
-    appendBulletListPunctuationRule(basePrompt),
-    "Ти редагуєш український науково-популярний рукопис.",
-    "Працюй тільки в межах виділених блоків.",
-    "Поверни JSON з однією операцією replace_blocks.",
-    "newBlocks має містити готові rich-text blocks без markdown-синтаксису.",
-    "Активно використовуй bold:true як редакторський інструмент: виділяй ключові думки короткими фразами, щоб текст краще сканувався.",
-    "Кожен змістовий абзац або replacement block має містити принаймні 1 короткий bold:true акцент; якщо абзац довгий або містить кілька окремих тез, зроби 2-3 короткі акценти.",
-    "Не залишай абзац без акценту, якщо в ньому є причина, наслідок, визначення, висновок, контраст або важливий термін.",
-    "Якщо replacement містить короткий локальний заголовок або label-line, оформи його через bold:true у рядку з 1-3 слів, без markdown-заголовків або HTML.",
-    "Не виділяй жирним цілі речення, абзаци або весь блок.",
-    "Якщо редактор просить форму вірша, короткі рядки або строфи, дозволено повертати перенос рядка всередині одного текстового блока через символ \\n; не розбивай такий результат на кілька блоків без окремої вказівки.",
-    "Роби відчутне переформулювання: міняй синтаксис і лексику, не повертай майже ідентичний текст."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+function buildSystemPrompt(request: PatchRequest): string {
+  return buildPatchSystemPrompt(request.locale ?? "uk", request.basePrompt);
 }
 
-function buildGeminiSystemPrompt(basePrompt?: string): string {
-  return [
-    appendBulletListPunctuationRule(basePrompt),
-    "Ти редагуєш український науково-популярний рукопис.",
-    "Працюй тільки в межах виділених блоків.",
-    "Поверни JSON з однією операцією replace_blocks у масиві operations.",
-    "Не повертай rich-text blocks, newBlocks, HTML або вкладений JSON усередині рядків; окрім дозволеного **жирного**, інший markdown не додавай.",
-    "Поле operations[0].replacements має містити по одному plain-text replacement для кожного виділеного блока в тому самому порядку, що й targetBlockIds.",
-    "У replacement strings активно використовуй **жирний** для коротких ключових думок, але не для цілих речень або абзаців.",
-    "Кожен змістовий абзац або replacement string має містити принаймні 1 короткий **жирний** акцент; якщо абзац довгий або містить кілька окремих тез, зроби 2-3 короткі акценти.",
-    "Не залишай абзац без акценту, якщо в ньому є причина, наслідок, визначення, висновок, контраст або важливий термін.",
-    "Якщо replacement містить короткий локальний заголовок або label-line, оформи його як **жирний** рядок із 1-3 слів, без #, ## або HTML-заголовків.",
-    "Якщо редактор просить форму вірша, короткі рядки або строфи, дозволено повертати перенос рядка всередині одного replacement string через символ \\n; не розбивай такий результат на кілька blocks без окремої вказівки.",
-    "Залишай відповідь українською мовою.",
-    "Роби відчутне переформулювання: міняй синтаксис і лексику, не повертай майже ідентичний текст."
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+function buildGeminiSystemPrompt(request: PatchRequest): string {
+  return buildGeminiPatchSystemPrompt(request.locale ?? "uk", request.basePrompt);
+}
+
+function buildAnthropicSystemPrompt(request: PatchRequest): string {
+  const locale = request.locale ?? "uk";
+  const suffix =
+    locale === "en"
+      ? ' Return only a JSON object {"operations":[...]} with no explanations outside JSON. If the prompt allows **bold** in text fields, preserve it; do not add other markdown.'
+      : ' Поверни лише JSON-об\'єкт {"operations":[...]} без пояснень поза JSON. Якщо prompt дозволяє **жирний** у текстових полях, зберігай його; інший markdown не додавай.';
+  return `${buildPatchSystemPrompt(locale, request.basePrompt)}${suffix}`;
 }
 
 function buildUserPrompt(request: PatchRequest): string {
-  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  const locale = request.locale ?? "uk";
   const context = buildNeighborContext(request.document, request.targetBlockIds);
-
-  return [
-    "Ось вибрані блоки для локальної правки.",
-    request.mode === "custom" && request.prompt?.trim() ? `Додаткова інструкція: ${request.prompt.trim()}` : "Завдання: зроби текст яснішим і природнішим.",
-    "Критично: результат має помітно відрізнятися від оригіналу на рівні формулювань, але без вигаданих фактів.",
-    `targetBlockIds: ${JSON.stringify(request.targetBlockIds)}`,
-    "Контекст поруч:",
+  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  return buildPatchUserPrompt(locale, {
+    mode: request.mode,
+    prompt: request.prompt,
+    targetBlockIds: request.targetBlockIds,
     context,
-    "Вибрані блоки:",
-    targetText,
-    'Поверни JSON: {"operations":[{"blockIds":[...],"newBlocks":[...],"reason":"...","type":"clarity"}]}'
-  ].join("\n\n");
+    targetText
+  });
 }
 
 function buildGeminiUserPrompt(request: PatchRequest): string {
-  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  const locale = request.locale ?? "uk";
   const context = buildNeighborContext(request.document, request.targetBlockIds);
-
-  return [
-    "Ось вибрані блоки для локальної правки.",
-    request.mode === "custom" && request.prompt?.trim() ? `Додаткова інструкція: ${request.prompt.trim()}` : "Завдання: зроби текст яснішим і природнішим.",
-    "Критично: результат має помітно відрізнятися від оригіналу на рівні формулювань, але без вигаданих фактів.",
-    `targetBlockIds: ${JSON.stringify(request.targetBlockIds)}`,
-    "Контекст поруч:",
+  const targetText = selectedBlocksToPromptText(request.document, request.targetBlockIds);
+  return buildGeminiPatchUserPrompt(locale, {
+    mode: request.mode,
+    prompt: request.prompt,
+    targetBlockIds: request.targetBlockIds,
     context,
-    "Вибрані блоки:",
-    targetText,
-    "Формат відповіді:",
-    '{"operations":[{"blockIds":["p1"],"replacements":["Переписаний текст для блока p1."],"reason":"Коротко поясни редакторську зміну.","type":"clarity"}]}',
-    "Правила:",
-    "- operations має містити рівно одну операцію.",
-    "- replacements.length має дорівнювати кількості targetBlockIds.",
-    "- Кожен елемент replacements є plain text для відповідного блока; активно використовуй **жирний** для коротких ключових думок.",
-    "- Кожен змістовий абзац або replacement має містити принаймні 1 короткий **жирний** акцент; якщо абзац довгий або містить кілька окремих тез, зроби 2-3 короткі акценти.",
-    "- Не залишай абзац без акценту, якщо в ньому є причина, наслідок, визначення, висновок, контраст або важливий термін.",
-    "- Якщо replacement містить короткий локальний заголовок або label-line, оформи його як **жирний** рядок із 1-3 слів, без #, ## або HTML-заголовків.",
-    "- Якщо потрібні внутрішні рядки в межах одного блока, використовуй символ \\n всередині replacement string.",
-    "- Не повертай ключ newBlocks."
-  ].join("\n\n");
+    targetText
+  });
 }
 
 function buildNeighborContext(document: EditorDocument, targetBlockIds: string[]): string {

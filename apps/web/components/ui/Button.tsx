@@ -1,4 +1,7 @@
+"use client";
+
 import { useId, type ButtonHTMLAttributes, type CSSProperties } from "react";
+import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
@@ -35,6 +38,7 @@ export function Button({
   children,
   ...rest
 }: ButtonProps) {
+  const defaultLoadingLabel = useProductCopy().generic.waiting;
   const disabledReasonId = useId();
   const isDisabled = Boolean(disabled || loading);
   const visibleDisabledReason = isDisabled ? disabledReason?.trim() ?? "" : "";
@@ -63,7 +67,7 @@ export function Button({
         {loading ? (
           <span className="button-content">
             <span className="button-spinner" aria-hidden="true" />
-            <span>{loadingLabel ?? "Зачекайте…"}</span>
+            <span>{loadingLabel ?? defaultLoadingLabel}</span>
           </span>
         ) : (
           children
