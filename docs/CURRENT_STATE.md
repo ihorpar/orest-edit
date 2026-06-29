@@ -1,10 +1,14 @@
 # CURRENT_STATE
 
-Date: 2026-04-16
+Date: 2026-06-25
 Status: Active handoff
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
+- A locale foundation now exists for a same-repo English edition: `apps/web/lib/i18n/product-locale.ts`, locale copy catalogs, and a `ProductLocaleProvider` wrap the app so runtime UI language can switch between Ukrainian and English
+- Settings, draft persistence, review/image job payloads, spellcheck contracts, workflow UI helpers, top-bar labels, login copy, and DOCX export metadata are now locale-aware at the contract/helper layer
+- The Settings page now includes an app-language selector; deployment env sets only the initial default locale, and the persisted user choice wins afterwards
+- Internal fact-check statuses now use stable values (`ok`, `questionable`, `unsupported`) instead of localized persisted enums
 - The global stylesheet is being decomposed into ordered partials under `apps/web/app/styles/`, with ownership already split across foundation, layout, editor, review, floating, step-review, sidebar, overlays, auth, settings, and review-chat slices
 - The latest extraction pass moved the shell base rules into `apps/web/app/styles/layout.css` and the manuscript runtime/editor block into `apps/web/app/styles/editor.css`, while leaving the remaining responsive shell and manuscript-bridge overrides in `apps/web/app/globals.css`
 - The remaining `globals.css` tail is now understood as a breakpoint-coordination layer plus a small shared responsive tail, with shell/mobile chrome slated for `layout.css`, manuscript bridge rules for `editor.css`, and the mixed head/settings selectors left global until the last split
@@ -240,6 +244,8 @@ Status: Active handoff
 4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
+- `npm run typecheck -w @orest/web` passed on 2026-06-25 after the locale-foundation pass, stable fact-check status migration, locale-aware job payload updates, and targeted storage/test fixes.
+- `npm run test -w @orest/web` passed on 2026-06-25 after updating locale-sensitive tests for draft storage keys, stable fact-check statuses, and the current Gemini preset labels.
 - `node --import tsx --test apps/web/test/review-action-service.test.ts apps/web/test/review-service.test.ts apps/web/test/settings.test.ts`, `npm run typecheck -w @orest/web`, and `npm test -w @orest/web` passed on 2026-04-15 after teaching deep callouts to preserve short bold anchors, bullet/numbered list lines, and more structured body splitting on insert.
 - `node --import tsx --test apps/web/test/review-contract.test.ts apps/web/test/manual-review-items.test.ts apps/web/test/local-action-router.test.ts apps/web/test/review-action-service.test.ts apps/web/test/review-service.test.ts`, `npm run typecheck -w @orest/web`, and `npm run test -w @orest/web` passed on 2026-04-15 after wiring callout depth/profile (`brief`/`deep`) through review generation, proposal generation, manual launchers, local-action routing, inline execution, manuscript blocks, and settings prompts.
 - `node --import tsx --test apps/web/test/local-action-router.test.ts apps/web/test/manual-review-items.test.ts` and `npm run typecheck -w @orest/web` passed on 2026-04-16 after replacing the floating `Правка` table intent with review-backed subsection H3 proposals.

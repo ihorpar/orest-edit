@@ -8,6 +8,7 @@ import {
   type PersistedEditorDraftState
 } from "../lib/editor/draft-state.ts";
 import { EMPTY_BLOCK_SELECTION, type EditorDocument } from "../lib/editor/document-model.ts";
+import { getEditorDraftStorageKey } from "../lib/i18n/product-locale";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "../lib/editor/review-contract.ts";
 
@@ -119,7 +120,7 @@ test("writeEditorDraftState persists sanitized document text", () => {
 
   writeEditorDraftState(buildDraft(dirtyDocument));
 
-  const raw = localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY);
+  const raw = localStorage.getItem(getEditorDraftStorageKey("uk")) ?? localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY);
   assert.ok(raw);
   const parsed = JSON.parse(raw) as PersistedEditorDraftState;
   const paragraph = parsed.document.blocks[0];

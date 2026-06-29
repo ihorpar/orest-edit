@@ -15,6 +15,7 @@ const settledPollAfterMs = 0;
 
 interface StoredEditorialReviewJob {
   id: string;
+  locale?: EditorialReviewRequest["locale"];
   status: EditorialReviewJobStatus;
   createdAt: string;
   updatedAt: string;
@@ -29,11 +30,11 @@ declare global {
   var __orestEditorialReviewJobs: Map<string, StoredEditorialReviewJob> | undefined;
 }
 
-export function createQueuedEditorialReviewJob(now = new Date()): EditorialReviewJob {
+export function createQueuedEditorialReviewJob(locale?: EditorialReviewRequest["locale"], now = new Date()): EditorialReviewJob {
   const store = getEditorialReviewJobStore();
   pruneExpiredJobs(store, now);
 
-  const job = buildQueuedJob(now);
+  const job = buildQueuedJob(locale, now);
   store.set(job.id, job);
 
   return toPublicJob(job);
@@ -113,12 +114,13 @@ function getEditorialReviewJobStore(): Map<string, StoredEditorialReviewJob> {
   return globalThis.__orestEditorialReviewJobs;
 }
 
-function buildQueuedJob(now: Date): StoredEditorialReviewJob {
+function buildQueuedJob(locale: EditorialReviewRequest["locale"], now: Date): StoredEditorialReviewJob {
   const timestamp = now.toISOString();
   const expiresAt = new Date(now.getTime() + jobTtlMs).toISOString();
 
   return {
     id: createPatchId("review-job"),
+    locale,
     status: "queued",
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -148,6 +150,7 @@ function withJobState(job: StoredEditorialReviewJob, status: EditorialReviewJobS
 function toPublicJob(job: StoredEditorialReviewJob): EditorialReviewJob {
   return {
     id: job.id,
+    locale: job.locale,
     status: job.status,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,

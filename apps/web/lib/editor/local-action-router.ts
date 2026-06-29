@@ -9,6 +9,7 @@ import {
   type EditorialVisualIntent,
   type VisualStylePreset
 } from "./review-contract";
+import type { AppLocale } from "../i18n/product-locale";
 
 export type LocalActionMode = "auto" | "edit" | "spellcheck" | "callout" | "visual";
 export type LocalActionTextIntent = "rewrite" | "shorten" | "list" | "subsection";
@@ -17,6 +18,7 @@ export type LocalActionClarifyChoice = "patch" | "spellcheck" | "callout" | "vis
 export type SuggestedLocalActionMode = Exclude<LocalActionMode, "auto" | "edit">;
 
 export interface LocalActionRouteRequest {
+  locale?: AppLocale;
   prompt: string;
   explicitMode?: Exclude<LocalActionMode, "auto"> | null;
   preferredTextIntent?: LocalActionTextIntent | null;
@@ -64,22 +66,44 @@ export type LocalActionRouteResponse =
       choices: LocalActionClarifyChoice[];
     };
 
-const TEXT_INTENT_LABELS: Record<LocalActionTextIntent, string> = {
-  rewrite: "Переписати",
-  shorten: "Скоротити",
-  list: "Список",
-  subsection: "Підзаголовок"
+const TEXT_INTENT_LABELS: Record<AppLocale, Record<LocalActionTextIntent, string>> = {
+  uk: {
+    rewrite: "Переписати",
+    shorten: "Скоротити",
+    list: "Список",
+    subsection: "Підзаголовок"
+  },
+  en: {
+    rewrite: "Rewrite",
+    shorten: "Shorten",
+    list: "List",
+    subsection: "Subheading"
+  }
 };
 
-const CLARIFY_PATTERNS = /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i;
-const SPELLCHECK_PATTERNS = /(правопис|орфограф|помилк|описк|grammar|spell)/i;
-const CALLOUT_PATTERNS = /(врізк|врезк|бокс|сайдбар|виноск)/i;
-const VISUAL_PATTERNS = /(візуал|зображ|картин|ілюстрац|схем|інфограф)/i;
-const SUBSECTION_PATTERNS = /(підзаголов|підрозділ|заголовк|h3|h 3)/i;
-const LIST_PATTERNS = /(спис(ок|ком)?|перел(ік|іч)|bullets?)/i;
-const SHORTEN_PATTERNS = /(скорот|стисл|ущільн|коротш)/i;
+const REGEXES = {
+  uk: {
+    clarify: /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i,
+    spellcheck: /(правопис|орфограф|помилк|описк|grammar|spell)/i,
+    callout: /(врізк|врезк|бокс|сайдбар|виноск)/i,
+    visual: /(візуал|зображ|картин|ілюстрац|схем|інфограф)/i,
+    subsection: /(підзаголов|підрозділ|заголовк|h3|h 3)/i,
+    list: /(спис(ок|ком)?|перел(ік|іч)|bullets?)/i,
+    shorten: /(скорот|стисл|ущільн|коротш)/i
+  },
+  en: {
+    clarify: /\b(something|anything|you decide|pick for me|your call)\b/i,
+    spellcheck: /(spell|grammar|typo|proofread)/i,
+    callout: /(callout|sidebar|boxout)/i,
+    visual: /(visual|image|illustration|diagram|infographic|graphic)/i,
+    subsection: /(subhead|subheading|heading|h3)/i,
+    list: /(list|bullets?|bullet points?)/i,
+    shorten: /(shorten|trim|tighten|compress|make shorter)/i
+  }
+} as const;
 
 export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActionRouteResponse {
+  const locale = input.locale ?? "uk";
   const trimmedPrompt = input.prompt.trim();
   const explicitMode = input.explicitMode ?? null;
   const preferredTextIntent = input.preferredTextIntent ?? null;
@@ -87,10 +111,10 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
   const calloutDepth = normalizeEditorialCalloutDepth(input.calloutDepth);
   const visualIntent = input.visualIntent ?? "infographic";
   const visualStylePreset = input.visualStylePreset;
-  const suggestedMode = inferSuggestedLocalActionMode(trimmedPrompt);
+  const suggestedMode = inferSuggestedLocalActionMode(trimmedPrompt, locale);
 
   if (explicitMode === "spellcheck") {
-    return { executor: "spellcheck", actionLabel: "Перевірити правопис" };
+    return { executor: "spellcheck", actionLabel: locale === "en" ? "Check spelling" : "Перевірити правопис" };
   }
 
   if (explicitMode === "callout") {
@@ -99,7 +123,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
       calloutKind,
       calloutDepth,
       prompt: trimmedPrompt || undefined,
-      actionLabel: "Підготувати врізку"
+      actionLabel: locale === "en" ? "Prepare callout" : "Підготувати врізку"
     };
   }
 
@@ -109,12 +133,12 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
       visualIntent,
       visualStylePreset,
       prompt: trimmedPrompt || undefined,
-      actionLabel: "Підготувати візуал"
+      actionLabel: locale === "en" ? "Prepare visual" : "Підготувати візуал"
     };
   }
 
   if (explicitMode !== "edit" && suggestedMode === "spellcheck") {
-    return { executor: "spellcheck", actionLabel: "Перевірити правопис" };
+    return { executor: "spellcheck", actionLabel: locale === "en" ? "Check spelling" : "Перевірити правопис" };
   }
 
   if (explicitMode !== "edit" && suggestedMode === "callout") {
@@ -123,7 +147,7 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
       calloutKind,
       calloutDepth,
       prompt: trimmedPrompt,
-      actionLabel: "Підготувати врізку"
+      actionLabel: locale === "en" ? "Prepare callout" : "Підготувати врізку"
     };
   }
 
@@ -133,36 +157,36 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
       visualIntent,
       visualStylePreset,
       prompt: trimmedPrompt,
-      actionLabel: "Підготувати візуал"
+      actionLabel: locale === "en" ? "Prepare visual" : "Підготувати візуал"
     };
   }
 
-  if (trimmedPrompt && CLARIFY_PATTERNS.test(trimmedPrompt) && !preferredTextIntent) {
+  if (trimmedPrompt && REGEXES[locale].clarify.test(trimmedPrompt) && !preferredTextIntent) {
     return {
       executor: "clarify",
-      actionLabel: "Уточніть дію",
+      actionLabel: locale === "en" ? "Clarify action" : "Уточніть дію",
       choices: ["patch", "callout", "visual"]
     };
   }
 
   const inferredTextIntent =
     preferredTextIntent ??
-    (trimmedPrompt && SUBSECTION_PATTERNS.test(trimmedPrompt)
+    (trimmedPrompt && REGEXES[locale].subsection.test(trimmedPrompt)
       ? "subsection"
-      : trimmedPrompt && LIST_PATTERNS.test(trimmedPrompt)
+      : trimmedPrompt && REGEXES[locale].list.test(trimmedPrompt)
         ? "list"
-        : trimmedPrompt && SHORTEN_PATTERNS.test(trimmedPrompt)
+        : trimmedPrompt && REGEXES[locale].shorten.test(trimmedPrompt)
           ? "shorten"
           : "rewrite");
 
-  const normalizedPrompt = buildPatchPromptForTextIntent(inferredTextIntent, trimmedPrompt);
+  const normalizedPrompt = buildPatchPromptForTextIntent(inferredTextIntent, trimmedPrompt, locale);
 
   if (inferredTextIntent === "list" || inferredTextIntent === "subsection") {
     return {
       executor: "review",
       recommendationType: inferredTextIntent,
       prompt: trimmedPrompt || undefined,
-      actionLabel: TEXT_INTENT_LABELS[inferredTextIntent]
+      actionLabel: TEXT_INTENT_LABELS[locale][inferredTextIntent]
     };
   }
 
@@ -171,33 +195,33 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     textIntent: inferredTextIntent,
     requestMode: normalizedPrompt ? "custom" : "default",
     prompt: normalizedPrompt ?? undefined,
-    actionLabel: TEXT_INTENT_LABELS[inferredTextIntent]
+    actionLabel: TEXT_INTENT_LABELS[locale][inferredTextIntent]
   };
 }
 
-export function inferSuggestedLocalActionMode(prompt: string): SuggestedLocalActionMode | null {
+export function inferSuggestedLocalActionMode(prompt: string, locale: AppLocale = "uk"): SuggestedLocalActionMode | null {
   const trimmedPrompt = prompt.trim();
 
   if (!trimmedPrompt) {
     return null;
   }
 
-  if (SPELLCHECK_PATTERNS.test(trimmedPrompt)) {
+  if (REGEXES[locale].spellcheck.test(trimmedPrompt)) {
     return "spellcheck";
   }
 
-  if (CALLOUT_PATTERNS.test(trimmedPrompt)) {
+  if (REGEXES[locale].callout.test(trimmedPrompt)) {
     return "callout";
   }
 
-  if (VISUAL_PATTERNS.test(trimmedPrompt)) {
+  if (REGEXES[locale].visual.test(trimmedPrompt)) {
     return "visual";
   }
 
   return null;
 }
 
-export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, prompt: string): string | null {
+export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, prompt: string, locale: AppLocale = "uk"): string | null {
   const trimmedPrompt = prompt.trim();
 
   if (intent === "rewrite") {
@@ -205,36 +229,50 @@ export function buildPatchPromptForTextIntent(intent: LocalActionTextIntent, pro
   }
 
   const baseInstruction =
-    intent === "shorten"
-      ? "Скороти виділений фрагмент, збережи зміст, логіку й тон."
-      : intent === "subsection"
-        ? "Запропонуй один короткий H3-підзаголовок для виділеного фрагмента українською без зміни змісту."
-        : "Перетвори виділений фрагмент на компактний список українською без втрати змісту.";
+    locale === "en"
+      ? intent === "shorten"
+        ? "Shorten the selected fragment while preserving meaning, logic, and tone."
+        : intent === "subsection"
+          ? "Suggest one short H3 subheading for the selected fragment in English without changing its meaning."
+          : "Turn the selected fragment into a compact English list without losing meaning."
+      : intent === "shorten"
+        ? "Скороти виділений фрагмент, збережи зміст, логіку й тон."
+        : intent === "subsection"
+          ? "Запропонуй один короткий H3-підзаголовок для виділеного фрагмента українською без зміни змісту."
+          : "Перетвори виділений фрагмент на компактний список українською без втрати змісту.";
 
-  return trimmedPrompt ? `${baseInstruction}\n\nДодаткова інструкція: ${trimmedPrompt}` : baseInstruction;
+  return trimmedPrompt
+    ? `${baseInstruction}\n\n${locale === "en" ? "Additional instruction" : "Додаткова інструкція"}: ${trimmedPrompt}`
+    : baseInstruction;
 }
 
-export function getLocalActionTextIntentOptions(): Array<{ value: LocalActionTextIntent; label: string }> {
-  return (Object.keys(TEXT_INTENT_LABELS) as LocalActionTextIntent[]).map((value) => ({
+export function getLocalActionTextIntentOptions(locale: AppLocale = "uk"): Array<{ value: LocalActionTextIntent; label: string }> {
+  return (Object.keys(TEXT_INTENT_LABELS[locale]) as LocalActionTextIntent[]).map((value) => ({
     value,
-    label: TEXT_INTENT_LABELS[value]
+    label: TEXT_INTENT_LABELS[locale][value]
   }));
 }
 
-export function getLocalActionTextIntentLabel(intent: LocalActionTextIntent): string {
-  return TEXT_INTENT_LABELS[intent];
+export function getLocalActionTextIntentLabel(intent: LocalActionTextIntent, locale: AppLocale = "uk"): string {
+  return TEXT_INTENT_LABELS[locale][intent];
 }
 
-export function getLocalActionCalloutDescription(kind: EditorialCalloutKind): string {
-  return `${getEditorialCalloutKindLabel(kind)}: ${getEditorialCalloutKindDescription(kind)}`;
+export function getLocalActionCalloutDescription(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {
+  return `${getEditorialCalloutKindLabel(kind, locale)}: ${getEditorialCalloutKindDescription(kind)}`;
 }
 
-export function getLocalActionCalloutDepthDescription(depth: EditorialCalloutDepth): string {
-  return `${getEditorialCalloutDepthLabel(depth)}`;
+export function getLocalActionCalloutDepthDescription(depth: EditorialCalloutDepth, locale: AppLocale = "uk"): string {
+  return getEditorialCalloutDepthLabel(depth, locale);
 }
 
-export function getLocalActionVisualDescription(intent: EditorialVisualIntent): string {
+export function getLocalActionVisualDescription(intent: EditorialVisualIntent, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return intent === "illustration"
+      ? `${getEditorialVisualIntentLabel(intent, locale)}: one clear explanatory scene without a rigid grid or tabular composition.`
+      : `${getEditorialVisualIntentLabel(intent, locale)}: a structured visual with a clear composition that explains the fragment through comparison, process, or schema.`;
+  }
+
   return intent === "illustration"
-    ? `${getEditorialVisualIntentLabel(intent)}: одна виразна пояснювальна сцена без жорсткої сітки чи табличної композиції.`
-    : `${getEditorialVisualIntentLabel(intent)}: структурований візуал із чіткою композицією, який пояснює фрагмент через порівняння, процес або схему.`;
+    ? `${getEditorialVisualIntentLabel(intent, locale)}: одна виразна пояснювальна сцена без жорсткої сітки чи табличної композиції.`
+    : `${getEditorialVisualIntentLabel(intent, locale)}: структурований візуал із чіткою композицією, який пояснює фрагмент через порівняння, процес або схему.`;
 }

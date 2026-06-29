@@ -22,6 +22,8 @@ import {
 import type { Block, EditorDocument, InlineNode } from "./document-model";
 import { getInlineText } from "./document-model";
 import { createEditorAssetToken, resolveEditorAssetUrl } from "./asset-store";
+import type { AppLocale } from "../i18n/product-locale";
+import { getProductLocaleConfig } from "../i18n/product-locale";
 
 const BODY_FONT = "Times New Roman";
 const HEADING_FONT = "Cambria";
@@ -38,6 +40,7 @@ export interface DocxExportWarning {
 export interface ExportDocxInput {
   document: EditorDocument;
   fileNameBase?: string;
+  locale?: AppLocale;
 }
 
 export interface ExportDocxResult {
@@ -67,17 +70,18 @@ export async function exportDocumentToDocx(input: ExportDocxInput): Promise<Expo
   const resolvedImages = await resolveImages(input.document.blocks, warnings, warningKeys);
   const renderContext: RenderContext = { warnings, warningKeys, resolvedImages };
   const children = await renderBlocksToDocx(input.document.blocks, renderContext);
-  const document = buildDocument(children);
+  const locale = input.locale ?? "uk";
+  const document = buildDocument(children, locale);
   const blob = await Packer.toBlob(document);
 
   return {
     blob,
-    fileName: buildDocxFileName(input.fileNameBase || deriveDocxFileNameBase(input.document)),
+    fileName: buildDocxFileName(input.fileNameBase || deriveDocxFileNameBase(input.document, locale), locale),
     warnings
   };
 }
 
-export function deriveDocxFileNameBase(document: EditorDocument): string {
+export function deriveDocxFileNameBase(document: EditorDocument, locale: AppLocale = "uk"): string {
   const firstMeaningfulBlock = document.blocks.find((block) => {
     if (block.type === "divider") {
       return false;
@@ -87,19 +91,20 @@ export function deriveDocxFileNameBase(document: EditorDocument): string {
   });
 
   if (!firstMeaningfulBlock) {
-    return DEFAULT_FILE_NAME_BASE;
+    return getProductLocaleConfig(locale).defaultFileNameBase;
   }
 
-  return getBlockTextPreview(firstMeaningfulBlock) || DEFAULT_FILE_NAME_BASE;
+  return getBlockTextPreview(firstMeaningfulBlock) || getProductLocaleConfig(locale).defaultFileNameBase;
 }
 
-export function buildDocxFileName(fileNameBase: string): string {
-  const base = sanitizeFileName(fileNameBase || DEFAULT_FILE_NAME_BASE) || DEFAULT_FILE_NAME_BASE;
+export function buildDocxFileName(fileNameBase: string, locale: AppLocale = "uk"): string {
+  const fallbackBase = getProductLocaleConfig(locale).defaultFileNameBase;
+  const base = sanitizeFileName(fileNameBase || fallbackBase) || fallbackBase;
   const date = new Date().toISOString().slice(0, 10);
   return `${base}-${date}.docx`;
 }
 
-function buildDocument(children: Array<Paragraph | Table>): Document {
+function buildDocument(children: Array<Paragraph | Table>, locale: AppLocale): Document {
   return new Document({
     styles: {
       default: {
@@ -108,7 +113,7 @@ function buildDocument(children: Array<Paragraph | Table>): Document {
             font: BODY_FONT,
             size: 24,
             language: {
-              value: "uk-UA"
+              value: getProductLocaleConfig(locale).docxLanguage
             }
           },
           paragraph: {

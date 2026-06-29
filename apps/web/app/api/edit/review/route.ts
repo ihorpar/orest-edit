@@ -17,6 +17,7 @@ import {
   readEditorialReviewJob
 } from "../../../../lib/server/review-job-service";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
+import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -146,7 +147,7 @@ export async function POST(request: Request) {
   }
 
   if (parsed.value.async !== false) {
-    const job = createQueuedEditorialReviewJob();
+    const job = createQueuedEditorialReviewJob(parsed.value.locale);
 
     scheduleAfter(async () => {
       try {
@@ -217,6 +218,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
     value: {
       document: record.document as EditorialReviewRequest["document"],
       revision,
+      locale: parseAppLocale(record.locale),
       provider,
       modelId,
       apiKey: resolveClientProvidedApiKey(record.apiKey),
@@ -261,6 +263,10 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
       rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas)
     }
   };
+}
+
+function parseAppLocale(value: unknown): AppLocale | undefined {
+  return isAppLocale(value) ? value : undefined;
 }
 
 function parseWorkflowStepPrompts(value: unknown): EditorialReviewRequest["workflowStepPrompts"] {

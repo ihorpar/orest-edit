@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TopBar } from "../../components/layout/TopBar";
+import { useProductCopy, useProductLocale } from "../../components/providers/ProductLocaleProvider";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
@@ -37,6 +38,7 @@ import {
   type SettingsKeySource,
   type SettingsValidationResult
 } from "../../lib/editor/settings";
+import { APP_LOCALE_UPDATED_EVENT } from "../../lib/i18n/product-locale";
 
 interface ConnectionStatusSnapshot {
   provider: ProviderId;
@@ -60,6 +62,8 @@ const WORKFLOW_STEP_PROMPT_OPTIONS: Array<{ value: EditorialReviewStepId; label:
 ];
 
 export default function SettingsPage() {
+  const copy = useProductCopy();
+  const { locale, setLocale } = useProductLocale();
   const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [persistedSettings, setPersistedSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [activeStepPromptId, setActiveStepPromptId] = useState<EditorialReviewStepId>("diagnostics");
@@ -75,13 +79,13 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    const restored = stripClientApiKeys(readEditorSettings());
+    const restored = stripClientApiKeys(readEditorSettings(locale));
     setSettings(restored);
     setPersistedSettings(restored);
-  }, []);
+  }, [locale]);
 
   const providerLabel = getProviderLabel(settings.provider);
-  const modelPresets = getProviderModelPresets(settings.provider);
+  const modelPresets = getProviderModelPresets(settings.provider, locale);
   const selectedPreset = findProviderModelPreset(settings.provider, settings.modelId);
   const selectedModelOption = selectedPreset?.id ?? CUSTOM_MODEL_OPTION;
   const currentModelId = selectedModelOption === CUSTOM_MODEL_OPTION ? settings.modelId.trim() : normalizeModelId(settings.provider, settings.modelId);
@@ -227,6 +231,40 @@ export default function SettingsPage() {
                 </article>
               </div>
             </header>
+
+            <section className="settings-section">
+              <div className="settings-section-head settings-section-head-static">
+                <div>
+                  <p className="mono-ui settings-section-kicker">{copy.settings.title}</p>
+                  <h2 className="settings-section-title">{copy.settings.language.label}</h2>
+                </div>
+              </div>
+              <div className="settings-form-grid">
+                <label className="settings-field" htmlFor="app-language">
+                  <span className="mono-ui settings-label">{copy.settings.language.label}</span>
+                  <Select
+                    id="app-language"
+                    value={locale}
+                    onChange={(event) => {
+                      const nextLocale = event.target.value === "en" ? "en" : "uk";
+                      const confirmed = window.confirm(`${copy.settings.language.confirmTitle}\n\n${copy.settings.language.confirmBody}`);
+
+                      if (!confirmed) {
+                        return;
+                      }
+
+                      setLocale(nextLocale);
+                      window.dispatchEvent(new CustomEvent(APP_LOCALE_UPDATED_EVENT, { detail: { locale: nextLocale } }));
+                      setSaveMessage(copy.settings.language.switched);
+                    }}
+                  >
+                    <option value="uk">{copy.settings.language.uk}</option>
+                    <option value="en">{copy.settings.language.en}</option>
+                  </Select>
+                  <p className="settings-field-note">{copy.settings.language.note}</p>
+                </label>
+              </div>
+            </section>
 
             <section className="settings-section">
               <div className="settings-section-head">
@@ -572,11 +610,11 @@ export default function SettingsPage() {
                 variant="primary"
                 disabled={!hasUnsavedChanges}
                 onClick={() => {
-                  const persisted = writeEditorSettings(stripClientApiKeys(settings));
+                  const persisted = writeEditorSettings(stripClientApiKeys(settings), locale);
                   setSettings(persisted);
                   setPersistedSettings(persisted);
                   window.dispatchEvent(new CustomEvent("orest-editor-settings-updated", { detail: persisted }));
-                  setSaveMessage("Налаштування збережено локально в браузері.");
+                  setSaveMessage(copy.settings.saveSuccess);
                 }}
               >
                 Зберегти налаштування

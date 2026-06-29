@@ -878,7 +878,7 @@ test("generateEditorialReview returns provider-native structured fact-check rows
   assert.equal(response.stepId, "fact_check");
   assert.equal(response.items.length, 0);
   assert.equal(response.factCheckRows?.length, 1);
-  assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
+  assert.equal(response.factCheckRows?.[0]?.status, "questionable");
   assert.deepEqual(response.factCheckRows?.[0]?.sources, []);
   assert.equal(
     response.factCheckRows?.[0]?.explanation,
@@ -969,7 +969,7 @@ test("generateEditorialReview adds local suspicion rows for medical numbers and 
 
   assert.equal(response.usedFallback, false);
   assert.equal(response.factCheckRows?.length, 1);
-  assert.equal(response.factCheckRows?.[0]?.status, "сумнівно");
+  assert.equal(response.factCheckRows?.[0]?.status, "questionable");
   assert.match(response.factCheckRows?.[0]?.claim ?? "", /500 мг/);
   assert.match(response.factCheckRows?.[0]?.explanation ?? "", /число або одиниця вимірювання/);
 });

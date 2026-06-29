@@ -1733,7 +1733,7 @@ function createMeasurementSuspicionRows(request: EditorialReviewRequest): Editor
 
     rows.push({
       claim: excerpt,
-      status: "сумнівно",
+      status: "questionable",
       explanation: suspiciousMeasurementExplanation,
       sources: []
     });
@@ -1797,7 +1797,7 @@ function finalizeFactCheckRow(row: EditorialFactCheckRow): EditorialFactCheckRow
 }
 
 function normalizeFactCheckStatus(value: unknown): FactCheckStatus | null {
-  if (value === "ok" || value === "сумнівно" || value === "не підтверджено") {
+  if (value === "ok" || value === "questionable" || value === "unsupported") {
     return value;
   }
 
@@ -1812,11 +1812,11 @@ function normalizeFactCheckStatus(value: unknown): FactCheckStatus | null {
   }
 
   if (normalized === "сумнівно" || normalized === "questionable") {
-    return "сумнівно";
+    return "questionable";
   }
 
   if (normalized === "не підтверджено" || normalized === "непідтверджено" || normalized === "unverified") {
-    return "не підтверджено";
+    return "unsupported";
   }
 
   return null;
@@ -2034,7 +2034,7 @@ function createFallbackFactCheckRows(request: EditorialReviewRequest): Editorial
 
     rows.push({
       claim: text.slice(0, 280),
-      status: "не підтверджено",
+      status: "unsupported",
       explanation:
         "Потрібна окрема перевірка джерел: наведіть першоджерело (автори, рік, журнал або офіційний гайдлайн) перед редакторським затвердженням.",
       sources: []

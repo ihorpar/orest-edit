@@ -74,7 +74,7 @@ test("editorial review job marks failure when generation throws before response 
 
 test("editorial review job store prunes expired jobs on read", () => {
   const createdAt = new Date("2026-05-12T10:00:00.000Z");
-  const job = createQueuedEditorialReviewJob(createdAt);
+  const job = createQueuedEditorialReviewJob(undefined, createdAt);
 
   const beforeExpiry = readEditorialReviewJob(job.id, new Date("2026-05-12T10:29:59.000Z"));
   assert.ok(beforeExpiry);

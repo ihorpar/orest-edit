@@ -1,4 +1,17 @@
 import type { EditorialReviewStepId, VisualStylePreset, WholeTextChangeLevel } from "./review-contract.ts";
+import {
+  getEditorSettingsStorageKey,
+  getLegacyEditorSettingsStorageKey,
+  getLegacyVisualStylePresetStorageKey,
+  readActiveAppLocale,
+  type AppLocale
+} from "../i18n/product-locale";
+import {
+  getLocaleEditorDefaults,
+  getLocalizedVisualStylePresetGuides,
+  getLocalizedVisualStylePresetLabels,
+  localizeProviderModelPresets
+} from "./settings-locale-defaults";
 
 export type ProviderId = "openai" | "gemini" | "anthropic";
 export type ModelIdValidationState = "valid" | "missing" | "invalid";
@@ -38,9 +51,9 @@ export interface SettingsValidationResult {
   validatedAt: string;
 }
 
-export const EDITOR_SETTINGS_STORAGE_KEY = "orest-editor-settings-v1";
+export const EDITOR_SETTINGS_STORAGE_KEY = getLegacyEditorSettingsStorageKey();
 export const EDITOR_SETTINGS_UPDATED_EVENT = "orest-editor-settings-updated";
-export const VISUAL_STYLE_PRESET_STORAGE_KEY = "orest-visual-style-v1";
+export const VISUAL_STYLE_PRESET_STORAGE_KEY = getLegacyVisualStylePresetStorageKey();
 export const CUSTOM_MODEL_OPTION = "__custom__";
 export const DEFAULT_VISUAL_STYLE_PRESET: VisualStylePreset = "calm_gradient";
 
@@ -385,8 +398,8 @@ const DEFAULT_PROVIDER_MODEL_IDS: Record<ProviderId, string> = {
   gemini: "gemini-3.1-flash-lite-preview"
 };
 
-export function getProviderModelPresets(provider: ProviderId): ProviderModelPreset[] {
-  return PROVIDER_MODEL_PRESETS[provider];
+export function getProviderModelPresets(provider: ProviderId, locale: AppLocale = readActiveAppLocale()): ProviderModelPreset[] {
+  return localizeProviderModelPresets(PROVIDER_MODEL_PRESETS[provider], provider, locale);
 }
 
 export function getDefaultProviderModelId(provider: ProviderId): string {
@@ -428,6 +441,18 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   calloutPromptTemplate: DEFAULT_CALLOUT_PROMPT_TEMPLATE,
   imagePromptTemplate: DEFAULT_IMAGE_PROMPT_TEMPLATE
 };
+
+export const DEFAULT_EDITOR_SETTINGS_BY_LOCALE: Record<AppLocale, EditorSettings> = {
+  uk: DEFAULT_EDITOR_SETTINGS,
+  en: {
+    ...DEFAULT_EDITOR_SETTINGS,
+    ...(getLocaleEditorDefaults("en") ?? {})
+  }
+};
+
+export function getDefaultEditorSettings(locale: AppLocale = "uk"): EditorSettings {
+  return DEFAULT_EDITOR_SETTINGS_BY_LOCALE[locale];
+}
 
 export function normalizeProvider(provider: string): ProviderId {
   return provider === "gemini" || provider === "anthropic" ? provider : "openai";
@@ -477,19 +502,19 @@ export function validateModelId(modelId: string): ModelIdValidationState {
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,99}$/.test(trimmed) ? "valid" : "invalid";
 }
 
-export function getVisualStylePresetOptions(): Array<{ value: VisualStylePreset; label: string }> {
+export function getVisualStylePresetOptions(locale: AppLocale = readActiveAppLocale()): Array<{ value: VisualStylePreset; label: string }> {
   return (Object.keys(VISUAL_STYLE_PRESET_LABELS) as VisualStylePreset[]).map((value) => ({
     value,
-    label: VISUAL_STYLE_PRESET_LABELS[value]
+    label: getVisualStylePresetLabel(value, locale)
   }));
 }
 
-export function getVisualStylePresetLabel(preset: VisualStylePreset): string {
-  return VISUAL_STYLE_PRESET_LABELS[preset];
+export function getVisualStylePresetLabel(preset: VisualStylePreset, locale: AppLocale = readActiveAppLocale()): string {
+  return getLocalizedVisualStylePresetLabels(locale)?.[preset] ?? VISUAL_STYLE_PRESET_LABELS[preset];
 }
 
-export function getVisualStylePresetGuide(preset: VisualStylePreset): string {
-  return VISUAL_STYLE_PRESET_GUIDES[preset];
+export function getVisualStylePresetGuide(preset: VisualStylePreset, locale: AppLocale = readActiveAppLocale()): string {
+  return getLocalizedVisualStylePresetGuides(locale)?.[preset] ?? VISUAL_STYLE_PRESET_GUIDES[preset];
 }
 
 export function normalizeVisualStylePreset(
@@ -504,11 +529,16 @@ export function normalizeVisualStylePreset(
   return value in VISUAL_STYLE_PRESET_GUIDES ? value : fallback;
 }
 
-function sanitizeWorkflowStepPrompts(candidate: Partial<Record<EditorialReviewStepId, unknown>> | null | undefined): Record<EditorialReviewStepId, string> {
+function sanitizeWorkflowStepPrompts(
+  candidate: Partial<Record<EditorialReviewStepId, unknown>> | null | undefined,
+  locale: AppLocale
+): Record<EditorialReviewStepId, string> {
+  const defaults = getDefaultEditorSettings(locale).workflowStepPrompts;
+
   return (Object.keys(DEFAULT_WORKFLOW_STEP_PROMPTS) as EditorialReviewStepId[]).reduce(
     (result, stepId) => {
       const value = candidate?.[stepId];
-      result[stepId] = typeof value === "string" && value.trim() ? value.trim() : DEFAULT_WORKFLOW_STEP_PROMPTS[stepId];
+      result[stepId] = typeof value === "string" && value.trim() ? value.trim() : defaults[stepId];
       return result;
     },
     {} as Record<EditorialReviewStepId, string>
@@ -535,59 +565,62 @@ function sanitizeProviderApiKeys(candidate: unknown, fallbackProvider: ProviderI
   return apiKeys;
 }
 
-export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null | undefined): EditorSettings {
-  const provider = normalizeProvider(candidate?.provider ?? DEFAULT_EDITOR_SETTINGS.provider);
-  const legacyApiKey = typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : DEFAULT_EDITOR_SETTINGS.apiKey;
+export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null | undefined, locale: AppLocale = "uk"): EditorSettings {
+  const defaults = getDefaultEditorSettings(locale);
+  const provider = normalizeProvider(candidate?.provider ?? defaults.provider);
+  const legacyApiKey = typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : defaults.apiKey;
   const apiKeys = sanitizeProviderApiKeys(candidate?.apiKeys, provider, legacyApiKey);
 
   return {
     provider,
-    modelId: typeof candidate?.modelId === "string" ? candidate.modelId.trim() : DEFAULT_EDITOR_SETTINGS.modelId,
+    modelId: typeof candidate?.modelId === "string" ? candidate.modelId.trim() : defaults.modelId,
     apiKey: apiKeys[provider] ?? "",
     apiKeys,
-    basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : DEFAULT_EDITOR_SETTINGS.basePrompt,
+    basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : defaults.basePrompt,
     reviewPrompt:
-      typeof candidate?.reviewPrompt === "string" && candidate.reviewPrompt.trim() ? candidate.reviewPrompt.trim() : DEFAULT_EDITOR_SETTINGS.reviewPrompt,
+      typeof candidate?.reviewPrompt === "string" && candidate.reviewPrompt.trim() ? candidate.reviewPrompt.trim() : defaults.reviewPrompt,
     expertisePrompt:
-      typeof candidate?.expertisePrompt === "string" && candidate.expertisePrompt.trim() ? candidate.expertisePrompt.trim() : DEFAULT_EDITOR_SETTINGS.expertisePrompt,
+      typeof candidate?.expertisePrompt === "string" && candidate.expertisePrompt.trim() ? candidate.expertisePrompt.trim() : defaults.expertisePrompt,
     cardsPrompt:
-      typeof candidate?.cardsPrompt === "string" && candidate.cardsPrompt.trim() ? candidate.cardsPrompt.trim() : DEFAULT_EDITOR_SETTINGS.cardsPrompt,
+      typeof candidate?.cardsPrompt === "string" && candidate.cardsPrompt.trim() ? candidate.cardsPrompt.trim() : defaults.cardsPrompt,
     reviewLevelGuide:
       typeof candidate?.reviewLevelGuide === "string" && candidate.reviewLevelGuide.trim()
         ? candidate.reviewLevelGuide.trim()
-        : DEFAULT_EDITOR_SETTINGS.reviewLevelGuide,
-    workflowStepPrompts: sanitizeWorkflowStepPrompts(candidate?.workflowStepPrompts),
+        : defaults.reviewLevelGuide,
+    workflowStepPrompts: sanitizeWorkflowStepPrompts(candidate?.workflowStepPrompts, locale),
     calloutPromptTemplate:
       typeof candidate?.calloutPromptTemplate === "string" && candidate.calloutPromptTemplate.trim()
         ? candidate.calloutPromptTemplate.trim()
-        : DEFAULT_EDITOR_SETTINGS.calloutPromptTemplate,
+        : defaults.calloutPromptTemplate,
     imagePromptTemplate:
       typeof candidate?.imagePromptTemplate === "string" && candidate.imagePromptTemplate.trim()
         ? candidate.imagePromptTemplate.trim()
-        : DEFAULT_EDITOR_SETTINGS.imagePromptTemplate
+        : defaults.imagePromptTemplate
   };
 }
 
-export function readEditorSettings(): EditorSettings {
+export function readEditorSettings(locale: AppLocale = readActiveAppLocale()): EditorSettings {
   if (typeof window === "undefined") {
-    return DEFAULT_EDITOR_SETTINGS;
+    return getDefaultEditorSettings(locale);
   }
 
-  const raw = window.localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY);
+  const raw =
+    window.localStorage.getItem(getEditorSettingsStorageKey(locale))
+    ?? (locale === "uk" ? window.localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY) : null);
 
   if (!raw) {
-    return DEFAULT_EDITOR_SETTINGS;
+    return getDefaultEditorSettings(locale);
   }
 
   try {
-    return sanitizeEditorSettings(JSON.parse(raw) as Partial<EditorSettings>);
+    return sanitizeEditorSettings(JSON.parse(raw) as Partial<EditorSettings>, locale);
   } catch {
-    return DEFAULT_EDITOR_SETTINGS;
+    return getDefaultEditorSettings(locale);
   }
 }
 
-export function writeEditorSettings(settings: EditorSettings): EditorSettings {
-  const sanitized = sanitizeEditorSettings(settings);
+export function writeEditorSettings(settings: EditorSettings, locale: AppLocale = readActiveAppLocale()): EditorSettings {
+  const sanitized = sanitizeEditorSettings(settings, locale);
   const apiKeys = {
     ...sanitized.apiKeys,
     [sanitized.provider]: sanitized.apiKey.trim()
@@ -607,7 +640,7 @@ export function writeEditorSettings(settings: EditorSettings): EditorSettings {
   } satisfies EditorSettings;
 
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(EDITOR_SETTINGS_STORAGE_KEY, JSON.stringify(persisted));
+    window.localStorage.setItem(getEditorSettingsStorageKey(locale), JSON.stringify(persisted));
   }
 
   return persisted;

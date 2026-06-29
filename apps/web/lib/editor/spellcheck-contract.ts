@@ -1,4 +1,6 @@
-export type SpellcheckLanguage = "uk-UA";
+import type { AppLocale } from "../i18n/product-locale";
+
+export type SpellcheckLanguage = "uk-UA" | "en-US";
 
 export type SpellcheckProvider = "languagetool_public" | "languagetool_self_hosted";
 
@@ -21,6 +23,7 @@ export interface SpellcheckFragmentSelection {
 
 export interface SpellcheckRequest {
   documentRevisionId: string;
+  locale?: AppLocale;
   language: SpellcheckLanguage;
   provider: SpellcheckProvider;
   trigger: SpellcheckTrigger;

@@ -12,6 +12,7 @@ import {
   replaceBlocksByIds
 } from "./document-model";
 import { parseBoldMarkdownToInlineNodes } from "./inline-markup";
+import type { AppLocale } from "../i18n/product-locale";
 
 export type PatchOperationKind = "replace_blocks";
 export type PatchOperationType = "clarity" | "structure" | "terminology" | "source" | "tone";
@@ -36,6 +37,7 @@ export interface PatchOperation {
 
 export interface PatchRequest {
   document: EditorDocument;
+  locale?: AppLocale;
   targetBlockIds: string[];
   mode: RequestMode;
   prompt?: string;

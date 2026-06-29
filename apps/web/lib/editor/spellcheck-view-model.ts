@@ -2,6 +2,8 @@ import type { EditorDocument } from "./document-model";
 import { getBlock, getBlockText, isTextBlock } from "./document-model";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "./manuscript-structure";
 import type { SpellcheckIssue, SpellcheckIssueCategory, SpellcheckIssueSeverity } from "./spellcheck-contract";
+import type { AppLocale } from "../i18n/product-locale";
+import { getProductLocaleConfig } from "../i18n/product-locale";
 
 export interface SpellcheckableBlock {
   blockId: string;
@@ -114,10 +116,33 @@ export function countSpellcheckIssues(results: SpellcheckBlockResult[]): number 
 }
 
 export function formatSpellcheckParagraphLabel(label: string): string {
-  return `Абз. ${label}`;
+  return formatSpellcheckParagraphLabelForLocale(label, "uk");
+}
+
+export function formatSpellcheckParagraphLabelForLocale(label: string, locale: AppLocale): string {
+  return `${getProductLocaleConfig(locale).paragraphShortLabel} ${label}`;
 }
 
 export function getSpellcheckCategoryLabel(category: SpellcheckIssueCategory): string {
+  return getSpellcheckCategoryLabelForLocale(category, "uk");
+}
+
+export function getSpellcheckCategoryLabelForLocale(category: SpellcheckIssueCategory, locale: AppLocale): string {
+  if (locale === "en") {
+    switch (category) {
+      case "misspelling":
+        return "Spelling";
+      case "typography":
+        return "Typography";
+      case "grammar":
+        return "Grammar";
+      case "style":
+        return "Style";
+      default:
+        return "Other";
+    }
+  }
+
   switch (category) {
     case "misspelling":
       return "Орфографія";
@@ -133,6 +158,23 @@ export function getSpellcheckCategoryLabel(category: SpellcheckIssueCategory): s
 }
 
 export function getSpellcheckSeverityLabel(severity: SpellcheckIssueSeverity): string {
+  return getSpellcheckSeverityLabelForLocale(severity, "uk");
+}
+
+export function getSpellcheckSeverityLabelForLocale(severity: SpellcheckIssueSeverity, locale: AppLocale): string {
+  if (locale === "en") {
+    switch (severity) {
+      case "error":
+        return "error";
+      case "warning":
+        return "warning";
+      case "suggestion":
+        return "suggestion";
+      default:
+        return "warning";
+    }
+  }
+
   switch (severity) {
     case "error":
       return "помилка";

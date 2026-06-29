@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orest Edit Locale Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-top: #f4f0e8;
+      --bg-bottom: #f8fbfd;
+      --paper: rgba(255, 255, 255, 0.86);
+      --panel: rgba(255, 255, 255, 0.68);
+      --line: rgba(28, 37, 44, 0.12);
+      --line-strong: rgba(28, 37, 44, 0.2);
+      --text: #162028;
+      --muted: #69737d;
+      --accent: #0d5c63;
+      --accent-soft: rgba(13, 92, 99, 0.12);
+      --warn: #9a5b18;
+      --warn-soft: rgba(154, 91, 24, 0.12);
+      --good: #2d6a4f;
+      --good-soft: rgba(45, 106, 79, 0.12);
+      --shadow: 0 18px 60px rgba(17, 24, 39, 0.08);
+      --radius: 22px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--text);
+      font-family: "Geist", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(210, 220, 227, 0.8), transparent 26%),
+        radial-gradient(circle at top right, rgba(219, 209, 188, 0.75), transparent 28%),
+        linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 54%, #edf3f6 100%);
+    }
+
+    body {
+      padding: 36px 28px 64px;
+    }
+
+    .page {
+      width: min(1420px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 22px;
+    }
+
+    .hero {
+      background: var(--paper);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      box-shadow: var(--shadow);
+      padding: 28px 30px 30px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .eyebrow,
+    .label,
+    .code-label {
+      font-family: "Geist Mono", monospace;
+      font-size: 11px;
+      line-height: 1;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+    }
+
+    .hero-main {
+      display: grid;
+      grid-template-columns: 1.45fr 0.95fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 4vw, 4.4rem);
+      line-height: 0.94;
+      letter-spacing: -0.06em;
+      max-width: 10ch;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 64ch;
+      color: #34424d;
+      font-size: 15px;
+      line-height: 1.58;
+    }
+
+    .hero-notes {
+      display: grid;
+      gap: 12px;
+    }
+
+    .note-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .note-card strong {
+      font-size: 14px;
+      letter-spacing: -0.02em;
+    }
+
+    .note-card span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .board {
+      display: grid;
+      gap: 18px;
+    }
+
+    .lane-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }
+
+    .lane {
+      background: var(--paper);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      min-height: 100%;
+    }
+
+    .lane-head {
+      display: grid;
+      gap: 7px;
+    }
+
+    .lane-head h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .lane-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .node {
+      position: relative;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 14px 14px 15px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .node[data-tone="accent"] {
+      background: linear-gradient(180deg, rgba(13, 92, 99, 0.1), rgba(255, 255, 255, 0.95));
+      border-color: rgba(13, 92, 99, 0.26);
+    }
+
+    .node[data-tone="warn"] {
+      background: linear-gradient(180deg, rgba(154, 91, 24, 0.1), rgba(255, 255, 255, 0.95));
+      border-color: rgba(154, 91, 24, 0.24);
+    }
+
+    .node[data-tone="good"] {
+      background: linear-gradient(180deg, rgba(45, 106, 79, 0.1), rgba(255, 255, 255, 0.95));
+      border-color: rgba(45, 106, 79, 0.24);
+    }
+
+    .node-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .node-title strong {
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+
+    .label {
+      color: var(--muted);
+    }
+
+    .node p {
+      margin: 0;
+      color: #394854;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .chip.warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .chip.good {
+      background: var(--good-soft);
+      color: var(--good);
+    }
+
+    .code-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .code-line {
+      display: flex;
+      gap: 10px;
+      align-items: start;
+      color: #41505d;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .code-label {
+      color: var(--muted);
+      flex: 0 0 auto;
+      min-width: 42px;
+      padding-top: 1px;
+    }
+
+    .code-line code {
+      font-family: "Geist Mono", monospace;
+      font-size: 12px;
+      color: #1c2d39;
+      word-break: break-word;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel h3 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .flow-list,
+    .question-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .flow-step,
+    .question {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 13px 14px;
+      background: rgba(255, 255, 255, 0.78);
+      display: grid;
+      gap: 6px;
+    }
+
+    .flow-step strong,
+    .question strong {
+      font-size: 14px;
+      letter-spacing: -0.02em;
+    }
+
+    .flow-step span,
+    .question span {
+      color: #41505d;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 2px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .dot.warn {
+      background: var(--warn);
+    }
+
+    .dot.good {
+      background: var(--good);
+    }
+
+    @media (max-width: 1180px) {
+      .hero-main,
+      .lane-grid,
+      .flow-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 740px) {
+      body {
+        padding: 18px 14px 42px;
+      }
+
+      .hero,
+      .lane,
+      .panel {
+        border-radius: 22px;
+      }
+
+      .hero {
+        padding: 20px 18px 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Orest Edit / Locale Architecture</div>
+      <div class="hero-main">
+        <div class="hero-copy">
+          <h1>One repo, centralized locales, runtime language switch.</h1>
+          <p>
+            The app keeps one shared editor core and moves language-specific behavior into centralized catalogs.
+            The language selector in Settings changes UI labels, prompt suites, LanguageTool language, export metadata,
+            and locale-scoped browser state without cloning the product or forking the editing logic.
+          </p>
+        </div>
+        <div class="hero-notes">
+          <div class="note-card">
+            <strong>Main user outcome</strong>
+            <span>The editor can switch between Ukrainian and English inside the same app and get matching UI, prompts, spellcheck, and export behavior.</span>
+          </div>
+          <div class="note-card">
+            <strong>Main safety rule</strong>
+            <span>Locale is runtime state, but drafts, prompt templates, dictionary data, and stale AI results stay locale-scoped so workflows do not overwrite each other.</span>
+          </div>
+          <div class="note-card">
+            <strong>Main cleanup rule</strong>
+            <span>Provider failures must fail loud. Locale work is a good moment to remove synthetic AI fallback responses that look successful.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="board">
+      <div class="lane-grid">
+        <section class="lane">
+          <div class="lane-head">
+            <div class="eyebrow">1 / User Surface</div>
+            <h2>Entry Points</h2>
+            <p>What the editor touches directly when changing language.</p>
+          </div>
+          <div class="stack">
+            <article class="node" data-tone="accent">
+              <div class="node-title">
+                <strong>Settings language selector</strong>
+                <span class="label">runtime switch</span>
+              </div>
+              <p>Ukrainian / English segmented choice inside Settings. Writes active locale, reloads locale-scoped settings, and clears stale locale-bound analysis state after confirmation.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">UI</span><code>apps/web/app/settings/page.tsx</code></div>
+                <div class="code-line"><span class="code-label">state</span><code>apps/web/lib/i18n/product-locale.ts</code></div>
+              </div>
+            </article>
+
+            <article class="node">
+              <div class="node-title">
+                <strong>Editor and top bar</strong>
+                <span class="label">localized copy</span>
+              </div>
+              <p>Workflow steps, status pills, compare labels, composer actions, login copy, and export labels all resolve from locale catalogs instead of inline strings.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">editor</span><code>apps/web/app/editor/page.tsx</code></div>
+                <div class="code-line"><span class="code-label">shared</span><code>apps/web/lib/editor/workflow-ui.ts</code></div>
+                <div class="code-line"><span class="code-label">layout</span><code>apps/web/components/layout/TopBar.tsx</code></div>
+              </div>
+            </article>
+
+            <article class="node">
+              <div class="node-title">
+                <strong>Current manuscript stays visible</strong>
+                <span class="label">UX guardrail</span>
+              </div>
+              <p>The first safe implementation can keep the current document in place while switching tooling language, but invalidate review and spellcheck results that were generated under the previous locale.</p>
+              <div class="chip-row">
+                <span class="chip warn">No implicit manuscript translation</span>
+                <span class="chip warn">Invalidate stale AI outputs</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-head">
+            <div class="eyebrow">2 / Central Source</div>
+            <h2>Locale Catalogs</h2>
+            <p>One place for labels, prompts, and locale metadata.</p>
+          </div>
+          <div class="stack">
+            <article class="node" data-tone="good">
+              <div class="node-title">
+                <strong>Locale config</strong>
+                <span class="label">core contract</span>
+              </div>
+              <p>Defines active locale, display locale, spellcheck language, DOCX language, paragraph prefix, default file name base, and storage suffix.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">new</span><code>apps/web/lib/i18n/product-locale.ts</code></div>
+              </div>
+              <div class="chip-row">
+                <span class="chip good">uk / en</span>
+                <span class="chip good">uk-UA / en-US</span>
+              </div>
+            </article>
+
+            <article class="node">
+              <div class="node-title">
+                <strong>UI catalogs</strong>
+                <span class="label">labels and helper copy</span>
+              </div>
+              <p>Workflow step labels, status text, button labels, compare/history text, Settings copy, login copy, and export labels move out of component files.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">new</span><code>apps/web/lib/i18n/copy/uk.ts</code></div>
+                <div class="code-line"><span class="code-label">new</span><code>apps/web/lib/i18n/copy/en.ts</code></div>
+              </div>
+            </article>
+
+            <article class="node">
+              <div class="node-title">
+                <strong>Prompt catalogs</strong>
+                <span class="label">defaults per locale</span>
+              </div>
+              <p>Base prompt, expertise prompt, cards prompt, workflow step prompts, callout prompt, and image prompt are stored per locale and loaded through shared settings helpers.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">today</span><code>apps/web/lib/editor/settings.ts</code></div>
+                <div class="code-line"><span class="code-label">future</span><code>DEFAULT_EDITOR_SETTINGS_BY_LOCALE</code></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-head">
+            <div class="eyebrow">3 / Runtime State</div>
+            <h2>Browser Storage</h2>
+            <p>What must stay shared vs locale-scoped.</p>
+          </div>
+          <div class="stack">
+            <article class="node" data-tone="accent">
+              <div class="node-title">
+                <strong>Global key</strong>
+                <span class="label">one active choice</span>
+              </div>
+              <p>The currently selected app language is global and tiny. It only says which locale the UI and tooling should use right now.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">key</span><code>orest-active-locale-v1</code></div>
+              </div>
+            </article>
+
+            <article class="node">
+              <div class="node-title">
+                <strong>Locale-scoped state</strong>
+                <span class="label">must not overwrite</span>
+              </div>
+              <p>Settings, custom prompt templates, drafts, visual style preference, and spellcheck dictionary should be split by locale suffix.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">settings</span><code>orest-editor-settings-uk-v1 / en-v1</code></div>
+                <div class="code-line"><span class="code-label">draft</span><code>orest-editor-draft-uk-v3 / en-v1</code></div>
+                <div class="code-line"><span class="code-label">dict</span><code>orest-spellcheck-dictionary-uk-v1 / en-v1</code></div>
+              </div>
+            </article>
+
+            <article class="node" data-tone="warn">
+              <div class="node-title">
+                <strong>Migration rule</strong>
+                <span class="label">keep legacy Ukrainian data</span>
+              </div>
+              <p>Read old Ukrainian keys first, write the new locale-scoped keys after sanitization, and do not delete legacy data in the first rollout.</p>
+              <div class="chip-row">
+                <span class="chip warn">Backward-compatible</span>
+                <span class="chip warn">No destructive cleanup</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-head">
+            <div class="eyebrow">4 / Server and Tools</div>
+            <h2>Execution Layer</h2>
+            <p>Everything that must follow the active locale on each request.</p>
+          </div>
+          <div class="stack">
+            <article class="node">
+              <div class="node-title">
+                <strong>Patch, review, proposal, image APIs</strong>
+                <span class="label">locale in payload</span>
+              </div>
+              <p>Server prompt assembly must use the locale from request payload, not just process env, so runtime switching stays trustworthy.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">routes</span><code>apps/web/app/api/edit/*</code></div>
+                <div class="code-line"><span class="code-label">server</span><code>patch-service.ts / review-service.ts / review-action-service.ts</code></div>
+              </div>
+            </article>
+
+            <article class="node" data-tone="good">
+              <div class="node-title">
+                <strong>LanguageTool</strong>
+                <span class="label">uk-UA vs en-US</span>
+              </div>
+              <p>Spellcheck requests, server validation, dictionary normalization, and issue presentation all need to resolve from the same locale config.</p>
+              <div class="chip-row">
+                <span class="chip good">SpellcheckLanguage union</span>
+                <span class="chip good">Locale-aware paragraph labels</span>
+              </div>
+            </article>
+
+            <article class="node" data-tone="warn">
+              <div class="node-title">
+                <strong>Fail loud cleanup</strong>
+                <span class="label">important side quest</span>
+              </div>
+              <p>Locale work should remove synthetic AI fallback output that can masquerade as a successful model response, especially in patch and review flows.</p>
+              <div class="code-list">
+                <div class="code-line"><span class="code-label">risk</span><code>apps/web/lib/server/patch-service.ts</code></div>
+                <div class="code-line"><span class="code-label">risk</span><code>apps/web/lib/server/review-service.ts</code></div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <div class="flow-grid">
+        <section class="panel">
+          <div class="lane-head">
+            <div class="eyebrow">Switch Flow</div>
+            <h3>What happens when the user changes language</h3>
+            <p>This is the runtime sequence the product should make explicit and safe.</p>
+          </div>
+          <div class="flow-list">
+            <article class="flow-step">
+              <strong>1. User selects a new language in Settings.</strong>
+              <span>The app writes `orest-active-locale-v1` and opens a confirmation if the current session already contains locale-bound prompts, spellcheck, or review outputs.</span>
+            </article>
+            <article class="flow-step">
+              <strong>2. Locale catalogs rehydrate the UI.</strong>
+              <span>Settings, login, top bar, workflow rail, composer, status copy, compare/history labels, and export labels redraw from the selected locale catalog.</span>
+            </article>
+            <article class="flow-step">
+              <strong>3. Locale-scoped settings and prompts reload.</strong>
+              <span>The app reads the selected locale's prompt templates and model-facing labels without overwriting the other locale's custom values.</span>
+            </article>
+            <article class="flow-step">
+              <strong>4. Locale-bound analysis state is invalidated.</strong>
+              <span>Spellcheck results, review results, and any analysis generated under the old locale are cleared or marked stale so the UI does not mix languages silently.</span>
+            </article>
+            <article class="flow-step">
+              <strong>5. New requests carry locale explicitly.</strong>
+              <span>`patch`, `review`, `proposal`, `image`, and `spellcheck` calls send `locale`, and the server resolves prompts and LanguageTool behavior from that value.</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="lane-head">
+            <div class="eyebrow">Open Questions</div>
+            <h3>Decisions that still need a product answer</h3>
+            <p>These are the real ambiguities worth agreeing on before implementation starts.</p>
+          </div>
+          <div class="question-list">
+            <article class="question">
+              <strong>What should happen to the visible manuscript on language switch?</strong>
+              <span>Safest v1: keep the current document, switch UI/tooling language, and clear review/spellcheck state. Alternative: switch to the selected locale's saved draft if it exists.</span>
+            </article>
+            <article class="question">
+              <strong>Do custom prompt templates belong to each locale separately?</strong>
+              <span>The plan assumes yes. Otherwise one English customization could quietly break the Ukrainian workflow and vice versa.</span>
+            </article>
+            <article class="question">
+              <strong>Should English be only `en-US` in v1, or should we expose `en-GB` later?</strong>
+              <span>The architecture can support both, but the first UI can stay simple and default to `en-US`.</span>
+            </article>
+            <article class="question">
+              <strong>Should deployment config still matter after the user switches language?</strong>
+              <span>Recommended answer: only as the initial default for fresh sessions. Runtime locale should win after the first explicit user choice.</span>
+            </article>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="dot"></span>Shared runtime foundation</span>
+            <span class="legend-item"><span class="dot good"></span>Locale-specific catalogs and tools</span>
+            <span class="legend-item"><span class="dot warn"></span>Migration or product risk</span>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

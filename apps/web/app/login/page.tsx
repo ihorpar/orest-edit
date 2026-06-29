@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
+import { useProductCopy } from "../../components/providers/ProductLocaleProvider";
 
 export default function LoginPage() {
   return (
@@ -15,14 +16,15 @@ export default function LoginPage() {
 
 function LoginPageContent() {
   const searchParams = useSearchParams();
+  const copy = useProductCopy();
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const misconfigurationMessage = useMemo(() => {
     const code = searchParams.get("error");
-    return code === "missing_password" ? "Серверний пароль не налаштовано. Зверніться до адміністратора." : null;
-  }, [searchParams]);
+    return code === "missing_password" ? copy.login.missingPassword : null;
+  }, [copy.login.missingPassword, searchParams]);
 
   const redirectTo = useMemo(() => {
     const next = searchParams.get("next");
@@ -55,13 +57,13 @@ function LoginPageContent() {
       const payload = (await response.json()) as { ok?: boolean; error?: string; redirectTo?: string };
 
       if (!response.ok || !payload.ok) {
-        setErrorMessage(payload.error ?? "Не вдалося увійти.");
+        setErrorMessage(payload.error ?? copy.login.signInFailed);
         return;
       }
 
       window.location.assign(payload.redirectTo ?? redirectTo);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Не вдалося увійти.");
+      setErrorMessage(error instanceof Error ? error.message : copy.login.signInFailed);
     } finally {
       setIsSubmitting(false);
     }
@@ -71,20 +73,20 @@ function LoginPageContent() {
     <main className="auth-screen">
       <section className="auth-card">
         <header className="auth-head">
-          <p className="mono-ui auth-kicker">Доступ</p>
-          <h1 className="auth-title">Вхід у редактор</h1>
+          <p className="mono-ui auth-kicker">{copy.login.kicker}</p>
+          <h1 className="auth-title">{copy.login.title}</h1>
         </header>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="auth-field" htmlFor="auth-password">
-            <span className="mono-ui settings-label">Пароль</span>
+            <span className="mono-ui settings-label">{copy.login.password}</span>
             <Input
               id="auth-password"
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Введіть пароль"
+              placeholder={copy.login.passwordPlaceholder}
               required
             />
           </label>
@@ -101,8 +103,8 @@ function LoginPageContent() {
             </p>
           ) : null}
 
-          <Button type="submit" variant="primary" loading={isSubmitting} loadingLabel="Вхід…">
-            Увійти
+          <Button type="submit" variant="primary" loading={isSubmitting} loadingLabel={copy.login.submitting}>
+            {copy.login.submit}
           </Button>
         </form>
       </section>
@@ -115,8 +117,8 @@ function LoginPageFallback() {
     <main className="auth-screen">
       <section className="auth-card">
         <header className="auth-head">
-          <p className="mono-ui auth-kicker">Доступ</p>
-          <h1 className="auth-title">Вхід у редактор</h1>
+          <p className="mono-ui auth-kicker">Access</p>
+          <h1 className="auth-title">Sign in</h1>
         </header>
       </section>
     </main>

@@ -6,6 +6,7 @@ import {
   type SpellcheckRequest,
   type SpellcheckResponse
 } from "../../../../lib/editor/spellcheck-contract";
+import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 import { generateSpellcheckResponse } from "../../../../lib/server/spellcheck-service";
 
 export const runtime = "nodejs";
@@ -49,8 +50,8 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
     return { ok: false, error: "Потрібно передати documentRevisionId." };
   }
 
-  if (record.language !== "uk-UA") {
-    return { ok: false, error: "Наразі підтримується лише мова uk-UA." };
+  if (record.language !== "uk-UA" && record.language !== "en-US") {
+    return { ok: false, error: "Only uk-UA and en-US are supported in v1." };
   }
 
   if (record.provider !== "languagetool_public" && record.provider !== "languagetool_self_hosted") {
@@ -91,7 +92,8 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
 
   const parsed: SpellcheckRequest = {
     documentRevisionId: record.documentRevisionId.trim(),
-    language: "uk-UA",
+    locale: parseAppLocale(record.locale),
+    language: record.language,
     provider: record.provider,
     trigger: "manual",
     selection: {
@@ -106,6 +108,10 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
   }
 
   return { ok: true, value: parsed };
+}
+
+function parseAppLocale(value: unknown): AppLocale | undefined {
+  return isAppLocale(value) ? value : undefined;
 }
 
 function buildInvalidResponse(error: string, requestId: string): SpellcheckResponse {

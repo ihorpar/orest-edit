@@ -1,3 +1,5 @@
+import type { AppLocale } from "../i18n/product-locale";
+
 export type RequestFeedbackTone = "info" | "error";
 
 export interface RequestFeedback {
@@ -38,7 +40,7 @@ export interface StepPrimaryActionPresentation {
   emphasis: "primary" | "secondary";
 }
 
-export function presentRequestFeedback(feedback: RequestFeedback | null): WorkflowFeedbackPresentation | null {
+export function presentRequestFeedback(feedback: RequestFeedback | null, locale: AppLocale = "uk"): WorkflowFeedbackPresentation | null {
   if (!feedback?.message.trim()) {
     return null;
   }
@@ -46,48 +48,65 @@ export function presentRequestFeedback(feedback: RequestFeedback | null): Workfl
   if (feedback.tone === "error") {
     return {
       tone: "error",
-      label: "Помилка",
+      label: locale === "en" ? "Error" : "Помилка",
       message: feedback.message
     };
   }
 
   return {
     tone: "success",
-    label: "Готово",
+    label: locale === "en" ? "Done" : "Готово",
     message: feedback.message
   };
 }
 
-export function getStepPrimaryAction(stepId: WorkflowStepUiId, options: { hasExistingResult: boolean }): StepPrimaryActionPresentation {
+export function getStepPrimaryAction(
+  stepId: WorkflowStepUiId,
+  options: { hasExistingResult: boolean },
+  locale: AppLocale = "uk"
+): StepPrimaryActionPresentation {
   const rerun = options.hasExistingResult;
+  const labels = locale === "en"
+    ? {
+        diagnostics: ["Run diagnostics", "Refresh diagnostics", "Running diagnostics…", "Refreshing diagnostics…"],
+        factCheck: ["Run fact-check", "Refresh fact-check", "Running fact-check…", "Refreshing fact-check…"],
+        spellcheck: ["Run spelling review", "Refresh spelling review", "Checking spelling…", "Refreshing spelling review…"],
+        recs: ["Generate recommendations", "Refresh recommendations", "Preparing recommendations…", "Refreshing recommendations…"]
+      }
+    : {
+        diagnostics: ["Запустити діагностику", "Оновити діагностику", "Запускаємо діагностику…", "Оновлюємо діагностику…"],
+        factCheck: ["Запустити факт-чек", "Оновити факт-чек", "Запускаємо факт-чек…", "Оновлюємо факт-чек…"],
+        spellcheck: ["Проаналізувати правопис", "Оновити аналіз правопису", "Аналізуємо правопис…", "Оновлюємо аналіз правопису…"],
+        recs: ["Згенерувати рекомендації", "Оновити рекомендації", "Готуємо рекомендації…", "Оновлюємо рекомендації…"]
+      };
 
   switch (stepId) {
     case "diagnostics":
       return {
-        label: rerun ? "Оновити діагностику" : "Запустити діагностику",
-        loadingLabel: rerun ? "Оновлюємо діагностику…" : "Запускаємо діагностику…",
-        ariaLabel: rerun ? "Оновити діагностику" : "Запустити діагностику",
+        label: rerun ? labels.diagnostics[1] : labels.diagnostics[0],
+        loadingLabel: rerun ? labels.diagnostics[3] : labels.diagnostics[2],
+        ariaLabel: rerun ? labels.diagnostics[1] : labels.diagnostics[0],
         emphasis: rerun ? "secondary" : "primary"
       };
     case "fact_check":
       return {
-        label: rerun ? "Оновити факт-чек" : "Запустити факт-чек",
-        loadingLabel: rerun ? "Оновлюємо факт-чек…" : "Запускаємо факт-чек…",
-        ariaLabel: rerun ? "Оновити факт-чек" : "Запустити факт-чек",
+        label: rerun ? labels.factCheck[1] : labels.factCheck[0],
+        loadingLabel: rerun ? labels.factCheck[3] : labels.factCheck[2],
+        ariaLabel: rerun ? labels.factCheck[1] : labels.factCheck[0],
         emphasis: rerun ? "secondary" : "primary"
       };
     case "spellcheck":
       return {
-        label: rerun ? "Оновити аналіз правопису" : "Проаналізувати правопис",
-        loadingLabel: rerun ? "Оновлюємо аналіз правопису…" : "Аналізуємо правопис…",
-        ariaLabel: rerun ? "Оновити аналіз правопису" : "Проаналізувати правопис",
+        label: rerun ? labels.spellcheck[1] : labels.spellcheck[0],
+        loadingLabel: rerun ? labels.spellcheck[3] : labels.spellcheck[2],
+        ariaLabel: rerun ? labels.spellcheck[1] : labels.spellcheck[0],
         emphasis: rerun ? "secondary" : "primary"
       };
     default:
       return {
-        label: rerun ? "Оновити рекомендації" : "Згенерувати рекомендації",
-        loadingLabel: rerun ? "Оновлюємо рекомендації…" : "Готуємо рекомендації…",
-        ariaLabel: rerun ? "Оновити рекомендації" : "Згенерувати рекомендації",
+        label: rerun ? labels.recs[1] : labels.recs[0],
+        loadingLabel: rerun ? labels.recs[3] : labels.recs[2],
+        ariaLabel: rerun ? labels.recs[1] : labels.recs[0],
         emphasis: rerun ? "secondary" : "primary"
       };
   }
@@ -106,12 +125,31 @@ export function getStepWorkspaceStatus(
     waitingMessage?: string;
     activeMessage: string;
     zeroResultMessage?: string;
-  }
+  },
+  locale: AppLocale = "uk"
 ): WorkflowStatusPresentation {
+  const labels = locale === "en"
+    ? {
+        active: "In progress",
+        empty: "No results",
+        done: "Done",
+        waiting: "Waiting",
+        unavailable: "Unavailable",
+        idle: "Not run yet"
+      }
+    : {
+        active: "У процесі",
+        empty: "Без результатів",
+        done: "Готово",
+        waiting: "Очікує",
+        unavailable: "Недоступно",
+        idle: "Не запускалось"
+      };
+
   if (options.isInFlight) {
     return {
       tone: "active",
-      label: "У процесі",
+      label: labels.active,
       message: options.activeMessage
     };
   }
@@ -119,7 +157,7 @@ export function getStepWorkspaceStatus(
   if (options.zeroResult && options.zeroResultMessage) {
     return {
       tone: "idle",
-      label: "Без результатів",
+      label: labels.empty,
       message: options.zeroResultMessage
     };
   }
@@ -127,7 +165,7 @@ export function getStepWorkspaceStatus(
   if (options.hasExistingResult) {
     return {
       tone: stepId === "spellcheck" && options.zeroResult ? "idle" : "success",
-      label: "Готово",
+      label: labels.done,
       message: options.successMessage ?? options.idleMessage
     };
   }
@@ -135,7 +173,7 @@ export function getStepWorkspaceStatus(
   if (!options.hasPrerequisite && options.waitingMessage) {
     return {
       tone: "warning",
-      label: "Очікує",
+      label: labels.waiting,
       message: options.waitingMessage
     };
   }
@@ -143,14 +181,14 @@ export function getStepWorkspaceStatus(
   if (!options.canRun && !options.hasExistingResult) {
     return {
       tone: "warning",
-      label: "Недоступно",
+      label: labels.unavailable,
       message: options.waitingMessage ?? options.idleMessage
     };
   }
 
   return {
     tone: "idle",
-    label: "Не запускалось",
+    label: labels.idle,
     message: options.idleMessage
   };
 }

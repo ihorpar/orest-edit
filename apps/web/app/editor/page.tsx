@@ -6236,8 +6236,8 @@ function createFactCheckLinkedReviewItems(input: {
       continue;
     }
 
-    const needsCallout = row.status === "не підтверджено" || row.sources.length === 0;
-    const titlePrefix = row.status === "сумнівно" ? "Уточнити твердження" : "Маркувати непідтверджене";
+    const needsCallout = row.status === "unsupported" || row.sources.length === 0;
+    const titlePrefix = row.status === "questionable" ? "???????? ??????????" : "????????? ??????????????";
     const sourceHint =
       row.sources.length > 0
         ? `Джерела: ${row.sources.map((source) => source.domain).slice(0, 3).join(", ")}.`
@@ -6279,7 +6279,7 @@ function createFactCheckLinkedReviewItems(input: {
       },
       calloutKind: needsCallout ? "myths_vs_truth" : undefined,
       calloutDepth: needsCallout ? "brief" : undefined,
-      priority: row.status === "не підтверджено" ? "high" : "medium",
+      priority: row.status === "unsupported" ? "high" : "medium",
       status: "pending"
     });
   }
@@ -6664,7 +6664,7 @@ function toFactStatusClassName(status: EditorialFactCheckRow["status"]): "ok" | 
     return "ok";
   }
 
-  if (status === "сумнівно") {
+  if (status === "questionable") {
     return "warning";
   }
 
@@ -6967,3 +6967,4 @@ function createNoOpBigramCounts(value: string): Map<string, number> {
 
   return counts;
 }
+

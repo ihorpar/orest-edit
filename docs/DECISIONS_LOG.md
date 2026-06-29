@@ -581,3 +581,15 @@ Reason: editors need to see the reading route before deciding on local structure
 Decision: browser clients must not send provider API keys in runtime AI request payloads. In production, server routes ignore any client-provided `apiKey` and use only server environment keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`).
 
 Reason: sending provider secrets from the frontend exposes them in browser tooling and increases leak risk. The app already has server-side route boundaries and Vercel environment configuration, so server-only key resolution is the correct security boundary.
+
+## 2026-06-24
+
+### English edition stays in the existing app
+Decision: the English edition should be built in the existing app as a runtime locale-selected product edition, not as a cloned standalone repository. The first release should centralize prompts, UI copy, provider-facing labels, LanguageTool language, and export metadata in locale catalogs, and expose a Settings language selector. Deployment-level configuration such as `NEXT_PUBLIC_OREST_APP_LOCALE=en` / `OREST_APP_LOCALE=en` may provide the initial default, but the user's active language should persist in browser state.
+
+Reason: the shared editor core is complex and stateful: block editing, diff application, review jobs, inline proposal execution, spellcheck underlines, image jobs, import/export, history, and settings should not diverge across two repositories. A runtime locale selector gives one shared code path while letting editors switch UI, prompts, spellcheck language, and export metadata from Settings. Locale-scoped drafts, prompt settings, and spellcheck dictionaries prevent Ukrainian and English workflows from silently overwriting each other.
+
+### Locale switch keeps manuscript content but resets locale-bound analysis
+Decision: when the user changes app language in Settings, the current manuscript content stays visible and is not replaced by another locale's saved draft. The app clears the locale-bound analysis layer instead: review outputs, spellcheck state, and other derived locale-specific AI artifacts. Custom prompt templates are stored separately per locale. In v1, English uses only `en-US`, and deployment env remains only the initial locale default; after the user's first explicit choice, the persisted active locale wins.
+
+Reason: this gives the editor a predictable switch. The document they are actively editing stays on screen, while language-specific tooling state does not silently survive across locales or overwrite another locale's configuration.

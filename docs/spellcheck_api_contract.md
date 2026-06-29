@@ -1,11 +1,11 @@
 # Spellcheck API Contract
 
-Status: backend contract implemented, editor UI not yet wired
-Date: 2026-03-19
+Status: backend contract implemented with locale-selected language support
+Date: 2026-06-25
 
 ## Goal
 
-Add a manual Ukrainian spellcheck flow for a selected fragment without introducing whole-document character-offset editing.
+Add a manual locale-aware spellcheck flow for a selected fragment without introducing whole-document character-offset editing.
 
 The request is intentionally local:
 - one manual button
@@ -24,6 +24,7 @@ The route should require the same authenticated session as other editor API rout
 ```json
 {
   "documentRevisionId": "rev_2026_03_19_001",
+  "locale": "uk",
   "language": "uk-UA",
   "provider": "languagetool_public",
   "trigger": "manual",
@@ -118,7 +119,8 @@ The server maps it to LanguageTool:
 
 ## Constraints
 
-- `language` is fixed to `uk-UA` in v1
+- `locale` is the product locale (`uk` or `en`)
+- `language` is selected from locale in v1 and must be `uk-UA` or `en-US`
 - `trigger` is fixed to `manual` in v1
 - one request checks one block-local fragment only
 - no background checking on each keystroke
@@ -127,7 +129,7 @@ The server maps it to LanguageTool:
 
 ## Error handling
 
-Validation failures should return `400` with localized Ukrainian `error`.
+Validation failures should return `400` with localized `error`.
 
 Recommended non-success cases:
 - invalid JSON

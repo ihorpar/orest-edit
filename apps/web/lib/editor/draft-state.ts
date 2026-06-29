@@ -17,6 +17,11 @@ import type {
 } from "./review-contract";
 import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "./review-contract";
 import type { RequestFeedback, RequestFeedbackTone } from "./workflow-ui";
+import {
+  getEditorDraftStorageKey,
+  getLegacyEditorDraftStorageKeys,
+  type AppLocale
+} from "../i18n/product-locale";
 
 export type PersistedWorkflowStepId = EditorialReviewStepId | "spellcheck";
 
@@ -76,32 +81,29 @@ export interface PersistedEditorDraftState {
   };
 }
 
-export function readEditorDraftState(): PersistedEditorDraftState | null {
+export function readEditorDraftState(locale: AppLocale = "uk"): PersistedEditorDraftState | null {
   if (typeof window === "undefined") {
     return null;
   }
 
   try {
-    const previousRaw = window.localStorage.getItem(PREVIOUS_EDITOR_DRAFT_STORAGE_KEY);
+    const localeKey = getEditorDraftStorageKey(locale);
 
-    if (previousRaw && !window.localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY)) {
-      window.localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, previousRaw);
-    }
+    if (locale === "uk" && !window.localStorage.getItem(localeKey)) {
+      for (const legacyKey of getLegacyEditorDraftStorageKeys()) {
+        const legacyRaw = window.localStorage.getItem(legacyKey);
 
-    if (previousRaw) {
-      window.localStorage.removeItem(PREVIOUS_EDITOR_DRAFT_STORAGE_KEY);
-    }
-
-    const legacyRaw = window.localStorage.getItem(LEGACY_EDITOR_DRAFT_STORAGE_KEY);
-
-    if (legacyRaw) {
-      window.localStorage.removeItem(LEGACY_EDITOR_DRAFT_STORAGE_KEY);
+        if (legacyRaw) {
+          window.localStorage.setItem(localeKey, legacyRaw);
+          break;
+        }
+      }
     }
   } catch {
     // Ignore localStorage cleanup failures.
   }
 
-  const raw = window.localStorage.getItem(EDITOR_DRAFT_STORAGE_KEY);
+  const raw = window.localStorage.getItem(getEditorDraftStorageKey(locale));
 
   if (!raw) {
     return null;
@@ -136,24 +138,48 @@ export function readEditorDraftState(): PersistedEditorDraftState | null {
   }
 }
 
-export function writeEditorDraftState(state: PersistedEditorDraftState) {
+export function writeEditorDraftState(state: PersistedEditorDraftState, locale: AppLocale = "uk") {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, JSON.stringify(sanitizePersistedEditorDraftState(state)));
+    window.localStorage.setItem(getEditorDraftStorageKey(locale), JSON.stringify(sanitizePersistedEditorDraftState(state)));
   } catch (error) {
     console.warn("Не вдалося зберегти editor draft у localStorage.", error);
   }
 }
 
-export function clearEditorDraftState() {
+export function clearEditorDraftState(locale: AppLocale = "uk") {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.removeItem(EDITOR_DRAFT_STORAGE_KEY);
+  window.localStorage.removeItem(getEditorDraftStorageKey(locale));
+}
+
+export function clearLocaleBoundEditorDraftState(state: PersistedEditorDraftState): PersistedEditorDraftState {
+  return {
+    ...state,
+    operations: [],
+    reviewItems: [],
+    patchDiagnostics: null,
+    reviewDiagnostics: null,
+    reviewExpertise: null,
+    rejectedReviewIdeas: [],
+    factCheckRows: [],
+    activeWorkflowStep: "diagnostics",
+    stepRunHistory: createEmptyStepRunHistory(),
+    stepFeedback: createDefaultStepFeedbackMap(),
+    stepRunModeByStep: createDefaultStepRunModeMap("replace"),
+    history: [],
+    appliedDiffs: [],
+    compareHistory: [],
+    feedback: null,
+    activeReviewItemId: null,
+    activeProposal: null,
+    reviewImageAssets: {}
+  };
 }
 
 function sanitizePersistedEditorDraftState(state: PersistedEditorDraftState): PersistedEditorDraftState {

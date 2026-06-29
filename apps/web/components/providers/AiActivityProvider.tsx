@@ -8,6 +8,7 @@ import {
   type AiActivityTaskKind,
   type AiActivityTaskResult
 } from "../../lib/editor/ai-activity";
+import { useProductLocale } from "./ProductLocaleProvider";
 
 interface TrackAiTaskInput {
   kind: AiActivityTaskKind;
@@ -27,6 +28,7 @@ interface AiActivityContextValue {
 const AiActivityContext = createContext<AiActivityContextValue | null>(null);
 
 export function AiActivityProvider({ children }: { children: ReactNode }) {
+  const { locale } = useProductLocale();
   const [tasks, setTasks] = useState<AiActivityTask[]>([]);
 
   function trackTask(input: TrackAiTaskInput, task: Promise<AiActivityTaskResult>) {
@@ -68,7 +70,9 @@ export function AiActivityProvider({ children }: { children: ReactNode }) {
       })
       .catch((error) => {
         const updatedAt = Date.now();
-        const message = error instanceof Error ? error.message : "Сталася помилка під час фонового AI-запиту.";
+        const message = error instanceof Error ? error.message : locale === "en"
+          ? "A background AI request failed."
+          : "Сталася помилка під час фонового AI-запиту.";
 
         setTasks((current) =>
           current.map((entry) =>
@@ -125,7 +129,7 @@ export function useAiActivity() {
   const context = useContext(AiActivityContext);
 
   if (!context) {
-    throw new Error("useAiActivity має використовуватися всередині AiActivityProvider.");
+    throw new Error("useAiActivity must be used inside AiActivityProvider.");
   }
 
   return context;

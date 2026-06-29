@@ -8,6 +8,8 @@ import {
   getManuscriptParagraphs,
   type ManuscriptRevisionState
 } from "./manuscript-structure";
+import type { AppLocale } from "../i18n/product-locale";
+import { formatParagraphRangeLabel } from "../i18n/product-locale";
 
 export type EditorialReviewRecommendationType =
   | "rewrite"
@@ -40,7 +42,7 @@ export type EditorialReviewStepId =
   | "emphasis"
   | "final_editing";
 export type EditorialStepRunMode = "preserve" | "replace";
-export type FactCheckStatus = "ok" | "сумнівно" | "не підтверджено";
+export type FactCheckStatus = "ok" | "questionable" | "unsupported";
 
 export const REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH = 300;
 
@@ -108,6 +110,7 @@ export interface RejectedReviewIdea {
 export interface EditorialReviewRequest {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
+  locale?: AppLocale;
   provider: string;
   modelId: string;
   apiKey?: string;
@@ -222,6 +225,7 @@ export type EditorialReviewJobStatus = "queued" | "processing" | "completed" | "
 
 export interface EditorialReviewJob {
   id: string;
+  locale?: AppLocale;
   status: EditorialReviewJobStatus;
   createdAt: string;
   updatedAt: string;
@@ -237,6 +241,7 @@ export type EditorialReviewJobResponse = Partial<EditorialReviewResponse> & {
 export interface ReviewActionRequest {
   document: EditorDocument;
   currentRevision: ManuscriptRevisionState;
+  locale?: AppLocale;
   item: EditorialReviewItem;
   editorialInstruction?: string;
   provider: string;
@@ -325,6 +330,7 @@ export interface ReviewActionDiagnostics {
 
 export interface ReviewImageGenerationRequest {
   prompt: string;
+  locale?: AppLocale;
   apiKey?: string;
   async?: boolean;
 }
@@ -344,6 +350,7 @@ export type ReviewImageGenerationJobStatus = "queued" | "processing" | "complete
 
 export interface ReviewImageGenerationJob {
   id: string;
+  locale?: AppLocale;
   status: ReviewImageGenerationJobStatus;
   createdAt: string;
   updatedAt: string;
@@ -468,12 +475,12 @@ const LEGACY_VISUAL_INTENT_MAP: Record<string, EditorialVisualIntent> = {
   "иллюстрация": "illustration"
 };
 
-export function getEditorialCalloutKindOptions(): Array<{ value: EditorialCalloutKind; label: string }> {
-  return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: CALLOUT_KIND_LABELS[value] }));
+export function getEditorialCalloutKindOptions(locale: AppLocale = "uk"): Array<{ value: EditorialCalloutKind; label: string }> {
+  return REVIEW_CALLOUT_KINDS.map((value) => ({ value, label: getEditorialCalloutKindLabel(value, locale) }));
 }
 
-export function getEditorialCalloutDepthOptions(): Array<{ value: EditorialCalloutDepth; label: string }> {
-  return REVIEW_CALLOUT_DEPTHS.map((value) => ({ value, label: CALLOUT_DEPTH_LABELS[value] }));
+export function getEditorialCalloutDepthOptions(locale: AppLocale = "uk"): Array<{ value: EditorialCalloutDepth; label: string }> {
+  return REVIEW_CALLOUT_DEPTHS.map((value) => ({ value, label: getEditorialCalloutDepthLabel(value, locale) }));
 }
 
 export function createEmptyStepRunHistory(): EditorialStepRunHistory {
@@ -518,15 +525,34 @@ export function createDefaultStepRunModeMap(defaultMode: EditorialStepRunMode = 
   };
 }
 
-export function getEditorialVisualIntentOptions(): Array<{ value: EditorialVisualIntent; label: string }> {
-  return REVIEW_VISUAL_INTENTS.map((value) => ({ value, label: VISUAL_INTENT_LABELS[value] }));
+export function getEditorialVisualIntentOptions(locale: AppLocale = "uk"): Array<{ value: EditorialVisualIntent; label: string }> {
+  return REVIEW_VISUAL_INTENTS.map((value) => ({ value, label: getEditorialVisualIntentLabel(value, locale) }));
 }
 
-export function getEditorialVisualIntentLabel(intent: EditorialVisualIntent): string {
+export function getEditorialVisualIntentLabel(intent: EditorialVisualIntent, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return intent === "infographic" ? "infographic" : "illustration";
+  }
+
   return VISUAL_INTENT_LABELS[intent];
 }
 
-export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind): string {
+export function getEditorialCalloutKindLabel(kind: EditorialCalloutKind, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    switch (kind) {
+      case "mechanism":
+        return "mechanism";
+      case "analogy":
+        return "analogy";
+      case "everyday_application":
+        return "everyday life";
+      case "myths_vs_truth":
+        return "myths vs truth";
+      case "top_list":
+        return "list";
+    }
+  }
+
   return CALLOUT_KIND_LABELS[kind];
 }
 
@@ -538,7 +564,11 @@ export function getEditorialCalloutKindDescription(kind: EditorialCalloutKind): 
   return CALLOUT_KIND_DESCRIPTIONS[kind];
 }
 
-export function getEditorialCalloutDepthLabel(depth: EditorialCalloutDepth): string {
+export function getEditorialCalloutDepthLabel(depth: EditorialCalloutDepth, locale: AppLocale = "uk"): string {
+  if (locale === "en") {
+    return depth === "deep" ? "Detailed" : "Brief";
+  }
+
   return CALLOUT_DEPTH_LABELS[depth];
 }
 
@@ -556,7 +586,14 @@ export function getEditorialRecommendationTypeLabel(type: EditorialReviewRecomme
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, "-");
-  const entry = Object.entries(CALLOUT_KIND_LABELS).find(([, label]) => label.trim().toLowerCase().replace(/\s+/g, "-") === normalized);
+  const entry = Object.entries(CALLOUT_KIND_LABELS).find(([, label]) => label.trim().toLowerCase().replace(/\s+/g, "-") === normalized)
+    ?? Object.entries({
+      mechanism: "mechanism",
+      analogy: "analogy",
+      everyday_application: "everyday-life",
+      myths_vs_truth: "myths-vs-truth",
+      top_list: "list"
+    } satisfies Record<EditorialCalloutKind, string>).find(([, label]) => label === normalized);
   return (entry?.[0] as EditorialCalloutKind | undefined) ?? null;
 }
 
@@ -851,7 +888,7 @@ function extractParagraphRangesFromCopy(values: string[], paragraphCount: number
   }
 
   const ranges: Array<{ start: number; end: number }> = [];
-  const markerRegex = /(?:абз\.?|параграф(?:и|ів)?|п\.)\s*([0-9,\s\-–]+)/gi;
+  const markerRegex = /(?:абз\.?|параграф(?:и|ів)?|п\.|para(?:graph)?s?\.?)\s*([0-9,\s\-–]+)/gi;
 
   for (const value of values) {
     if (!value) {
@@ -962,19 +999,19 @@ export function getReviewParagraphLabel(item: EditorialReviewItem, revision: Man
   return index >= 0 ? formatParagraphLabel(index) : "?";
 }
 
-export function getReviewParagraphRangeLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState): string {
+export function getReviewParagraphRangeLabel(item: EditorialReviewItem, revision: ManuscriptRevisionState, locale: AppLocale = "uk"): string {
   const indexes = item.anchor.blockIds
     .map((blockId) => revision.blockOrder.indexOf(blockId))
     .filter((index) => index >= 0);
 
   if (indexes.length === 0) {
-    return "Абз. ?";
+    return formatParagraphRangeLabel(locale, "?");
   }
 
   const start = formatParagraphLabel(Math.min(...indexes));
   const end = formatParagraphLabel(Math.max(...indexes));
 
-  return start === end ? `Абз. ${start}` : `Абз. ${start}-${end}`;
+  return formatParagraphRangeLabel(locale, start, end);
 }
 
 export function reconcileReviewItemsWithRevision(

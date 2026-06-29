@@ -9,6 +9,7 @@ import {
   readReviewImageJob
 } from "../../../../../lib/server/review-image-job-service";
 import { generateReviewImage } from "../../../../../lib/server/review-image-service";
+import { isAppLocale, type AppLocale } from "../../../../../lib/i18n/product-locale";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
   }
 
   if (parsed.value.async) {
-    const job = createQueuedReviewImageJob();
+    const job = createQueuedReviewImageJob(parsed.value.locale);
 
     after(async () => {
       try {
@@ -129,8 +130,13 @@ function parseImageRequest(body: unknown): { ok: true; value: ReviewImageGenerat
     ok: true,
     value: {
       prompt: record.prompt,
+      locale: parseAppLocale(record.locale),
       apiKey: resolveClientProvidedApiKey(record.apiKey),
       async: record.async === true
     }
   };
+}
+
+function parseAppLocale(value: unknown): AppLocale | undefined {
+  return isAppLocale(value) ? value : undefined;
 }

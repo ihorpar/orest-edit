@@ -16,6 +16,7 @@ const settledPollAfterMs = 0;
 
 interface StoredReviewImageJob {
   id: string;
+  locale?: ReviewImageGenerationRequest["locale"];
   status: ReviewImageGenerationJobStatus;
   providerUsed: string;
   modelId: string;
@@ -32,11 +33,11 @@ declare global {
   var __orestReviewImageJobs: Map<string, StoredReviewImageJob> | undefined;
 }
 
-export function createQueuedReviewImageJob(now = new Date()): ReviewImageGenerationJob {
+export function createQueuedReviewImageJob(locale?: ReviewImageGenerationRequest["locale"], now = new Date()): ReviewImageGenerationJob {
   const store = getReviewImageJobStore();
   pruneExpiredJobs(store, now);
 
-  const job = buildQueuedJob(now);
+  const job = buildQueuedJob(locale, now);
   store.set(job.id, job);
 
   return toPublicJob(job);
@@ -100,12 +101,13 @@ function getReviewImageJobStore(): Map<string, StoredReviewImageJob> {
   return globalThis.__orestReviewImageJobs;
 }
 
-function buildQueuedJob(now: Date): StoredReviewImageJob {
+function buildQueuedJob(locale: ReviewImageGenerationRequest["locale"], now: Date): StoredReviewImageJob {
   const timestamp = now.toISOString();
   const expiresAt = new Date(now.getTime() + jobTtlMs).toISOString();
 
   return {
     id: createPatchId("review-image-job"),
+    locale,
     status: "queued",
     providerUsed: reviewImageProvider,
     modelId: reviewImageModel,
@@ -137,6 +139,7 @@ function withJobState(job: StoredReviewImageJob, status: ReviewImageGenerationJo
 function toPublicJob(job: StoredReviewImageJob): ReviewImageGenerationJob {
   return {
     id: job.id,
+    locale: job.locale,
     status: job.status,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,

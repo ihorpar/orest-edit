@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { PatchRequest, PatchResponse } from "../../../../lib/editor/patch-contract";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
+import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import { generatePatchResponse } from "../../../../lib/server/patch-service";
@@ -93,6 +94,7 @@ function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | {
     ok: true,
     value: {
       document: record.document as PatchRequest["document"],
+      locale: parseAppLocale(record.locale),
       targetBlockIds: record.targetBlockIds.filter((item): item is string => typeof item === "string"),
       mode: record.mode === "custom" ? "custom" : "default",
       prompt: typeof record.prompt === "string" ? record.prompt.trim() : undefined,
@@ -102,4 +104,8 @@ function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | {
       basePrompt: typeof record.basePrompt === "string" && record.basePrompt.trim() ? record.basePrompt.trim() : undefined
     }
   };
+}
+
+function parseAppLocale(value: unknown): AppLocale | undefined {
+  return isAppLocale(value) ? value : undefined;
 }

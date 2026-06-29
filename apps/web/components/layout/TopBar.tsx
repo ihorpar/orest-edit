@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Columns2, Keyboard, Redo2, Sparkles, Undo2 } from "lucide-react";
 
 import type { DocumentTextStats } from "../../lib/editor/document-model";
+import { formatLocalizedNumber } from "../../lib/i18n/product-locale";
+import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import {
   EDITOR_SETTINGS_UPDATED_EVENT,
   findProviderModelPreset,
@@ -17,16 +19,28 @@ import {
   type ProviderId
 } from "../../lib/editor/settings";
 
-const HOTKEY_SECTIONS = [
-  { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
-  { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
-  { shortcut: "Shift+Enter", label: "Новий рядок в абзаці" },
-  { shortcut: "Ctrl/Cmd+Shift+8", label: "Маркований список" },
-  { shortcut: "Ctrl/Cmd+H", label: "Глобальна заміна" },
-  { shortcut: "Ctrl/Cmd+Z", label: "Скасувати" },
-  { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
-  { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
-];
+const HOTKEY_SECTIONS = {
+  uk: [
+    { shortcut: "Ctrl/Cmd+B", label: "Жирний" },
+    { shortcut: "Ctrl/Cmd+I", label: "Курсив" },
+    { shortcut: "Shift+Enter", label: "Новий рядок в абзаці" },
+    { shortcut: "Ctrl/Cmd+Shift+8", label: "Маркований список" },
+    { shortcut: "Ctrl/Cmd+H", label: "Глобальна заміна" },
+    { shortcut: "Ctrl/Cmd+Z", label: "Скасувати" },
+    { shortcut: "Ctrl/Cmd+Shift+Z", label: "Повторити" },
+    { shortcut: "Ctrl+Y", label: "Повторити у Windows" }
+  ],
+  en: [
+    { shortcut: "Ctrl/Cmd+B", label: "Bold" },
+    { shortcut: "Ctrl/Cmd+I", label: "Italic" },
+    { shortcut: "Shift+Enter", label: "Line break inside paragraph" },
+    { shortcut: "Ctrl/Cmd+Shift+8", label: "Bulleted list" },
+    { shortcut: "Ctrl/Cmd+H", label: "Global replace" },
+    { shortcut: "Ctrl/Cmd+Z", label: "Undo" },
+    { shortcut: "Ctrl/Cmd+Shift+Z", label: "Redo" },
+    { shortcut: "Ctrl+Y", label: "Redo on Windows" }
+  ]
+} as const;
 
 const TOPBAR_MODEL_PROVIDERS: ProviderId[] = ["openai", "gemini"];
 
@@ -46,17 +60,19 @@ export function TopBar({
     onCompare: () => void;
   };
 }) {
+  const copy = useProductCopy();
+  const { locale } = useProductLocale();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState(false);
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null);
   const hotkeysRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setEditorSettings(readEditorSettings());
+    setEditorSettings(readEditorSettings(locale));
 
     function refreshSettings(event: Event) {
       const detail = event instanceof CustomEvent ? event.detail : null;
-      setEditorSettings(detail ?? readEditorSettings());
+      setEditorSettings(detail ?? readEditorSettings(locale));
     }
 
     window.addEventListener(EDITOR_SETTINGS_UPDATED_EVENT, refreshSettings);
@@ -66,7 +82,7 @@ export function TopBar({
       window.removeEventListener(EDITOR_SETTINGS_UPDATED_EVENT, refreshSettings);
       window.removeEventListener("storage", refreshSettings);
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (!isHotkeysOpen) {
@@ -123,13 +139,16 @@ export function TopBar({
     }
 
     const provider = providerValue as ProviderId;
-    const currentSettings = editorSettings ?? readEditorSettings();
-    const persisted = writeEditorSettings({
-      ...currentSettings,
-      provider,
-      modelId,
-      apiKey: ""
-    });
+    const currentSettings = editorSettings ?? readEditorSettings(locale);
+    const persisted = writeEditorSettings(
+      {
+        ...currentSettings,
+        provider,
+        modelId,
+        apiKey: ""
+      },
+      locale
+    );
 
     setEditorSettings(persisted);
     window.dispatchEvent(new CustomEvent(EDITOR_SETTINGS_UPDATED_EVENT, { detail: persisted }));
@@ -140,6 +159,7 @@ export function TopBar({
       ? findProviderModelPreset(editorSettings.provider, editorSettings.modelId)
       : null;
   const topbarModelValue = editorSettings && selectedTopbarModelPreset ? `${editorSettings.provider}::${editorSettings.modelId}` : "";
+  const hotkeys = locale === "en" ? HOTKEY_SECTIONS.en : HOTKEY_SECTIONS.uk;
 
   return (
     <header className="topbar">
@@ -150,16 +170,16 @@ export function TopBar({
             OrestGPT <span className="brand-version">V1</span>
           </span>
         </div>
-        <nav className="nav-links" aria-label="Основна навігація">
+        <nav className="nav-links" aria-label={copy.topbar.navigation}>
           {historyControls ? (
-            <div className="topbar-history-controls" aria-label="Історія змін">
+            <div className="topbar-history-controls" aria-label={copy.topbar.history}>
               <button
                 type="button"
                 className="button-reset topbar-history-button"
                 onClick={historyControls.onUndo}
                 disabled={!historyControls.canUndo}
-                title="Назад (Ctrl/Cmd+Z)"
-                aria-label="Назад"
+                title={copy.topbar.undo}
+                aria-label={copy.topbar.undo}
               >
                 <Undo2 size={14} aria-hidden="true" />
               </button>
@@ -168,8 +188,8 @@ export function TopBar({
                 className="button-reset topbar-history-button"
                 onClick={historyControls.onRedo}
                 disabled={!historyControls.canRedo}
-                title="Вперед (Ctrl/Cmd+Shift+Z)"
-                aria-label="Вперед"
+                title={copy.topbar.redo}
+                aria-label={copy.topbar.redo}
               >
                 <Redo2 size={14} aria-hidden="true" />
               </button>
@@ -178,61 +198,61 @@ export function TopBar({
                 className="button-reset topbar-history-button"
                 onClick={historyControls.onCompare}
                 disabled={!historyControls.canCompare}
-                title="Порівняти прийняту правку"
-                aria-label="Порівняти"
+                title={copy.topbar.compare}
+                aria-label={copy.topbar.compare}
               >
                 <Columns2 size={14} aria-hidden="true" />
               </button>
             </div>
           ) : null}
           <Link href="/editor" className="mono-ui nav-link" data-active={activePath === "/editor"}>
-            Редактор
+            {copy.topbar.editor}
           </Link>
           <Link href="/settings" className="mono-ui nav-link" data-active={activePath === "/settings"}>
-            Налаштування
+            {copy.topbar.settings}
           </Link>
         </nav>
       </div>
 
       <div className="topbar-right">
         {activePath === "/editor" ? (
-          <label className="topbar-model-picker" title="Модель AI">
+          <label className="topbar-model-picker" title={copy.topbar.model}>
             <Sparkles size={14} aria-hidden="true" />
-            <span className="sr-only">Модель AI</span>
+            <span className="sr-only">{copy.topbar.model}</span>
             <select
               className="topbar-model-select"
               value={topbarModelValue}
               onChange={(event) => handleTopbarModelChange(event.target.value)}
-              aria-label="Модель AI"
+              aria-label={copy.topbar.model}
             >
-              {topbarModelValue ? null : <option value="">Модель AI</option>}
+              {topbarModelValue ? null : <option value="">{copy.topbar.model}</option>}
               <optgroup label="OpenAI">
-                {getProviderModelPresets("openai").map((preset) => (
+                {getProviderModelPresets("openai", locale).map((preset) => (
                   <option key={preset.id} value={`openai::${preset.id}`}>
                     {preset.label}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Google Gemini">
-                {getProviderModelPresets("gemini").map((preset) => (
+                {getProviderModelPresets("gemini", locale).map((preset) => (
                   <option key={preset.id} value={`gemini::${preset.id}`}>
                     {preset.label}
                   </option>
                 ))}
               </optgroup>
             </select>
-            {selectedTopbarModelPreset ? <TopbarModelPresetChips preset={selectedTopbarModelPreset} /> : null}
+            {selectedTopbarModelPreset ? <TopbarModelPresetChips preset={selectedTopbarModelPreset} ratingLabel={copy.topbar.modelRating} /> : null}
           </label>
         ) : null}
         {documentStats ? (
           <div
             className="mono-ui topbar-document-stats"
-            aria-label={`У документі ${formatTopbarCount(documentStats.words)} слів і ${formatTopbarCount(documentStats.charactersWithSpaces)} символів з пробілами`}
-            title="Слова і символи з пробілами"
+            aria-label={`${formatLocalizedNumber(documentStats.words, locale)} ${copy.topbar.words}, ${formatLocalizedNumber(documentStats.charactersWithSpaces, locale)} ${copy.topbar.charactersShort}`}
+            title={copy.topbar.statsTitle}
           >
-            <span>{formatTopbarCount(documentStats.words)} слів</span>
+            <span>{formatLocalizedNumber(documentStats.words, locale)} {copy.topbar.words}</span>
             <span aria-hidden="true">·</span>
-            <span>{formatTopbarCount(documentStats.charactersWithSpaces)} симв.</span>
+            <span>{formatLocalizedNumber(documentStats.charactersWithSpaces, locale)} {copy.topbar.charactersShort}</span>
           </div>
         ) : null}
         <div className="topbar-hotkeys" ref={hotkeysRef}>
@@ -244,15 +264,15 @@ export function TopBar({
             onClick={() => setIsHotkeysOpen((current) => !current)}
           >
             <Keyboard size={14} aria-hidden="true" />
-            <span>Гарячі клавіші</span>
+            <span>{copy.topbar.hotkeys}</span>
           </button>
           {isHotkeysOpen ? (
-            <div className="topbar-hotkeys-popover" role="dialog" aria-label="Гарячі клавіші">
+            <div className="topbar-hotkeys-popover" role="dialog" aria-label={copy.topbar.hotkeys}>
               <div className="topbar-hotkeys-popover-head">
-                <p className="topbar-hotkeys-title">Гарячі клавіші</p>
+                <p className="topbar-hotkeys-title">{copy.topbar.hotkeys}</p>
               </div>
               <div className="topbar-hotkeys-list">
-                {HOTKEY_SECTIONS.map((item) => (
+                {hotkeys.map((item) => (
                   <div key={item.shortcut} className="topbar-hotkeys-row">
                     <kbd>{item.shortcut}</kbd>
                     <span>{item.label}</span>
@@ -263,21 +283,19 @@ export function TopBar({
           ) : null}
         </div>
         <button type="button" className="mono-ui nav-link button-reset" onClick={handleLogout} disabled={isLoggingOut}>
-          Вийти
+          {copy.topbar.logout}
         </button>
       </div>
     </header>
   );
 }
 
-function formatTopbarCount(value: number): string {
-  return new Intl.NumberFormat("uk-UA").format(value);
-}
-
 function TopbarModelPresetChips({
-  preset
+  preset,
+  ratingLabel
 }: {
   preset: NonNullable<ReturnType<typeof findProviderModelPreset>>;
+  ratingLabel: string;
 }) {
   const smartness = getModelPresetSmartnessLabel(preset);
   const price = getModelPresetPriceLabel(preset);
@@ -287,7 +305,7 @@ function TopbarModelPresetChips({
   }
 
   return (
-    <span className="settings-model-chip-row topbar-model-chip-row" aria-label="Оцінка моделі">
+    <span className="settings-model-chip-row topbar-model-chip-row" aria-label={ratingLabel}>
       {smartness ? <span className="settings-model-chip topbar-model-chip">💡 {smartness}</span> : null}
       {price ? <span className="settings-model-chip topbar-model-chip">{price}</span> : null}
     </span>
