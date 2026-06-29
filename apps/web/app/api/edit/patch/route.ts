@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PatchRequest, PatchResponse } from "../../../../lib/editor/patch-contract";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
+import { getApiErrors, getDefaultAppLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import { generatePatchResponse } from "../../../../lib/server/patch-service";
@@ -21,12 +22,14 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
+    const errors = getApiErrors(getDefaultAppLocale());
+
     return NextResponse.json<PatchResponse>(
       {
         operations: [],
         providerUsed: "invalid-request",
         usedFallback: false,
-        error: "Некоректне тіло запиту.",
+        error: errors.invalidRequestBody,
         diagnostics: {
           requestId: "request-invalid-json",
           requestedProvider: "unknown",
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = parsePatchRequest(body);
+  const parsed = parsePatchRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
     return NextResponse.json<PatchResponse>(
@@ -72,19 +75,19 @@ export async function POST(request: Request) {
   return NextResponse.json<PatchResponse>(response, { status });
 }
 
-function parsePatchRequest(body: unknown): { ok: true; value: PatchRequest } | { ok: false; error: string } {
+function parsePatchRequest(body: unknown, errors: ApiErrors): { ok: true; value: PatchRequest } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
-    return { ok: false, error: "Запит має бути JSON-об'єктом." };
+    return { ok: false, error: errors.requestMustBeJsonObject };
   }
 
   const record = body as Record<string, unknown>;
 
   if (!record.document || typeof record.document !== "object") {
-    return { ok: false, error: "Поле document є обов'язковим." };
+    return { ok: false, error: errors.documentRequired };
   }
 
   if (!Array.isArray(record.targetBlockIds)) {
-    return { ok: false, error: "Потрібно передати targetBlockIds." };
+    return { ok: false, error: errors.targetBlockIdsRequired };
   }
 
   const provider = normalizeProvider(typeof record.provider === "string" ? record.provider : "openai");

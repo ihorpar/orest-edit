@@ -23,6 +23,7 @@ import {
 } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
+import type { AppLocale } from "../i18n/product-locale.ts";
 import {
   buildCalloutProviderPrompt,
   buildFallbackCalloutPrompt,
@@ -121,19 +122,20 @@ function readOpenAiResponseText(payload: OpenAiResponsePayload): string {
   );
 }
 
-function describeOpenAiEmptyResponse(payload: OpenAiResponsePayload, fallbackMessage: string): string {
+function describeOpenAiEmptyResponse(payload: OpenAiResponsePayload, fallbackMessage: string, locale: AppLocale): string {
+  const errors = getReviewActionErrors(locale);
   const refusals = payload.output
     ?.flatMap((item) => item.content ?? [])
     .map((content) => content.refusal?.trim() ?? "")
     .filter(Boolean);
 
   if (refusals?.length) {
-    return `OpenAI відмовився згенерувати відповідь: ${refusals.join(" ")}`;
+    return errors.openAiRefusal(refusals.join(" "));
   }
 
   if (payload.status === "incomplete") {
     const reason = payload.incomplete_details?.reason;
-    return reason ? `${fallbackMessage} Причина: ${reason}.` : `${fallbackMessage} Відповідь incomplete.`;
+    return reason ? errors.openAiIncompleteWithReason(fallbackMessage, reason) : errors.openAiIncomplete(fallbackMessage);
   }
 
   return fallbackMessage;
@@ -648,7 +650,7 @@ async function createCalloutProposal(
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
-      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl, request.locale ?? "uk");
   const calloutKind = request.item.calloutKind ?? "mechanism";
   const locale = request.locale ?? "uk";
   const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth ?? request.item.calloutDraft?.calloutDepth);
@@ -689,7 +691,7 @@ async function createSubsectionProposal(
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
-      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl, request.locale ?? "uk");
   const parsed = parseSubsectionDraftOutput(result, {
     title: request.item.title,
     lead: ""
@@ -730,7 +732,7 @@ async function createImagePromptProposal(
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
-      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl);
+      : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl, request.locale ?? "uk");
   const parsed = parseImageDraftOutput(result, {
     prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
     caption: "",
@@ -1371,6 +1373,8 @@ async function runOpenAiStructuredReplacePrompt(
   prompt: string,
   fetchImpl: FetchLike
 ): Promise<string> {
+  const locale = request.locale ?? "uk";
+  const actionErrors = getReviewActionErrors(locale);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -1406,7 +1410,7 @@ async function runOpenAiStructuredReplacePrompt(
     const output = readOpenAiResponseText(payload);
 
     if (!output) {
-      throw new Error(describeOpenAiEmptyResponse(payload, "OpenAI повернув порожню відповідь для локальної правки."));
+      throw new Error(describeOpenAiEmptyResponse(payload, actionErrors.emptyLocalEditResponse, locale));
     }
 
     return output;
@@ -1508,7 +1512,14 @@ async function runAnthropicStructuredReplacePrompt(
   }
 }
 
-async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: string, fetchImpl: FetchLike): Promise<string> {
+async function runOpenAiTextPrompt(
+  modelId: string,
+  apiKey: string,
+  prompt: string,
+  fetchImpl: FetchLike,
+  locale: AppLocale = "uk"
+): Promise<string> {
+  const actionErrors = getReviewActionErrors(locale);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -1534,7 +1545,7 @@ async function runOpenAiTextPrompt(modelId: string, apiKey: string, prompt: stri
     const output = readOpenAiResponseText(payload);
 
     if (!output) {
-      throw new Error(describeOpenAiEmptyResponse(payload, "OpenAI повернув порожню відповідь для proposal."));
+      throw new Error(describeOpenAiEmptyResponse(payload, actionErrors.emptyProposalResponse, locale));
     }
 
     return output;

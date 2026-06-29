@@ -4,14 +4,16 @@ import {
   getConfiguredAppPassword,
   verifySessionToken
 } from "./password-auth";
+import { getApiErrors, getDefaultAppLocale } from "../i18n/api-errors";
 
 export async function requireApiSession(request: Request): Promise<NextResponse | null> {
   const configuredPassword = getConfiguredAppPassword();
+  const errors = getApiErrors(getDefaultAppLocale());
 
   if (!configuredPassword) {
     return NextResponse.json(
       {
-        error: "Серверний пароль не налаштовано. Додайте APP_PASSWORD у змінні середовища."
+        error: errors.serverPasswordNotConfigured
       },
       { status: 503 }
     );
@@ -30,7 +32,7 @@ export async function requireApiSession(request: Request): Promise<NextResponse 
   if (!hasSession) {
     return NextResponse.json(
       {
-        error: "Потрібна авторизація.",
+        error: errors.authRequired,
         code: "invalid_session"
       },
       { status: 401, headers: { "Cache-Control": "no-store" } }

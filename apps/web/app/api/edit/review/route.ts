@@ -18,6 +18,7 @@ import {
 } from "../../../../lib/server/review-job-service";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
+import { getApiErrors, getDefaultAppLocale, resolveQueryLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -32,12 +33,13 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId")?.trim();
+  const errors = getApiErrors(resolveQueryLocale(searchParams));
 
   if (!jobId) {
     return NextResponse.json<EditorialReviewJobResponse>(
       {
         job: buildMissingEditorialReviewJob(),
-        error: "Потрібно передати jobId."
+        error: errors.jobIdRequired
       },
       { status: 400, headers: { "Cache-Control": "no-store" } }
     );
@@ -49,7 +51,7 @@ export async function GET(request: Request) {
     return NextResponse.json<EditorialReviewJobResponse>(
       {
         job: buildMissingEditorialReviewJob(jobId),
-        error: "Чергу review не знайдено або вона вже протермінована. Запустіть крок ще раз."
+        error: errors.reviewJobNotFound
       },
       { status: 404, headers: { "Cache-Control": "no-store" } }
     );
@@ -81,6 +83,8 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
+    const errors = getApiErrors(getDefaultAppLocale());
+
     return NextResponse.json<EditorialReviewResponse>(
       {
         reviewSessionId: "review-session-invalid-json",
@@ -91,7 +95,7 @@ export async function POST(request: Request) {
         factCheckRows: [],
         providerUsed: "invalid-request",
         usedFallback: false,
-        error: "Некоректне тіло запиту.",
+        error: errors.invalidRequestBody,
         diagnostics: {
           requestId: "review-invalid-json",
           reviewSessionId: "review-session-invalid-json",
@@ -112,7 +116,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = parseEditorialReviewRequest(body);
+  const parsed = parseEditorialReviewRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
     return NextResponse.json<EditorialReviewResponse>(
@@ -192,15 +196,18 @@ function buildMissingEditorialReviewJob(id = "review-job-missing"): EditorialRev
   };
 }
 
-function parseEditorialReviewRequest(body: unknown): { ok: true; value: EditorialReviewRequest } | { ok: false; error: string } {
+function parseEditorialReviewRequest(
+  body: unknown,
+  errors: ApiErrors
+): { ok: true; value: EditorialReviewRequest } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
-    return { ok: false, error: "Запит має бути JSON-об'єктом." };
+    return { ok: false, error: errors.requestMustBeJsonObject };
   }
 
   const record = body as Record<string, unknown>;
 
   if (!record.document || typeof record.document !== "object") {
-    return { ok: false, error: "Поле document є обов'язковим." };
+    return { ok: false, error: errors.documentRequired };
   }
 
   const provider = normalizeProvider(typeof record.provider === "string" ? record.provider : "openai");
@@ -208,7 +215,7 @@ function parseEditorialReviewRequest(body: unknown): { ok: true; value: Editoria
   const revision = record.revision as ManuscriptRevisionState | undefined;
 
   if (!revision || typeof revision !== "object" || typeof revision.documentRevisionId !== "string" || !Array.isArray(revision.blockOrder)) {
-    return { ok: false, error: "Потрібно передати поточний revision рукопису." };
+    return { ok: false, error: errors.manuscriptRevisionRequired };
   }
 
   const changeLevel = typeof record.changeLevel === "number" ? Math.max(1, Math.min(5, Math.floor(record.changeLevel))) : 5;

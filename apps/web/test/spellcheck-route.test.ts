@@ -17,6 +17,7 @@ test("spellcheck route rejects invalid selection range", async () => {
           cookie: `${AUTH_COOKIE_NAME}=${encodeURIComponent(sessionToken)}`
         },
         body: JSON.stringify({
+          locale: "en",
           documentRevisionId: "rev-1",
           language: "uk-UA",
           provider: "languagetool_public",
@@ -32,7 +33,7 @@ test("spellcheck route rejects invalid selection range", async () => {
 
     assert.equal(response.status, 400);
     const payload = (await response.json()) as { error?: string };
-    assert.match(payload.error ?? "", /Некоректний selection\.range/i);
+    assert.match(payload.error ?? "", /Invalid selection\.range/i);
   } finally {
     if (previousPassword === undefined) {
       delete process.env.APP_PASSWORD;

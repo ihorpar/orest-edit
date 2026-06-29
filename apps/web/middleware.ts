@@ -5,12 +5,14 @@ import {
   normalizePostLoginPath,
   verifySessionToken
 } from "./lib/auth/password-auth";
+import { getApiErrors, getDefaultAppLocale } from "./lib/i18n/api-errors";
 
 const PUBLIC_PATHS = new Set<string>(["/login", "/api/auth/login", "/api/auth/logout"]);
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const configuredPassword = process.env.APP_PASSWORD?.trim();
+  const errors = getApiErrors(getDefaultAppLocale());
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.next();
@@ -24,7 +26,7 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/api/auth/login") {
       return NextResponse.json(
         {
-          error: "Серверний пароль не налаштовано. Додайте APP_PASSWORD у змінні середовища."
+          error: errors.serverPasswordNotConfigured
         },
         { status: 503 }
       );
@@ -33,7 +35,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         {
-          error: "Серверний пароль не налаштовано. Додайте APP_PASSWORD у змінні середовища."
+          error: errors.serverPasswordNotConfigured
         },
         { status: 503 }
       );
@@ -69,7 +71,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Потрібна авторизація." }, { status: 401 });
+    return NextResponse.json({ error: errors.authRequired }, { status: 401 });
   }
 
   const loginUrl = new URL("/login", request.url);

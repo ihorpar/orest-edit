@@ -111,11 +111,13 @@ test("review route GET validates and returns job state", async () => {
     assert.equal(missingIdResponse.status, 400);
 
     const missingJobResponse = await GET(
-      new Request("http://localhost/api/edit/review?jobId=missing-job", {
+      new Request("http://localhost/api/edit/review?jobId=missing-job&locale=en", {
         headers: { cookie: await createAuthCookie() }
       })
     );
     assert.equal(missingJobResponse.status, 404);
+    const missingJobPayload = (await missingJobResponse.json()) as { error?: string };
+    assert.match(missingJobPayload.error ?? "", /not found or expired/i);
 
     const job = createQueuedEditorialReviewJob();
     await processQueuedEditorialReviewJob(job.id, createRequestBody({ provider: "openai", modelId: "gpt-5.4", stepId: "clarity" }), {

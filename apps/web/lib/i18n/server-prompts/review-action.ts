@@ -31,7 +31,13 @@ const REVIEW_ACTION_ERRORS = {
     missingApiKey: (providerName: string) => `Немає API key для ${providerName} у формі або .env.`,
     genericFailure: "Не вдалося підготувати чернетку.",
     providerTimeout: (providerName: string, seconds: number) => `${providerName} перевищив таймаут ${seconds}с.`,
-    providerUnavailable: (providerName: string) => `${providerName} недоступний.`
+    providerNetworkError: (providerName: string) => `${providerName} недоступний або мережа не відповідає.`,
+    providerUnavailable: (providerName: string) => `${providerName} недоступний.`,
+    openAiRefusal: (refusals: string) => `OpenAI відмовився згенерувати відповідь: ${refusals}`,
+    openAiIncompleteWithReason: (fallbackMessage: string, reason: string) => `${fallbackMessage} Причина: ${reason}.`,
+    openAiIncomplete: (fallbackMessage: string) => `${fallbackMessage} Відповідь incomplete.`,
+    emptyLocalEditResponse: "OpenAI повернув порожню відповідь для локальної правки.",
+    emptyProposalResponse: "OpenAI повернув порожню відповідь для proposal."
   },
   en: {
     staleAnchorMismatch: "The recommendation anchor no longer matches the current document.",
@@ -39,7 +45,13 @@ const REVIEW_ACTION_ERRORS = {
     missingApiKey: (providerName: string) => `No API key for ${providerName} in the form or .env.`,
     genericFailure: "Failed to prepare the draft.",
     providerTimeout: (providerName: string, seconds: number) => `${providerName} exceeded the ${seconds}s timeout.`,
-    providerUnavailable: (providerName: string) => `${providerName} is unavailable.`
+    providerNetworkError: (providerName: string) => `${providerName} is unavailable or the network is not responding.`,
+    providerUnavailable: (providerName: string) => `${providerName} is unavailable.`,
+    openAiRefusal: (refusals: string) => `OpenAI refused to generate a response: ${refusals}`,
+    openAiIncompleteWithReason: (fallbackMessage: string, reason: string) => `${fallbackMessage} Reason: ${reason}.`,
+    openAiIncomplete: (fallbackMessage: string) => `${fallbackMessage} Response incomplete.`,
+    emptyLocalEditResponse: "OpenAI returned an empty response for the local edit.",
+    emptyProposalResponse: "OpenAI returned an empty response for the proposal."
   }
 } as const;
 

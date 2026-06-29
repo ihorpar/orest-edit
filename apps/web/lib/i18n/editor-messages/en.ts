@@ -200,7 +200,17 @@ const editorEn = {
     resetHelp: "Reset diagnostics and fact-check table to start over",
     runDiagnosticsHint: "Run diagnostics for a detailed review.",
     factCheckCards: "Fact-check cards",
-    factCheckCardsEmpty: "Only questionable claims will appear here."
+    factCheckCardsEmpty: "Only questionable claims will appear here.",
+    linkedCards: {
+      questionableTitle: "Questionable claim",
+      unsupportedTitle: "Unconfirmed claim",
+      sources: (domains: string) => `Sources: ${domains}.`,
+      noReliableExternalSource: "No reliable external source found.",
+      calloutRecommendation:
+        "Add a short Myth / Fact callout that carefully explains the claim status without presenting it as established fact.",
+      rewriteRecommendation:
+        "Rewrite this passage locally: soften categorical wording and make clear the claim needs careful interpretation."
+    }
   },
   spellcheckUi: {
     clear: "Clear",
@@ -230,7 +240,24 @@ const editorEn = {
     noStructureActions: "No structure actions.",
     untitled: "Untitled",
     noSubheadings: "Manuscript without subheadings",
-    openingNoSubheading: "Opening without subheading"
+    openingNoSubheading: "Opening without subheading",
+    actions: {
+      openDraft: "open draft",
+      alreadyApplied: "already applied",
+      dismissed: "dismissed",
+      prepareSubheading: "prepare subheading",
+      formatAsList: "format as list",
+      prepareCallout: "prepare callout",
+      prepareAction: "prepare action"
+    },
+    actionStatus: {
+      accepted: "accepted",
+      dismissed: "dismissed",
+      ready: "ready",
+      preparing: "preparing",
+      stale: "stale",
+      pending: "pending"
+    }
   },
   stepSettings: {
     updateMode: "Update mode",

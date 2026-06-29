@@ -9,7 +9,7 @@ Status: Active handoff
 - Settings, draft persistence, review/image job payloads, spellcheck contracts, workflow UI helpers, top-bar labels, login copy, and DOCX export metadata are now locale-aware at the contract/helper layer
 - The live `/editor` runtime now passes the active app locale through settings reads, draft persistence, visual-style storage, spellcheck language, spellcheck dictionary storage, local-action routing, patch/review/proposal/image payloads, and DOCX/TXT export naming/metadata
 - Locale foundation and runtime wiring exist; high-traffic editor surfaces now read workflow step labels, step workspace status, emphasis/spellcheck chips, disabled-run reasons, destructive clear copy, review feedback messages, floating composer copy, block editor toolbar labels, compact review card status, and prototype-shell step drawers from centralized `editor-messages` catalogs via `useProductCopy()`
-- English edition localization ExecPlan **complete** (M1–M9): full settings/editor UI copy, server prompts (`patch.ts`, `review.ts`, `review-action.ts`), locale-scoped storage, spellcheck `en-US`/`uk-UA`, 219 passing tests
+- English edition localization ExecPlan **complete** (M1–M9): full settings/editor UI copy, server prompts (`patch.ts`, `review.ts`, `review-action.ts`), locale-scoped storage, spellcheck `en-US`/`uk-UA`, API validation/provider error messages, fact-check linked cards + structure outline labels, 221 passing tests
 - Spellcheck ignored-word dictionaries are now stored per locale in IndexedDB (`orest-spellcheck-dictionary-uk-v1` / `orest-spellcheck-dictionary-en-v1`), with Ukrainian legacy dictionary migration on first Ukrainian read
 - The Settings page now includes an app-language selector; deployment env sets only the initial default locale, and the persisted user choice wins afterwards
 - Internal fact-check statuses now use stable values (`ok`, `questionable`, `unsupported`) instead of localized persisted enums
@@ -248,7 +248,7 @@ Status: Active handoff
 4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
-- `npm run typecheck -w @orest/web` and `npm run test -w @orest/web` (219/219) passed on 2026-06-29 after English localization ExecPlan completion (M1–M9).
+- `npm run typecheck -w @orest/web` and `npm run test -w @orest/web` (221/221) passed on 2026-06-29 after post-review localization fixes: API error catalog (`api-errors.ts`), fact-check linked review cards, structure outline helpers, and localized fail-loud provider messages.
 - Browser QA on 2026-06-29 with English-default dev server (`NEXT_PUBLIC_OREST_APP_LOCALE=en`): English editor workflow UI, spelling step, and workspace shell labels verified; uk↔en switch preserves manuscript and clears analysis; Ukrainian UI confirmed after reload; settings page body copy still mostly Ukrainian in both locales.
 - `npm run typecheck -w @orest/web` passed on 2026-06-25 after the locale-foundation pass, stable fact-check status migration, locale-aware job payload updates, and targeted storage/test fixes.
 - `npm run test -w @orest/web` passed on 2026-06-25 after updating locale-sensitive tests for draft storage keys, stable fact-check statuses, and the current Gemini preset labels.

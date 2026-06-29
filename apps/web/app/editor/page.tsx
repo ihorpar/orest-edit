@@ -137,7 +137,7 @@ import {
   presentRequestFeedback,
   type RequestFeedback
 } from "../../lib/editor/workflow-ui";
-import { getProductLocaleConfig, getVisualStylePresetStorageKey } from "../../lib/i18n/product-locale";
+import { getProductLocaleConfig, formatParagraphRangeLabel, getVisualStylePresetStorageKey } from "../../lib/i18n/product-locale";
 import { getWorkflowStepLabel, getEditorMessages } from "../../lib/i18n/editor-messages";
 import { buildFactCheckActionInstruction } from "../../lib/i18n/server-prompts/review-action";
 import {
@@ -2302,7 +2302,8 @@ export default function EditorPage() {
           revision,
           changeLevel: reviewComposer.changeLevel,
           reviewSessionId: payload.reviewSessionId,
-          stepRunId: payload.stepRunId
+          stepRunId: payload.stepRunId,
+          locale
         });
         sectionItemCount = factCheckLinkedItems.length;
 
@@ -2447,7 +2448,9 @@ export default function EditorPage() {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
       }
 
-      const response = await fetch(`/api/edit/review?jobId=${encodeURIComponent(currentJob.id)}`, {
+      const response = await fetch(
+        `/api/edit/review?jobId=${encodeURIComponent(currentJob.id)}&locale=${encodeURIComponent(expectedLocale)}`,
+        {
         method: "GET",
         credentials: "same-origin",
         headers: { "Cache-Control": "no-store" }
@@ -3647,8 +3650,8 @@ export default function EditorPage() {
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
   );
   const structureOutline = useMemo(
-    () => buildStructureOutline(document, activeStepItems, revision, showCompletedCards),
-    [document, activeStepItems, revision, showCompletedCards]
+    () => buildStructureOutline(document, activeStepItems, revision, showCompletedCards, locale),
+    [document, activeStepItems, revision, showCompletedCards, locale]
   );
   const activeStepRunCount = activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0;
   const spellcheckIssueResults = useMemo(
@@ -6372,7 +6375,9 @@ function createFactCheckLinkedReviewItems(input: {
   changeLevel: WholeTextChangeLevel;
   reviewSessionId: string;
   stepRunId: string;
+  locale: AppLocale;
 }): EditorialReviewItem[] {
+  const linkedCards = getEditorMessages(input.locale).factCheck.linkedCards;
   const items: EditorialReviewItem[] = [];
 
   for (let index = 0; index < input.rows.length; index += 1) {
@@ -6390,15 +6395,14 @@ function createFactCheckLinkedReviewItems(input: {
     }
 
     const needsCallout = row.status === "unsupported" || row.sources.length === 0;
-    const titlePrefix = row.status === "questionable" ? "???????? ??????????" : "????????? ??????????????";
+    const titlePrefix =
+      row.status === "questionable" ? linkedCards.questionableTitle : linkedCards.unsupportedTitle;
     const sourceHint =
       row.sources.length > 0
-        ? `Джерела: ${row.sources.map((source) => source.domain).slice(0, 3).join(", ")}.`
-        : "Надійне зовнішнє джерело не знайдено.";
+        ? linkedCards.sources(row.sources.map((source) => source.domain).slice(0, 3).join(", "))
+        : linkedCards.noReliableExternalSource;
 
-    const recommendation = needsCallout
-      ? "Додати коротку врізку «Міф / Правда», яка обережно пояснює статус твердження і не подає його як встановлений факт."
-      : "Локально переформулювати це місце: зняти категоричність і явно позначити, що твердження потребує обережного тлумачення.";
+    const recommendation = needsCallout ? linkedCards.calloutRecommendation : linkedCards.rewriteRecommendation;
     const reason = `${row.explanation} ${sourceHint}`.trim();
     const common: Omit<EditorialReviewItem, "recommendationType" | "suggestedAction" | "insertionPoint" | "priority" | "id" | "status"> = {
       reviewSessionId: input.reviewSessionId,
@@ -6523,8 +6527,11 @@ function buildStructureOutline(
   document: EditorDocument,
   items: EditorialReviewItem[],
   revision: ManuscriptRevisionState,
-  showCompletedCards: boolean
+  showCompletedCards: boolean,
+  locale: AppLocale
 ): StructureOutlineNode[] {
+  const structureLabels = getEditorMessages(locale).structure;
+
   if (document.blocks.length === 0) {
     return [];
   }
@@ -6537,7 +6544,7 @@ function buildStructureOutline(
       return;
     }
 
-    const title = getBlockText(block).trim() || "Без назви";
+    const title = getBlockText(block).trim() || structureLabels.untitled;
     nodes.push({
       id: `heading-${block.id}`,
       title,
@@ -6553,7 +6560,7 @@ function buildStructureOutline(
   if (nodes.length === 0) {
     nodes.push({
       id: "structure-outline-root",
-      title: "Рукопис без підзаголовків",
+      title: structureLabels.noSubheadings,
       level: 1,
       rangeLabel: "",
       startIndex: 0,
@@ -6564,7 +6571,7 @@ function buildStructureOutline(
   } else if (nodes[0] && nodes[0].startIndex > 0) {
     nodes.unshift({
       id: "structure-outline-prefix",
-      title: "Початок без підзаголовка",
+      title: structureLabels.openingNoSubheading,
       level: 1,
       rangeLabel: "",
       startIndex: 0,
@@ -6577,7 +6584,7 @@ function buildStructureOutline(
   for (let index = 0; index < nodes.length; index += 1) {
     const next = nodes[index + 1];
     nodes[index].endIndex = next ? Math.max(nodes[index].startIndex, next.startIndex - 1) : document.blocks.length - 1;
-    nodes[index].rangeLabel = formatStructureRangeLabel(nodes[index].startIndex, nodes[index].endIndex);
+    nodes[index].rangeLabel = formatStructureRangeLabel(locale, nodes[index].startIndex, nodes[index].endIndex);
   }
 
   const sortedItems = [...items].sort(
@@ -6595,8 +6602,8 @@ function buildStructureOutline(
     targetNode.actions.push({
       item,
       rangeLabel: getReviewParagraphRangeLabel(item, revision),
-      label: getStructureActionLabel(item),
-      statusLabel: getStructureActionStatusLabel(item.status),
+      label: getStructureActionLabel(item, locale),
+      statusLabel: getStructureActionStatusLabel(item.status, locale),
       isHidden: !showCompletedCards && (item.status === "applied" || item.status === "dismissed")
     });
   }
@@ -6609,62 +6616,64 @@ function getItemStartIndex(item: EditorialReviewItem, blockIndexById: Map<string
   return blockIndexById.get(anchorId) ?? Number.MAX_SAFE_INTEGER;
 }
 
-function formatStructureRangeLabel(start: number, end: number): string {
-  return start === end
-    ? `Абз. ${formatParagraphLabel(start)}`
-    : `Абз. ${formatParagraphLabel(start)}-${formatParagraphLabel(end)}`;
+function formatStructureRangeLabel(locale: AppLocale, start: number, end: number): string {
+  return formatParagraphRangeLabel(locale, formatParagraphLabel(start), formatParagraphLabel(end));
 }
 
-function getStructureActionLabel(item: EditorialReviewItem): string {
+function getStructureActionLabel(item: EditorialReviewItem, locale: AppLocale): string {
+  const actions = getEditorMessages(locale).structure.actions;
+
   if (item.status === "ready") {
-    return "відкрити чернетку";
+    return actions.openDraft;
   }
 
   if (item.status === "applied") {
-    return "вже застосовано";
+    return actions.alreadyApplied;
   }
 
   if (item.status === "dismissed") {
-    return "відхилено";
+    return actions.dismissed;
   }
 
   if (item.recommendationType === "subsection") {
-    return "підготувати підзаголовок";
+    return actions.prepareSubheading;
   }
 
   if (item.recommendationType === "list") {
-    return "оформити списком";
+    return actions.formatAsList;
   }
 
   if (item.recommendationType === "callout") {
-    return "підготувати врізку";
+    return actions.prepareCallout;
   }
 
-  return "підготувати дію";
+  return actions.prepareAction;
 }
 
-function getStructureActionStatusLabel(status: EditorialReviewItem["status"]): string {
+function getStructureActionStatusLabel(status: EditorialReviewItem["status"], locale: AppLocale): string {
+  const actionStatus = getEditorMessages(locale).structure.actionStatus;
+
   if (status === "applied") {
-    return "погоджено";
+    return actionStatus.accepted;
   }
 
   if (status === "dismissed") {
-    return "відхилено";
+    return actionStatus.dismissed;
   }
 
   if (status === "ready") {
-    return "готово";
+    return actionStatus.ready;
   }
 
   if (status === "preparing") {
-    return "готується";
+    return actionStatus.preparing;
   }
 
   if (status === "stale") {
-    return "застаріло";
+    return actionStatus.stale;
   }
 
-  return "очікує";
+  return actionStatus.pending;
 }
 
 function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): boolean {

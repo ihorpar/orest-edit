@@ -5,6 +5,7 @@ import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../../lib/server/client-api-key-policy";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
 import { isAppLocale, type AppLocale } from "../../../../../lib/i18n/product-locale";
+import { getApiErrors, getDefaultAppLocale, resolveRequestLocale, type ApiErrors } from "../../../../../lib/i18n/api-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
+    const errors = getApiErrors(getDefaultAppLocale());
+
     return NextResponse.json<ReviewActionResponse>(
       {
         proposal: {
@@ -29,13 +32,13 @@ export async function POST(request: Request) {
           sourceRevisionId: "unknown",
           targetRevisionId: "unknown",
           kind: "stale_anchor",
-          summary: "Некоректне тіло запиту.",
+          summary: errors.invalidRequestBody,
           canApplyDirectly: false,
-          staleReason: "Некоректне тіло запиту."
+          staleReason: errors.invalidRequestBody
         },
         providerUsed: "invalid-request",
         usedFallback: false,
-        error: "Некоректне тіло запиту.",
+        error: errors.invalidRequestBody,
         diagnostics: {
           requestId: "proposal-invalid-json",
           requestedProvider: "unknown",
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = parseProposalRequest(body);
+  const parsed = parseProposalRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
     return NextResponse.json<ReviewActionResponse>(
@@ -86,23 +89,26 @@ export async function POST(request: Request) {
   return NextResponse.json<ReviewActionResponse>(response, { status });
 }
 
-function parseProposalRequest(body: unknown): { ok: true; value: ReviewActionRequest } | { ok: false; error: string } {
+function parseProposalRequest(
+  body: unknown,
+  errors: ApiErrors
+): { ok: true; value: ReviewActionRequest } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
-    return { ok: false, error: "Запит має бути JSON-об'єктом." };
+    return { ok: false, error: errors.requestMustBeJsonObject };
   }
 
   const record = body as Record<string, unknown>;
 
   if (!record.document || typeof record.document !== "object") {
-    return { ok: false, error: "Поле document є обов'язковим." };
+    return { ok: false, error: errors.documentRequired };
   }
 
   if (!record.currentRevision || typeof record.currentRevision !== "object") {
-    return { ok: false, error: "Потрібно передати currentRevision." };
+    return { ok: false, error: errors.currentRevisionRequired };
   }
 
   if (!record.item || typeof record.item !== "object") {
-    return { ok: false, error: "Потрібно передати review item." };
+    return { ok: false, error: errors.reviewItemRequired };
   }
 
   const provider = normalizeProvider(typeof record.provider === "string" ? record.provider : "openai");

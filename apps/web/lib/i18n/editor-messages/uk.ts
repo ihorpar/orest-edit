@@ -203,7 +203,17 @@ const editorUk = {
     resetHelp: "Скинути результат діагностики і таблицю факт-чеку для повторного старту",
     runDiagnosticsHint: "Запустіть діагностику, щоб отримати детальний огляд.",
     factCheckCards: "Картки за факт-чеком",
-    factCheckCardsEmpty: "Тут з'являться лише твердження, які варто поставити під сумнів."
+    factCheckCardsEmpty: "Тут з'являться лише твердження, які варто поставити під сумнів.",
+    linkedCards: {
+      questionableTitle: "Сумнівне твердження",
+      unsupportedTitle: "Непідтверджене твердження",
+      sources: (domains: string) => `Джерела: ${domains}.`,
+      noReliableExternalSource: "Надійне зовнішнє джерело не знайдено.",
+      calloutRecommendation:
+        "Додати коротку врізку «Міф / Правда», яка обережно пояснює статус твердження і не подає його як встановлений факт.",
+      rewriteRecommendation:
+        "Локально переформулювати це місце: зняти категоричність і явно позначити, що твердження потребує обережного тлумачення."
+    }
   },
   spellcheckUi: {
     clear: "Очистити",
@@ -233,7 +243,24 @@ const editorUk = {
     noStructureActions: "Без структурних дій.",
     untitled: "Без назви",
     noSubheadings: "Рукопис без підзаголовків",
-    openingNoSubheading: "Початок без підзаголовка"
+    openingNoSubheading: "Початок без підзаголовка",
+    actions: {
+      openDraft: "відкрити чернетку",
+      alreadyApplied: "вже застосовано",
+      dismissed: "відхилено",
+      prepareSubheading: "підготувати підзаголовок",
+      formatAsList: "оформити списком",
+      prepareCallout: "підготувати врізку",
+      prepareAction: "підготувати дію"
+    },
+    actionStatus: {
+      accepted: "погоджено",
+      dismissed: "відхилено",
+      ready: "готово",
+      preparing: "готується",
+      stale: "застаріло",
+      pending: "очікує"
+    }
   },
   stepSettings: {
     updateMode: "Режим оновлення",

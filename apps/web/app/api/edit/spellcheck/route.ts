@@ -7,6 +7,7 @@ import {
   type SpellcheckResponse
 } from "../../../../lib/editor/spellcheck-contract";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
+import { getApiErrors, getDefaultAppLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 import { generateSpellcheckResponse } from "../../../../lib/server/spellcheck-service";
 
 export const runtime = "nodejs";
@@ -24,10 +25,11 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json<SpellcheckResponse>(buildInvalidResponse("Некоректне тіло запиту.", "spellcheck-invalid-json"), { status: 400 });
+    const errors = getApiErrors(getDefaultAppLocale());
+    return NextResponse.json<SpellcheckResponse>(buildInvalidResponse(errors.invalidRequestBody, "spellcheck-invalid-json"), { status: 400 });
   }
 
-  const parsed = parseSpellcheckRequest(body);
+  const parsed = parseSpellcheckRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
     return NextResponse.json<SpellcheckResponse>(buildInvalidResponse(parsed.error, "spellcheck-invalid-body"), { status: 400 });
@@ -39,15 +41,15 @@ export async function POST(request: Request) {
   return NextResponse.json<SpellcheckResponse>(response, { status });
 }
 
-function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckRequest } | { ok: false; error: string } {
+function parseSpellcheckRequest(body: unknown, errors: ApiErrors): { ok: true; value: SpellcheckRequest } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
-    return { ok: false, error: "Запит має бути JSON-об'єктом." };
+    return { ok: false, error: errors.requestMustBeJsonObject };
   }
 
   const record = body as Record<string, unknown>;
 
   if (typeof record.documentRevisionId !== "string" || !record.documentRevisionId.trim()) {
-    return { ok: false, error: "Потрібно передати documentRevisionId." };
+    return { ok: false, error: errors.documentRevisionIdRequired };
   }
 
   if (record.language !== "uk-UA" && record.language !== "en-US") {
@@ -55,29 +57,29 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
   }
 
   if (record.provider !== "languagetool_public" && record.provider !== "languagetool_self_hosted") {
-    return { ok: false, error: "Непідтримуваний spellcheck provider." };
+    return { ok: false, error: errors.unsupportedSpellcheckProvider };
   }
 
   if (record.trigger !== "manual") {
-    return { ok: false, error: "У v1 підтримується лише manual spellcheck." };
+    return { ok: false, error: errors.manualSpellcheckOnly };
   }
 
   if (!record.selection || typeof record.selection !== "object") {
-    return { ok: false, error: "Потрібно передати selection." };
+    return { ok: false, error: errors.selectionRequired };
   }
 
   const selection = record.selection as Record<string, unknown>;
 
   if (typeof selection.blockId !== "string" || !selection.blockId.trim()) {
-    return { ok: false, error: "Потрібно передати selection.blockId." };
+    return { ok: false, error: errors.selectionBlockIdRequired };
   }
 
   if (typeof selection.text !== "string" || !selection.text.length) {
-    return { ok: false, error: "Потрібно передати selection.text." };
+    return { ok: false, error: errors.selectionTextRequired };
   }
 
   if (!selection.range || typeof selection.range !== "object") {
-    return { ok: false, error: "Потрібно передати selection.range." };
+    return { ok: false, error: errors.selectionRangeRequired };
   }
 
   const range = selection.range as Record<string, unknown>;
@@ -87,7 +89,7 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
   };
 
   if (!isValidSpellcheckRange(normalizedRange, selection.text)) {
-    return { ok: false, error: "Некоректний selection.range для переданого тексту." };
+    return { ok: false, error: errors.invalidSelectionRange };
   }
 
   const parsed: SpellcheckRequest = {
@@ -104,7 +106,7 @@ function parseSpellcheckRequest(body: unknown): { ok: true; value: SpellcheckReq
   };
 
   if (!getSpellcheckSelectedText(parsed.selection).trim()) {
-    return { ok: false, error: "Виділений фрагмент порожній. Оберіть текст без порожнього пробілу." };
+    return { ok: false, error: errors.emptySelectionFragment };
   }
 
   return { ok: true, value: parsed };

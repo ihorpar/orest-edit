@@ -18,6 +18,7 @@ import {
   buildPatchUserPrompt,
   getPatchUserPromptLabels
 } from "../i18n/server-prompts/patch.ts";
+import { getReviewActionErrors } from "../i18n/server-prompts/review-action.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
 const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
@@ -241,6 +242,7 @@ export async function generatePatchResponse(
   const now = options.now ?? (() => new Date().toISOString());
   const locale: AppLocale = patchRequest.locale ?? "uk";
   const promptLabels = getPatchUserPromptLabels(locale);
+  const actionErrors = getReviewActionErrors(locale);
 
   if (targetBlocks.length === 0) {
     return buildPatchResponse({
@@ -268,7 +270,7 @@ export async function generatePatchResponse(
       mode: patchRequest.mode,
       targetBlockCount: targetBlocks.length,
       providerUsed: patchRequest.provider,
-      error: `Немає API key для ${providerDisplayName(patchRequest.provider)} у формі або .env.`,
+      error: actionErrors.missingApiKey(providerDisplayName(patchRequest.provider)),
       generatedAt: now()
     });
   }
@@ -312,7 +314,7 @@ export async function generatePatchResponse(
       mode: patchRequest.mode,
       targetBlockCount: targetBlocks.length,
       providerUsed: patchRequest.provider,
-      error: formatProviderErrorMessage(patchRequest.provider, error),
+      error: formatProviderErrorMessage(patchRequest.provider, error, locale),
       generatedAt: now(),
       rawError: formatRawError(error)
     });
@@ -864,23 +866,26 @@ function formatRawError(error: unknown): string | undefined {
   }
 }
 
-function formatProviderErrorMessage(provider: string, error: unknown): string {
+function formatProviderErrorMessage(provider: string, error: unknown, locale: AppLocale): string {
+  const errors = getReviewActionErrors(locale);
+  const providerName = providerDisplayName(provider);
+
   if (error instanceof Error && error.name === "AbortError") {
-    return `${providerDisplayName(provider)} перевищив таймаут ${Math.round(requestTimeoutMs / 1000)}с.`;
+    return errors.providerTimeout(providerName, Math.round(requestTimeoutMs / 1000));
   }
 
   if (
     error instanceof TypeError ||
     (error instanceof Error && /fetch failed|network|econnreset|enotfound|eai_again/i.test(error.message))
   ) {
-    return `${providerDisplayName(provider)} недоступний або мережа не відповідає.`;
+    return errors.providerNetworkError(providerName);
   }
 
   if (error instanceof Error) {
     return error.message;
   }
 
-  return `${providerDisplayName(provider)} недоступний.`;
+  return errors.providerUnavailable(providerName);
 }
 
 function parsePatchOperations(content: string): { operations: unknown } {

@@ -3,6 +3,7 @@ import { normalizeModelId, normalizeProvider, validateModelId, type SettingsVali
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import { validateSettingsModel } from "../../../../lib/server/settings-validation";
+import { getApiErrors, getDefaultAppLocale, resolveRequestLocale } from "../../../../lib/i18n/api-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,18 +20,22 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
+    const errors = getApiErrors(getDefaultAppLocale());
+
     return NextResponse.json<SettingsValidationResult>(
       {
         provider: "openai",
         modelId: "",
         state: "model_error",
         keySource: "missing",
-        message: "Некоректне тіло запиту.",
+        message: errors.invalidRequestBody,
         validatedAt: new Date().toISOString()
       },
       { status: 400 }
     );
   }
+
+  const errors = getApiErrors(resolveRequestLocale(body));
 
   if (!body || typeof body !== "object") {
     return NextResponse.json<SettingsValidationResult>(
@@ -39,7 +44,7 @@ export async function POST(request: Request) {
         modelId: "",
         state: "model_error",
         keySource: "missing",
-        message: "Запит має бути JSON-об'єктом.",
+        message: errors.requestMustBeJsonObject,
         validatedAt: new Date().toISOString()
       },
       { status: 400 }
@@ -57,7 +62,7 @@ export async function POST(request: Request) {
         modelId,
         state: "model_error",
         keySource: "missing",
-        message: "Model id має невалідний формат.",
+        message: errors.invalidModelIdFormat,
         validatedAt: new Date().toISOString()
       },
       { status: 400 }

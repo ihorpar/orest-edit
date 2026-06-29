@@ -9,6 +9,7 @@ import {
 } from "../../../../lib/editor/local-action-router";
 import { normalizeVisualStylePreset } from "../../../../lib/editor/settings";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
+import { getApiErrors, getDefaultAppLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -25,10 +26,11 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json<{ error: string }>({ error: "Некоректне тіло запиту." }, { status: 400 });
+    const errors = getApiErrors(getDefaultAppLocale());
+    return NextResponse.json<{ error: string }>({ error: errors.invalidRequestBody }, { status: 400 });
   }
 
-  const parsed = parseLocalActionRequest(body);
+  const parsed = parseLocalActionRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
     return NextResponse.json<{ error: string }>({ error: parsed.error }, { status: 400 });
@@ -37,9 +39,12 @@ export async function POST(request: Request) {
   return NextResponse.json<LocalActionRouteResponse>(inferLocalActionRoute(parsed.value));
 }
 
-function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionRouteRequest } | { ok: false; error: string } {
+function parseLocalActionRequest(
+  body: unknown,
+  errors: ApiErrors
+): { ok: true; value: LocalActionRouteRequest } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
-    return { ok: false, error: "Запит має бути JSON-об'єктом." };
+    return { ok: false, error: errors.requestMustBeJsonObject };
   }
 
   const record = body as Record<string, unknown>;
@@ -47,7 +52,7 @@ function parseLocalActionRequest(body: unknown): { ok: true; value: LocalActionR
   const preferredTextIntent = parseTextIntent(record.preferredTextIntent);
 
   if (record.prompt !== undefined && typeof record.prompt !== "string") {
-    return { ok: false, error: "Поле prompt має бути рядком." };
+    return { ok: false, error: errors.promptMustBeString };
   }
 
   return {

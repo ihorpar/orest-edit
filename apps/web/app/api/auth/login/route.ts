@@ -7,21 +7,25 @@ import {
   getConfiguredAppPassword,
   normalizePostLoginPath
 } from "../../../../lib/auth/password-auth";
+import { getApiErrors, getDefaultAppLocale } from "../../../../lib/i18n/api-errors";
+import { isAppLocale } from "../../../../lib/i18n/product-locale";
 
 export const runtime = "nodejs";
 
 interface LoginRequestBody {
   password?: unknown;
   redirectTo?: unknown;
+  locale?: unknown;
 }
 
 export async function POST(request: Request) {
   const configuredPassword = getConfiguredAppPassword();
+  const defaultErrors = getApiErrors(getDefaultAppLocale());
 
   if (!configuredPassword) {
     return NextResponse.json(
       {
-        error: "Серверний пароль не налаштовано. Додайте APP_PASSWORD у змінні середовища."
+        error: defaultErrors.serverPasswordNotConfigured
       },
       { status: 503 }
     );
@@ -32,13 +36,14 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as LoginRequestBody;
   } catch {
-    return NextResponse.json({ error: "Некоректне тіло запиту." }, { status: 400 });
+    return NextResponse.json({ error: defaultErrors.invalidRequestBody }, { status: 400 });
   }
 
+  const errors = getApiErrors(isAppLocale(body.locale) ? body.locale : getDefaultAppLocale());
   const password = typeof body.password === "string" ? body.password : "";
 
   if (!constantTimeEqual(password, configuredPassword)) {
-    return NextResponse.json({ error: "Невірний пароль." }, { status: 401 });
+    return NextResponse.json({ error: errors.invalidPassword }, { status: 401 });
   }
 
   const redirectTo = normalizePostLoginPath(typeof body.redirectTo === "string" ? body.redirectTo : null);
