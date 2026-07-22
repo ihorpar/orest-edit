@@ -48,7 +48,7 @@ function createReviewRequest(overrides: Partial<EditorialReviewRequest> = {}): E
     document,
     revision: deriveManuscriptRevisionState(document),
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     changeLevel: 3,
     basePrompt: defaults.basePrompt,
     reviewPrompt: defaults.reviewPrompt,
@@ -70,7 +70,7 @@ function createReplaceRequest(locale: "uk" | "en" = "uk"): ReviewActionRequest {
     document,
     currentRevision: revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     locale,
     basePrompt: defaults.basePrompt,
     item: {

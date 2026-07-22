@@ -1,4 +1,10 @@
-import type { EditorialReviewStepId, VisualStylePreset, WholeTextChangeLevel } from "./review-contract.ts";
+import type {
+  EditorialReviewStepId,
+  ReviewImageTargetModel,
+  VisualImageQuality,
+  VisualStylePreset,
+  WholeTextChangeLevel
+} from "./review-contract.ts";
 import {
   getEditorSettingsStorageKey,
   getLegacyEditorSettingsStorageKey,
@@ -17,6 +23,8 @@ export type ProviderId = "openai" | "gemini" | "anthropic";
 export type ModelIdValidationState = "valid" | "missing" | "invalid";
 export type SettingsConnectionState = "idle" | "checking" | "valid" | "missing_key" | "auth_error" | "model_error" | "network_error";
 export type SettingsKeySource = "api_key" | "env" | "missing";
+export type OpenAiReasoningEffort = "low" | "medium" | "high";
+export type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 export interface ProviderModelPreset {
   id: string;
@@ -24,6 +32,17 @@ export interface ProviderModelPreset {
   description: string;
   smartness?: number;
   priceTier?: 1 | 2 | 3 | 4;
+  /** API model id when the preset id is a profile alias (e.g. luna-low -> gpt-5.6-luna). */
+  apiModelId?: string;
+  openaiReasoningEffort?: OpenAiReasoningEffort;
+  geminiThinkingLevel?: GeminiThinkingLevel;
+}
+
+export interface ResolvedModelProfile {
+  presetId: string;
+  apiModelId: string;
+  openaiReasoningEffort?: OpenAiReasoningEffort;
+  geminiThinkingLevel?: GeminiThinkingLevel;
 }
 
 export interface EditorSettings {
@@ -56,6 +75,38 @@ export const EDITOR_SETTINGS_UPDATED_EVENT = "orest-editor-settings-updated";
 export const VISUAL_STYLE_PRESET_STORAGE_KEY = getLegacyVisualStylePresetStorageKey();
 export const CUSTOM_MODEL_OPTION = "__custom__";
 export const DEFAULT_VISUAL_STYLE_PRESET: VisualStylePreset = "calm_gradient";
+export const DEFAULT_VISUAL_IMAGE_QUALITY: VisualImageQuality = "fast";
+
+export interface VisualImageQualityProfile {
+  id: VisualImageQuality;
+  modelId: ReviewImageTargetModel;
+  imageSize: "1K" | "2K";
+  thinkingLevel?: Extract<GeminiThinkingLevel, "minimal" | "high">;
+}
+
+export const VISUAL_IMAGE_QUALITY_PROFILES: Record<VisualImageQuality, VisualImageQualityProfile> = {
+  fast: {
+    id: "fast",
+    modelId: "gemini-3.1-flash-lite-image",
+    imageSize: "1K",
+    thinkingLevel: "minimal"
+  },
+  quality: {
+    id: "quality",
+    modelId: "gemini-3.1-flash-image",
+    imageSize: "2K"
+  }
+};
+
+const VISUAL_IMAGE_QUALITY_LABELS: Record<VisualImageQuality, string> = {
+  fast: "Швидко",
+  quality: "Якісно"
+};
+
+const VISUAL_IMAGE_QUALITY_HINTS: Record<VisualImageQuality, string> = {
+  fast: "1K · ~3 с",
+  quality: "2K · детальніше"
+};
 
 const VISUAL_STYLE_PRESET_LABELS: Record<VisualStylePreset, string> = {
   minimal: "Мінімал",
@@ -336,25 +387,29 @@ export const DEFAULT_IMAGE_PROMPT_TEMPLATE = `Склади один готови
 export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> = {
   openai: [
     {
-      id: "gpt-5.5",
-      label: "GPT-5.5",
-      description: "Найсильніший OpenAI-профіль для складного editorial review і точних локальних правок.",
+      id: "gpt-5.6-sol",
+      label: "GPT-5.6 Sol",
+      description: "Найсильніший OpenAI-профіль (medium reasoning) для складного editorial review і точних локальних правок.",
       smartness: 10,
-      priceTier: 4
+      priceTier: 4,
+      openaiReasoningEffort: "medium"
     },
     {
-      id: "gpt-5.4",
-      label: "GPT-5.4",
-      description: "Найсильніша якість редагування й найкращий кандидат для складних локальних правок та editorial review.",
-      smartness: 9,
-      priceTier: 3
+      id: "gpt-5.6-luna",
+      label: "GPT-5.6 Luna",
+      description: "Швидкий якісний OpenAI-профіль із high reasoning для складних локальних правок та editorial review.",
+      smartness: 8,
+      priceTier: 2,
+      openaiReasoningEffort: "high"
     },
     {
-      id: "gpt-5.4-mini",
-      label: "GPT-5.4-mini",
-      description: "Швидший і дешевший OpenAI-профіль для легших правок та чернеткових проходів.",
-      smartness: 7,
-      priceTier: 2
+      id: "gpt-5.6-luna-low",
+      label: "GPT-5.6 Luna (low)",
+      description: "Найдешевший OpenAI-профіль із low reasoning для легших правок та чернеткових проходів.",
+      smartness: 6,
+      priceTier: 1,
+      apiModelId: "gpt-5.6-luna",
+      openaiReasoningEffort: "low"
     }
   ],
   anthropic: [
@@ -376,33 +431,45 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   ],
   gemini: [
     {
-      id: "gemini-3.5-flash",
-      label: "Gemini 3.5 Flash",
-      description: "Новітня швидка модель від Гугл.",
+      id: "gemini-3.6-flash",
+      label: "Gemini 3.6 Flash",
+      description: "Новітня швидка модель Google з high thinking для editorial review і складніших правок.",
       smartness: 9,
-      priceTier: 2
+      priceTier: 2,
+      geminiThinkingLevel: "high"
     },
     {
-      id: "gemini-3.1-pro-preview",
-      label: "Gemini 3.1 Pro",
-      description: "Найсильніший Gemini-профіль для довших рукописів, глобального review і складної структурної правки.",
-      smartness: 9,
-      priceTier: 3
-    },
-    {
-      id: "gemini-3.1-flash-lite-preview",
-      label: "Gemini 3.1 Flash-Lite",
-      description: "Більш приземлений і дешевший production-орієнтований варіант для повсякденних patch-запитів.",
+      id: "gemini-3.5-flash-lite",
+      label: "Gemini 3.5 Flash-Lite",
+      description: "Дешевший production-орієнтований варіант з high thinking для повсякденних patch-запитів.",
       smartness: 5,
-      priceTier: 1
+      priceTier: 1,
+      geminiThinkingLevel: "high"
     }
   ]
 };
 
 const DEFAULT_PROVIDER_MODEL_IDS: Record<ProviderId, string> = {
-  openai: "gpt-5.4",
+  openai: "gpt-5.6-luna",
   anthropic: "claude-opus-4-6",
-  gemini: "gemini-3.1-flash-lite-preview"
+  gemini: "gemini-3.5-flash-lite"
+};
+
+/** Remap retired preset/API ids so saved settings and in-flight requests keep working. */
+const LEGACY_MODEL_ID_MAP: Record<ProviderId, Record<string, string>> = {
+  openai: {
+    "gpt-5.5": "gpt-5.6-sol",
+    "gpt-5.4": "gpt-5.6-luna",
+    "gpt-5.4-mini": "gpt-5.6-luna-low"
+  },
+  gemini: {
+    "gemini-3.5-flash": "gemini-3.6-flash",
+    "gemini-3.1-pro": "gemini-3.6-flash",
+    "gemini-3.1-pro-preview": "gemini-3.6-flash",
+    "gemini-3.1-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite-preview": "gemini-3.5-flash-lite"
+  },
+  anthropic: {}
 };
 
 export function getProviderModelPresets(provider: ProviderId, locale: AppLocale = readActiveAppLocale()): ProviderModelPreset[] {
@@ -416,6 +483,53 @@ export function getDefaultProviderModelId(provider: ProviderId): string {
 export function findProviderModelPreset(provider: ProviderId, modelId: string): ProviderModelPreset | null {
   const normalized = modelId.trim();
   return PROVIDER_MODEL_PRESETS[provider].find((preset) => preset.id === normalized) ?? null;
+}
+
+export function resolveModelProfile(provider: ProviderId, modelId: string): ResolvedModelProfile {
+  const presetId = normalizeModelId(provider, modelId);
+  const preset = findProviderModelPreset(provider, presetId);
+
+  if (!preset) {
+    return {
+      presetId,
+      apiModelId: presetId
+    };
+  }
+
+  return {
+    presetId: preset.id,
+    apiModelId: preset.apiModelId ?? preset.id,
+    openaiReasoningEffort: preset.openaiReasoningEffort,
+    geminiThinkingLevel: preset.geminiThinkingLevel
+  };
+}
+
+export function buildOpenAiRequestModelFields(profile: ResolvedModelProfile): {
+  model: string;
+  reasoning?: { effort: OpenAiReasoningEffort };
+} {
+  return profile.openaiReasoningEffort
+    ? {
+        model: profile.apiModelId,
+        reasoning: { effort: profile.openaiReasoningEffort }
+      }
+    : { model: profile.apiModelId };
+}
+
+export function withGeminiThinkingConfig<T extends Record<string, unknown>>(
+  generationConfig: T,
+  profile: ResolvedModelProfile
+): T & { thinkingConfig?: { thinkingLevel: GeminiThinkingLevel } } {
+  if (!profile.geminiThinkingLevel) {
+    return generationConfig;
+  }
+
+  return {
+    ...generationConfig,
+    thinkingConfig: {
+      thinkingLevel: profile.geminiThinkingLevel
+    }
+  };
 }
 
 export function getModelPresetPriceLabel(preset: ProviderModelPreset): string | null {
@@ -492,11 +606,11 @@ export function getProviderEnvKey(provider: ProviderId): string {
 export function normalizeModelId(provider: ProviderId, modelId: string): string {
   const trimmed = modelId.trim().replace(/\s+/g, "");
 
-  if (trimmed) {
-    return trimmed;
+  if (!trimmed) {
+    return getDefaultProviderModelId(provider);
   }
 
-  return getDefaultProviderModelId(provider);
+  return LEGACY_MODEL_ID_MAP[provider][trimmed] ?? trimmed;
 }
 
 export function validateModelId(modelId: string): ModelIdValidationState {
@@ -534,6 +648,54 @@ export function normalizeVisualStylePreset(
 
   const value = candidate.trim() as VisualStylePreset;
   return value in VISUAL_STYLE_PRESET_GUIDES ? value : fallback;
+}
+
+export function getVisualImageQualityProfile(
+  quality: VisualImageQuality = DEFAULT_VISUAL_IMAGE_QUALITY
+): VisualImageQualityProfile {
+  return VISUAL_IMAGE_QUALITY_PROFILES[quality] ?? VISUAL_IMAGE_QUALITY_PROFILES[DEFAULT_VISUAL_IMAGE_QUALITY];
+}
+
+export function getVisualImageQualityOptions(
+  locale: AppLocale = readActiveAppLocale()
+): Array<{ value: VisualImageQuality; label: string; hint: string }> {
+  return (Object.keys(VISUAL_IMAGE_QUALITY_PROFILES) as VisualImageQuality[]).map((value) => ({
+    value,
+    label: getVisualImageQualityLabel(value, locale),
+    hint: getVisualImageQualityHint(value, locale)
+  }));
+}
+
+export function getVisualImageQualityLabel(quality: VisualImageQuality, locale: AppLocale = readActiveAppLocale()): string {
+  if (locale === "en") {
+    return quality === "fast" ? "Fast" : "Quality";
+  }
+
+  return VISUAL_IMAGE_QUALITY_LABELS[quality];
+}
+
+export function getVisualImageQualityHint(quality: VisualImageQuality, locale: AppLocale = readActiveAppLocale()): string {
+  if (locale === "en") {
+    return quality === "fast" ? "1K · ~3s" : "2K · richer";
+  }
+
+  return VISUAL_IMAGE_QUALITY_HINTS[quality];
+}
+
+export function normalizeVisualImageQuality(
+  candidate: unknown,
+  fallback: VisualImageQuality = DEFAULT_VISUAL_IMAGE_QUALITY
+): VisualImageQuality {
+  if (typeof candidate !== "string") {
+    return fallback;
+  }
+
+  const value = candidate.trim() as VisualImageQuality;
+  return value in VISUAL_IMAGE_QUALITY_PROFILES ? value : fallback;
+}
+
+export function resolveReviewImageTargetModel(quality: VisualImageQuality = DEFAULT_VISUAL_IMAGE_QUALITY): ReviewImageTargetModel {
+  return getVisualImageQualityProfile(quality).modelId;
 }
 
 function sanitizeWorkflowStepPrompts(
@@ -580,7 +742,7 @@ export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null
 
   return {
     provider,
-    modelId: typeof candidate?.modelId === "string" ? candidate.modelId.trim() : defaults.modelId,
+    modelId: normalizeModelId(provider, typeof candidate?.modelId === "string" ? candidate.modelId.trim() : defaults.modelId),
     apiKey: apiKeys[provider] ?? "",
     apiKeys,
     basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : defaults.basePrompt,

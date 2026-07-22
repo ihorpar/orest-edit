@@ -2,6 +2,18 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-07-22
+
+### Visual image generation has fast vs quality profiles
+Decision: image generation exposes a shared `Швидко` / `Якісно` switch on every visual surface. Fast uses `gemini-3.1-flash-lite-image` at 1K with `thinkingConfig.thinkingLevel=minimal`; quality uses GA `gemini-3.1-flash-image` at 2K. The choice persists in locale-scoped localStorage like visual style.
+
+Reason: lite is best for ~3s draft iteration, while full Flash Image remains the better path for final 2K book visuals. Keeping preview model IDs would be unsafe after GA retirement.
+
+### Provider model presets moved to GPT-5.6 and Gemini 3.6/3.5 with explicit reasoning
+Decision: OpenAI presets are now `gpt-5.6-sol` (medium reasoning), `gpt-5.6-luna` (high reasoning), and `gpt-5.6-luna-low` (same API model with low reasoning). Gemini presets are `gemini-3.6-flash` and `gemini-3.5-flash-lite` (both high thinking). Retired `gemini-3.1-pro` / preview ids remap to `gemini-3.6-flash`. Image generation uses quality profiles rather than a single hardcoded model.
+
+Reason: the previous GPT-5.4/5.5 and Gemini 3.1/3.5 preset set is outdated; current provider families expose reasoning/thinking as first-class request controls, and Pro is no longer a useful Gemini product option for this editor.
+
 ## 2026-03-12
 
 ## 2026-03-13

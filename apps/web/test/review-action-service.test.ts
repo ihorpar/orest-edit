@@ -28,7 +28,7 @@ function createRequest(): ReviewActionRequest {
     document,
     currentRevision: revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     item: {
       id: "review-subsection-1",
       reviewSessionId: "review-session-1",
@@ -112,7 +112,7 @@ test("generateReviewAction injects explicit callout-kind guidance into provider 
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       calloutPromptTemplate:
         "База prompt. Контекст: {{fragment}}. Порада: {{recommendation}}. Тип: {{calloutKindLabel}}. Глибина: {{calloutDepthLabel}}.",
@@ -208,7 +208,7 @@ test("generateReviewAction forwards editorial refine instruction into replace pr
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       editorialInstruction: "Зберігай формат короткого списку і прибери канцеляризми.",
       item: {
@@ -276,7 +276,7 @@ test("generateReviewAction preserves sparse **bold** accents in replace proposal
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-bold-1",
@@ -344,7 +344,7 @@ test("generateReviewAction treats emphasis-step bolding as a valid change withou
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-emphasis-1",
@@ -408,7 +408,7 @@ test("generateReviewAction renders image template placeholders and adds visual-i
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       visualStylePreset: "neo_brutal",
       imagePromptTemplate:
@@ -479,7 +479,7 @@ test("generateReviewAction appends style guide when image template has no visual
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       visualStylePreset: "modern_glass",
       imagePromptTemplate: "Збери один prompt. Тип: {{visualIntent}}. Контекст: {{fragment}}.",
@@ -538,7 +538,7 @@ test("generateReviewAction normalizes unknown visualStylePreset to calm_gradient
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       visualStylePreset: "broken-style" as unknown as "minimal",
       item: {
@@ -591,7 +591,7 @@ test("generateReviewAction strips editorial wrappers from generated image prompt
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-visual-2",
@@ -670,7 +670,7 @@ test("generateReviewAction parses structured callout draft output and strips mar
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-callout-2",
@@ -727,7 +727,7 @@ test("generateReviewAction preserves bold anchors and bullet lines in deep callo
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-callout-deep-structure-1",
@@ -793,7 +793,7 @@ test("generateReviewAction normalizes top_list callout body into actionable mult
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-callout-top-list-1",
@@ -852,7 +852,7 @@ test("generateReviewAction normalizes myths_vs_truth callout body into separate 
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-callout-myths-1",
@@ -915,7 +915,7 @@ test("generateReviewAction preserves leading numeric lines in callout body clean
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-callout-numeric-1",
@@ -994,7 +994,7 @@ test("generateReviewAction constrains rewrite output to the original block count
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-1",
@@ -1068,7 +1068,7 @@ test("generateReviewAction keeps replace-proposal provider prompt scoped to sele
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-scoped-1",
@@ -1145,7 +1145,7 @@ test("generateReviewAction keeps list replacements within selection block ceilin
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-list-1",
@@ -1211,7 +1211,7 @@ test("generateReviewAction coerces list recommendation into list block when prov
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-list-2",
@@ -1275,7 +1275,7 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-list-openai-1",
@@ -1350,7 +1350,7 @@ test("generateReviewAction preserves terminal punctuation in structured list ite
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-list-punctuation-1",
@@ -1410,7 +1410,7 @@ test("generateReviewAction preserves terminal punctuation when splitting plain l
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-list-punctuation-2",
@@ -1465,7 +1465,7 @@ test("generateReviewAction accepts structured visual JSON with prompt/caption/al
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-visual-json-1",
@@ -1522,7 +1522,7 @@ test("generateReviewAction strips markdown artifacts from rewrite replacements",
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-2",
@@ -1588,7 +1588,7 @@ test("generateReviewAction preserves leading numeric prose in rewrite replacemen
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-numeric-1",
@@ -1652,7 +1652,7 @@ test("generateReviewAction marks rewrite/simplify no-op proposals with warning",
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-simplify-1",
@@ -1715,7 +1715,7 @@ test("generateReviewAction forwards raw provider abort diagnostics for rewrite p
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-abort-1",
@@ -1838,7 +1838,7 @@ test("generateReviewAction injects anti-disclaimer guardrails into rewrite repla
       document,
       currentRevision: revision,
       provider: "openai",
-      modelId: "gpt-5.4",
+      modelId: "gpt-5.6-luna",
       apiKey: "test-key",
       item: {
         id: "review-rewrite-guardrail-1",

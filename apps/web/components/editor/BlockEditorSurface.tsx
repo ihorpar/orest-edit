@@ -41,6 +41,7 @@ import {
   type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
+  type VisualImageQuality,
   type VisualStylePreset,
   getEditorialCalloutKindOptions,
   getEditorialCalloutKindLabel,
@@ -218,6 +219,8 @@ export function BlockEditorSurface({
   onUpdateActiveImageCaption,
   onUpdateActiveVisualStylePreset,
   activeVisualStylePreset,
+  onUpdateActiveImageQuality,
+  activeImageQuality,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage,
   reviewImageLoading,
@@ -257,7 +260,7 @@ export function BlockEditorSurface({
   onRejectProposal?: (proposalId: string) => void;
   onPrepareReviewItem?: (
     item: EditorialReviewItem,
-    options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
+    options?: { visualStylePreset?: VisualStylePreset; imageQuality?: VisualImageQuality; editorialInstruction?: string }
   ) => void;
   reviewRefineInstruction?: string;
   onReviewRefineInstructionChange?: (value: string) => void;
@@ -274,6 +277,8 @@ export function BlockEditorSurface({
   onUpdateActiveImageCaption?: (caption: string) => void;
   onUpdateActiveVisualStylePreset?: (preset: VisualStylePreset) => void;
   activeVisualStylePreset?: VisualStylePreset;
+  onUpdateActiveImageQuality?: (quality: VisualImageQuality) => void;
+  activeImageQuality?: VisualImageQuality;
   onGenerateActiveReviewImage?: () => void;
   onApplyActiveReviewImage?: () => void;
   reviewImageLoading?: boolean;
@@ -1353,6 +1358,8 @@ export function BlockEditorSurface({
                       onUpdateActiveImageCaption={(caption) => onUpdateActiveImageCaption?.(caption)}
                       onUpdateActiveVisualStylePreset={(preset) => onUpdateActiveVisualStylePreset?.(preset)}
                       activeVisualStylePreset={activeVisualStylePreset}
+                      onUpdateActiveImageQuality={(quality) => onUpdateActiveImageQuality?.(quality)}
+                      activeImageQuality={activeImageQuality}
                       onGenerateActiveReviewImage={() => onGenerateActiveReviewImage?.()}
                       onApplyActiveReviewImage={() => onApplyActiveReviewImage?.()}
                     />

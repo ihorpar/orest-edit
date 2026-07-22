@@ -23,7 +23,7 @@ function createRequestBody(overrides: Partial<EditorialReviewRequest> = {}): Edi
     document,
     revision: deriveManuscriptRevisionState(document),
     provider: "gemini",
-    modelId: "gemini-3.5-flash",
+    modelId: "gemini-3.6-flash",
     changeLevel: 3,
     additionalInstructions: "",
     runMode: "replace",
@@ -120,7 +120,7 @@ test("review route GET validates and returns job state", async () => {
     assert.match(missingJobPayload.error ?? "", /not found or expired/i);
 
     const job = createQueuedEditorialReviewJob();
-    await processQueuedEditorialReviewJob(job.id, createRequestBody({ provider: "openai", modelId: "gpt-5.4", stepId: "clarity" }), {
+    await processQueuedEditorialReviewJob(job.id, createRequestBody({ provider: "openai", modelId: "gpt-5.6-luna", stepId: "clarity" }), {
       readEnvValue: () => null,
       now: () => "2026-05-12T12:00:00.000Z"
     });

@@ -22,7 +22,7 @@ function createRequest(overrides: Partial<EditorialReviewRequest> = {}): Editori
     document,
     revision: deriveManuscriptRevisionState(document),
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     changeLevel: 3,
     ...overrides
   };
@@ -1002,7 +1002,7 @@ test("generateEditorialReview sends grounded Gemini fact-check request via heade
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.5-flash",
+      modelId: "gemini-3.6-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1078,7 +1078,7 @@ test("generateEditorialReview sends grounded Gemini fact-check request via heade
   assert.equal(response.factCheckRows?.length, 1);
   assert.equal(response.factCheckRows?.[0]?.sources.length, 1);
   assert.equal(response.factCheckRows?.[0]?.sources[0]?.domain, "mayoclinic.org");
-  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.1-flash-lite-preview:generateContent$/);
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.5-flash-lite:generateContent$/);
   assert.doesNotMatch(requestedUrl, /\?key=/);
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
   assert.equal(requestedUrls.some((url) => url.includes("grounding-api-redirect/test-source")), true);
@@ -1088,7 +1088,7 @@ test("generateEditorialReview preserves parsed row sources when grounded mapping
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.5-flash",
+      modelId: "gemini-3.6-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1171,7 +1171,7 @@ test("generateEditorialReview drops grounded sources outside trusted domain allo
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.1-pro-preview",
+      modelId: "gemini-3.6-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1261,7 +1261,7 @@ test("generateEditorialReview replaces unsupported explanations when suspicious 
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.1-pro-preview",
+      modelId: "gemini-3.6-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1341,7 +1341,7 @@ test("generateEditorialReview filters model-provided row sources by URL domain a
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.1-flash-lite-preview",
+      modelId: "gemini-3.5-flash-lite",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),

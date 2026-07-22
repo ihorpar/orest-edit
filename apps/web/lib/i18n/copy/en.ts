@@ -74,7 +74,7 @@ const en = {
     connectionKicker: "Connection",
     connectionTitle: "What the editor needs to work",
     validateChecking: "Checking…",
-    modelPlaceholder: "For example: gpt-5.4",
+    modelPlaceholder: "For example: gpt-5.6-luna",
     pendingModelSelection: "Will be selected after saving.",
     connectionModelMissing: "Choose or enter a model id to check the connection.",
     connectionModelInvalid: "Model id has an invalid format.",

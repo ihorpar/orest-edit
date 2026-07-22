@@ -9,6 +9,11 @@ import {
   readReviewImageJob
 } from "../../../../../lib/server/review-image-job-service";
 import { generateReviewImage } from "../../../../../lib/server/review-image-service";
+import {
+  DEFAULT_VISUAL_IMAGE_QUALITY,
+  getVisualImageQualityProfile,
+  normalizeVisualImageQuality
+} from "../../../../../lib/editor/settings";
 import { isAppLocale, type AppLocale } from "../../../../../lib/i18n/product-locale";
 import { getApiErrors, getDefaultAppLocale, resolveQueryLocale, resolveRequestLocale, type ApiErrors } from "../../../../../lib/i18n/api-errors";
 
@@ -26,12 +31,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId")?.trim();
   const errors = getApiErrors(resolveQueryLocale(searchParams));
+  const fallbackModelId = getVisualImageQualityProfile(DEFAULT_VISUAL_IMAGE_QUALITY).modelId;
 
   if (!jobId) {
     return NextResponse.json<ReviewImageGenerationResponse>(
       {
         providerUsed: "gemini",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: fallbackModelId,
         error: errors.jobIdRequired
       },
       { status: 400, headers: { "Cache-Control": "no-store" } }
@@ -44,7 +50,7 @@ export async function GET(request: Request) {
     return NextResponse.json<ReviewImageGenerationResponse>(
       {
         providerUsed: "gemini",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: fallbackModelId,
         error: errors.imageJobNotFound
       },
       { status: 404, headers: { "Cache-Control": "no-store" } }
@@ -69,11 +75,12 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     const errors = getApiErrors(getDefaultAppLocale());
+    const fallbackModelId = getVisualImageQualityProfile(DEFAULT_VISUAL_IMAGE_QUALITY).modelId;
 
     return NextResponse.json<ReviewImageGenerationResponse>(
       {
         providerUsed: "gemini",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: fallbackModelId,
         error: errors.invalidRequestBody
       },
       { status: 400 }
@@ -86,7 +93,7 @@ export async function POST(request: Request) {
     return NextResponse.json<ReviewImageGenerationResponse>(
       {
         providerUsed: "gemini",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: getVisualImageQualityProfile(DEFAULT_VISUAL_IMAGE_QUALITY).modelId,
         error: parsed.error
       },
       { status: 400 }
@@ -94,7 +101,10 @@ export async function POST(request: Request) {
   }
 
   if (parsed.value.async) {
-    const job = createQueuedReviewImageJob(parsed.value.locale);
+    const job = createQueuedReviewImageJob({
+      locale: parsed.value.locale,
+      imageQuality: parsed.value.imageQuality
+    });
 
     after(async () => {
       try {
@@ -107,7 +117,7 @@ export async function POST(request: Request) {
     return NextResponse.json<ReviewImageGenerationResponse>(
       {
         providerUsed: "gemini",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: getVisualImageQualityProfile(normalizeVisualImageQuality(parsed.value.imageQuality)).modelId,
         job
       },
       { status: 202 }
@@ -139,7 +149,8 @@ function parseImageRequest(
       prompt: record.prompt,
       locale: parseAppLocale(record.locale),
       apiKey: resolveClientProvidedApiKey(record.apiKey),
-      async: record.async === true
+      async: record.async === true,
+      imageQuality: normalizeVisualImageQuality(record.imageQuality)
     }
   };
 }

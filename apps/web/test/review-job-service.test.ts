@@ -27,7 +27,7 @@ function createRequest(overrides: Partial<EditorialReviewRequest> = {}): Editori
     document,
     revision: deriveManuscriptRevisionState(document),
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     changeLevel: 3,
     stepId: "clarity",
     ...overrides

@@ -16,7 +16,7 @@ function createRequest(overrides: Partial<PatchRequest> = {}): PatchRequest {
     targetBlockIds: ["p1"],
     mode: "default",
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     ...overrides
   };
 }
@@ -342,7 +342,7 @@ test("generatePatchResponse turns fetch failures into a user-facing provider ava
   const response = await generatePatchResponse(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.5-flash",
+      modelId: "gemini-3.6-flash",
       apiKey: "gemini-test-key"
     }),
     {

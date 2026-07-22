@@ -8,7 +8,12 @@ import {
   type PatchRequest,
   type PatchResponse
 } from "../editor/patch-contract.ts";
-import { appendBulletListPunctuationRule } from "../editor/settings.ts";
+import {
+  appendBulletListPunctuationRule,
+  buildOpenAiRequestModelFields,
+  resolveModelProfile,
+  withGeminiThinkingConfig
+} from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import type { AppLocale } from "../i18n/product-locale.ts";
 import {
@@ -399,6 +404,7 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
+    const profile = resolveModelProfile("openai", request.modelId);
     const response = await fetchImpl(openAiEndpoint, {
       method: "POST",
       headers: {
@@ -406,7 +412,7 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: request.modelId,
+        ...buildOpenAiRequestModelFields(profile),
         instructions: buildSystemPrompt(request),
         input: buildUserPrompt(request),
         text: {
@@ -442,7 +448,8 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
+    const profile = resolveModelProfile("gemini", request.modelId);
+    const response = await fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -458,11 +465,13 @@ async function createGeminiOperations(request: PatchRequest, apiKey: string, fet
             parts: [{ text: buildGeminiUserPrompt(request) }]
           }
         ],
-        generationConfig: {
-          temperature: request.mode === "custom" ? 0.25 : 0.15,
-          responseMimeType: "application/json",
-          responseSchema: geminiSchema
-        }
+        generationConfig: withGeminiThinkingConfig(
+          {
+            responseMimeType: "application/json",
+            responseSchema: geminiSchema
+          },
+          profile
+        )
       }),
       signal: controller.signal
     });

@@ -74,7 +74,7 @@ const uk = {
     connectionKicker: "Підключення",
     connectionTitle: "Що потрібно, щоб редактор працював",
     validateChecking: "Перевіряю…",
-    modelPlaceholder: "Наприклад: gpt-5.4",
+    modelPlaceholder: "Наприклад: gpt-5.6-luna",
     pendingModelSelection: "Буде вибрано після збереження.",
     connectionModelMissing: "Оберіть або введіть model id, щоб перевірити підключення.",
     connectionModelInvalid: "Model id має невалідний формат.",

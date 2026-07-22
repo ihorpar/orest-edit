@@ -17,9 +17,10 @@ import {
   type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialVisualIntent,
+  type VisualImageQuality,
   type VisualStylePreset
 } from "../../lib/editor/review-contract";
-import { getVisualStylePresetOptions } from "../../lib/editor/settings";
+import { getVisualImageQualityOptions, getVisualStylePresetOptions } from "../../lib/editor/settings";
 import { type SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
 import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 
@@ -62,10 +63,12 @@ export function FloatingComposerPanel({
   manualCalloutDepth,
   manualVisualIntent,
   manualVisualStylePreset,
+  manualImageQuality,
   onManualCalloutKindChange,
   onManualCalloutDepthChange,
   onManualVisualIntentChange,
   onManualVisualStylePresetChange,
+  onManualImageQualityChange,
   manualCalloutPrompt,
   manualVisualPrompt,
   spellcheckResults,
@@ -100,10 +103,12 @@ export function FloatingComposerPanel({
   manualCalloutDepth: EditorialCalloutDepth;
   manualVisualIntent: EditorialVisualIntent;
   manualVisualStylePreset: VisualStylePreset;
+  manualImageQuality: VisualImageQuality;
   onManualCalloutKindChange: (value: EditorialCalloutKind) => void;
   onManualCalloutDepthChange: (value: EditorialCalloutDepth) => void;
   onManualVisualIntentChange: (value: EditorialVisualIntent) => void;
   onManualVisualStylePresetChange: (value: VisualStylePreset) => void;
+  onManualImageQualityChange: (value: VisualImageQuality) => void;
   manualCalloutPrompt: string;
   manualVisualPrompt: string;
   spellcheckResults: SpellcheckBlockResult[];
@@ -135,6 +140,7 @@ export function FloatingComposerPanel({
   const calloutDepthOptions = getEditorialCalloutDepthOptions(locale);
   const visualOptions = getEditorialVisualIntentOptions(locale);
   const visualStyleOptions = getVisualStylePresetOptions();
+  const visualImageQualityOptions = getVisualImageQualityOptions();
   const manualInFlight = Boolean(manualLoadingKind);
   const localBusy = Boolean(patchLoading || manualInFlight || spellcheckLoading);
   const primaryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -682,6 +688,20 @@ export function FloatingComposerPanel({
                       {visualStyleOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="floating-bridge-select-shell">
+                    <select
+                      value={manualImageQuality}
+                      onChange={(event) => onManualImageQualityChange(event.target.value as VisualImageQuality)}
+                      disabled={isExplicitSpecialMode ? manualInFlight : localBusy}
+                      aria-label={cp.visualQuality}
+                    >
+                      {visualImageQualityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label} · {option.hint}
                         </option>
                       ))}
                     </select>

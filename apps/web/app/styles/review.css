@@ -1114,6 +1114,23 @@
   text-align: center;
 }
 
+.editorial-review-visual-quality-copy {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+.editorial-review-visual-quality-hint {
+  color: #64748b;
+  font: 400 11px/1.2 var(--font-ui, sans-serif);
+}
+
+.editorial-review-visual-intent-button[data-active="true"] .editorial-review-visual-quality-hint {
+  color: #334155;
+}
+
 .floating-local-section .editorial-review-visual-style-grid {
   gap: 6px;
 }

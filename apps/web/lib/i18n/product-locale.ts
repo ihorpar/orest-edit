@@ -109,6 +109,14 @@ export function getLegacyVisualStylePresetStorageKey(): string {
   return "orest-visual-style-v1";
 }
 
+export function getVisualImageQualityStorageKey(locale: AppLocale): string {
+  return `orest-visual-image-quality-${getLocaleStorageSuffix(locale)}-v1`;
+}
+
+export function getLegacyVisualImageQualityStorageKey(): string {
+  return "orest-visual-image-quality-v1";
+}
+
 export function getSpellcheckDictionaryDbName(locale: AppLocale): string {
   return `orest-spellcheck-dictionary-${getLocaleStorageSuffix(locale)}-v1`;
 }

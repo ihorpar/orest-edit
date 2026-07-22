@@ -19,7 +19,12 @@ import {
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import { deriveManuscriptRevisionState, formatParagraphLabel } from "../editor/manuscript-structure.ts";
-import { appendBulletListPunctuationRule } from "../editor/settings.ts";
+import {
+  appendBulletListPunctuationRule,
+  buildOpenAiRequestModelFields,
+  resolveModelProfile,
+  withGeminiThinkingConfig
+} from "../editor/settings.ts";
 import type { AppLocale } from "../i18n/product-locale.ts";
 import {
   getAnthropicSystemPromptSuffix,
@@ -43,7 +48,8 @@ const anthropicEndpoint = "https://api.anthropic.com/v1/messages";
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
 const anthropicVersion = "2023-06-01";
 const reviewRequestTimeoutMs = 280000;
-const geminiGroundedFactCheckModel = "gemini-3.1-flash-lite-preview";
+const geminiGroundedFactCheckModel = "gemini-3.5-flash-lite";
+const geminiGroundedFactCheckProfile = resolveModelProfile("gemini", geminiGroundedFactCheckModel);
 const groundedSourceResolveTimeoutMs = 4000;
 const emphasisChunkSize = 18;
 const emphasisChunkOverlap = 2;
@@ -540,8 +546,9 @@ async function createOpenAiEditorialReview(
   try {
     const locale = resolveReviewLocale(request);
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
+    const profile = resolveModelProfile("openai", request.modelId);
     const body: any = {
-      model: request.modelId,
+      ...buildOpenAiRequestModelFields(profile),
       instructions: buildStepSystemPrompt(request, stepSpec, locale),
       input: buildStepUserPrompt(request, stepSpec, locale)
     };
@@ -633,14 +640,13 @@ async function createGeminiEditorialReview(
 
     const locale = resolveReviewLocale(request);
     const expectsJson = stepSpec.outputKind !== "analysis_markdown";
+    const profile = resolveModelProfile("gemini", request.modelId);
     const body: any = {
       systemInstruction: {
         parts: [{ text: buildStepSystemPrompt(request, stepSpec, locale) }]
       },
       contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, stepSpec, locale) }] }],
-      generationConfig: {
-        temperature: 0.2
-      }
+      generationConfig: withGeminiThinkingConfig({}, profile)
     };
 
     if (expectsJson) {
@@ -648,7 +654,7 @@ async function createGeminiEditorialReview(
       body.generationConfig.responseSchema = stepSpec.id === "emphasis" ? geminiEmphasisSchema : geminiSchema;
     }
 
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
+    const response = await fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -689,7 +695,7 @@ async function createGeminiGroundedFactCheck(
   const reviewErrors = getReviewServiceErrors(locale);
   const factCheckStep = getReviewStepSpec("fact_check", locale);
 
-  const response = await fetchImpl(`${geminiBaseUrl}/${geminiGroundedFactCheckModel}:generateContent`, {
+  const response = await fetchImpl(`${geminiBaseUrl}/${geminiGroundedFactCheckProfile.apiModelId}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -708,11 +714,13 @@ async function createGeminiGroundedFactCheck(
       },
       contents: [{ role: "user", parts: [{ text: buildStepUserPrompt(request, factCheckStep, locale) }] }],
       tools: [{ googleSearch: {} }],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: "application/json",
-        responseSchema: geminiFactCheckSchema
-      }
+      generationConfig: withGeminiThinkingConfig(
+        {
+          responseMimeType: "application/json",
+          responseSchema: geminiFactCheckSchema
+        },
+        geminiGroundedFactCheckProfile
+      )
     }),
     signal
   });

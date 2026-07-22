@@ -26,6 +26,8 @@ export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_applicati
 export type EditorialCalloutDepth = "brief" | "deep";
 export type EditorialVisualIntent = "infographic" | "illustration";
 export type VisualStylePreset = "minimal" | "calm_gradient" | "neo_brutal" | "modern_glass";
+export type VisualImageQuality = "fast" | "quality";
+export type ReviewImageTargetModel = "gemini-3.1-flash-lite-image" | "gemini-3.1-flash-image";
 export type EditorialReviewItemStatus = "pending" | "preparing" | "ready" | "applied" | "dismissed" | "stale";
 export type EditorialReviewItemOrigin = "review" | "manual";
 export type WholeTextChangeLevel = 1 | 2 | 3 | 4 | 5;
@@ -256,6 +258,7 @@ export interface ReviewActionRequest {
   calloutPromptTemplate?: string;
   imagePromptTemplate?: string;
   visualStylePreset?: VisualStylePreset;
+  imageQuality?: VisualImageQuality;
 }
 
 export interface ReviewActionProposal {
@@ -293,10 +296,11 @@ export interface ReviewActionProposal {
   imageDraft?: {
     visualIntent: EditorialVisualIntent;
     visualStylePreset?: VisualStylePreset;
+    imageQuality?: VisualImageQuality;
     prompt: string;
     alt: string;
     caption?: string;
-    targetModel: "gemini-3.1-flash-image-preview";
+    targetModel: ReviewImageTargetModel;
     generatedAsset?: GeneratedReviewImageAsset;
     generation?: {
       jobId: string;
@@ -333,6 +337,7 @@ export interface ReviewImageGenerationRequest {
   locale?: AppLocale;
   apiKey?: string;
   async?: boolean;
+  imageQuality?: VisualImageQuality;
 }
 
 export type ReviewImageAssetSource =

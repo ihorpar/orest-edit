@@ -18,8 +18,14 @@ import {
   normalizeEditorialCalloutDepth
 } from "../editor/review-contract.ts";
 import {
+  buildOpenAiRequestModelFields,
+  DEFAULT_VISUAL_IMAGE_QUALITY,
   getVisualStylePresetGuide,
-  normalizeVisualStylePreset
+  normalizeVisualImageQuality,
+  normalizeVisualStylePreset,
+  resolveModelProfile,
+  resolveReviewImageTargetModel,
+  withGeminiThinkingConfig
 } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
@@ -621,6 +627,7 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
   const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
   const visualIntent = request.item.visualIntent ?? "infographic";
+  const imageQuality = normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY);
 
   return {
     id: createPatchId("proposal-image"),
@@ -633,10 +640,11 @@ function createFallbackImagePromptProposal(request: ReviewActionRequest): Review
     imageDraft: {
       visualIntent,
       visualStylePreset,
+      imageQuality,
       prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
       alt: request.item.title,
       caption: "",
-      targetModel: "gemini-3.1-flash-image-preview"
+      targetModel: resolveReviewImageTargetModel(imageQuality)
     }
   };
 }
@@ -729,6 +737,7 @@ async function createImagePromptProposal(
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
   const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
   const visualIntent = request.item.visualIntent ?? "infographic";
+  const imageQuality = normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY);
   const result = request.provider === "gemini"
     ? await runGeminiTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
     : request.provider === "anthropic"
@@ -754,10 +763,11 @@ async function createImagePromptProposal(
       imageDraft: {
         visualIntent,
         visualStylePreset,
+        imageQuality,
         prompt: parsed.prompt,
         alt: parsed.alt,
         caption: parsed.caption,
-        targetModel: "gemini-3.1-flash-image-preview"
+        targetModel: resolveReviewImageTargetModel(imageQuality)
       }
     }
   };
@@ -1382,6 +1392,7 @@ async function runOpenAiStructuredReplacePrompt(
 
   try {
     const schema = request.item.recommendationType === "list" ? openAiListReplaceSchema : openAiReplaceTextSchema;
+    const profile = resolveModelProfile("openai", request.modelId);
     const response = await fetchImpl(openAiEndpoint, {
       method: "POST",
       headers: {
@@ -1389,7 +1400,7 @@ async function runOpenAiStructuredReplacePrompt(
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: request.modelId,
+        ...buildOpenAiRequestModelFields(profile),
         instructions: systemPrompt,
         input: prompt,
         text: {
@@ -1433,7 +1444,8 @@ async function runGeminiStructuredReplacePrompt(
 
   try {
     const schema = request.item.recommendationType === "list" ? geminiListReplaceSchema : geminiReplaceTextSchema;
-    const response = await fetchImpl(`${geminiBaseUrl}/${request.modelId}:generateContent`, {
+    const profile = resolveModelProfile("gemini", request.modelId);
+    const response = await fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1444,11 +1456,13 @@ async function runGeminiStructuredReplacePrompt(
           parts: [{ text: systemPrompt }]
         },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-          responseSchema: schema
-        }
+        generationConfig: withGeminiThinkingConfig(
+          {
+            responseMimeType: "application/json",
+            responseSchema: schema
+          },
+          profile
+        )
       }),
       signal: controller.signal
     });
@@ -1526,6 +1540,7 @@ async function runOpenAiTextPrompt(
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
+    const profile = resolveModelProfile("openai", modelId);
     const response = await fetchImpl(openAiEndpoint, {
       method: "POST",
       headers: {
@@ -1533,7 +1548,7 @@ async function runOpenAiTextPrompt(
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: modelId,
+        ...buildOpenAiRequestModelFields(profile),
         input: prompt
       }),
       signal: controller.signal
@@ -1561,14 +1576,16 @@ async function runGeminiTextPrompt(modelId: string, apiKey: string, prompt: stri
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
-    const response = await fetchImpl(`${geminiBaseUrl}/${modelId}:generateContent`, {
+    const profile = resolveModelProfile("gemini", modelId);
+    const response = await fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey
       },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: withGeminiThinkingConfig({}, profile)
       }),
       signal: controller.signal
     });

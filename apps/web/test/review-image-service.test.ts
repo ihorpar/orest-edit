@@ -100,12 +100,58 @@ test("generateReviewImage sends generationConfig with responseModalities and ima
     responseModalities: ["IMAGE"],
     imageConfig: {
       aspectRatio: "4:3",
-      imageSize: "2K"
+      imageSize: "1K"
+    },
+    thinkingConfig: {
+      thinkingLevel: "minimal"
     }
   });
   assert.ok(response.asset);
   assert.equal(response.asset?.source.kind, "data_url");
   assert.match(response.asset?.source.kind === "data_url" ? response.asset.source.dataUrl : "", /^data:image\/png;base64,/);
+});
+
+test("generateReviewImage uses quality profile for 2K flash-image requests", async () => {
+  let requestedUrl = "";
+  let requestBody: Record<string, unknown> | undefined;
+
+  const response = await generateReviewImage(
+    { prompt: "Намалюй детальну інфографіку.", apiKey: "gem-test-key", imageQuality: "quality" },
+    {
+      fetchImpl: async (input, init) => {
+        requestedUrl = String(input);
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return createJsonResponse({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "image/png",
+                      data: "ZmFrZS1pbWFnZQ=="
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        });
+      }
+    }
+  );
+
+  assert.match(requestedUrl, /gemini-3\.1-flash-image:generateContent/);
+  assert.deepEqual(requestBody?.generationConfig, {
+    responseModalities: ["IMAGE"],
+    imageConfig: {
+      aspectRatio: "4:3",
+      imageSize: "2K"
+    }
+  });
+  assert.equal(response.modelId, "gemini-3.1-flash-image");
+  assert.ok(response.asset);
 });
 
 test("generateReviewImage returns diagnostic error when Gemini returns no inline image bytes", async () => {

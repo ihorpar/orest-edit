@@ -1,9 +1,13 @@
 import type { ReviewImageGenerationRequest, ReviewImageGenerationResponse } from "../editor/review-contract.ts";
+import {
+  DEFAULT_VISUAL_IMAGE_QUALITY,
+  getVisualImageQualityProfile,
+  normalizeVisualImageQuality
+} from "../editor/settings.ts";
 import { createPatchId } from "../editor/patch-contract.ts";
 import { readServerEnvValue } from "./env.ts";
 
 const geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
-const geminiImageModel = "gemini-3.1-flash-image-preview";
 const requestTimeoutMs = 55000;
 
 type FetchLike = typeof fetch;
@@ -20,11 +24,12 @@ export async function generateReviewImage(
   const fetchImpl = options.fetchImpl ?? fetch;
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const apiKey = request.apiKey ?? readEnvValue("GEMINI_API_KEY");
+  const profile = getVisualImageQualityProfile(normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY));
 
   if (!request.prompt.trim()) {
     return {
       providerUsed: "gemini",
-      modelId: geminiImageModel,
+      modelId: profile.modelId,
       error: "Порожній image prompt."
     };
   }
@@ -32,14 +37,27 @@ export async function generateReviewImage(
   if (!apiKey) {
     return {
       providerUsed: "gemini",
-      modelId: geminiImageModel,
+      modelId: profile.modelId,
       error: "Немає GEMINI_API_KEY для генерації зображення."
     };
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-  const endpoint = `${geminiBaseUrl}/${encodeURIComponent(geminiImageModel)}:generateContent`;
+  const endpoint = `${geminiBaseUrl}/${encodeURIComponent(profile.modelId)}:generateContent`;
+  const generationConfig: Record<string, unknown> = {
+    responseModalities: ["IMAGE"],
+    imageConfig: {
+      aspectRatio: "4:3",
+      imageSize: profile.imageSize
+    }
+  };
+
+  if (profile.thinkingLevel) {
+    generationConfig.thinkingConfig = {
+      thinkingLevel: profile.thinkingLevel
+    };
+  }
 
   try {
     const response = await fetchImpl(endpoint, {
@@ -55,13 +73,7 @@ export async function generateReviewImage(
             parts: [{ text: request.prompt }]
           }
         ],
-        generationConfig: {
-          responseModalities: ["IMAGE"],
-          imageConfig: {
-            aspectRatio: "4:3",
-            imageSize: "2K"
-          }
-        }
+        generationConfig
       }),
       signal: controller.signal
     });
@@ -71,8 +83,8 @@ export async function generateReviewImage(
     if (!response.ok) {
       return {
         providerUsed: "gemini",
-        modelId: geminiImageModel,
-        error: readGeminiErrorMessage(payload) ?? `Gemini image preview повернув статус ${response.status}.`
+        modelId: profile.modelId,
+        error: readGeminiErrorMessage(payload) ?? `Gemini image повернув статус ${response.status}.`
       };
     }
 
@@ -81,28 +93,28 @@ export async function generateReviewImage(
     if (!asset) {
       return {
         providerUsed: "gemini",
-        modelId: geminiImageModel,
+        modelId: profile.modelId,
         error: buildMissingImageError(payload)
       };
     }
 
     return {
       providerUsed: "gemini",
-      modelId: geminiImageModel,
+      modelId: profile.modelId,
       asset
     };
   } catch (error) {
     if (isAbortError(error)) {
       return {
         providerUsed: "gemini",
-        modelId: geminiImageModel,
+        modelId: profile.modelId,
         error: "Gemini не відповів вчасно під час генерації зображення."
       };
     }
 
     return {
       providerUsed: "gemini",
-      modelId: geminiImageModel,
+      modelId: profile.modelId,
       error: error instanceof Error ? error.message : "Не вдалося згенерувати зображення."
     };
   } finally {

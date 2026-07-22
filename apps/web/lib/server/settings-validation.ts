@@ -1,4 +1,4 @@
-import { getProviderEnvKey, type ProviderId, type SettingsKeySource, type SettingsValidationResult } from "../editor/settings.ts";
+import { getProviderEnvKey, resolveModelProfile, buildOpenAiRequestModelFields, withGeminiThinkingConfig, type ProviderId, type SettingsKeySource, type SettingsValidationResult } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
@@ -46,11 +46,11 @@ export async function validateSettingsModel(
 
   try {
     if (input.provider === "gemini") {
-      await pingGeminiModel(input.modelId, resolvedApiKey, fetchImpl);
+      await pingGeminiModel(input.provider, input.modelId, resolvedApiKey, fetchImpl);
     } else if (input.provider === "anthropic") {
       await pingAnthropicModel(input.modelId, resolvedApiKey, fetchImpl);
     } else {
-      await pingOpenAiModel(input.modelId, resolvedApiKey, fetchImpl);
+      await pingOpenAiModel(input.provider, input.modelId, resolvedApiKey, fetchImpl);
     }
 
     return {
@@ -86,7 +86,8 @@ export async function validateSettingsModel(
   }
 }
 
-async function pingOpenAiModel(modelId: string, apiKey: string, fetchImpl: FetchLike) {
+async function pingOpenAiModel(provider: ProviderId, modelId: string, apiKey: string, fetchImpl: FetchLike) {
+  const profile = resolveModelProfile(provider, modelId);
   const response = await fetchWithTimeout(
     fetchImpl,
     openAiEndpoint,
@@ -97,7 +98,7 @@ async function pingOpenAiModel(modelId: string, apiKey: string, fetchImpl: Fetch
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: modelId,
+        ...buildOpenAiRequestModelFields(profile),
         input: "Reply with OK.",
         instructions: "Reply with exactly OK.",
         max_output_tokens: 16,
@@ -114,10 +115,11 @@ async function pingOpenAiModel(modelId: string, apiKey: string, fetchImpl: Fetch
   }
 }
 
-async function pingGeminiModel(modelId: string, apiKey: string, fetchImpl: FetchLike) {
+async function pingGeminiModel(provider: ProviderId, modelId: string, apiKey: string, fetchImpl: FetchLike) {
+  const profile = resolveModelProfile(provider, modelId);
   const response = await fetchWithTimeout(
     fetchImpl,
-    `${geminiBaseUrl}/${encodeURIComponent(modelId)}:generateContent`,
+    `${geminiBaseUrl}/${encodeURIComponent(profile.apiModelId)}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -131,10 +133,12 @@ async function pingGeminiModel(modelId: string, apiKey: string, fetchImpl: Fetch
             parts: [{ text: "Reply with exactly OK." }]
           }
         ],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 8
-        }
+        generationConfig: withGeminiThinkingConfig(
+          {
+            maxOutputTokens: 8
+          },
+          profile
+        )
       })
     },
     "Gemini"

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ReviewActionRequest, ReviewActionResponse } from "../../../../../lib/editor/review-contract";
-import { normalizeModelId, normalizeProvider, normalizeVisualStylePreset } from "../../../../../lib/editor/settings";
+import { normalizeModelId, normalizeProvider, normalizeVisualImageQuality, normalizeVisualStylePreset } from "../../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../../lib/server/client-api-key-policy";
 import { generateReviewAction } from "../../../../../lib/server/review-action-service";
@@ -137,7 +137,8 @@ function parseProposalRequest(
         typeof record.calloutPromptTemplate === "string" && record.calloutPromptTemplate.trim() ? record.calloutPromptTemplate.trim() : undefined,
       imagePromptTemplate:
         typeof record.imagePromptTemplate === "string" && record.imagePromptTemplate.trim() ? record.imagePromptTemplate.trim() : undefined,
-      visualStylePreset: normalizeVisualStylePreset(record.visualStylePreset)
+      visualStylePreset: normalizeVisualStylePreset(record.visualStylePreset),
+      imageQuality: normalizeVisualImageQuality(record.imageQuality)
     }
   };
 }

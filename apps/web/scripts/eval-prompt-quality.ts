@@ -150,7 +150,7 @@ async function capturePrompts(): Promise<CapturedPrompts> {
     document,
     currentRevision: revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     apiKey: "test-key",
     item: {
       id: "eval-callout-deep",
@@ -180,7 +180,7 @@ async function capturePrompts(): Promise<CapturedPrompts> {
     document,
     currentRevision: revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     apiKey: "test-key",
     item: {
       id: "eval-rewrite",
@@ -208,7 +208,7 @@ async function capturePrompts(): Promise<CapturedPrompts> {
     document,
     currentRevision: revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     apiKey: "test-key",
     item: {
       id: "eval-visual",
@@ -237,7 +237,7 @@ async function capturePrompts(): Promise<CapturedPrompts> {
     document,
     revision,
     provider: "openai",
-    modelId: "gpt-5.4",
+    modelId: "gpt-5.6-luna",
     apiKey: "test-key",
     changeLevel: 3
   };

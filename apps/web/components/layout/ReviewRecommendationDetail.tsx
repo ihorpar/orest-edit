@@ -8,6 +8,7 @@ import type {
   EditorialReviewItem,
   EditorialVisualIntent,
   ReviewActionProposal,
+  VisualImageQuality,
   VisualStylePreset
 } from "../../lib/editor/review-contract";
 import {
@@ -23,10 +24,16 @@ import {
   resolveReviewImageAssetUrl
 } from "../../lib/editor/review-contract";
 import { Button } from "../ui/Button";
-import { VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelectionControls";
+import { VisualImageQualityToggle, VisualIntentToggle, VisualStyleToggle } from "../editor/VisualSelectionControls";
 import { useResolvedEditorAssetUrl } from "../editor/ResolvedEditorImage";
 import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import { getVisualStylePresetOptions, normalizeVisualStylePreset } from "../../lib/editor/settings";
+import {
+  DEFAULT_VISUAL_IMAGE_QUALITY,
+  getVisualImageQualityOptions,
+  getVisualStylePresetOptions,
+  normalizeVisualImageQuality,
+  normalizeVisualStylePreset
+} from "../../lib/editor/settings";
 import type { EditorMessages } from "../../lib/i18n/editor-messages";
 import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import { ArrowDownToLine, Expand, RefreshCcw, Sparkles, X } from "lucide-react";
@@ -54,6 +61,8 @@ export function ReviewRecommendationDetail({
   onUpdateActiveImageCaption,
   onUpdateActiveVisualStylePreset,
   activeVisualStylePreset,
+  onUpdateActiveImageQuality,
+  activeImageQuality,
   onGenerateActiveReviewImage,
   onApplyActiveReviewImage
 }: {
@@ -65,7 +74,7 @@ export function ReviewRecommendationDetail({
   reviewImageLoading?: boolean;
   onPrepare: (
     item: EditorialReviewItem,
-    options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
+    options?: { visualStylePreset?: VisualStylePreset; imageQuality?: VisualImageQuality; editorialInstruction?: string }
   ) => void;
   refineInstruction: string;
   onRefineInstructionChange: (value: string) => void;
@@ -82,6 +91,8 @@ export function ReviewRecommendationDetail({
   onUpdateActiveImageCaption: (caption: string) => void;
   onUpdateActiveVisualStylePreset: (preset: VisualStylePreset) => void;
   activeVisualStylePreset?: VisualStylePreset;
+  onUpdateActiveImageQuality: (quality: VisualImageQuality) => void;
+  activeImageQuality?: VisualImageQuality;
   onGenerateActiveReviewImage: () => void;
   onApplyActiveReviewImage: () => void;
 }) {
@@ -108,8 +119,13 @@ export function ReviewRecommendationDetail({
   const rangeLabel = revision ? getReviewParagraphRangeLabel(currentItem, revision, locale) : null;
   const insertionCopy = revision ? getInsertionContextCopy(currentItem, revision, detail) : null;
   const visualStyleOptions = getVisualStylePresetOptions();
+  const visualImageQualityOptions = getVisualImageQualityOptions(locale);
   const visualIntentOptions = getEditorialVisualIntentOptions(locale);
   const selectedVisualStylePreset = normalizeVisualStylePreset(activeVisualStylePreset ?? imageDraft?.visualStylePreset);
+  const selectedImageQuality = normalizeVisualImageQuality(
+    activeImageQuality ?? imageDraft?.imageQuality,
+    DEFAULT_VISUAL_IMAGE_QUALITY
+  );
   const selectedVisualIntent = imageDraft?.visualIntent ?? currentItem.visualIntent ?? "infographic";
   const hasGeneratedAsset = Boolean(imageDraft?.generatedAsset);
   const [isRefineOpen, setIsRefineOpen] = useState(false);
@@ -163,9 +179,13 @@ export function ReviewRecommendationDetail({
     };
   }, [isVisualWorkspaceOpen]);
 
-  function handlePrepare(nextOptions?: { visualStylePreset?: VisualStylePreset }) {
+  function handlePrepare(nextOptions?: {
+    visualStylePreset?: VisualStylePreset;
+    imageQuality?: VisualImageQuality;
+  }) {
     onPrepare(currentItem, {
-      ...nextOptions,
+      visualStylePreset: nextOptions?.visualStylePreset ?? selectedVisualStylePreset,
+      imageQuality: nextOptions?.imageQuality ?? selectedImageQuality,
       editorialInstruction: normalizedRefineInstruction || undefined
     });
   }
@@ -251,11 +271,24 @@ export function ReviewRecommendationDetail({
               onChange={(nextPreset) => onUpdateActiveVisualStylePreset(nextPreset)}
             />
           </div>
+          <div className="editorial-review-callout-kind-row">
+            <p className="editorial-review-detail-label">{detail.visualQuality}</p>
+            <VisualImageQualityToggle
+              value={selectedImageQuality}
+              options={visualImageQualityOptions}
+              onChange={(nextQuality) => onUpdateActiveImageQuality(nextQuality)}
+            />
+          </div>
           <div className="editorial-review-detail-actions editorial-review-proposal-actions">
             <Button
               size="sm"
               variant="primary"
-              onClick={() => onPrepare(currentItem, { visualStylePreset: selectedVisualStylePreset })}
+              onClick={() =>
+                onPrepare(currentItem, {
+                  visualStylePreset: selectedVisualStylePreset,
+                  imageQuality: selectedImageQuality
+                })
+              }
             >
               {prepareButtonLabel}
             </Button>
@@ -439,6 +472,14 @@ export function ReviewRecommendationDetail({
               onChange={(nextPreset) => onUpdateActiveVisualStylePreset(nextPreset)}
             />
           </div>
+          <div className="editorial-review-callout-kind-row">
+            <p className="editorial-review-detail-label">{detail.visualQuality}</p>
+            <VisualImageQualityToggle
+              value={selectedImageQuality}
+              options={visualImageQualityOptions}
+              onChange={(nextQuality) => onUpdateActiveImageQuality(nextQuality)}
+            />
+          </div>
           <div className="editorial-review-field-group">
             <p className="editorial-review-detail-label">{detail.caption}</p>
             <input
@@ -455,7 +496,12 @@ export function ReviewRecommendationDetail({
             <Button
               size="sm"
               variant={hasPendingRefineInstruction ? "primary" : "secondary"}
-              onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
+              onClick={() =>
+                handlePrepare({
+                  visualStylePreset: selectedVisualStylePreset,
+                  imageQuality: selectedImageQuality
+                })
+              }
               title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : detail.regenerateVisualPrompt}
             >
               {hasPendingRefineInstruction ? detail.regenerateWithRefine : detail.regenerate}
@@ -569,6 +615,14 @@ export function ReviewRecommendationDetail({
                     />
                   </div>
                   <div className="visual-workspace-field">
+                    <p className="editorial-review-detail-label">{detail.visualQuality}</p>
+                    <VisualImageQualityToggle
+                      value={selectedImageQuality}
+                      options={visualImageQualityOptions}
+                      onChange={(nextQuality) => onUpdateActiveImageQuality(nextQuality)}
+                    />
+                  </div>
+                  <div className="visual-workspace-field">
                     <p className="editorial-review-detail-label">{detail.caption}</p>
                     <input
                       className="editorial-review-callout-title-input"
@@ -581,7 +635,12 @@ export function ReviewRecommendationDetail({
                   <Button
                     size="sm"
                     variant={hasPendingRefineInstruction ? "primary" : "secondary"}
-                    onClick={() => handlePrepare({ visualStylePreset: selectedVisualStylePreset })}
+                    onClick={() =>
+                      handlePrepare({
+                        visualStylePreset: selectedVisualStylePreset,
+                        imageQuality: selectedImageQuality
+                      })
+                    }
                     title={hasPendingRefineInstruction ? detail.refineUsedOnRegenerate : detail.regenerateDescriptionTitle}
                   >
                     {hasPendingRefineInstruction ? detail.regenerateWithRefine : detail.regenerateDescription}

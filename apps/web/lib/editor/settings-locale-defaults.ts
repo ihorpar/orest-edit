@@ -70,9 +70,9 @@ const ENGLISH_VISUAL_STYLE_PRESET_GUIDES: Record<VisualStylePreset, string> = {
 
 const ENGLISH_PROVIDER_MODEL_DESCRIPTIONS: Record<ProviderId, Record<string, string>> = {
   openai: {
-    "gpt-5.5": "Strongest OpenAI profile for demanding editorial review and precise local revisions.",
-    "gpt-5.4": "Top-tier editing quality for complex local revisions and editorial review.",
-    "gpt-5.4-mini": "Faster, cheaper OpenAI profile for lighter edits and rougher drafting passes."
+    "gpt-5.6-sol": "Strongest OpenAI profile (medium reasoning) for demanding editorial review and precise local revisions.",
+    "gpt-5.6-luna": "Fast, high-quality OpenAI profile with high reasoning for complex local revisions and editorial review.",
+    "gpt-5.6-luna-low": "Cheapest OpenAI profile with low reasoning for lighter edits and rougher drafting passes."
   },
   anthropic: {
     "claude-opus-4-6": "Best Anthropic option for deep editorial analysis and careful rewriting of dense fragments.",
@@ -80,9 +80,8 @@ const ENGLISH_PROVIDER_MODEL_DESCRIPTIONS: Record<ProviderId, Record<string, str
     "claude-haiku-4-5": "Fastest option for rough passes and larger batches of local checks."
   },
   gemini: {
-    "gemini-3.5-flash": "Latest fast Google model.",
-    "gemini-3.1-pro-preview": "Strongest Gemini profile for longer manuscripts, global review, and harder structural editing.",
-    "gemini-3.1-flash-lite-preview": "Cheaper production-oriented option for everyday patch requests."
+    "gemini-3.6-flash": "Latest fast Google model with high thinking for editorial review and harder edits.",
+    "gemini-3.5-flash-lite": "Cheaper production-oriented option with high thinking for everyday patch requests."
   }
 };
 

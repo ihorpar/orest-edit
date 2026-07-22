@@ -1,6 +1,6 @@
 "use client";
 
-import type { EditorialVisualIntent, VisualStylePreset } from "../../lib/editor/review-contract";
+import type { EditorialVisualIntent, VisualImageQuality, VisualStylePreset } from "../../lib/editor/review-contract";
 import { useProductCopy } from "../providers/ProductLocaleProvider";
 
 export function VisualIntentToggle({
@@ -69,6 +69,42 @@ export function VisualStyleToggle({
             <VisualStyleIcon preset={option.value} />
           </span>
           <span className="editorial-review-visual-style-label">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function VisualImageQualityToggle({
+  value,
+  options,
+  onChange,
+  disabled = false
+}: {
+  value: VisualImageQuality;
+  options: Array<{ value: VisualImageQuality; label: string; hint: string }>;
+  onChange: (value: VisualImageQuality) => void;
+  disabled?: boolean;
+}) {
+  const rd = useProductCopy().editor.reviewDetail;
+
+  return (
+    <div className="editorial-review-visual-intent-toggle" role="radiogroup" aria-label={rd.visualQuality}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          className="editorial-review-visual-intent-button"
+          data-active={value === option.value ? "true" : "false"}
+          onClick={() => onChange(option.value)}
+          disabled={disabled}
+        >
+          <span className="editorial-review-visual-quality-copy">
+            <span>{option.label}</span>
+            <span className="editorial-review-visual-quality-hint">{option.hint}</span>
+          </span>
         </button>
       ))}
     </div>

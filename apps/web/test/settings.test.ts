@@ -13,9 +13,13 @@ import {
   getDefaultProviderModelId,
   getModelPresetOptionLabel,
   getProviderModelPresets,
+  getVisualImageQualityProfile,
   getVisualStylePresetGuide,
   getVisualStylePresetOptions,
+  normalizeModelId,
+  normalizeVisualImageQuality,
   normalizeVisualStylePreset,
+  resolveModelProfile,
   writeEditorSettings,
   readEditorSettings
 } from "../lib/editor/settings.ts";
@@ -75,14 +79,14 @@ test("visual style preset helpers expose all supported presets and fallback safe
 });
 
 test("Gemini defaults to the flash-lite preset", () => {
-  assert.equal(getDefaultProviderModelId("gemini"), "gemini-3.1-flash-lite-preview");
-  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gemini-3.1-flash-lite-preview");
+  assert.equal(getDefaultProviderModelId("gemini"), "gemini-3.5-flash-lite");
+  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gemini-3.5-flash-lite");
 });
 
-test("OpenAI model presets only expose current GPT-5.5 and GPT-5.4 options", () => {
+test("OpenAI model presets only expose current GPT-5.6 Sol and Luna options", () => {
   assert.deepEqual(
     getProviderModelPresets("openai").map((preset) => preset.id),
-    ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+    ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-luna-low"]
   );
 });
 
@@ -91,24 +95,23 @@ test("model presets expose compact labels with smartness and price metadata", ()
   const geminiLabels = getProviderModelPresets("gemini").map((preset) => getModelPresetOptionLabel(preset));
 
   assert.deepEqual(openAiLabels, [
-    "GPT-5.5 [💡 10/10 | $$$$]",
-    "GPT-5.4 [💡 9/10 | $$$]",
-    "GPT-5.4-mini [💡 7/10 | $$]"
+    "GPT-5.6 Sol [💡 10/10 | $$$$]",
+    "GPT-5.6 Luna [💡 8/10 | $$]",
+    "GPT-5.6 Luna (low) [💡 6/10 | $]"
   ]);
-  assert.equal(geminiLabels.length, 3);
-  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.5 Flash /);
-  assert.match(geminiLabels[1] ?? "", /^Gemini 3\.1 Pro /);
-  assert.match(geminiLabels[2] ?? "", /^Gemini 3\.1 Flash-Lite /);
+  assert.equal(geminiLabels.length, 2);
+  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.6 Flash /);
+  assert.match(geminiLabels[1] ?? "", /^Gemini 3\.5 Flash-Lite /);
   assert.ok(geminiLabels.every((label) => !/preview/i.test(label)));
 });
 
-test("OpenAI settings validation does not send temperature", async () => {
+test("OpenAI settings validation sends reasoning effort and does not send temperature", async () => {
   let requestBody: Record<string, unknown> | undefined;
 
   const result = await validateSettingsModel(
     {
       provider: "openai",
-      modelId: "gpt-5.5",
+      modelId: "gpt-5.6-sol",
       apiKey: "openai-key"
     },
     {
@@ -125,14 +128,39 @@ test("OpenAI settings validation does not send temperature", async () => {
   );
 
   assert.equal(result.state, "valid");
-  assert.equal(requestBody?.model, "gpt-5.5");
+  assert.equal(requestBody?.model, "gpt-5.6-sol");
+  assert.deepEqual(requestBody?.reasoning, { effort: "medium" });
   assert.equal("temperature" in (requestBody ?? {}), false);
+});
+
+test("legacy model ids remap to current presets", () => {
+  assert.equal(normalizeModelId("openai", "gpt-5.4"), "gpt-5.6-luna");
+  assert.equal(normalizeModelId("openai", "gpt-5.4-mini"), "gpt-5.6-luna-low");
+  assert.equal(normalizeModelId("openai", "gpt-5.5"), "gpt-5.6-sol");
+  assert.equal(normalizeModelId("gemini", "gemini-3.1-pro-preview"), "gemini-3.6-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.5-flash"), "gemini-3.6-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.1-flash-lite-preview"), "gemini-3.5-flash-lite");
+});
+
+test("luna-low preset resolves to gpt-5.6-luna with low reasoning", () => {
+  const profile = resolveModelProfile("openai", "gpt-5.6-luna-low");
+  assert.equal(profile.apiModelId, "gpt-5.6-luna");
+  assert.equal(profile.openaiReasoningEffort, "low");
 });
 
 test("default editor settings surface every workflow step prompt", () => {
   assert.deepEqual(Object.keys(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts).sort(), Object.keys(DEFAULT_WORKFLOW_STEP_PROMPTS).sort());
   assert.match(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts.fact_check, /фактчекер/i);
   assert.match(DEFAULT_EDITOR_SETTINGS.workflowStepPrompts.emphasis, /смислових акцентів/i);
+});
+
+test("visual image quality profiles expose fast lite and quality flash models", () => {
+  assert.equal(getVisualImageQualityProfile("fast").modelId, "gemini-3.1-flash-lite-image");
+  assert.equal(getVisualImageQualityProfile("fast").imageSize, "1K");
+  assert.equal(getVisualImageQualityProfile("fast").thinkingLevel, "minimal");
+  assert.equal(getVisualImageQualityProfile("quality").modelId, "gemini-3.1-flash-image");
+  assert.equal(getVisualImageQualityProfile("quality").imageSize, "2K");
+  assert.equal(normalizeVisualImageQuality("broken"), "fast");
 });
 
 test("writeEditorSettings persists selected Gemini connection to localStorage", () => {
@@ -192,7 +220,7 @@ test("writeEditorSettings preserves provider-specific API keys when switching pr
     writeEditorSettings({
       ...DEFAULT_EDITOR_SETTINGS,
       provider: "gemini",
-      modelId: "gemini-3.1-flash-lite-preview",
+      modelId: "gemini-3.5-flash-lite",
       apiKey: "gemini-key",
       apiKeys: {
         gemini: "gemini-key"
@@ -202,7 +230,7 @@ test("writeEditorSettings preserves provider-specific API keys when switching pr
     writeEditorSettings({
       ...readEditorSettings(),
       provider: "openai",
-      modelId: "gpt-5.5",
+      modelId: "gpt-5.6-sol",
       apiKey: "openai-key"
     });
 

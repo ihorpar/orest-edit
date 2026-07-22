@@ -5,10 +5,14 @@ import type {
   ReviewImageGenerationResponse,
   ReviewImageGenerationJobStatus
 } from "../editor/review-contract.ts";
+import {
+  DEFAULT_VISUAL_IMAGE_QUALITY,
+  getVisualImageQualityProfile,
+  normalizeVisualImageQuality
+} from "../editor/settings.ts";
 import { generateReviewImage, type GenerateReviewImageOptions } from "./review-image-service.ts";
 
 const reviewImageProvider = "gemini";
-const reviewImageModel = "gemini-3.1-flash-image-preview";
 const jobTtlMs = 15 * 60 * 1000;
 const queuedPollAfterMs = 900;
 const processingPollAfterMs = 1500;
@@ -33,11 +37,14 @@ declare global {
   var __orestReviewImageJobs: Map<string, StoredReviewImageJob> | undefined;
 }
 
-export function createQueuedReviewImageJob(locale?: ReviewImageGenerationRequest["locale"], now = new Date()): ReviewImageGenerationJob {
+export function createQueuedReviewImageJob(
+  request: Pick<ReviewImageGenerationRequest, "locale" | "imageQuality"> = {},
+  now = new Date()
+): ReviewImageGenerationJob {
   const store = getReviewImageJobStore();
   pruneExpiredJobs(store, now);
 
-  const job = buildQueuedJob(locale, now);
+  const job = buildQueuedJob(request, now);
   store.set(job.id, job);
 
   return toPublicJob(job);
@@ -101,16 +108,20 @@ function getReviewImageJobStore(): Map<string, StoredReviewImageJob> {
   return globalThis.__orestReviewImageJobs;
 }
 
-function buildQueuedJob(locale: ReviewImageGenerationRequest["locale"], now: Date): StoredReviewImageJob {
+function buildQueuedJob(
+  request: Pick<ReviewImageGenerationRequest, "locale" | "imageQuality">,
+  now: Date
+): StoredReviewImageJob {
   const timestamp = now.toISOString();
   const expiresAt = new Date(now.getTime() + jobTtlMs).toISOString();
+  const profile = getVisualImageQualityProfile(normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY));
 
   return {
     id: createPatchId("review-image-job"),
-    locale,
+    locale: request.locale,
     status: "queued",
     providerUsed: reviewImageProvider,
-    modelId: reviewImageModel,
+    modelId: profile.modelId,
     createdAt: timestamp,
     updatedAt: timestamp,
     expiresAt,

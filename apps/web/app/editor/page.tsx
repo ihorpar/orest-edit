@@ -107,13 +107,17 @@ import {
   type ReviewActionProposal,
   type ReviewActionResponse,
   type WholeTextChangeLevel,
+  type VisualImageQuality,
   normalizeEditorialCalloutDepth
 } from "../../lib/editor/review-contract";
 import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_VISUAL_STYLE_PRESET,
+  DEFAULT_VISUAL_IMAGE_QUALITY,
   EDITOR_SETTINGS_UPDATED_EVENT,
+  normalizeVisualImageQuality,
   normalizeVisualStylePreset,
+  resolveReviewImageTargetModel,
   readEditorSettings,
   type EditorSettings
 } from "../../lib/editor/settings";
@@ -139,7 +143,7 @@ import {
   presentRequestFeedback,
   type RequestFeedback
 } from "../../lib/editor/workflow-ui";
-import { getProductLocaleConfig, formatParagraphRangeLabel, getVisualStylePresetStorageKey } from "../../lib/i18n/product-locale";
+import { getProductLocaleConfig, formatParagraphRangeLabel, getVisualStylePresetStorageKey, getVisualImageQualityStorageKey } from "../../lib/i18n/product-locale";
 import { getWorkflowStepLabel, getEditorMessages } from "../../lib/i18n/editor-messages";
 import { buildFactCheckActionInstruction } from "../../lib/i18n/server-prompts/review-action";
 import {
@@ -271,6 +275,7 @@ interface EditorSessionSnapshot {
   manualVisualPrompt: string;
   spellcheck: EditorSpellcheckSnapshot;
   visualStylePreset: VisualStylePreset;
+  imageQuality: VisualImageQuality;
   stepFeedback: EditorialStepFeedbackMap;
   stepRunModeByStep: EditorialStepRunModeMap;
   stepRunHistory: EditorialStepRunHistory;
@@ -287,6 +292,7 @@ const defaultManualCalloutKind: EditorialCalloutKind = "mechanism";
 const defaultManualCalloutDepth: EditorialCalloutDepth = "brief";
 const defaultManualVisualIntent: EditorialVisualIntent = "infographic";
 const defaultVisualStylePreset: VisualStylePreset = DEFAULT_VISUAL_STYLE_PRESET;
+const defaultVisualImageQuality: VisualImageQuality = DEFAULT_VISUAL_IMAGE_QUALITY;
 const defaultLocalActionMode = "edit" as const;
 const defaultLocalTextIntent = "rewrite" as const;
 
@@ -414,6 +420,7 @@ export default function EditorPage() {
   const [spellcheckDictionaryWords, setSpellcheckDictionaryWords] = useState<string[]>([]);
   const [expandedSpellcheckBlockId, setExpandedSpellcheckBlockId] = useState<string | null>(null);
   const [visualStylePreset, setVisualStylePreset] = useState<VisualStylePreset>(defaultVisualStylePreset);
+  const [imageQuality, setImageQuality] = useState<VisualImageQuality>(defaultVisualImageQuality);
   const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
   const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
   const [stepRunHistory, setStepRunHistory] = useState<EditorialStepRunHistory>(() => createEmptyStepRunHistory());
@@ -526,6 +533,11 @@ export default function EditorPage() {
     setSettings(readEditorSettings(locale));
     const lastVisualStyle = normalizeVisualStylePreset(window.localStorage.getItem(getVisualStylePresetStorageKey(locale)), defaultVisualStylePreset);
     setVisualStylePreset(lastVisualStyle);
+    const lastImageQuality = normalizeVisualImageQuality(
+      window.localStorage.getItem(getVisualImageQualityStorageKey(locale)),
+      defaultVisualImageQuality
+    );
+    setImageQuality(lastImageQuality);
     const draft = readEditorDraftState(locale);
 
     if (!hasHydratedDraft && draft) {
@@ -974,6 +986,14 @@ export default function EditorPage() {
     }
   }
 
+  function persistImageQuality(quality: VisualImageQuality) {
+    const normalized = normalizeVisualImageQuality(quality, defaultVisualImageQuality);
+    setImageQuality(normalized);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(getVisualImageQualityStorageKey(locale), normalized);
+    }
+  }
+
   function isCurrentLocaleRequest(expectedLocale: typeof locale, expectedEpoch: number): boolean {
     return activeLocaleRef.current === expectedLocale && localeEpochRef.current === expectedEpoch;
   }
@@ -1334,6 +1354,7 @@ export default function EditorPage() {
       manualVisualPrompt,
       spellcheck: captureCurrentSpellcheckState(),
       visualStylePreset,
+      imageQuality,
       stepFeedback,
       stepRunModeByStep,
       stepRunHistory,
@@ -1378,6 +1399,7 @@ export default function EditorPage() {
     setManualVisualPrompt(snapshot.manualVisualPrompt);
     applySpellcheckState(snapshot.spellcheck);
     setVisualStylePreset(snapshot.visualStylePreset);
+    setImageQuality(normalizeVisualImageQuality(snapshot.imageQuality, defaultVisualImageQuality));
     setStepFeedback(snapshot.stepFeedback);
     setStepRunModeByStep(snapshot.stepRunModeByStep);
     setStepRunHistory(snapshot.stepRunHistory);
@@ -2157,6 +2179,7 @@ export default function EditorPage() {
       return await requestManualInsert("visual", {
         visualIntent: payload.visualIntent,
         visualStylePreset: payload.visualStylePreset,
+        imageQuality,
         editorialInstruction: payload.prompt
       });
     } catch (error) {
@@ -2558,6 +2581,7 @@ export default function EditorPage() {
       calloutDepth?: EditorialCalloutDepth;
       visualIntent?: EditorialVisualIntent;
       visualStylePreset?: VisualStylePreset;
+      imageQuality?: VisualImageQuality;
       editorialInstruction?: string;
     }
   ): Promise<boolean> {
@@ -2575,6 +2599,7 @@ export default function EditorPage() {
       kind === "callout" ? "callout" : kind === "visual" ? "visual" : kind === "subsection" ? "subsection" : "list";
     if (kind === "visual") {
       persistVisualStylePreset(overrides?.visualStylePreset ?? visualStylePreset);
+      persistImageQuality(overrides?.imageQuality ?? imageQuality);
     }
     const draftItem = buildManualReviewItem({
       document,
@@ -2598,6 +2623,7 @@ export default function EditorPage() {
     try {
       return await prepareReviewItem(upserted.item, {
         visualStylePreset: overrides?.visualStylePreset,
+        imageQuality: overrides?.imageQuality,
         editorialInstruction: overrides?.editorialInstruction
       });
     } finally {
@@ -2655,7 +2681,8 @@ export default function EditorPage() {
   function buildReviewActionRequestBody(
     item: EditorialReviewItem,
     requestVisualStylePreset: VisualStylePreset,
-    editorialInstruction?: string
+    editorialInstruction?: string,
+    requestImageQuality: VisualImageQuality = imageQuality
   ): ReviewActionRequest {
     const isReplaceProposal = isReplaceReviewType(item.recommendationType);
     const compactItem: ReviewActionRequest["item"] = {
@@ -2740,7 +2767,8 @@ export default function EditorPage() {
       return {
         ...baseRequest,
         imagePromptTemplate: settings.imagePromptTemplate,
-        visualStylePreset: requestVisualStylePreset
+        visualStylePreset: requestVisualStylePreset,
+        imageQuality: requestImageQuality
       };
     }
 
@@ -2749,7 +2777,7 @@ export default function EditorPage() {
 
   async function prepareReviewItem(
     item: EditorialReviewItem,
-    options?: { visualStylePreset?: VisualStylePreset; editorialInstruction?: string }
+    options?: { visualStylePreset?: VisualStylePreset; imageQuality?: VisualImageQuality; editorialInstruction?: string }
   ): Promise<boolean> {
     const requestLocale = locale;
     const requestLocaleEpoch = localeEpochRef.current;
@@ -2799,9 +2827,14 @@ export default function EditorPage() {
       options?.visualStylePreset ?? visualStylePreset,
       defaultVisualStylePreset
     );
+    const requestImageQuality = normalizeVisualImageQuality(
+      options?.imageQuality ?? imageQuality,
+      defaultVisualImageQuality
+    );
 
     if (item.recommendationType === "visual") {
       persistVisualStylePreset(requestVisualStylePreset);
+      persistImageQuality(requestImageQuality);
     }
 
     try {
@@ -2812,7 +2845,8 @@ export default function EditorPage() {
       const requestBody = buildReviewActionRequestBody(
         requestItem,
         requestVisualStylePreset,
-        mergedInstruction || undefined
+        mergedInstruction || undefined,
+        requestImageQuality
       );
       const response = await fetch("/api/edit/review/proposal", {
         method: "POST",
@@ -2910,6 +2944,9 @@ export default function EditorPage() {
       if (payload.proposal.kind === "image_prompt" && payload.proposal.imageDraft) {
         persistVisualStylePreset(
           normalizeVisualStylePreset(payload.proposal.imageDraft.visualStylePreset, requestVisualStylePreset)
+        );
+        persistImageQuality(
+          normalizeVisualImageQuality(payload.proposal.imageDraft.imageQuality, requestImageQuality)
         );
         setReviewItems((current) =>
           current.map((entry) =>
@@ -3292,16 +3329,46 @@ export default function EditorPage() {
     });
   }
 
+  function updateActiveImageQuality(quality: VisualImageQuality) {
+    const normalizedQuality = normalizeVisualImageQuality(quality, defaultVisualImageQuality);
+    persistImageQuality(normalizedQuality);
+    setActiveProposal((current) => {
+      if (
+        !current ||
+        current.kind !== "image_prompt" ||
+        !current.imageDraft ||
+        current.reviewItemId !== activeReviewItemId
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        imageDraft: {
+          ...current.imageDraft,
+          imageQuality: normalizedQuality,
+          targetModel: resolveReviewImageTargetModel(normalizedQuality),
+          generatedAsset: undefined
+        }
+      };
+    });
+  }
+
   async function generateActiveReviewImage() {
     if (!activeProposal || activeProposal.kind !== "image_prompt" || !activeProposal.imageDraft) {
       return;
     }
     const requestLocale = locale;
     const requestLocaleEpoch = localeEpochRef.current;
+    const requestImageQuality = normalizeVisualImageQuality(
+      activeProposal.imageDraft.imageQuality ?? imageQuality,
+      defaultVisualImageQuality
+    );
 
     persistVisualStylePreset(
       normalizeVisualStylePreset(activeProposal.imageDraft.visualStylePreset ?? visualStylePreset, defaultVisualStylePreset)
     );
+    persistImageQuality(requestImageQuality);
     setIsReviewImageRequestInFlight(true);
 
     try {
@@ -3311,7 +3378,8 @@ export default function EditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           locale,
-          prompt: activeProposal.imageDraft.prompt
+          prompt: activeProposal.imageDraft.prompt,
+          imageQuality: requestImageQuality
         })
       });
       const payload = (await response.json()) as { asset?: GeneratedReviewImageAsset; error?: string };
@@ -4803,6 +4871,8 @@ export default function EditorPage() {
               onUpdateActiveImageCaption={updateActiveImageCaption}
               onUpdateActiveVisualStylePreset={updateActiveVisualStylePreset}
               activeVisualStylePreset={visualStylePreset}
+              onUpdateActiveImageQuality={updateActiveImageQuality}
+              activeImageQuality={imageQuality}
               onGenerateActiveReviewImage={() => void generateActiveReviewImage()}
               onApplyActiveReviewImage={() => void applyActiveReviewImage()}
               reviewImageLoading={isReviewImageRequestInFlight}
@@ -4853,10 +4923,12 @@ export default function EditorPage() {
                 manualCalloutDepth={manualCalloutDepth}
                 manualVisualIntent={manualVisualIntent}
                 manualVisualStylePreset={visualStylePreset}
+                manualImageQuality={imageQuality}
                 onManualCalloutKindChange={setManualCalloutKind}
                 onManualCalloutDepthChange={setManualCalloutDepth}
                 onManualVisualIntentChange={setManualVisualIntent}
                 onManualVisualStylePresetChange={persistVisualStylePreset}
+                onManualImageQualityChange={persistImageQuality}
                 manualCalloutPrompt={manualCalloutPrompt}
                 manualVisualPrompt={manualVisualPrompt}
                 spellcheckResults={spellcheckResults}
@@ -4877,7 +4949,9 @@ export default function EditorPage() {
                 }}
                 onRequestManualVisual={() => {
                   void (async () => {
-                    const didCreate = await requestManualInsert("visual");
+                    const didCreate = await requestManualInsert("visual", {
+                      imageQuality
+                    });
 
                     if (didCreate) {
                       closeComposerForCurrentSelection();
