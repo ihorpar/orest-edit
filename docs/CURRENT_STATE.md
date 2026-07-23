@@ -56,6 +56,7 @@ Status: Active handoff
 - Fact-check now behaves as a red-flag detector: provider prompts and server normalization suppress `ok`/reassurance rows, allow an empty `rows[]` result, and add a small local guard for suspicious medical numbers or measurement units
 - Gemini fact-check now runs through grounded Google Search on `gemini-3.5-flash-lite`; row sources are derived from `groundingMetadata` into structured `sources[]`, with low-trust domains filtered out
 - Provider model presets (2026-07-22): OpenAI `gpt-5.6-sol` / `gpt-5.6-luna` / `gpt-5.6-luna-low` with Responses `reasoning.effort`; Gemini `gemini-3.6-flash` / `gemini-3.5-flash-lite` with `thinkingConfig.thinkingLevel=high`; retired Pro/legacy ids remap via `normalizeModelId`
+- App default model is OpenAI `gpt-5.6-luna` (high). A one-time client migration (`orest-force-default-luna-{uk|en}-v1`) overwrites previously saved provider/model on first load after deploy; subsequent user switches persist normally
 - Visual image generation now has a shared fast/quality switch: `Швидко` = `gemini-3.1-flash-lite-image` + 1K + `thinkingLevel=minimal`; `Якісно` = `gemini-3.1-flash-image` + 2K; preference persists like visual style
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`

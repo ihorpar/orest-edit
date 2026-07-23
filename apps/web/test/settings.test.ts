@@ -11,6 +11,7 @@ import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_WORKFLOW_STEP_PROMPTS,
   getDefaultProviderModelId,
+  getForcedDefaultLunaMigrationStorageKey,
   getModelPresetOptionLabel,
   getProviderModelPresets,
   getVisualImageQualityProfile,
@@ -24,6 +25,7 @@ import {
   readEditorSettings
 } from "../lib/editor/settings.ts";
 import { validateSettingsModel } from "../lib/server/settings-validation.ts";
+import { getEditorSettingsStorageKey } from "../lib/i18n/product-locale.ts";
 
 test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind explicitly", () => {
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /mechanism:/i);
@@ -78,9 +80,11 @@ test("visual style preset helpers expose all supported presets and fallback safe
   assert.equal(normalizeVisualStylePreset("unknown-style"), "calm_gradient");
 });
 
-test("Gemini defaults to the flash-lite preset", () => {
+test("Gemini provider default stays flash-lite; app default is OpenAI Luna", () => {
   assert.equal(getDefaultProviderModelId("gemini"), "gemini-3.5-flash-lite");
-  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gemini-3.5-flash-lite");
+  assert.equal(getDefaultProviderModelId("openai"), "gpt-5.6-luna");
+  assert.equal(DEFAULT_EDITOR_SETTINGS.provider, "openai");
+  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gpt-5.6-luna");
 });
 
 test("OpenAI model presets only expose current GPT-5.6 Sol and Luna options", () => {
@@ -239,6 +243,66 @@ test("writeEditorSettings preserves provider-specific API keys when switching pr
     assert.equal(restored.apiKey, "openai-key");
     assert.equal(restored.apiKeys.openai, "openai-key");
     assert.equal(restored.apiKeys.gemini, "gemini-key");
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+test("one-time Luna migration overwrites prior model then later changes persist", () => {
+  const storage = new Map<string, string>();
+  const originalWindow = globalThis.window;
+  const settingsKey = getEditorSettingsStorageKey("uk");
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        }
+      }
+    }
+  });
+
+  try {
+    storage.set(
+      settingsKey,
+      JSON.stringify({
+        ...DEFAULT_EDITOR_SETTINGS,
+        provider: "gemini",
+        modelId: "gemini-3.6-flash",
+        apiKey: "gemini-key",
+        apiKeys: {
+          gemini: "gemini-key",
+          openai: "openai-key"
+        }
+      })
+    );
+
+    assert.equal(storage.get(getForcedDefaultLunaMigrationStorageKey("uk")), undefined);
+
+    const migrated = readEditorSettings("uk");
+    assert.equal(migrated.provider, "openai");
+    assert.equal(migrated.modelId, "gpt-5.6-luna");
+    assert.equal(migrated.apiKey, "openai-key");
+    assert.equal(migrated.apiKeys.gemini, "gemini-key");
+    assert.equal(storage.get(getForcedDefaultLunaMigrationStorageKey("uk")), "1");
+
+    writeEditorSettings({
+      ...migrated,
+      provider: "gemini",
+      modelId: "gemini-3.6-flash",
+      apiKey: "gemini-key"
+    });
+
+    const restored = readEditorSettings("uk");
+    assert.equal(restored.provider, "gemini");
+    assert.equal(restored.modelId, "gemini-3.6-flash");
+    assert.equal(restored.apiKey, "gemini-key");
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,

@@ -2,6 +2,13 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-07-23
+
+### One-time force of OpenAI GPT-5.6 Luna as the active default
+Decision: after this deploy, the first client settings read forces `provider=openai` and `modelId=gpt-5.6-luna` (high reasoning), overwriting any previously persisted provider/model. A per-locale `orest-force-default-luna-{uk|en}-v1` localStorage flag ensures the overwrite runs only once per locale; later user model changes persist normally.
+
+Reason: Luna high is the intended production default for editorial quality/cost, and existing saved selections would otherwise keep users on older Gemini/Anthropic/Sol choices after the model upgrade.
+
 ## 2026-07-22
 
 ### Visual image generation has fast vs quality profiles

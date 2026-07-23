@@ -7,6 +7,7 @@ import type {
 } from "./review-contract.ts";
 import {
   getEditorSettingsStorageKey,
+  getForceDefaultLunaMigrationStorageKey,
   getLegacyEditorSettingsStorageKey,
   getLegacyVisualStylePresetStorageKey,
   readActiveAppLocale,
@@ -76,6 +77,12 @@ export const VISUAL_STYLE_PRESET_STORAGE_KEY = getLegacyVisualStylePresetStorage
 export const CUSTOM_MODEL_OPTION = "__custom__";
 export const DEFAULT_VISUAL_STYLE_PRESET: VisualStylePreset = "calm_gradient";
 export const DEFAULT_VISUAL_IMAGE_QUALITY: VisualImageQuality = "fast";
+export const FORCED_DEFAULT_PROVIDER: ProviderId = "openai";
+export const FORCED_DEFAULT_MODEL_ID = "gpt-5.6-luna";
+
+export function getForcedDefaultLunaMigrationStorageKey(locale: AppLocale = readActiveAppLocale()): string {
+  return getForceDefaultLunaMigrationStorageKey(locale);
+}
 
 export interface VisualImageQualityProfile {
   id: VisualImageQuality;
@@ -549,8 +556,8 @@ export function getModelPresetOptionLabel(preset: ProviderModelPreset): string {
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
-  provider: "gemini",
-  modelId: getDefaultProviderModelId("gemini"),
+  provider: FORCED_DEFAULT_PROVIDER,
+  modelId: FORCED_DEFAULT_MODEL_ID,
   apiKey: "",
   apiKeys: {},
   basePrompt: DEFAULT_BASE_PROMPT,
@@ -734,15 +741,48 @@ function sanitizeProviderApiKeys(candidate: unknown, fallbackProvider: ProviderI
   return apiKeys;
 }
 
+function hasForcedDefaultLunaMigration(locale: AppLocale): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.localStorage.getItem(getForcedDefaultLunaMigrationStorageKey(locale)) === "1";
+}
+
+function markForcedDefaultLunaMigration(locale: AppLocale): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(getForcedDefaultLunaMigrationStorageKey(locale), "1");
+}
+
+function loadEditorSettingsFromStorage(locale: AppLocale): EditorSettings {
+  const raw =
+    window.localStorage.getItem(getEditorSettingsStorageKey(locale))
+    ?? (locale === "uk" ? window.localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY) : null);
+
+  if (!raw) {
+    return getDefaultEditorSettings(locale);
+  }
+
+  try {
+    return sanitizeEditorSettings(JSON.parse(raw) as Partial<EditorSettings>, locale);
+  } catch {
+    return getDefaultEditorSettings(locale);
+  }
+}
+
 export function sanitizeEditorSettings(candidate: Partial<EditorSettings> | null | undefined, locale: AppLocale = "uk"): EditorSettings {
   const defaults = getDefaultEditorSettings(locale);
   const provider = normalizeProvider(candidate?.provider ?? defaults.provider);
   const legacyApiKey = typeof candidate?.apiKey === "string" ? candidate.apiKey.trim() : defaults.apiKey;
   const apiKeys = sanitizeProviderApiKeys(candidate?.apiKeys, provider, legacyApiKey);
+  const fallbackModelId = getDefaultProviderModelId(provider) || defaults.modelId;
 
   return {
     provider,
-    modelId: normalizeModelId(provider, typeof candidate?.modelId === "string" ? candidate.modelId.trim() : defaults.modelId),
+    modelId: normalizeModelId(provider, typeof candidate?.modelId === "string" ? candidate.modelId.trim() : fallbackModelId),
     apiKey: apiKeys[provider] ?? "",
     apiKeys,
     basePrompt: typeof candidate?.basePrompt === "string" && candidate.basePrompt.trim() ? candidate.basePrompt.trim() : defaults.basePrompt,
@@ -773,19 +813,24 @@ export function readEditorSettings(locale: AppLocale = readActiveAppLocale()): E
     return getDefaultEditorSettings(locale);
   }
 
-  const raw =
-    window.localStorage.getItem(getEditorSettingsStorageKey(locale))
-    ?? (locale === "uk" ? window.localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY) : null);
+  const current = loadEditorSettingsFromStorage(locale);
 
-  if (!raw) {
-    return getDefaultEditorSettings(locale);
+  if (hasForcedDefaultLunaMigration(locale)) {
+    return current;
   }
 
-  try {
-    return sanitizeEditorSettings(JSON.parse(raw) as Partial<EditorSettings>, locale);
-  } catch {
-    return getDefaultEditorSettings(locale);
-  }
+  const openaiApiKey = current.apiKeys.openai ?? (current.provider === "openai" ? current.apiKey : "");
+  const forced = writeEditorSettings(
+    {
+      ...current,
+      provider: FORCED_DEFAULT_PROVIDER,
+      modelId: FORCED_DEFAULT_MODEL_ID,
+      apiKey: openaiApiKey
+    },
+    locale
+  );
+
+  return forced;
 }
 
 export function writeEditorSettings(settings: EditorSettings, locale: AppLocale = readActiveAppLocale()): EditorSettings {
@@ -810,6 +855,7 @@ export function writeEditorSettings(settings: EditorSettings, locale: AppLocale 
 
   if (typeof window !== "undefined") {
     window.localStorage.setItem(getEditorSettingsStorageKey(locale), JSON.stringify(persisted));
+    markForcedDefaultLunaMigration(locale);
   }
 
   return persisted;

@@ -93,6 +93,11 @@ export function getLegacyEditorSettingsStorageKey(): string {
   return "orest-editor-settings-v1";
 }
 
+/** One-time client migration: force OpenAI GPT-5.6 Luna (high) as the active model. */
+export function getForceDefaultLunaMigrationStorageKey(locale: AppLocale): string {
+  return `orest-force-default-luna-${getLocaleStorageSuffix(locale)}-v1`;
+}
+
 export function getEditorDraftStorageKey(locale: AppLocale): string {
   return `orest-editor-draft-${getLocaleStorageSuffix(locale)}-v3`;
 }
