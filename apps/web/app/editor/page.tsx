@@ -12,7 +12,7 @@ import { type RequestHistoryItem } from "../../components/layout/RightOperations
 import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
 import { Button } from "../../components/ui/Button";
 import { useProductLocale, useProductLocaleConfig, useProductCopy } from "../../components/providers/ProductLocaleProvider";
-import type { AppLocale } from "../../lib/i18n/product-locale";
+import { getEditorDraftStorageKey, type AppLocale } from "../../lib/i18n/product-locale";
 import type { EditorDocument, BlockSelection, CalloutBlock, ImageBlock, Block, InlineNode } from "../../lib/editor/document-model";
 import {
   countTextOccurrencesInDocument,
@@ -33,7 +33,22 @@ import {
   sliceDocumentForBlockRange,
   replaceBlocksByIds
 } from "../../lib/editor/document-model";
-import { clearEditorDraftState, readEditorDraftState, writeEditorDraftState, type PersistedWorkflowStepId } from "../../lib/editor/draft-state";
+import {
+  clearEditorDraftState,
+  readEditorDraftState,
+  writeEditorActiveReviewRun,
+  writeEditorDraftState,
+  type PersistedActiveReviewRun,
+  type PersistedWorkflowStepId
+} from "../../lib/editor/draft-state";
+import {
+  createPersistedActiveReviewRun,
+  isRunCompatibleWithEditor,
+  isRunTerminal,
+  releaseReviewRunPollLease,
+  tryAcquireReviewRunPollLease,
+  withReviewRunStartLock
+} from "../../lib/editor/review-run-persistence";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { buildImportFeedback } from "../../lib/editor/import-feedback";
 import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
@@ -95,12 +110,12 @@ import {
   type GeneratedReviewImageAsset,
   type ChatMessage,
   type EditorialReviewDiagnostics,
-  type EditorialReviewJob,
-  type EditorialReviewJobResponse,
+  type EditorialReviewRunApiResponse,
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type RejectedReviewIdea,
+  isEditorialReviewRunApiResponse,
   isReplaceReviewType,
   normalizeRejectedReviewIdeas,
   type ReviewActionRequest,
@@ -324,6 +339,16 @@ function isLocalActionRoutePayload(value: LocalActionRouteResponse | { error?: s
 
 const REVIEW_JOB_SUPERSEDED_ERROR = "review_job_superseded";
 
+class EditorialReviewRunTerminalError extends Error {
+  readonly run?: Extract<EditorialReviewRunApiResponse, { kind: "error" }>["run"];
+
+  constructor(message: string, run?: Extract<EditorialReviewRunApiResponse, { kind: "error" }>["run"]) {
+    super(message);
+    this.name = "EditorialReviewRunTerminalError";
+    this.run = run;
+  }
+}
+
 function createBlankDocument(): EditorDocument {
   return {
     version: 2,
@@ -398,6 +423,8 @@ export default function EditorPage() {
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
+  const [activeReviewRun, setActiveReviewRun] = useState<PersistedActiveReviewRun | null>(null);
+  const [reviewLeaseRetryNonce, setReviewLeaseRetryNonce] = useState(0);
   const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
   const [preparingReviewItemId, setPreparingReviewItemId] = useState<string | null>(null);
   const [isReviewImageRequestInFlight, setIsReviewImageRequestInFlight] = useState(false);
@@ -450,10 +477,25 @@ export default function EditorPage() {
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const activeReviewJobRunRef = useRef<string | null>(null);
+  const reviewPollTabIdRef = useRef(createPatchId("review-tab"));
+  const consumedReviewRunIdsRef = useRef(new Set<string>());
+  const reviewLeaseRetryTimeoutRef = useRef<number | null>(null);
+  const pendingReviewRunCleanupRef = useRef<{
+    runId: string;
+    stepId: EditorialReviewStepId;
+    stepRunId: string;
+  } | null>(null);
   const activeLocaleRef = useRef(locale);
+  const currentDocumentRef = useRef(document);
+  const currentRevisionRef = useRef(revision);
+  const currentReviewItemsRef = useRef(reviewItems);
   const localeEpochRef = useRef(0);
   const hydratedLocaleRef = useRef<string | null>(null);
   const skipNextDraftPersistRef = useRef(false);
+
+  currentDocumentRef.current = document;
+  currentRevisionRef.current = revision;
+  currentReviewItemsRef.current = reviewItems;
 
   const normalizedSelection = useMemo(() => normalizeBlockSelection(document, selection), [document, selection]);
   const spellcheckDictionarySet = useMemo(() => createSpellcheckDictionarySet(spellcheckDictionaryWords, locale), [locale, spellcheckDictionaryWords]);
@@ -561,12 +603,14 @@ export default function EditorPage() {
       setActiveReviewItemId(draft.activeReviewItemId);
       setActiveProposal(draft.activeProposal);
       setReviewComposer(draft.reviewComposer ?? defaultReviewComposer);
+      setActiveReviewRun(draft.activeReviewRun ?? null);
       setFocusedBlockId(draft.selection.focusBlockId ?? draft.document.blocks[0]?.id ?? null);
     }
 
     if (isLocaleSwitch) {
       skipNextDraftPersistRef.current = true;
       activeReviewJobRunRef.current = null;
+      setActiveReviewRun(draft?.activeReviewRun ?? null);
       setOperations([]);
       setReviewItems([]);
       setRejectedReviewIdeas([]);
@@ -602,6 +646,9 @@ export default function EditorPage() {
   useEffect(() => {
     return () => {
       activeReviewJobRunRef.current = null;
+      if (reviewLeaseRetryTimeoutRef.current) {
+        window.clearTimeout(reviewLeaseRetryTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -618,6 +665,32 @@ export default function EditorPage() {
       window.removeEventListener(EDITOR_SETTINGS_UPDATED_EVENT, handleSettingsUpdated);
       window.removeEventListener("storage", handleSettingsUpdated);
     };
+  }, [locale]);
+
+  useEffect(() => {
+    function handleActiveReviewRunStorage(event: StorageEvent) {
+      if (event.key !== getEditorDraftStorageKey(locale)) {
+        return;
+      }
+
+      const nextDraft = readEditorDraftState(locale);
+      const nextRun = nextDraft?.activeReviewRun ?? null;
+      setActiveReviewRun(nextRun);
+      setIsReviewRequestInFlight(Boolean(nextRun && !nextRun.stale && !isRunTerminal(nextRun.run)));
+
+      if (!nextRun && nextDraft?.revision.documentRevisionId === currentRevisionRef.current.documentRevisionId) {
+        setReviewItems(nextDraft.reviewItems);
+        setReviewDiagnostics(nextDraft.reviewDiagnostics);
+        setReviewExpertise(nextDraft.reviewExpertise);
+        setFactCheckRows(nextDraft.factCheckRows);
+        setStepRunHistory(nextDraft.stepRunHistory);
+        setHistory(nextDraft.history);
+        setFeedback(nextDraft.feedback);
+      }
+    }
+
+    window.addEventListener("storage", handleActiveReviewRunStorage);
+    return () => window.removeEventListener("storage", handleActiveReviewRunStorage);
   }, [locale]);
 
   useEffect(() => {
@@ -1030,10 +1103,12 @@ export default function EditorPage() {
       activeReviewItemId,
       activeProposal,
       reviewImageAssets: {},
+      activeReviewRun,
       reviewComposer
     }, locale);
   }, [
     activeProposal,
+    activeReviewRun,
     activeReviewItemId,
     document,
     factCheckRows,
@@ -1055,6 +1130,47 @@ export default function EditorPage() {
     stepFeedback,
     stepRunModeByStep,
     locale
+  ]);
+
+  useEffect(() => {
+    const pending = pendingReviewRunCleanupRef.current;
+
+    if (
+      !pending ||
+      activeReviewRun?.run.runId !== pending.runId ||
+      !isRunTerminal(activeReviewRun.run) ||
+      !stepRunHistory[pending.stepId].some((entry) => entry.id === pending.stepRunId)
+    ) {
+      return;
+    }
+
+    pendingReviewRunCleanupRef.current = null;
+    setActiveReviewRun(null);
+    writeEditorActiveReviewRun(null, locale);
+  }, [activeReviewRun, locale, stepRunHistory]);
+
+  useEffect(() => {
+    if (
+      !hasHydratedDraft ||
+      !activeReviewRun ||
+      activeReviewRun.stale ||
+      consumedReviewRunIdsRef.current.has(activeReviewRun.run.runId) ||
+      activeReviewJobRunRef.current
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void resumePersistedReviewRun(activeReviewRun);
+    }, isRunTerminal(activeReviewRun.run) ? 0 : 500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeReviewRun,
+    hasHydratedDraft,
+    locale,
+    reviewLeaseRetryNonce,
+    revision.documentRevisionId
   ]);
 
   function openComposer(nextMode: ComposerMode) {
@@ -2203,6 +2319,16 @@ export default function EditorPage() {
       return;
     }
 
+    const persistedRun = readEditorDraftState(locale)?.activeReviewRun;
+
+    if (persistedRun && !persistedRun.stale && !isRunTerminal(persistedRun.run)) {
+      setActiveReviewRun(persistedRun);
+      setActiveWorkflowStep(persistedRun.run.stepId);
+      setIsReviewRequestInFlight(true);
+      setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
+      return;
+    }
+
     const reviewRunToken = createPatchId("review-job-run");
     activeReviewJobRunRef.current = reviewRunToken;
     setIsReviewRequestInFlight(true);
@@ -2287,160 +2413,86 @@ export default function EditorPage() {
             rejectedIdeas: rejectedReviewIdeas
           };
 
-      const response = await fetch("/api/edit/review", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
+      const startOutcome = await withReviewRunStartLock(locale, async () => {
+        const existing = readEditorDraftState(locale)?.activeReviewRun;
+
+        if (existing && !existing.stale && !isRunTerminal(existing.run)) {
+          return { kind: "existing" as const, record: existing };
+        }
+
+        const response = await fetch("/api/edit/review", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody)
+        });
+        const candidate: unknown = await response.json();
+
+        if (!isEditorialReviewRunApiResponse(candidate)) {
+          throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);
+        }
+
+        if (candidate.kind === "error") {
+          throw new Error(candidate.error.message);
+        }
+
+        if (candidate.kind === "run") {
+          updateActiveReviewRun(createPersistedActiveReviewRun(candidate.run, candidate.capability), locale);
+        }
+
+        return { kind: "started" as const, payload: candidate };
       });
-      const initialPayload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
-      const payload =
-        response.status === 202 && initialPayload.job
-          ? await pollEditorialReviewJob(initialPayload.job, reviewRunToken, locale)
-          : initialPayload as EditorialReviewResponse;
-      const responseOk = response.status === 202 ? !payload.error : response.ok;
+
+      if (startOutcome.kind === "existing") {
+        activeReviewJobRunRef.current = null;
+        setActiveReviewRun(startOutcome.record);
+        setActiveWorkflowStep(startOutcome.record.run.stepId);
+        setIsReviewRequestInFlight(true);
+        setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
+        return;
+      }
+
+      const initialPayload = startOutcome.payload;
+
+      let terminalRun = initialPayload.run;
+      let payload: EditorialReviewResponse;
+
+      if (initialPayload.kind === "result") {
+        payload = initialPayload.result;
+      } else {
+        const completed = await pollEditorialReviewRun(
+          initialPayload.run,
+          initialPayload.capability,
+          reviewRunToken,
+          locale,
+          (run, capability) => updateActiveReviewRun(createPersistedActiveReviewRun(run, capability), locale)
+        );
+        payload = completed.result;
+        terminalRun = completed.run;
+      }
 
       if (activeReviewJobRunRef.current !== reviewRunToken) {
         return;
       }
 
-      if (payload.job?.locale && payload.job.locale !== locale) {
-        throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
+      if (initialPayload.kind === "run") {
+        updateActiveReviewRun(createPersistedActiveReviewRun(terminalRun, initialPayload.capability), locale);
       }
-
-      if (payload.stepId !== stepId) {
-        throw new Error(editorCopy.reviewStepMismatch(stepId, payload.stepId));
-      }
-
-      let sectionItemCount: number | undefined;
-      let factCheckLinkedItems: EditorialReviewItem[] = [];
-
-      if (payload.stepId === "diagnostics") {
-        setReviewExpertise(payload.expertise?.trim() ? payload.expertise : null);
-      }
-
-      if (payload.stepId === "fact_check") {
-        const nextFactCheckRows = payload.factCheckRows ?? [];
-        setFactCheckRows(nextFactCheckRows);
-        factCheckLinkedItems = createFactCheckLinkedReviewItems({
-          rows: nextFactCheckRows,
-          document,
-          revision,
-          changeLevel: reviewComposer.changeLevel,
-          reviewSessionId: payload.reviewSessionId,
-          stepRunId: payload.stepRunId,
-          locale
-        });
-        sectionItemCount = factCheckLinkedItems.length;
-
-        setReviewItems((current) => {
-          const existingNonFactItems = current.filter((item) => item.stepId !== "fact_check");
-          const existingFactItems = current.filter((item) => item.stepId === "fact_check");
-          const mergedFactItems = runMode === "replace" ? factCheckLinkedItems : [...factCheckLinkedItems, ...existingFactItems];
-          return [...mergedFactItems, ...existingNonFactItems];
-        });
-      }
-
-      if (payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
-        const normalizedItems = payload.items.map((item) => ({
-          ...item,
-          stepId: payload.stepId,
-          stepRunId: payload.stepRunId
-        }));
-        const baseItems =
-          runMode === "replace"
-            ? reviewItems.filter((item) => item.stepId && item.stepId !== payload.stepId)
-            : reviewItems;
-        const nextItems = [...normalizedItems, ...baseItems];
-        sectionItemCount = mapReviewItemsByStep(nextItems)[payload.stepId].length;
-
-        setReviewItems(nextItems);
-      }
-
-      const nextFeedback = buildReviewFeedbackMessage(payload, responseOk, locale, sectionItemCount);
-
-      const isRecommendationStepRun =
-        !payload.error
-        && responseOk
-        && payload.stepId !== "diagnostics"
-        && payload.stepId !== "fact_check"
-        && payload.stepId !== "emphasis";
-
-      if (isRecommendationStepRun) {
-        setShowRecommendationStatusStrip(true);
-      }
-
-      const runSnapshot = {
-        id: payload.stepRunId,
-        stepId: payload.stepId,
-        runMode: payload.runMode,
-        createdAt: payload.diagnostics.generatedAt,
-        documentRevisionId: revision.documentRevisionId,
-        feedback: currentStepFeedback || undefined,
-        expertise: payload.stepId === "diagnostics" ? payload.expertise ?? null : undefined,
-        factCheckRows: payload.stepId === "fact_check" ? payload.factCheckRows ?? [] : undefined,
-        itemIds:
-          payload.stepId === "fact_check"
-            ? factCheckLinkedItems.map((item) => item.id)
-            : payload.stepId !== "diagnostics"
-              ? payload.items.map((item) => item.id)
-              : undefined
-      };
-
-      setStepRunHistory((current) => {
-        const currentStepRuns = current[payload.stepId] ?? [];
-        return {
-          ...current,
-          [payload.stepId]:
-            payload.runMode === "replace"
-              ? [runSnapshot]
-              : [runSnapshot, ...currentStepRuns.filter((entry) => entry.id !== runSnapshot.id)].slice(0, 10)
-        };
+      applyEditorialReviewResult(payload, {
+        expectedStepId: stepId,
+        runMode,
+        sourceRevisionId: terminalRun.documentRevisionId,
+        currentStepFeedback,
+        requestedProvider: terminalRun.provider,
+        requestedModelId: terminalRun.modelId,
+        runId: terminalRun.runId
       });
-
-      if (runMode === "replace" && payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
-        setActiveReviewItemId((current) => {
-          if (!current) {
-            return current;
-          }
-
-          const nextItems = payload.items;
-          return nextItems.some((item) => item.id === current) ? current : null;
-        });
-      }
-      if (runMode === "replace" && payload.stepId === "fact_check") {
-        setActiveReviewItemId((current) => {
-          if (!current) {
-            return current;
-          }
-
-          return factCheckLinkedItems.some((item) => item.id === current) ? current : null;
-        });
-      }
-
-      setReviewDiagnostics(payload.diagnostics);
-      setFeedback(isRecommendationStepRun ? null : nextFeedback);
-      pushHistoryEntry(
-        createHistoryEntry(
-          "review",
-          payload.providerUsed,
-          settings.provider,
-          settings.modelId,
-          payload.stepId === "fact_check" ? factCheckLinkedItems.length : payload.items.length,
-          payload.diagnostics.droppedItemCount,
-          payload.usedFallback,
-          nextFeedback,
-          historyTimeFormatter
-        )
-      );
-
-      if (payload.stepId === "diagnostics" && !payload.error) {
-        closeComposer(); // Keep sidebar open if it's already open by other means
-      }
     } catch (error) {
       if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
         return;
       }
+
+      clearTerminalReviewRunError(error, locale);
 
       setFeedback({
         tone: "error",
@@ -2454,19 +2506,286 @@ export default function EditorPage() {
     }
   }
 
-  async function pollEditorialReviewJob(job: EditorialReviewJob, reviewRunToken: string, expectedLocale = locale): Promise<EditorialReviewResponse> {
-    let currentJob = job;
+  function updateActiveReviewRun(record: PersistedActiveReviewRun, expectedLocale: AppLocale) {
+    if (activeLocaleRef.current !== expectedLocale) {
+      return;
+    }
+
+    setActiveReviewRun(record);
+    writeEditorActiveReviewRun(record, expectedLocale);
+
+    const progress = record.run.progress;
+    if (!record.stale && progress && !isRunTerminal(record.run)) {
+      setFeedback({
+        tone: "info",
+        message: editorCopy.reviewFeedback.reviewRunProgress(
+          progress.completedChunks,
+          progress.totalChunks,
+          progress.attempt,
+          Boolean(progress.retryAt)
+        )
+      });
+    }
+  }
+
+  async function resumePersistedReviewRun(record: PersistedActiveReviewRun) {
+    if (activeReviewJobRunRef.current || consumedReviewRunIdsRef.current.has(record.run.runId)) {
+      return;
+    }
+
+    if (!isRunCompatibleWithEditor({
+      record,
+      documentRevisionId: currentRevisionRef.current.documentRevisionId,
+      locale
+    })) {
+      const staleRecord = { ...record, stale: true, updatedAt: new Date().toISOString() };
+      updateActiveReviewRun(staleRecord, locale);
+      consumedReviewRunIdsRef.current.add(record.run.runId);
+      setIsReviewRequestInFlight(false);
+      setFeedback({ tone: "error", message: editorCopy.reviewFeedback.reviewRunStale });
+      return;
+    }
+
+    const ownerId = reviewPollTabIdRef.current;
+    if (!tryAcquireReviewRunPollLease({ runId: record.run.runId, ownerId })) {
+      setIsReviewRequestInFlight(!isRunTerminal(record.run));
+      if (reviewLeaseRetryTimeoutRef.current) {
+        window.clearTimeout(reviewLeaseRetryTimeoutRef.current);
+      }
+      reviewLeaseRetryTimeoutRef.current = window.setTimeout(() => {
+        reviewLeaseRetryTimeoutRef.current = null;
+        setReviewLeaseRetryNonce((current) => current + 1);
+      }, 2_000);
+      return;
+    }
+
+    if (reviewLeaseRetryTimeoutRef.current) {
+      window.clearTimeout(reviewLeaseRetryTimeoutRef.current);
+      reviewLeaseRetryTimeoutRef.current = null;
+    }
+
+    const reviewRunToken = createPatchId("review-resume");
+    activeReviewJobRunRef.current = reviewRunToken;
+    setActiveWorkflowStep(record.run.stepId);
+    setIsReviewRequestInFlight(true);
+    setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
+
+    try {
+      const completed = await pollEditorialReviewRun(
+        record.run,
+        record.capability,
+        reviewRunToken,
+        locale,
+        (run, capability) => updateActiveReviewRun(createPersistedActiveReviewRun(run, capability), locale),
+        ownerId
+      );
+      const terminalRecord = createPersistedActiveReviewRun(completed.run, record.capability);
+      updateActiveReviewRun(terminalRecord, locale);
+      applyEditorialReviewResult(completed.result, {
+        expectedStepId: record.run.stepId,
+        runMode: record.run.runMode,
+        sourceRevisionId: record.run.documentRevisionId,
+        requestedProvider: record.run.provider,
+        requestedModelId: record.run.modelId,
+        runId: record.run.runId
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR)) {
+        clearTerminalReviewRunError(error, locale);
+        setFeedback({
+          tone: "error",
+          message: error instanceof Error ? error.message : editorCopy.reviewFeedback.reviewRunFailed
+        });
+      }
+    } finally {
+      releaseReviewRunPollLease(record.run.runId, ownerId);
+      if (activeReviewJobRunRef.current === reviewRunToken) {
+        activeReviewJobRunRef.current = null;
+        setIsReviewRequestInFlight(false);
+      }
+    }
+  }
+
+  function applyEditorialReviewResult(
+    payload: EditorialReviewResponse,
+    input: {
+      expectedStepId: EditorialReviewStepId;
+      runMode: EditorialStepRunMode;
+      sourceRevisionId: string;
+      currentStepFeedback?: string;
+      requestedProvider: string;
+      requestedModelId: string;
+      runId: string;
+    }
+  ) {
+    if (currentRevisionRef.current.documentRevisionId !== input.sourceRevisionId) {
+      const current = readEditorDraftState(locale)?.activeReviewRun;
+      if (current?.run.runId === input.runId) {
+        updateActiveReviewRun({ ...current, stale: true, updatedAt: new Date().toISOString() }, locale);
+      }
+      consumedReviewRunIdsRef.current.add(input.runId);
+      setFeedback({ tone: "error", message: editorCopy.reviewFeedback.reviewRunStale });
+      return;
+    }
+
+    if (payload.stepId !== input.expectedStepId) {
+      throw new Error(editorCopy.reviewStepMismatch(input.expectedStepId, payload.stepId));
+    }
+
+    if (
+      payload.runMode !== input.runMode ||
+      payload.diagnostics.requestedProvider !== input.requestedProvider ||
+      payload.diagnostics.requestedModelId !== input.requestedModelId ||
+      payload.diagnostics.stepId !== payload.stepId ||
+      payload.diagnostics.stepRunId !== payload.stepRunId ||
+      payload.items.some((item) => item.documentRevisionId !== input.sourceRevisionId)
+    ) {
+      throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);
+    }
+
+    const liveDocument = currentDocumentRef.current;
+    const liveRevision = currentRevisionRef.current;
+    const liveReviewItems = currentReviewItemsRef.current;
+    let sectionItemCount: number | undefined;
+    let factCheckLinkedItems: EditorialReviewItem[] = [];
+
+    if (payload.stepId === "diagnostics") {
+      setReviewExpertise(payload.expertise?.trim() ? payload.expertise : null);
+    }
+
+    if (payload.stepId === "fact_check") {
+      const nextFactCheckRows = payload.factCheckRows ?? [];
+      setFactCheckRows(nextFactCheckRows);
+      factCheckLinkedItems = createFactCheckLinkedReviewItems({
+        rows: nextFactCheckRows,
+        document: liveDocument,
+        revision: liveRevision,
+        changeLevel: reviewComposer.changeLevel,
+        reviewSessionId: payload.reviewSessionId,
+        stepRunId: payload.stepRunId,
+        locale
+      });
+      sectionItemCount = factCheckLinkedItems.length;
+
+      setReviewItems((current) => {
+        const existingNonFactItems = current.filter((item) => item.stepId !== "fact_check");
+        const existingFactItems = current.filter((item) => item.stepId === "fact_check");
+        const mergedFactItems = input.runMode === "replace" ? factCheckLinkedItems : [...factCheckLinkedItems, ...existingFactItems];
+        return [...mergedFactItems, ...existingNonFactItems];
+      });
+    }
+
+    if (payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
+      const normalizedItems = payload.items.map((item) => ({ ...item, stepId: payload.stepId, stepRunId: payload.stepRunId }));
+      const baseItems = input.runMode === "replace"
+        ? liveReviewItems.filter((item) => item.stepId && item.stepId !== payload.stepId)
+        : liveReviewItems;
+      const nextItems = [...normalizedItems, ...baseItems];
+      sectionItemCount = mapReviewItemsByStep(nextItems)[payload.stepId].length;
+      setReviewItems(nextItems);
+    }
+
+    const nextFeedback = buildReviewFeedbackMessage(payload, true, locale, sectionItemCount);
+    const isRecommendationStepRun =
+      !payload.error && payload.stepId !== "diagnostics" && payload.stepId !== "fact_check" && payload.stepId !== "emphasis";
+
+    if (isRecommendationStepRun) {
+      setShowRecommendationStatusStrip(true);
+    }
+
+    const runSnapshot = {
+      id: payload.stepRunId,
+      stepId: payload.stepId,
+      runMode: payload.runMode,
+      createdAt: payload.diagnostics.generatedAt,
+      documentRevisionId: liveRevision.documentRevisionId,
+      feedback: input.currentStepFeedback || undefined,
+      expertise: payload.stepId === "diagnostics" ? payload.expertise ?? null : undefined,
+      factCheckRows: payload.stepId === "fact_check" ? payload.factCheckRows ?? [] : undefined,
+      itemIds: payload.stepId === "fact_check"
+        ? factCheckLinkedItems.map((item) => item.id)
+        : payload.stepId !== "diagnostics"
+          ? payload.items.map((item) => item.id)
+          : undefined
+    };
+
+    setStepRunHistory((current) => {
+      const currentStepRuns = current[payload.stepId] ?? [];
+      return {
+        ...current,
+        [payload.stepId]: payload.runMode === "replace"
+          ? [runSnapshot]
+          : [runSnapshot, ...currentStepRuns.filter((entry) => entry.id !== runSnapshot.id)].slice(0, 10)
+      };
+    });
+
+    if (input.runMode === "replace" && payload.stepId !== "diagnostics") {
+      const retainedIds = payload.stepId === "fact_check"
+        ? new Set(factCheckLinkedItems.map((item) => item.id))
+        : new Set(payload.items.map((item) => item.id));
+      setActiveReviewItemId((current) => current && !retainedIds.has(current) ? null : current);
+    }
+
+    setReviewDiagnostics(payload.diagnostics);
+    setFeedback(isRecommendationStepRun ? null : nextFeedback);
+    pushHistoryEntry(createHistoryEntry(
+      "review",
+      payload.providerUsed,
+      input.requestedProvider,
+      input.requestedModelId,
+      payload.stepId === "fact_check" ? factCheckLinkedItems.length : payload.items.length,
+      payload.diagnostics.droppedItemCount,
+      payload.usedFallback,
+      nextFeedback,
+      historyTimeFormatter
+    ));
+    consumedReviewRunIdsRef.current.add(input.runId);
+    pendingReviewRunCleanupRef.current = {
+      runId: input.runId,
+      stepId: payload.stepId,
+      stepRunId: payload.stepRunId
+    };
+
+    if (payload.stepId === "diagnostics" && !payload.error) {
+      closeComposer();
+    }
+  }
+
+  function clearTerminalReviewRunError(error: unknown, expectedLocale: AppLocale) {
+    if (!(error instanceof EditorialReviewRunTerminalError) || !error.run || !isRunTerminal(error.run)) {
+      return;
+    }
+
+    consumedReviewRunIdsRef.current.add(error.run.runId);
+    setActiveReviewRun(null);
+    writeEditorActiveReviewRun(null, expectedLocale);
+  }
+
+  async function pollEditorialReviewRun(
+    initialRun: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"],
+    initialCapability: string,
+    reviewRunToken: string,
+    expectedLocale = locale,
+    onSnapshot?: (run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"], capability: string) => void,
+    pollOwnerId = reviewPollTabIdRef.current
+  ): Promise<{ result: EditorialReviewResponse; run: Extract<EditorialReviewRunApiResponse, { kind: "result" }>["run"] }> {
+    let currentRun = initialRun;
+    let capability = initialCapability;
 
     while (true) {
       if (activeReviewJobRunRef.current !== reviewRunToken) {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
       }
 
-      if (currentJob.locale && currentJob.locale !== expectedLocale) {
+      if (currentRun.locale !== expectedLocale) {
         throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
       }
 
-      const pollAfterMs = Math.max(300, currentJob.pollAfterMs || 1500);
+      if (!tryAcquireReviewRunPollLease({ runId: currentRun.runId, ownerId: pollOwnerId })) {
+        throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+      }
+
+      const pollAfterMs = Math.max(300, currentRun.pollAfterMs || 1500);
       await new Promise<void>((resolve) => {
         window.setTimeout(resolve, pollAfterMs);
       });
@@ -2476,35 +2795,44 @@ export default function EditorPage() {
       }
 
       const response = await fetch(
-        `/api/edit/review?jobId=${encodeURIComponent(currentJob.id)}&locale=${encodeURIComponent(expectedLocale)}`,
+        `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
         {
         method: "GET",
         credentials: "same-origin",
-        headers: { "Cache-Control": "no-store" }
+        headers: {
+          "Cache-Control": "no-store",
+          "x-review-run-capability": capability
+        }
       });
-      const payload = (await response.json()) as EditorialReviewResponse | EditorialReviewJobResponse;
+      const payload: unknown = await response.json();
 
-      if (payload.job?.locale && payload.job.locale !== expectedLocale) {
+      if (!isEditorialReviewRunApiResponse(payload)) {
+        throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);
+      }
+
+      if (payload.kind === "error") {
+        if (payload.run) {
+          onSnapshot?.(payload.run, capability);
+        }
+        throw new EditorialReviewRunTerminalError(payload.error.message, payload.run);
+      }
+
+      if (payload.run.locale !== expectedLocale) {
         throw new Error(editorCopy.reviewFeedback.reviewJobWrongLocale);
       }
 
-      if ("reviewSessionId" in payload && payload.reviewSessionId && payload.job?.status === "completed") {
-        return payload as EditorialReviewResponse;
-      }
-
-      if (!payload.job) {
-        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobInvalid);
-      }
-
-      if (payload.job.status === "failed") {
-        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobFailed);
+      if (payload.kind === "result") {
+        onSnapshot?.(payload.run, capability);
+        return { result: payload.result, run: payload.run };
       }
 
       if (!response.ok) {
-        throw new Error(payload.error || editorCopy.reviewFeedback.reviewJobReadFailed);
+        throw new Error(editorCopy.reviewFeedback.reviewJobReadFailed);
       }
 
-      currentJob = payload.job;
+      currentRun = payload.run;
+      capability = payload.capability;
+      onSnapshot?.(currentRun, capability);
     }
   }
 

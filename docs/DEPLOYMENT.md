@@ -30,6 +30,7 @@ Supported server-side keys:
 - `GEMINI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `APP_PASSWORD` (enables in-app password gate for `/editor`, `/settings`, and API routes)
+- `REVIEW_RUN_CAPABILITY_SECRET` (required in production; a random secret used to bind review run IDs to the browser that started them)
 
 Local developer behavior:
 - provider keys are resolved server-side from environment values
@@ -48,6 +49,7 @@ Project setup:
    - `GEMINI_API_KEY`
    - `ANTHROPIC_API_KEY`
    - `APP_PASSWORD`
+   - `REVIEW_RUN_CAPABILITY_SECRET`
 4. (Optional hardening) configure Deployment Protection in Vercel:
    - protection method: `Vercel Authentication`
    - protection scope: `All Deployments` when available; otherwise `Standard Protection`
@@ -95,10 +97,20 @@ Review-image route behavior:
 - `GET /api/edit/review/image?jobId=...` returns queue status and final asset/error (`Cache-Control: no-store`)
 
 Review route behavior:
-- `POST /api/edit/review` starts an in-memory async job by default and returns `202` with a job id
-- `GET /api/edit/review?jobId=...` returns queue status and the final review payload/error (`Cache-Control: no-store`)
+- `POST /api/edit/review` starts a managed Vercel Workflow run by default and returns `202` with a run ID plus a signed browser capability
+- `GET /api/edit/review?runId=...` requires the app session and capability header, then returns a discriminated run, result, or error payload (`Cache-Control: no-store`)
 - `POST /api/edit/review` with `async: false` keeps the direct synchronous path for debugging and tests
-- the in-memory job queue is a lightweight v1 and can be lost if Vercel recycles the function instance; rerun the review step if a job expires or cannot be found
+- Workflow owns durable step state and retries, so browser closure and Vercel function recycling do not cancel a run. Browser recovery is same-profile only; clearing site data removes the local run reference
+- active/recent recovery is supported, but Workflow is not permanent editorial history. Exact retention is platform-managed; a genuinely unavailable old run is reported as missing rather than reconstructed
+- `Акценти` executes one durable provider request per planned chunk, sequentially, with bounded retry of 408/429/transient 5xx/network/timeout failures and fatal handling for auth/schema/invalid output
+- structured logs use `scope=editorial_review`; every workflow event includes the run ID, and request ID, chunk index, attempt, duration, provider status/request ID, and outcome are included when available. Terminal workflow outcome is logged by a durable step even when no browser remains open. Logs never include API keys or manuscript text
+
+Workflow operations:
+- inspect runs and failures in the Vercel project Workflow view and correlate them with `editorial_review` JSON logs
+- usage is metered by the managed Workflow service; reducing the representative emphasis run from 41 to about 10 provider calls also reduces provider and orchestration pressure
+- rollback may temporarily use `async: false` for a short diagnostic call, but must not restore the deleted process-local review queue
+- the review-image queue remains a separate in-memory implementation and is intentionally deferred from this migration
+- Workflow setup/reference: https://workflow-sdk.dev/worlds/vercel and https://vercel.com/workflows
 
 If your Vercel project uses a different function mode/limit profile, increase route `maxDuration` and keep upstream provider timeouts slightly lower than that value.
 

@@ -41,6 +41,11 @@ import {
 } from "../i18n/server-prompts/review.ts";
 import { buildFallbackCalloutPrompt } from "../i18n/server-prompts/review-action.ts";
 import { readServerEnvValue } from "./env.ts";
+import {
+  isEmphasisEligibleBlock,
+  planEmphasisChunks,
+  type EmphasisChunkPlan
+} from "./emphasis-chunk-planner.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
@@ -51,9 +56,6 @@ const reviewRequestTimeoutMs = 280000;
 const geminiGroundedFactCheckModel = "gemini-3.5-flash-lite";
 const geminiGroundedFactCheckProfile = resolveModelProfile("gemini", geminiGroundedFactCheckModel);
 const groundedSourceResolveTimeoutMs = 4000;
-const emphasisChunkSize = 18;
-const emphasisChunkOverlap = 2;
-const emphasisChunkThreshold = 24;
 const emphasisChunkRetryAttempts = 3;
 const emphasisChunkRetryBaseDelayMs = 600;
 const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
@@ -307,6 +309,33 @@ export interface GenerateEditorialReviewOptions {
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
+export class EditorialReviewProviderError extends Error {
+  readonly code: "http_error" | "invalid_output" | "network_error" | "timeout" | "unknown";
+  readonly retryable: boolean;
+  readonly status?: number;
+  readonly requestId?: string;
+  readonly retryAfterMs?: number;
+
+  constructor(
+    message: string,
+    details: {
+      code: EditorialReviewProviderError["code"];
+      retryable: boolean;
+      status?: number;
+      requestId?: string;
+      retryAfterMs?: number;
+    }
+  ) {
+    super(message);
+    this.name = "EditorialReviewProviderError";
+    this.code = details.code;
+    this.retryable = details.retryable;
+    this.status = details.status;
+    this.requestId = details.requestId;
+    this.retryAfterMs = details.retryAfterMs;
+  }
+}
+
 export async function generateEditorialReview(
   request: EditorialReviewRequest,
   options: GenerateEditorialReviewOptions = {}
@@ -316,9 +345,16 @@ export async function generateEditorialReview(
   const stepSpec = getReviewStepSpec(stepId, locale);
   const reviewErrors = getReviewServiceErrors(locale);
   const runMode: EditorialStepRunMode = stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace";
-  const requestId = createPatchId("review");
-  const reviewSessionId = createPatchId("review-session");
-  const stepRunId = createPatchId(`step-run-${stepId}`);
+  const stableProviderRequestKey = request.providerRequestKey
+    ? normalizeProviderRequestKey(request.providerRequestKey)
+    : undefined;
+  const requestId = stableProviderRequestKey ? `review-${stableProviderRequestKey}` : createPatchId("review");
+  const reviewSessionId = stableProviderRequestKey
+    ? `review-session-${stableProviderRequestKey}`
+    : createPatchId("review-session");
+  const stepRunId = stableProviderRequestKey
+    ? `step-run-${stepId}-${stableProviderRequestKey}`
+    : createPatchId(`step-run-${stepId}`);
   const fetchImpl = options.fetchImpl ?? fetch;
   const readEnvValue = options.readEnvValue ?? readServerEnvValue;
   const sleepImpl = options.sleepImpl ?? defaultSleep;
@@ -374,7 +410,7 @@ export async function generateEditorialReview(
 
   try {
     const result =
-      stepId === "emphasis"
+      stepId === "emphasis" && !request.emphasisChunk
         ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
         : request.provider === "gemini"
           ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
@@ -406,6 +442,8 @@ export async function generateEditorialReview(
       rawOutput: result.rawOutput
     });
   } catch (error) {
+    const providerError = normalizeProviderErrorDetails(error);
+
     return buildEditorialReviewResponse({
       requestId,
       reviewSessionId,
@@ -425,9 +463,34 @@ export async function generateEditorialReview(
       filteredItemCountsByType: undefined,
       usedFallback: false,
       error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(request.provider)),
+      providerError,
       generatedAt: now()
     });
   }
+}
+
+function normalizeProviderErrorDetails(
+  error: unknown
+): EditorialReviewResponse["diagnostics"]["providerError"] {
+  if (error instanceof EditorialReviewProviderError) {
+    return {
+      code: error.code,
+      retryable: error.retryable,
+      status: error.status,
+      requestId: error.requestId,
+      retryAfterMs: error.retryAfterMs
+    };
+  }
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return { code: "timeout", retryable: true };
+  }
+
+  if (error instanceof TypeError) {
+    return { code: "network_error", retryable: true };
+  }
+
+  return undefined;
 }
 
 function buildEditorialReviewResponse(input: {
@@ -451,6 +514,7 @@ function buildEditorialReviewResponse(input: {
   generatedAt: string;
   rawOutput?: string;
   error?: string;
+  providerError?: EditorialReviewResponse["diagnostics"]["providerError"];
 }): EditorialReviewResponse {
   return {
     reviewSessionId: input.reviewSessionId,
@@ -479,7 +543,8 @@ function buildEditorialReviewResponse(input: {
       droppedItemCountsByReason: input.droppedItemCountsByReason,
       filteredItemCountsByType: input.filteredItemCountsByType,
       generatedAt: input.generatedAt,
-      rawOutput: input.rawOutput
+      rawOutput: input.rawOutput,
+      providerError: input.providerError
     }
   };
 }
@@ -573,7 +638,10 @@ async function createOpenAiEditorialReview(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`,
+        ...(request.providerRequestKey
+          ? { "X-Client-Request-Id": normalizeProviderRequestKey(request.providerRequestKey) }
+          : {})
       },
       body: JSON.stringify(body),
       signal: controller.signal
@@ -728,7 +796,7 @@ async function createGeminiGroundedFactCheck(
   const payload = (await response.json()) as GeminiResponsePayload;
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || reviewErrors.geminiGroundingUnavailable);
+    throw createHttpProviderError(response, payload.error?.message || reviewErrors.geminiGroundingUnavailable);
   }
 
   return payload;
@@ -986,6 +1054,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
   const stepInstruction = request.workflowStepPrompts?.[step.id]?.trim() || step.systemInstruction;
   const cardDensityGuidance = buildAutomaticCardDensityGuidance(request, step, locale);
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
+  const emphasisChunkScope = step.id === "emphasis" ? buildEmphasisChunkScopeGuidance(request, locale) : null;
   const factCheckStatuses = getOpenAiFactCheckStatusEnum(locale).join("|");
 
   return [
@@ -1025,6 +1094,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "emphasis" ? scaffold.emphasisNoRewrite : null,
     step.id === "emphasis" ? scaffold.emphasisBlockIdExact : null,
     emphasisCoverageGuidance,
+    emphasisChunkScope,
     step.id === "emphasis" ? scaffold.emphasisNotRareExceptions : null,
     step.id === "emphasis" ? scaffold.emphasisDenseFinalPass : null,
     step.id === "emphasis" ? scaffold.emphasisNoWholeSentences : null,
@@ -1044,6 +1114,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
   const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
+  const emphasisChunkScope = step.id === "emphasis" ? buildEmphasisChunkScopeGuidance(request, locale) : null;
   const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks, locale);
 
   return [
@@ -1076,6 +1147,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "emphasis" ? scaffold.emphasisBlockIdRequired : null,
     step.id === "emphasis" ? scaffold.emphasisOneItemPerParagraph : null,
     emphasisCoverageGuidance ? `${scaffold.emphasisCoveragePrefix}\n${emphasisCoverageGuidance}` : null,
+    emphasisChunkScope,
     step.id === "emphasis" ? scaffold.emphasisOccurrenceHint : null,
     step.id === "emphasis" ? scaffold.emphasisNotTooSparse : null,
     step.id === "emphasis" ? scaffold.emphasisSkipOnlyWhen : null,
@@ -1125,7 +1197,9 @@ async function createChunkedEmphasisReview(
   fetchImpl: FetchLike,
   sleepImpl: (ms: number) => Promise<void>
 ): Promise<EditorialReviewProviderResult> {
-  if (request.document.blocks.length <= emphasisChunkThreshold) {
+  const chunks = planEmphasisChunks(request.document.blocks);
+
+  if (chunks.length <= 1) {
     return request.provider === "gemini"
       ? createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
       : request.provider === "anthropic"
@@ -1133,7 +1207,6 @@ async function createChunkedEmphasisReview(
         : createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
   }
 
-  const chunks = createDocumentChunks(request.document.blocks, emphasisChunkSize, emphasisChunkOverlap);
   const blockIndexById = new Map(request.document.blocks.map((block, index) => [block.id, index]));
   const mergedRawItems: Array<Record<string, unknown>> = [];
   let providerUsed = `${request.provider}:chunked`;
@@ -1150,7 +1223,13 @@ async function createChunkedEmphasisReview(
     const chunkRequest: EditorialReviewRequest = {
       ...request,
       document: chunkDocument,
-      revision: deriveManuscriptRevisionState(chunkDocument)
+      revision: deriveManuscriptRevisionState(chunkDocument),
+      emphasisChunk: {
+        index: chunkIndex,
+        total: chunks.length,
+        coreBlockIds: chunk.coreBlockIds,
+        contextBlockIds: chunk.contextBlockIds
+      }
     };
     const chunkResult = await runChunkedEmphasisProviderRequestWithRetry({
       chunkRequest,
@@ -1181,6 +1260,7 @@ async function createChunkedEmphasisReview(
         item.stepId !== "emphasis"
         || item.anchor.blockIds.length !== 1
         || globalBlockStart === undefined
+        || !chunk.coreBlockIds.includes(blockId)
         || !item.emphasisTarget?.text
       ) {
         continue;
@@ -1313,26 +1393,6 @@ function defaultSleep(ms: number): Promise<void> {
   });
 }
 
-function createDocumentChunks(blocks: Block[], chunkSize: number, overlap: number): Array<{ start: number; end: number; blocks: Block[] }> {
-  if (blocks.length === 0) {
-    return [];
-  }
-
-  const chunks: Array<{ start: number; end: number; blocks: Block[] }> = [];
-  const step = Math.max(1, chunkSize - overlap);
-
-  for (let start = 0; start < blocks.length; start += step) {
-    const end = Math.min(blocks.length, start + chunkSize);
-    chunks.push({ start, end, blocks: blocks.slice(start, end) });
-
-    if (end >= blocks.length) {
-      break;
-    }
-  }
-
-  return chunks;
-}
-
 function dedupeChunkedEmphasisItems(items: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
   const preferredByBlockStart = new Map<number, Record<string, unknown>>();
 
@@ -1383,12 +1443,13 @@ function compareEmphasisCandidates(left: Record<string, unknown>, right: Record<
 
 function buildEmphasisCoverageGuidance(request: EditorialReviewRequest, locale: AppLocale): string {
   const scaffold = getReviewPromptScaffold(locale);
+  const coreBlockIds = request.emphasisChunk ? new Set(request.emphasisChunk.coreBlockIds) : null;
   const eligibleBlocks = request.document.blocks.filter((block) => {
-    if (block.type !== "paragraph" && block.type !== "heading") {
+    if (coreBlockIds && !coreBlockIds.has(block.id)) {
       return false;
     }
 
-    return getBlockText(block).replace(/\s+/g, " ").trim().length >= 40;
+    return isEmphasisEligibleBlock(block) && getBlockText(block).replace(/\s+/g, " ").trim().length >= 40;
   }).length;
 
   const { minShare, maxShare } = getEmphasisCoverageTargets();
@@ -1397,6 +1458,118 @@ function buildEmphasisCoverageGuidance(request: EditorialReviewRequest, locale: 
   const maxItems = Math.max(minItems, Math.round(eligibleBlocks * maxShare));
 
   return scaffold.emphasisCoverageTarget(minItems, maxItems, eligibleBlocks);
+}
+
+export function mergeDurableEmphasisChunkResponses(
+  request: EditorialReviewRequest,
+  chunks: EmphasisChunkPlan[],
+  responses: EditorialReviewResponse[],
+  generatedAt = new Date().toISOString()
+): EditorialReviewResponse {
+  const reviewSessionId = createPatchId("review-session");
+  const stepRunId = createPatchId("step-run-emphasis");
+  const requestId = createPatchId("review");
+  const blockIndexById = new Map(request.document.blocks.map((block, index) => [block.id, index]));
+  const mergedRawItems: Array<Record<string, unknown>> = [];
+  let droppedItemCount = 0;
+  let droppedByReason: Record<string, number> | undefined;
+  let filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> | undefined;
+
+  responses.forEach((response, chunkIndex) => {
+    const chunk = chunks[chunkIndex];
+    const coreIds = new Set(chunk.coreBlockIds);
+    droppedItemCount += response.diagnostics.droppedItemCount;
+    droppedByReason = mergeCountMaps(droppedByReason, response.diagnostics.droppedItemCountsByReason);
+    filteredByType = mergeRecommendationTypeCounts(filteredByType, response.diagnostics.filteredItemCountsByType);
+
+    for (const item of response.items) {
+      const blockId = item.anchor.blockIds[0];
+      const blockStart = blockId ? blockIndexById.get(blockId) : undefined;
+
+      if (
+        !blockId ||
+        !coreIds.has(blockId) ||
+        item.anchor.blockIds.length !== 1 ||
+        blockStart === undefined ||
+        !item.emphasisTarget?.text
+      ) {
+        continue;
+      }
+
+      mergedRawItems.push({
+        blockStart,
+        blockEnd: blockStart,
+        excerpt: item.anchor.excerpt,
+        priority: item.priority,
+        emphasisText: item.emphasisTarget.text,
+        occurrence: item.emphasisTarget.occurrence
+      });
+    }
+  });
+
+  const normalized = normalizeEditorialReviewItems({
+    document: request.document,
+    revision: request.revision,
+    reviewSessionId,
+    changeLevel: request.changeLevel,
+    stepId: "emphasis",
+    stepRunId,
+    items: dedupeChunkedEmphasisItems(mergedRawItems)
+  });
+  const rejectedFiltered = filterRejectedReviewIdeas(normalized.items, request.rejectedIdeas);
+  const normalizedDropReasons = mergeCountMaps(
+    normalized.droppedByReason,
+    rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
+  );
+
+  return buildEditorialReviewResponse({
+    requestId,
+    reviewSessionId,
+    stepId: "emphasis",
+    stepRunId,
+    runMode: request.runMode === "preserve" ? "preserve" : "replace",
+    requestedProvider: request.provider,
+    requestedModelId: request.modelId,
+    providerUsed: `${responses.at(-1)?.providerUsed ?? request.provider}:chunked`,
+    blockCount: request.document.blocks.length,
+    changeLevel: request.changeLevel,
+    items: rejectedFiltered.items,
+    factCheckRows: [],
+    droppedItemCount: droppedItemCount + normalized.droppedCount + rejectedFiltered.droppedCount,
+    droppedItemCountsByReason: mergeCountMaps(droppedByReason, normalizedDropReasons),
+    filteredItemCountsByType: filteredByType,
+    usedFallback: false,
+    generatedAt,
+    rawOutput: responses
+      .map((response, index) => response.diagnostics.rawOutput?.trim()
+        ? `chunk ${index + 1}/${responses.length}\n${response.diagnostics.rawOutput}`
+        : null)
+      .filter(Boolean)
+      .join("\n\n")
+  });
+}
+
+function buildEmphasisChunkScopeGuidance(request: EditorialReviewRequest, locale: AppLocale): string | null {
+  const chunk = request.emphasisChunk;
+
+  if (!chunk) {
+    return null;
+  }
+
+  const coreIds = chunk.coreBlockIds.join(", ");
+  const contextIds = chunk.contextBlockIds.join(", ");
+
+  if (locale === "en") {
+    return [
+      `Chunk ${chunk.index + 1}/${chunk.total}. Return emphasis items only for these core blockId values: ${coreIds}.`,
+      contextIds ? `These blocks are context only; never return items for them: ${contextIds}.` : null
+    ].filter(Boolean).join("\n");
+  }
+
+  return [
+    `Чанк ${chunk.index + 1}/${chunk.total}. Повертай акценти лише для основних blockId: ${coreIds}.`,
+    contextIds ? `Ці блоки подано лише як контекст; не повертай для них акценти: ${contextIds}.` : null
+  ].filter(Boolean).join("\n");
 }
 
 function getEmphasisCoverageTargets(): { minShare: number; maxShare: number } {
@@ -2142,7 +2315,7 @@ async function readProviderText(response: Response, locale: AppLocale): Promise<
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("OpenAI"));
+    throw createHttpProviderError(response, payload.error?.message || reviewErrors.providerUnavailable("OpenAI"));
   }
 
   if (typeof payload.output_text === "string" && payload.output_text.trim()) {
@@ -2152,7 +2325,10 @@ async function readProviderText(response: Response, locale: AppLocale): Promise<
   const content = payload.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n").trim();
 
   if (!content) {
-    throw new Error(reviewErrors.invalidProviderJson("OpenAI"));
+    throw new EditorialReviewProviderError(reviewErrors.invalidProviderJson("OpenAI"), {
+      code: "invalid_output",
+      retryable: false
+    });
   }
 
   return content;
@@ -2166,13 +2342,16 @@ async function readGeminiText(response: Response, locale: AppLocale): Promise<st
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("Gemini"));
+    throw createHttpProviderError(response, payload.error?.message || reviewErrors.providerUnavailable("Gemini"));
   }
 
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error(reviewErrors.invalidProviderJson("Gemini"));
+    throw new EditorialReviewProviderError(reviewErrors.invalidProviderJson("Gemini"), {
+      code: "invalid_output",
+      retryable: false
+    });
   }
 
   return text;
@@ -2186,16 +2365,66 @@ async function readAnthropicText(response: Response, locale: AppLocale): Promise
   };
 
   if (!response.ok) {
-    throw new Error(payload.error?.message || reviewErrors.providerUnavailable("Anthropic"));
+    throw createHttpProviderError(response, payload.error?.message || reviewErrors.providerUnavailable("Anthropic"));
   }
 
   const text = payload.content?.map((part) => part.text ?? "").join("\n").trim();
 
   if (!text) {
-    throw new Error(reviewErrors.invalidProviderJson("Anthropic"));
+    throw new EditorialReviewProviderError(reviewErrors.invalidProviderJson("Anthropic"), {
+      code: "invalid_output",
+      retryable: false
+    });
   }
 
   return text;
+}
+
+function createHttpProviderError(response: Response, message: string): EditorialReviewProviderError {
+  const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+  const requestId =
+    response.headers.get("x-request-id") ??
+    response.headers.get("request-id") ??
+    response.headers.get("x-goog-request-id") ??
+    response.headers.get("anthropic-request-id") ??
+    undefined;
+
+  return new EditorialReviewProviderError(message, {
+    code: "http_error",
+    retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+    status: response.status,
+    requestId,
+    retryAfterMs
+  });
+}
+
+function normalizeProviderRequestKey(value: string): string {
+  const normalized = value
+    .replace(/[^\x21-\x7E]/g, "-")
+    .replace(/[^A-Za-z0-9._:-]/g, "-")
+    .slice(0, 200);
+
+  return normalized || "workflow-step";
+}
+
+function parseRetryAfterMs(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const seconds = Number(value);
+
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const dateMs = Date.parse(value);
+
+  if (!Number.isFinite(dateMs)) {
+    return undefined;
+  }
+
+  return Math.max(0, dateMs - Date.now());
 }
 
 function providerDisplayName(provider: string): string {

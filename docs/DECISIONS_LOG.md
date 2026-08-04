@@ -612,3 +612,25 @@ Reason: the shared editor core is complex and stateful: block editing, diff appl
 Decision: when the user changes app language in Settings, the current manuscript content stays visible and is not replaced by another locale's saved draft. The app clears the locale-bound analysis layer instead: review outputs, spellcheck state, and other derived locale-specific AI artifacts. Custom prompt templates are stored separately per locale. In v1, English uses only `en-US`, and deployment env remains only the initial locale default; after the user's first explicit choice, the persisted active locale wins.
 
 Reason: this gives the editor a predictable switch. The document they are actively editing stays on screen, while language-specific tooling state does not silently survive across locales or overwrite another locale's configuration.
+
+## 2026-08-04
+
+### Editorial review uses managed durable workflows without an application database
+Decision: asynchronous `/api/edit/review` execution uses Vercel Workflow for durable run and step state. The application does not provision Postgres, Redis, or another job database. The browser persists only a signed run reference in the existing locale-scoped draft; recovery is guaranteed within the same browser profile, not across devices.
+
+Reason: the prior process-local Map lost jobs when POST and GET reached different serverless instances. Managed Workflow is the smallest operational boundary that continues after the initiating request, tab, or function disappears while preserving completed chunk checkpoints.
+
+### Review results are bound to immutable run identity
+Decision: a recovered result may be applied only when document revision, locale, step, provider, model, and run mode match the identity signed at start. Changed manuscripts keep the completed run as stale evidence and never auto-apply it. An exclusive same-origin Web Lock serializes start recheck and persistence; a short lease gives one tab polling ownership.
+
+Reason: persistence must not trade infrastructure failures for stale or duplicate editorial changes. The browser capability prevents another authenticated browser session from reading a guessed or leaked run ID.
+
+### Emphasis uses section-aware durable chunks
+Decision: `Акценти` targets 12,000-16,000 source characters and at most 80 eligible blocks per chunk, uses at most one context-only boundary block on each side, and executes chunks sequentially as independently retryable Workflow steps. Only core-block output is merged, in global document order.
+
+Reason: the old 18-block/two-overlap scheme produced 41 sequential provider calls for the representative 142,870-character manuscript. The new fixture produces about 10, reducing overload risk, repeated prompt cost, and boundary duplication while keeping deterministic coverage.
+
+### External provider billing remains at-least-once at the crash boundary
+Decision: Workflow step identity is stable across retries and is used for internal IDs plus OpenAI `X-Client-Request-Id` correlation. The product does not claim exactly-once provider billing because the active OpenAI Responses, Gemini generateContent, and Anthropic Messages contracts do not expose a documented deduplication guarantee.
+
+Reason: a worker can fail after a provider accepts a request but before Workflow commits the returned step result. Unsupported idempotency headers would create false confidence; the honest boundary is deterministic application merge and provider request correlation.

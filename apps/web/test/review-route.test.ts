@@ -4,7 +4,6 @@ import { AUTH_COOKIE_NAME, createSessionToken } from "../lib/auth/password-auth.
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
-import { createQueuedEditorialReviewJob, processQueuedEditorialReviewJob } from "../lib/server/review-job-service.ts";
 import { GET, POST } from "../app/api/edit/review/route.ts";
 
 function createRequestBody(overrides: Partial<EditorialReviewRequest> = {}): EditorialReviewRequest {
@@ -54,11 +53,20 @@ test("review route returns provider error status while preserving requested step
     );
 
     assert.ok(response.status === 200 || response.status === 502);
-    const payload = (await response.json()) as { stepId: string; diagnostics?: { stepId?: string }; error?: string };
-    assert.equal(payload.stepId, "emphasis");
-    assert.equal(payload.diagnostics?.stepId, "emphasis");
+    const payload = (await response.json()) as {
+      kind: string;
+      run?: { stepId?: string };
+      error?: { message?: string };
+      result?: { stepId?: string; diagnostics?: { stepId?: string } };
+    };
+    assert.equal(payload.run?.stepId, "emphasis");
     if (response.status === 502) {
-      assert.match(payload.error ?? "", /API key/i);
+      assert.equal(payload.kind, "error");
+      assert.ok(payload.error?.message);
+    } else {
+      assert.equal(payload.kind, "result");
+      assert.equal(payload.result?.stepId, "emphasis");
+      assert.equal(payload.result?.diagnostics?.stepId, "emphasis");
     }
   } finally {
     if (previousPassword === undefined) {
@@ -69,7 +77,7 @@ test("review route returns provider error status while preserving requested step
   }
 });
 
-test("review route starts an async job by default", async () => {
+test("review route returns a discriminated invalid-request error", async () => {
   const previousPassword = process.env.APP_PASSWORD;
   process.env.APP_PASSWORD = "review-secret";
 
@@ -81,14 +89,15 @@ test("review route starts an async job by default", async () => {
           "content-type": "application/json",
           cookie: await createAuthCookie()
         },
-        body: JSON.stringify(createRequestBody())
+        body: "not-json"
       })
     );
 
-    assert.equal(response.status, 202);
-    const payload = (await response.json()) as { job?: { id?: string; status?: string } };
-    assert.ok(payload.job?.id);
-    assert.equal(payload.job.status, "queued");
+    assert.equal(response.status, 400);
+    const payload = (await response.json()) as { kind?: string; error?: { code?: string; message?: string } };
+    assert.equal(payload.kind, "error");
+    assert.equal(payload.error?.code, "invalid_request");
+    assert.ok(payload.error?.message);
   } finally {
     if (previousPassword === undefined) {
       delete process.env.APP_PASSWORD;
@@ -98,7 +107,7 @@ test("review route starts an async job by default", async () => {
   }
 });
 
-test("review route GET validates and returns job state", async () => {
+test("review route GET requires a run capability", async () => {
   const previousPassword = process.env.APP_PASSWORD;
   process.env.APP_PASSWORD = "review-secret";
 
@@ -109,32 +118,47 @@ test("review route GET validates and returns job state", async () => {
       })
     );
     assert.equal(missingIdResponse.status, 400);
+    const missingIdPayload = (await missingIdResponse.json()) as { kind?: string; error?: { code?: string } };
+    assert.equal(missingIdPayload.kind, "error");
+    assert.equal(missingIdPayload.error?.code, "invalid_request");
 
-    const missingJobResponse = await GET(
-      new Request("http://localhost/api/edit/review?jobId=missing-job&locale=en", {
-        headers: { cookie: await createAuthCookie() }
+    const deniedResponse = await GET(
+      new Request("http://localhost/api/edit/review?runId=missing-run&locale=en", {
+        headers: {
+          cookie: await createAuthCookie(),
+          "x-review-run-capability": "invalid"
+        }
       })
     );
-    assert.equal(missingJobResponse.status, 404);
-    const missingJobPayload = (await missingJobResponse.json()) as { error?: string };
-    assert.match(missingJobPayload.error ?? "", /not found or expired/i);
+    assert.equal(deniedResponse.status, 403);
+    const deniedPayload = (await deniedResponse.json()) as { kind?: string; error?: { code?: string; message?: string } };
+    assert.equal(deniedPayload.kind, "error");
+    assert.equal(deniedPayload.error?.code, "run_access_denied");
+    assert.match(deniedPayload.error?.message ?? "", /cannot be opened/i);
+  } finally {
+    if (previousPassword === undefined) {
+      delete process.env.APP_PASSWORD;
+    } else {
+      process.env.APP_PASSWORD = previousPassword;
+    }
+  }
+});
 
-    const job = createQueuedEditorialReviewJob();
-    await processQueuedEditorialReviewJob(job.id, createRequestBody({ provider: "openai", modelId: "gpt-5.6-luna", stepId: "clarity" }), {
-      readEnvValue: () => null,
-      now: () => "2026-05-12T12:00:00.000Z"
-    });
+test("review route GET returns authentication failures in the discriminated run contract", async () => {
+  const previousPassword = process.env.APP_PASSWORD;
+  process.env.APP_PASSWORD = "review-secret";
 
-    const completedJobResponse = await GET(
-      new Request(`http://localhost/api/edit/review?jobId=${encodeURIComponent(job.id)}`, {
-        headers: { cookie: await createAuthCookie() }
-      })
-    );
-    assert.equal(completedJobResponse.status, 502);
-    const completedPayload = (await completedJobResponse.json()) as { job?: { status?: string }; stepId?: string; error?: string };
-    assert.equal(completedPayload.job?.status, "completed");
-    assert.equal(completedPayload.stepId, "clarity");
-    assert.match(completedPayload.error ?? "", /Немає API key/i);
+  try {
+    const response = await GET(new Request("http://localhost/api/edit/review?runId=wrun_test"));
+    assert.equal(response.status, 401);
+    const payload = (await response.json()) as {
+      kind?: string;
+      error?: { code?: string; message?: string; retryable?: boolean };
+    };
+    assert.equal(payload.kind, "error");
+    assert.equal(payload.error?.code, "authentication_required");
+    assert.equal(payload.error?.retryable, false);
+    assert.ok(payload.error?.message);
   } finally {
     if (previousPassword === undefined) {
       delete process.env.APP_PASSWORD;

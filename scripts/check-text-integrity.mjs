@@ -19,6 +19,7 @@ const textExtensions = new Set([
   ".txt"
 ]);
 const ignoredDirectories = new Set([".git", "node_modules", ".next", ".tmp"]);
+const ignoredGeneratedPathPrefixes = ["apps/web/app/.well-known/workflow/"];
 const suspiciousPatterns = [
   { pattern: /\u00d0/u, label: "contains mojibake marker U+00D0" },
   { pattern: /\u00d1/u, label: "contains mojibake marker U+00D1" },
@@ -47,6 +48,11 @@ function scanDirectory(directoryPath) {
     }
 
     const fullPath = join(directoryPath, entry.name);
+    const entryRelativePath = relative(root, fullPath).replaceAll("\\", "/");
+
+    if (ignoredGeneratedPathPrefixes.some((prefix) => entryRelativePath === prefix.slice(0, -1) || entryRelativePath.startsWith(prefix))) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       scanDirectory(fullPath);

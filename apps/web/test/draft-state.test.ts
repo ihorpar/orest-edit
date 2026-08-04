@@ -2,6 +2,7 @@ import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  clearLocaleBoundEditorDraftState,
   EDITOR_DRAFT_STORAGE_KEY,
   readEditorDraftState,
   writeEditorDraftState,
@@ -68,6 +69,7 @@ function buildDraft(document: EditorDocument): PersistedEditorDraftState {
     activeReviewItemId: null,
     activeProposal: null,
     reviewImageAssets: {},
+    activeReviewRun: null,
     reviewComposer: { changeLevel: 3, additionalInstructions: "" }
   };
 }
@@ -125,4 +127,40 @@ test("writeEditorDraftState persists sanitized document text", () => {
   const parsed = JSON.parse(raw) as PersistedEditorDraftState;
   const paragraph = parsed.document.blocks[0];
   assert.equal(paragraph?.type === "paragraph" ? paragraph.content[0]?.text : "", "A B");
+});
+
+test("draft persistence round-trips and locale reset clears the durable review reference", () => {
+  installWindow();
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p-1", type: "paragraph", content: [{ text: "Текст рукопису" }] }]
+  };
+  const draft = buildDraft(document);
+  draft.activeReviewRun = {
+    version: 1,
+    capability: "signed-capability",
+    updatedAt: "2026-08-04T12:00:01.000Z",
+    stale: false,
+    run: {
+      runId: "wrun_test",
+      documentRevisionId: draft.revision.documentRevisionId,
+      stepId: "emphasis",
+      locale: "uk",
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      runMode: "replace",
+      createdAt: "2026-08-04T12:00:00.000Z",
+      updatedAt: "2026-08-04T12:00:01.000Z",
+      status: "running",
+      pollAfterMs: 1000,
+      progress: { completedChunks: 2, totalChunks: 10, attempt: 1 }
+    }
+  };
+
+  writeEditorDraftState(draft, "uk");
+  const restored = readEditorDraftState("uk");
+
+  assert.equal(restored?.activeReviewRun?.run.runId, "wrun_test");
+  assert.deepEqual(restored?.activeReviewRun?.run.progress, { completedChunks: 2, totalChunks: 10, attempt: 1 });
+  assert.equal(clearLocaleBoundEditorDraftState(restored!).activeReviewRun, null);
 });

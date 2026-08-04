@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-Date: 2026-06-29
+Date: 2026-08-04
 Status: Active handoff
 
 ## What exists now
@@ -38,9 +38,11 @@ Status: Active handoff
 - Whole-text review anchors resolve by block IDs and block fingerprints
 - Whole-text review prompt assembly now preserves explicit image markers in document lines (`[image] alt: ...; caption: ...`) instead of flattening image blocks into plain text
 - `/editor` now renders a unified step workspace shell with manuscript + draggable resizer + flyout review drawer + icon-first mini-hub (Lucide) for 8-step navigation
-- `/api/edit/review` is now step-aware and job-backed by default: request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, optional `factCheckRows`, and optional in-memory `job` metadata; direct synchronous calls remain available with `async: false`
+- `/api/edit/review` is step-aware and starts a durable Vercel Workflow run by default; request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, optional `factCheckRows`, and discriminated `run` / `result` / `error` envelopes; direct synchronous calls remain available with `async: false` for diagnostics
 - Long workflow reviews now use a 300-second Vercel route duration with an internal provider abort below the platform limit, so slow LLM analysis can return a clean app error instead of a hard `FUNCTION_INVOCATION_TIMEOUT`
-- Review jobs use the same lightweight in-memory server pattern as image jobs; this avoids new infrastructure for v1, but a job can be lost if the serverless instance is recycled, in which case the UI asks the editor to rerun the step
+- Editorial review no longer uses process-local job state. Workflow checkpoints survive function recycling and browser closure; the locale draft stores only the signed run reference needed for same-browser recovery
+- Same-origin tabs serialize review starts with a Web Lock and hand polling ownership over with a short localStorage lease; recovered results are accepted only for the exact revision, locale, step, provider/model, and run mode
+- `Акценти` now plans section-aware chunks at 12,000-16,000 source characters and at most 80 eligible blocks. The representative 142,870-character/approximately 650-block fixture produces about 10 provider chunks instead of 41
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, and the persisted `final_editing` step now shown as `Власний запит`
 - The old visible `Фінальна редактура` stage is replaced by `Власний запит`; it requires an editor instruction and can generate all executable recommendation card types while keeping the internal `final_editing` id for draft/history compatibility
 - The visible `Глибина змін` selector has been removed from workflow settings; review-card prompts use automatic soft density guidance derived from manuscript size instead of a user-selected 1-5 level

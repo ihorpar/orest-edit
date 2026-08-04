@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import { generateEditorialReview } from "../lib/server/review-service.ts";
+import { planEmphasisChunks } from "../lib/server/emphasis-chunk-planner.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 
@@ -39,6 +40,69 @@ test("generateEditorialReview returns an explicit error without API key", async 
   assert.equal(response.items.length, 0);
   assert.match(response.error ?? "", /Немає API key/i);
   assert.equal(response.diagnostics.blockCount, 2);
+});
+
+test("generateEditorialReview preserves typed provider HTTP failure details", async () => {
+  const response = await generateEditorialReview(
+    createRequest({ stepId: "clarity", apiKey: "test-key" }),
+    {
+      fetchImpl: async () => new Response(
+        JSON.stringify({ error: { message: "Provider is busy" } }),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "3",
+            "x-request-id": "provider-request-1"
+          }
+        }
+      ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.error, "Provider is busy");
+  assert.deepEqual(response.diagnostics.providerError, {
+    code: "http_error",
+    retryable: true,
+    status: 429,
+    requestId: "provider-request-1",
+    retryAfterMs: 3000
+  });
+});
+
+test("generateEditorialReview preserves grounded Gemini HTTP failure details", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      provider: "gemini",
+      modelId: "gemini-3.6-flash",
+      stepId: "fact_check",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => new Response(
+        JSON.stringify({ error: { message: "Grounding overloaded" } }),
+        {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "2",
+            "x-goog-request-id": "gemini-grounding-1"
+          }
+        }
+      ),
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.error, "Grounding overloaded");
+  assert.deepEqual(response.diagnostics.providerError, {
+    code: "http_error",
+    retryable: true,
+    status: 503,
+    requestId: "gemini-grounding-1",
+    retryAfterMs: 2000
+  });
 });
 
 test("generateEditorialReview injects strict diagnostics rubric into provider prompt", async () => {
@@ -560,9 +624,10 @@ test("generateEditorialReview chunks large emphasis runs and merges global ancho
     blocks: Array.from({ length: 40 }, (_, index) => ({
       id: `p${index + 1}`,
       type: "paragraph" as const,
-      content: [{ text: `Абзац ${index + 1} містить ключову тезу для діагонального читання.` }]
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для діагонального читання. `.repeat(20) }]
     }))
   };
+  const chunks = planEmphasisChunks(document.blocks);
   let requestCount = 0;
 
   const response = await generateEditorialReview(
@@ -581,7 +646,7 @@ test("generateEditorialReview chunks large emphasis runs and merges global ancho
             output_text: JSON.stringify({
               items: [
                 {
-                  blockId: `p${1 + (requestCount - 1) * 16}`,
+                  blockId: chunks[requestCount - 1].coreBlockIds[0],
                   excerpt: "тест",
                   priority: "medium",
                   emphasisText: "ключову тезу"
@@ -596,14 +661,68 @@ test("generateEditorialReview chunks large emphasis runs and merges global ancho
     }
   );
 
-  assert.equal(requestCount, 3);
+  assert.equal(requestCount, chunks.length);
   assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "emphasis");
-  assert.equal(response.items.length, 3);
+  assert.equal(response.items.length, chunks.length);
   assert.deepEqual(
     response.items.map((item) => item.anchor.blockIds[0]),
-    ["p1", "p17", "p33"]
+    chunks.map((chunk) => chunk.coreBlockIds[0])
   );
+});
+
+test("generateEditorialReview executes a workflow-owned emphasis chunk exactly once with a stable request identity", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: Array.from({ length: 40 }, (_, index) => ({
+      id: `p${index + 1}`,
+      type: "paragraph" as const,
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для одного workflow-чанка. `.repeat(20) }]
+    }))
+  };
+  let requestCount = 0;
+  let clientRequestId: string | null = null;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "emphasis",
+      apiKey: "test-key",
+      emphasisChunk: {
+        index: 0,
+        total: 1,
+        coreBlockIds: document.blocks.map((block) => block.id),
+        contextBlockIds: []
+      },
+      providerRequestKey: "step_stable-123"
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestCount += 1;
+        clientRequestId = new Headers(init?.headers).get("x-client-request-id");
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [{
+                blockId: "p1",
+                excerpt: "тест",
+                priority: "medium",
+                emphasisText: "ключову тезу"
+              }]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(requestCount, 1);
+  assert.equal(clientRequestId, "step_stable-123");
+  assert.equal(response.stepRunId, "step-run-emphasis-step_stable-123");
+  assert.equal(response.items.length, 1);
 });
 
 test("generateEditorialReview retries transient chunked emphasis fetch failures", async () => {
@@ -612,9 +731,10 @@ test("generateEditorialReview retries transient chunked emphasis fetch failures"
     blocks: Array.from({ length: 30 }, (_, index) => ({
       id: `p${index + 1}`,
       type: "paragraph" as const,
-      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту повторних спроб у кроці акцентів.` }]
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту повторних спроб у кроці акцентів. `.repeat(20) }]
     }))
   };
+  const chunks = planEmphasisChunks(document.blocks);
   let requestCount = 0;
   let sleepCalls = 0;
 
@@ -633,7 +753,8 @@ test("generateEditorialReview retries transient chunked emphasis fetch failures"
           throw new TypeError("Failed to fetch");
         }
 
-        const blockId = requestCount <= 1 ? "p1" : "p17";
+        const successfulChunkIndex = requestCount === 1 ? 0 : requestCount - 2;
+        const blockId = chunks[successfulChunkIndex].coreBlockIds[0];
         return new Response(
           JSON.stringify({
             output_text: JSON.stringify({
@@ -657,12 +778,12 @@ test("generateEditorialReview retries transient chunked emphasis fetch failures"
     }
   );
 
-  assert.equal(requestCount, 3);
+  assert.equal(requestCount, chunks.length + 1);
   assert.equal(sleepCalls, 1);
   assert.equal(response.error, undefined);
   assert.deepEqual(
     response.items.map((item) => item.anchor.blockIds[0]),
-    ["p1", "p17"]
+    chunks.map((chunk) => chunk.coreBlockIds[0])
   );
 });
 
@@ -672,9 +793,10 @@ test("generateEditorialReview does not retry invalid chunked emphasis output", a
     blocks: Array.from({ length: 30 }, (_, index) => ({
       id: `p${index + 1}`,
       type: "paragraph" as const,
-      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту помилки схеми акцентів.` }]
+      content: [{ text: `Абзац ${index + 1} містить ключову тезу для тесту помилки схеми акцентів. `.repeat(20) }]
     }))
   };
+  const chunks = planEmphasisChunks(document.blocks);
   let requestCount = 0;
   let sleepCalls = 0;
 
@@ -710,12 +832,12 @@ test("generateEditorialReview does not retry invalid chunked emphasis output", a
     }
   );
 
-  assert.equal(requestCount, 2);
+  assert.equal(requestCount, chunks.length);
   assert.equal(sleepCalls, 0);
   assert.equal(response.error, undefined);
   assert.equal(response.items.length, 0);
-  assert.equal(response.diagnostics.droppedItemCount, 2);
-  assert.equal(response.diagnostics.droppedItemCountsByReason?.missing_required_fields, 2);
+  assert.equal(response.diagnostics.droppedItemCount, chunks.length);
+  assert.equal(response.diagnostics.droppedItemCountsByReason?.missing_required_fields, chunks.length);
 });
 
 test("generateEditorialReview repairs emphasis anchor when blockId is wrong but phrase is unique", async () => {

@@ -6,6 +6,7 @@ import type {
   EditorialFactCheckRow,
   EditorialReviewDiagnostics,
   EditorialReviewItem,
+  EditorialReviewRunSnapshot,
   EditorialReviewStepId,
   EditorialStepFeedbackMap,
   EditorialStepRunHistory,
@@ -15,7 +16,12 @@ import type {
   ReviewActionProposal,
   WholeTextChangeLevel
 } from "./review-contract";
-import { createDefaultStepFeedbackMap, createDefaultStepRunModeMap, createEmptyStepRunHistory } from "./review-contract";
+import {
+  createDefaultStepFeedbackMap,
+  createDefaultStepRunModeMap,
+  createEmptyStepRunHistory,
+  isEditorialReviewRunSnapshot
+} from "./review-contract";
 import type { RequestFeedback, RequestFeedbackTone } from "./workflow-ui";
 import {
   getEditorDraftStorageKey,
@@ -53,6 +59,14 @@ export interface PersistedHistoryItem {
   message: string;
 }
 
+export interface PersistedActiveReviewRun {
+  version: 1;
+  run: EditorialReviewRunSnapshot;
+  capability: string;
+  updatedAt: string;
+  stale: boolean;
+}
+
 export interface PersistedEditorDraftState {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -75,6 +89,7 @@ export interface PersistedEditorDraftState {
   activeReviewItemId: string | null;
   activeProposal: ReviewActionProposal | null;
   reviewImageAssets: Record<string, GeneratedReviewImageAsset>;
+  activeReviewRun: PersistedActiveReviewRun | null;
   reviewComposer: {
     changeLevel: WholeTextChangeLevel;
     additionalInstructions: string;
@@ -131,7 +146,8 @@ export function readEditorDraftState(locale: AppLocale = "uk"): PersistedEditorD
       stepRunHistory: coerceStepRunHistory(parsed.stepRunHistory, defaultRunHistory),
       stepFeedback: coerceStepFeedback(parsed.stepFeedback, defaultFeedback),
       stepRunModeByStep: coerceStepRunModes(parsed.stepRunModeByStep, defaultRunModes),
-      compareHistory: Array.isArray(parsed.compareHistory) ? parsed.compareHistory : []
+      compareHistory: Array.isArray(parsed.compareHistory) ? parsed.compareHistory : [],
+      activeReviewRun: coerceActiveReviewRun(parsed.activeReviewRun)
     };
   } catch {
     return null;
@@ -148,6 +164,20 @@ export function writeEditorDraftState(state: PersistedEditorDraftState, locale: 
   } catch (error) {
     console.warn("Не вдалося зберегти editor draft у localStorage.", error);
   }
+}
+
+export function writeEditorActiveReviewRun(
+  activeReviewRun: PersistedActiveReviewRun | null,
+  locale: AppLocale = "uk"
+): boolean {
+  const current = readEditorDraftState(locale);
+
+  if (!current) {
+    return false;
+  }
+
+  writeEditorDraftState({ ...current, activeReviewRun }, locale);
+  return true;
 }
 
 export function clearEditorDraftState(locale: AppLocale = "uk") {
@@ -178,7 +208,8 @@ export function clearLocaleBoundEditorDraftState(state: PersistedEditorDraftStat
     feedback: null,
     activeReviewItemId: null,
     activeProposal: null,
-    reviewImageAssets: {}
+    reviewImageAssets: {},
+    activeReviewRun: null
   };
 }
 
@@ -209,6 +240,33 @@ function isStepId(value: unknown): value is PersistedWorkflowStepId {
     value === "spellcheck" ||
     value === "final_editing"
   );
+}
+
+function coerceActiveReviewRun(value: unknown): PersistedActiveReviewRun | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Partial<PersistedActiveReviewRun>;
+  const run = record.run as Partial<EditorialReviewRunSnapshot> | undefined;
+
+  if (
+    record.version !== 1 ||
+    typeof record.capability !== "string" ||
+    !record.capability.trim() ||
+    typeof record.updatedAt !== "string" ||
+    !isEditorialReviewRunSnapshot(run)
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    run,
+    capability: record.capability,
+    updatedAt: record.updatedAt,
+    stale: record.stale === true
+  };
 }
 
 function coerceStepRunHistory(value: unknown, fallback: EditorialStepRunHistory): EditorialStepRunHistory {

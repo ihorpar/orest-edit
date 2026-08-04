@@ -159,10 +159,10 @@ const editorUk = {
     clarifyLocalAction: "Уточніть, що саме зробити: правка, врізка чи візуал.",
     localActionRunFailed: "Не вдалося виконати локальну дію.",
     runDiagnosticsFirst: "Спочатку запустіть діагностику, щоб дати контекст для наступних кроків.",
-    reviewFailed: "Не вдалося запустити review.",
-    reviewJobInvalid: "Сервер повернув некоректний стан review job.",
-    reviewJobFailed: "Review job завершився з помилкою. Запустіть крок ще раз.",
-    reviewJobReadFailed: "Не вдалося прочитати стан review job.",
+    reviewFailed: "Не вдалося запустити перевірку.",
+    reviewJobInvalid: "Сервер повернув некоректний стан перевірки.",
+    reviewJobFailed: "Перевірка завершилася з помилкою. Запустіть крок ще раз.",
+    reviewJobReadFailed: "Не вдалося прочитати стан перевірки.",
     selectParagraphsManual: "Оберіть один або кілька абзаців для ручної генерації.",
     editApplied: "Правку застосовано.",
     recommendationStale: "Ця рекомендація застаріла після змін структури. Запустіть аналіз кроку повторно.",
@@ -536,12 +536,18 @@ const editorUk = {
     emphasisPrepared: (count: number) => `Підготовлено ${count} акцентів для inline-погодження.`,
     noEmphasisFound: "ШІ не знайшов доречних акцентів.",
     recommendationsReady: "Підготовлено рекомендації для поточного етапу",
-    reviewFetchFailed: "Не вдалося отримати review.",
-    reviewJobWrongLocale: "Review job було створено для іншої мови застосунку. Запустіть крок ще раз.",
-    reviewJobInvalid: "Сервер повернув некоректний стан review job.",
-    reviewJobReadFailed: "Не вдалося прочитати стан review job.",
-    reviewJobFailed: "Review job завершився з помилкою. Запустіть крок ще раз.",
-    reviewRunFailed: "Не вдалося запустити review."
+    reviewFetchFailed: "Не вдалося отримати результат перевірки.",
+    reviewJobWrongLocale: "Перевірку було створено для іншої мови застосунку. Запустіть крок ще раз.",
+    reviewJobInvalid: "Сервер повернув некоректний стан перевірки.",
+    reviewJobReadFailed: "Не вдалося прочитати стан перевірки.",
+    reviewJobFailed: "Перевірка завершилася з помилкою. Запустіть крок ще раз.",
+    reviewRunFailed: "Не вдалося запустити перевірку.",
+    reviewRunResuming: "Відновлюємо незавершену перевірку…",
+    reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
+      retrying
+        ? `Акценти: повторна спроба ${attempt ?? 1}, готово ${completed} із ${total} чанків.`
+        : `Акценти: готово ${completed} із ${total} чанків.`,
+    reviewRunStale: "Перевірку завершено для попередньої версії рукопису. Результат збережено, але не застосовано."
   },
   patchFeedback: {
     safeModeDraft: "Швидку правку підготовлено в безпечному режимі. Перевірте зміни перед застосуванням.",

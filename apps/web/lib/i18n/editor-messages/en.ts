@@ -160,9 +160,9 @@ const editorEn = {
     localActionRunFailed: "Could not run local action.",
     runDiagnosticsFirst: "Run diagnostics first to give context for later steps.",
     reviewFailed: "Could not start review.",
-    reviewJobInvalid: "Server returned invalid review job state.",
-    reviewJobFailed: "Review job failed. Run the step again.",
-    reviewJobReadFailed: "Could not read review job state.",
+    reviewJobInvalid: "Server returned an invalid review run state.",
+    reviewJobFailed: "Review run failed. Run the step again.",
+    reviewJobReadFailed: "Could not read review run state.",
     selectParagraphsManual: "Select paragraphs for manual generation.",
     editApplied: "Edit applied.",
     recommendationStale: "Recommendation is stale after structure changes. Re-run the step analysis.",
@@ -534,11 +534,17 @@ const editorEn = {
     noEmphasisFound: "AI found no suitable emphasis.",
     recommendationsReady: "Recommendations prepared for this step",
     reviewFetchFailed: "Could not fetch review.",
-    reviewJobWrongLocale: "Review job was created for another app language. Run the step again.",
-    reviewJobInvalid: "Server returned invalid review job state.",
-    reviewJobReadFailed: "Could not read review job state.",
-    reviewJobFailed: "Review job failed. Run the step again.",
-    reviewRunFailed: "Could not start review."
+    reviewJobWrongLocale: "Review run was created for another app language. Run the step again.",
+    reviewJobInvalid: "Server returned an invalid review run state.",
+    reviewJobReadFailed: "Could not read review run state.",
+    reviewJobFailed: "Review run failed. Run the step again.",
+    reviewRunFailed: "Could not start review.",
+    reviewRunResuming: "Resuming the unfinished review…",
+    reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
+      retrying
+        ? `Emphasis: retry ${attempt ?? 1}, ${completed} of ${total} chunks complete.`
+        : `Emphasis: ${completed} of ${total} chunks complete.`,
+    reviewRunStale: "The review completed for an older manuscript revision. Its result was kept but not applied."
   },
   patchFeedback: {
     safeModeDraft: "Quick edit prepared in safe mode. Review changes before applying.",

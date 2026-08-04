@@ -1,6 +1,10 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { getRun, start, type Run } from "workflow/api";
 import {
-  type EditorialReviewJobResponse,
+  type EditorialReviewRunApiResponse,
+  type EditorialReviewRunIdentity,
+  type EditorialReviewRunProgress,
+  type EditorialReviewRunSnapshot,
   normalizeRejectedReviewIdeas,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
@@ -11,12 +15,16 @@ import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/sett
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
 import {
-  buildEditorialReviewJobResponse,
-  createQueuedEditorialReviewJob,
-  processQueuedEditorialReviewJob,
-  readEditorialReviewJob
-} from "../../../../lib/server/review-job-service";
+  editorialReviewWorkflow,
+  parseEditorialReviewWorkflowFailure
+} from "../../../../lib/server/editorial-review-workflow";
+import {
+  assertReviewRunCapabilityConfigured,
+  createReviewRunCapability,
+  verifyReviewRunCapability
+} from "../../../../lib/server/review-run-capability";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
+import { logEditorialReviewEvent } from "../../../../lib/server/review-observability";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 import { getApiErrors, getDefaultAppLocale, resolveQueryLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 
@@ -28,54 +36,143 @@ export async function GET(request: Request) {
   const authFailure = await requireApiSession(request);
 
   if (authFailure) {
-    return authFailure;
+    return normalizeReviewAuthFailure(authFailure);
   }
 
   const { searchParams } = new URL(request.url);
-  const jobId = searchParams.get("jobId")?.trim();
+  const runId = searchParams.get("runId")?.trim();
+  const capability = request.headers.get("x-review-run-capability")?.trim();
   const errors = getApiErrors(resolveQueryLocale(searchParams));
 
-  if (!jobId) {
-    return NextResponse.json<EditorialReviewJobResponse>(
-      {
-        job: buildMissingEditorialReviewJob(),
-        error: errors.jobIdRequired
-      },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
-    );
+  if (!runId || !capability) {
+    return jsonRunError("invalid_request", errors.jobIdRequired, false, 400);
   }
 
-  const job = readEditorialReviewJob(jobId);
+  let identity: EditorialReviewRunIdentity;
 
-  if (!job) {
-    return NextResponse.json<EditorialReviewJobResponse>(
-      {
-        job: buildMissingEditorialReviewJob(jobId),
-        error: errors.reviewJobNotFound
-      },
-      { status: 404, headers: { "Cache-Control": "no-store" } }
-    );
+  try {
+    const verified = await verifyReviewRunCapability(capability, runId);
+
+    if (!verified) {
+      return jsonRunError("run_access_denied", resolveRunMessage(searchParams, "accessDenied"), false, 403);
+    }
+
+    identity = verified;
+  } catch (error) {
+    return jsonRunError("workflow_unavailable", toErrorMessage(error), false, 503);
   }
 
-  const payload = buildEditorialReviewJobResponse(job);
-  const status =
-    job.status === "failed"
-      ? 500
-      : job.status === "completed" && "error" in payload && payload.error
-        ? 502
-        : 200;
+  try {
+    const run = getRun<EditorialReviewResponse>(runId);
 
-  return NextResponse.json(payload, {
-    status,
-    headers: { "Cache-Control": "no-store" }
-  });
+    if (!(await run.exists)) {
+      return jsonRunError("run_not_found", resolveRunMessage(searchParams, "notFound"), false, 404);
+    }
+
+    const status = await run.status;
+    const snapshot = await buildRunSnapshot(identity, run, status);
+
+    if (status === "completed") {
+      const result = await run.returnValue;
+
+      if (result.error) {
+        logEditorialReviewEvent("run_provider_failed", {
+          runId,
+          requestId: result.diagnostics.requestId,
+          step: identity.stepId,
+          provider: identity.provider,
+          model: identity.modelId,
+          providerStatus: result.diagnostics.providerError?.status,
+          providerRequestId: result.diagnostics.providerError?.requestId
+        }, "error");
+        return NextResponse.json<EditorialReviewRunApiResponse>(
+          {
+            kind: "error",
+            run: snapshot,
+            error: {
+              code: "provider_failed",
+              message: result.error,
+              retryable: result.diagnostics.providerError?.retryable ?? false,
+              providerStatus: result.diagnostics.providerError?.status,
+              providerRequestId: result.diagnostics.providerError?.requestId,
+              retryAfterMs: result.diagnostics.providerError?.retryAfterMs
+            }
+          },
+          noStore(502)
+        );
+      }
+
+      logEditorialReviewEvent("run_completed", {
+        runId,
+        requestId: result.diagnostics.requestId,
+        step: identity.stepId,
+        provider: identity.provider,
+        model: identity.modelId,
+        returnedItems: result.items.length
+      });
+
+      return NextResponse.json<EditorialReviewRunApiResponse>(
+        { kind: "result", run: { ...snapshot, status: "completed" }, result },
+        noStore(200)
+      );
+    }
+
+    if (status === "failed") {
+      const failure = await readFailedRunError(run);
+      logEditorialReviewEvent("run_failed", {
+        runId,
+        step: identity.stepId,
+        provider: identity.provider,
+        model: identity.modelId,
+        providerStatus: failure.provider?.status,
+        providerRequestId: failure.provider?.requestId
+      }, "error");
+      return NextResponse.json<EditorialReviewRunApiResponse>(
+        {
+          kind: "error",
+          run: snapshot,
+          error: {
+            code: failure.provider ? "provider_failed" : "workflow_failed",
+            message: failure.message,
+            retryable: failure.provider?.retryable ?? false,
+            providerStatus: failure.provider?.status,
+            providerRequestId: failure.provider?.requestId,
+            retryAfterMs: failure.provider?.retryAfterMs
+          }
+        },
+        noStore(500)
+      );
+    }
+
+    if (status === "cancelled") {
+      return NextResponse.json<EditorialReviewRunApiResponse>(
+        {
+          kind: "error",
+          run: snapshot,
+          error: {
+            code: "run_cancelled",
+            message: resolveRunMessage(searchParams, "cancelled"),
+            retryable: false
+          }
+        },
+        noStore(409)
+      );
+    }
+
+    return NextResponse.json<EditorialReviewRunApiResponse>(
+      { kind: "run", run: snapshot, capability },
+      noStore(200)
+    );
+  } catch (error) {
+    return jsonRunError("workflow_unavailable", toErrorMessage(error), true, 503);
+  }
 }
 
 export async function POST(request: Request) {
   const authFailure = await requireApiSession(request);
 
   if (authFailure) {
-    return authFailure;
+    return normalizeReviewAuthFailure(authFailure);
   }
 
   let body: unknown;
@@ -85,115 +182,220 @@ export async function POST(request: Request) {
   } catch {
     const errors = getApiErrors(getDefaultAppLocale());
 
-    return NextResponse.json<EditorialReviewResponse>(
-      {
-        reviewSessionId: "review-session-invalid-json",
-        stepId: "diagnostics",
-        stepRunId: "step-run-invalid-json",
-        runMode: "replace",
-        items: [],
-        factCheckRows: [],
-        providerUsed: "invalid-request",
-        usedFallback: false,
-        error: errors.invalidRequestBody,
-        diagnostics: {
-          requestId: "review-invalid-json",
-          reviewSessionId: "review-session-invalid-json",
-          stepId: "diagnostics",
-          stepRunId: "step-run-invalid-json",
-          runMode: "replace",
-          requestedProvider: "unknown",
-          requestedModelId: "unknown",
-          blockCount: 0,
-          changeLevel: 5,
-          returnedItemCount: 0,
-          returnedFactCheckCount: 0,
-          droppedItemCount: 0,
-          generatedAt: new Date().toISOString()
-        }
-      },
-      { status: 400 }
-    );
+    return jsonRunError("invalid_request", errors.invalidRequestBody, false, 400);
   }
 
   const parsed = parseEditorialReviewRequest(body, getApiErrors(resolveRequestLocale(body)));
 
   if (!parsed.ok) {
-    return NextResponse.json<EditorialReviewResponse>(
-      {
-        reviewSessionId: "review-session-invalid-body",
-        stepId: "diagnostics",
-        stepRunId: "step-run-invalid-body",
-        runMode: "replace",
-        items: [],
-        factCheckRows: [],
-        providerUsed: "invalid-request",
-        usedFallback: false,
-        error: parsed.error,
-        diagnostics: {
-          requestId: "review-invalid-body",
-          reviewSessionId: "review-session-invalid-body",
-          stepId: "diagnostics",
-          stepRunId: "step-run-invalid-body",
-          runMode: "replace",
-          requestedProvider: "unknown",
-          requestedModelId: "unknown",
-          blockCount: 0,
-          changeLevel: 5,
-          returnedItemCount: 0,
-          returnedFactCheckCount: 0,
-          droppedItemCount: 0,
-          generatedAt: new Date().toISOString()
-        }
-      },
-      { status: 400 }
-    );
+    return jsonRunError("invalid_request", parsed.error, false, 400);
   }
 
   if (parsed.value.async !== false) {
-    const job = createQueuedEditorialReviewJob(parsed.value.locale);
+    try {
+      assertReviewRunCapabilityConfigured();
+      const run = await start(editorialReviewWorkflow, [{ request: parsed.value }]);
+      const createdAt = (await run.createdAt).toISOString();
+      const identity = buildRunIdentity(parsed.value, run.runId, createdAt);
+      const capability = await createReviewRunCapability(identity);
+      const snapshot = await buildRunSnapshot(identity, run, await run.status);
 
-    scheduleAfter(async () => {
-      try {
-        await processQueuedEditorialReviewJob(job.id, parsed.value);
-      } catch (error) {
-        console.error("Не вдалося завершити editorial review job.", error);
-      }
-    });
+      logEditorialReviewEvent("run_started", {
+        runId: run.runId,
+        step: identity.stepId,
+        provider: identity.provider,
+        model: identity.modelId,
+        runMode: identity.runMode,
+        documentRevisionId: identity.documentRevisionId
+      });
 
-    return NextResponse.json<EditorialReviewJobResponse>({ job }, { status: 202 });
+      return NextResponse.json<EditorialReviewRunApiResponse>(
+        { kind: "run", run: snapshot, capability },
+        noStore(202)
+      );
+    } catch (error) {
+      return jsonRunError("workflow_unavailable", toErrorMessage(error), true, 503);
+    }
   }
 
   const response = await generateEditorialReview(parsed.value);
   const status = response.providerUsed === "invalid-text" ? 400 : response.error ? 502 : 200;
+  const createdAt = response.diagnostics.generatedAt;
+  const identity = buildRunIdentity(parsed.value, `diagnostic-${response.stepRunId}`, createdAt);
+  const snapshot: EditorialReviewRunSnapshot & { status: "completed" } = {
+    ...identity,
+    status: "completed",
+    updatedAt: createdAt,
+    pollAfterMs: 0
+  };
 
-  return NextResponse.json<EditorialReviewResponse>(response, { status });
+  if (response.error) {
+    return NextResponse.json<EditorialReviewRunApiResponse>(
+      {
+        kind: "error",
+        run: snapshot,
+        error: {
+          code: "provider_failed",
+          message: response.error,
+          retryable: response.diagnostics.providerError?.retryable ?? false,
+          providerStatus: response.diagnostics.providerError?.status,
+          providerRequestId: response.diagnostics.providerError?.requestId,
+          retryAfterMs: response.diagnostics.providerError?.retryAfterMs
+        }
+      },
+      noStore(status)
+    );
+  }
+
+  return NextResponse.json<EditorialReviewRunApiResponse>(
+    { kind: "result", run: snapshot, result: response },
+    noStore(status)
+  );
 }
 
-function scheduleAfter(task: () => Promise<void>) {
+function buildRunIdentity(
+  request: EditorialReviewRequest,
+  runId: string,
+  createdAt: string
+): EditorialReviewRunIdentity {
+  const stepId = request.stepId ?? "diagnostics";
+
+  return {
+    runId,
+    documentRevisionId: request.revision.documentRevisionId,
+    stepId,
+    locale: request.locale ?? getDefaultAppLocale(),
+    provider: request.provider,
+    modelId: request.modelId,
+    runMode: stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace",
+    createdAt
+  };
+}
+
+async function buildRunSnapshot(
+  identity: EditorialReviewRunIdentity,
+  run: Run<EditorialReviewResponse>,
+  status: EditorialReviewRunSnapshot["status"]
+): Promise<EditorialReviewRunSnapshot> {
+  const updatedAt =
+    (status === "completed" || status === "failed" || status === "cancelled"
+      ? await run.completedAt
+      : await run.startedAt) ?? (await run.createdAt);
+
+  return {
+    ...identity,
+    status,
+    updatedAt: updatedAt.toISOString(),
+    pollAfterMs: status === "pending" ? 900 : status === "running" ? 2000 : 0,
+    progress: await readReviewProgress(run)
+  };
+}
+
+async function readFailedRunError(run: Run<EditorialReviewResponse>): Promise<{
+  message: string;
+  provider: ReturnType<typeof parseEditorialReviewWorkflowFailure>;
+}> {
   try {
-    after(task);
+    await run.returnValue;
   } catch (error) {
-    if (error instanceof Error && error.message.includes("outside a request scope")) {
-      void task();
-      return;
+    if (error && typeof error === "object" && "cause" in error) {
+      const cause = (error as { cause?: unknown }).cause;
+
+      if (cause instanceof Error && cause.message) {
+        return {
+          message: parseEditorialReviewWorkflowFailure(cause.message)?.message ?? cause.message,
+          provider: parseEditorialReviewWorkflowFailure(cause.message)
+        };
+      }
     }
 
-    throw error;
+    const message = toErrorMessage(error);
+    return { message: parseEditorialReviewWorkflowFailure(message)?.message ?? message, provider: parseEditorialReviewWorkflowFailure(message) };
+  }
+
+  return { message: "Workflow failed without an error message.", provider: null };
+}
+
+async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<EditorialReviewRunProgress | undefined> {
+  const stream = run.getReadable<EditorialReviewRunProgress>({ namespace: "review-progress" });
+  const tailIndex = await stream.getTailIndex();
+
+  if (tailIndex < 0) {
+    return undefined;
+  }
+
+  const reader = run.getReadable<EditorialReviewRunProgress>({
+    namespace: "review-progress",
+    startIndex: tailIndex
+  }).getReader();
+
+  try {
+    const { value } = await reader.read();
+    return value;
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
   }
 }
 
-function buildMissingEditorialReviewJob(id = "review-job-missing"): EditorialReviewJobResponse["job"] {
-  const timestamp = new Date().toISOString();
+function jsonRunError(
+  code: Extract<EditorialReviewRunApiResponse, { kind: "error" }>["error"]["code"],
+  message: string,
+  retryable: boolean,
+  status: number
+) {
+  return NextResponse.json<EditorialReviewRunApiResponse>(
+    { kind: "error", error: { code, message, retryable } },
+    noStore(status)
+  );
+}
 
-  return {
-    id,
-    status: "failed",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    expiresAt: timestamp,
-    pollAfterMs: 0
-  };
+async function normalizeReviewAuthFailure(response: NextResponse) {
+  let message = response.status === 401 ? "Authentication is required." : "Server authentication is unavailable.";
+
+  try {
+    const body = await response.clone().json() as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      message = body.error;
+    }
+  } catch {
+    // Preserve the explicit fallback message in the discriminated envelope.
+  }
+
+  return jsonRunError(
+    response.status === 401 ? "authentication_required" : "workflow_unavailable",
+    message,
+    response.status >= 500,
+    response.status
+  );
+}
+
+function noStore(status: number) {
+  return { status, headers: { "Cache-Control": "no-store" } };
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Workflow is unavailable.";
+}
+
+function resolveRunMessage(
+  searchParams: URLSearchParams,
+  key: "accessDenied" | "notFound" | "cancelled"
+): string {
+  const locale = resolveQueryLocale(searchParams);
+  const messages = locale === "en"
+    ? {
+        accessDenied: "This review run cannot be opened from this browser.",
+        notFound: "The review run was not found or is no longer retained.",
+        cancelled: "The review run was cancelled."
+      }
+    : {
+        accessDenied: "Цей запуск перевірки не можна відкрити в цьому браузері.",
+        notFound: "Запуск перевірки не знайдено або його дані вже не зберігаються.",
+        cancelled: "Запуск перевірки скасовано."
+      };
+
+  return messages[key];
 }
 
 function parseEditorialReviewRequest(

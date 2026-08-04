@@ -6,6 +6,7 @@ import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structur
 import {
   getEditorialRecommendationTypeLabel,
   getReviewParagraphRangeLabel,
+  isEditorialReviewRunApiResponse,
   normalizeEditorialReviewItems
 } from "../lib/editor/review-contract.ts";
 
@@ -19,6 +20,59 @@ function createDocument(): EditorDocument {
     ]
   };
 }
+
+test("isEditorialReviewRunApiResponse rejects malformed success envelopes", () => {
+  assert.equal(isEditorialReviewRunApiResponse({ kind: "result", result: {} }), false);
+  assert.equal(
+    isEditorialReviewRunApiResponse({
+      kind: "error",
+      error: { code: "provider_failed", message: "Provider failed", retryable: true }
+    }),
+    true
+  );
+  assert.equal(
+    isEditorialReviewRunApiResponse({
+      kind: "error",
+      error: { code: "provider_failed", message: "Provider failed", retryable: true },
+      run: { runId: 42 }
+    }),
+    false
+  );
+  const validRun = {
+    runId: "wrun_test",
+    documentRevisionId: "revision-1",
+    stepId: "emphasis",
+    locale: "uk",
+    provider: "openai",
+    modelId: "gpt-5.6-luna",
+    runMode: "replace",
+    createdAt: "2026-08-04T12:00:00.000Z",
+    updatedAt: "2026-08-04T12:00:01.000Z",
+    status: "completed",
+    pollAfterMs: 0
+  };
+  assert.equal(
+    isEditorialReviewRunApiResponse({
+      kind: "result",
+      run: validRun,
+      result: {
+        reviewSessionId: "session-1",
+        stepId: "emphasis",
+        stepRunId: "step-1",
+        runMode: "replace",
+        items: [null],
+        providerUsed: "openai",
+        usedFallback: false,
+        diagnostics: {
+          requestId: "request-1",
+          generatedAt: "2026-08-04T12:00:01.000Z",
+          droppedItemCount: 0
+        }
+      }
+    }),
+    false
+  );
+});
 
 test("normalizeEditorialReviewItems coerces legacy visual/callout values into the new taxonomy", () => {
   const document = createDocument();

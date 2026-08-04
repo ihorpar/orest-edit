@@ -136,6 +136,15 @@ export interface EditorialReviewRequest {
   /** Expertise text from stage 1 — fed into card generation in stage 2 */
   expertise?: string;
   rejectedIdeas?: RejectedReviewIdea[];
+  /** Server-internal scope for a durable emphasis chunk. */
+  emphasisChunk?: {
+    index: number;
+    total: number;
+    coreBlockIds: string[];
+    contextBlockIds: string[];
+  };
+  /** Stable server-internal identity reused when a durable provider step retries. */
+  providerRequestKey?: string;
 }
 
 export interface EditorialReviewItem {
@@ -206,6 +215,15 @@ export interface EditorialReviewDiagnostics {
   filteredItemCountsByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
   generatedAt: string;
   rawOutput?: string;
+  providerError?: EditorialReviewProviderErrorDetails;
+}
+
+export interface EditorialReviewProviderErrorDetails {
+  code: "http_error" | "invalid_output" | "network_error" | "timeout" | "unknown";
+  retryable: boolean;
+  status?: number;
+  requestId?: string;
+  retryAfterMs?: number;
 }
 
 export interface EditorialReviewResponse {
@@ -218,27 +236,246 @@ export interface EditorialReviewResponse {
   expertise?: string;
   providerUsed: string;
   usedFallback: boolean;
-  job?: EditorialReviewJob;
   error?: string;
   diagnostics: EditorialReviewDiagnostics;
 }
 
-export type EditorialReviewJobStatus = "queued" | "processing" | "completed" | "failed";
+export type EditorialReviewRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
-export interface EditorialReviewJob {
-  id: string;
-  locale?: AppLocale;
-  status: EditorialReviewJobStatus;
+export interface EditorialReviewRunIdentity {
+  runId: string;
+  documentRevisionId: string;
+  stepId: EditorialReviewStepId;
+  locale: AppLocale;
+  provider: string;
+  modelId: string;
+  runMode: EditorialStepRunMode;
   createdAt: string;
-  updatedAt: string;
-  expiresAt: string;
-  pollAfterMs: number;
 }
 
-export type EditorialReviewJobResponse = Partial<EditorialReviewResponse> & {
-  job: EditorialReviewJob;
-  error?: string;
-};
+export interface EditorialReviewRunProgress {
+  completedChunks: number;
+  totalChunks: number;
+  attempt?: number;
+  retryAt?: string;
+}
+
+export interface EditorialReviewRunSnapshot extends EditorialReviewRunIdentity {
+  status: EditorialReviewRunStatus;
+  updatedAt: string;
+  pollAfterMs: number;
+  progress?: EditorialReviewRunProgress;
+}
+
+export interface EditorialReviewRunError {
+  code:
+    | "invalid_request"
+    | "authentication_required"
+    | "run_access_denied"
+    | "run_not_found"
+    | "run_cancelled"
+    | "workflow_failed"
+    | "provider_failed"
+    | "workflow_unavailable";
+  message: string;
+  retryable: boolean;
+  providerStatus?: number;
+  providerRequestId?: string;
+  retryAfterMs?: number;
+}
+
+export type EditorialReviewRunApiResponse =
+  | {
+      kind: "run";
+      run: EditorialReviewRunSnapshot;
+      capability: string;
+    }
+  | {
+      kind: "result";
+      run: EditorialReviewRunSnapshot & { status: "completed" };
+      result: EditorialReviewResponse;
+    }
+  | {
+      kind: "error";
+      error: EditorialReviewRunError;
+      run?: EditorialReviewRunSnapshot;
+    };
+
+export function isEditorialReviewRunApiResponse(value: unknown): value is EditorialReviewRunApiResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (record.kind === "error") {
+    const error = record.error;
+    return Boolean(
+      error &&
+      typeof error === "object" &&
+      typeof (error as Record<string, unknown>).code === "string" &&
+      typeof (error as Record<string, unknown>).message === "string" &&
+      typeof (error as Record<string, unknown>).retryable === "boolean" &&
+      (record.run === undefined || isEditorialReviewRunSnapshot(record.run))
+    );
+  }
+
+  if (!isEditorialReviewRunSnapshot(record.run)) {
+    return false;
+  }
+
+  if (record.kind === "run") {
+    return typeof record.capability === "string" && record.capability.length > 0;
+  }
+
+  if (record.kind === "result") {
+    return record.run.status === "completed" && isEditorialReviewResponseShape(record.result);
+  }
+
+  return false;
+}
+
+export function isEditorialReviewRunSnapshot(value: unknown): value is EditorialReviewRunSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const run = value as Record<string, unknown>;
+  const progress = run.progress;
+  const validProgress = progress === undefined || (
+    progress !== null &&
+    typeof progress === "object" &&
+    typeof (progress as Record<string, unknown>).completedChunks === "number" &&
+    typeof (progress as Record<string, unknown>).totalChunks === "number" &&
+    ((progress as Record<string, unknown>).attempt === undefined || typeof (progress as Record<string, unknown>).attempt === "number") &&
+    ((progress as Record<string, unknown>).retryAt === undefined || typeof (progress as Record<string, unknown>).retryAt === "string")
+  );
+
+  return (
+    typeof run.runId === "string" &&
+    typeof run.documentRevisionId === "string" &&
+    typeof run.stepId === "string" &&
+    (run.locale === "uk" || run.locale === "en") &&
+    typeof run.provider === "string" &&
+    typeof run.modelId === "string" &&
+    (run.runMode === "replace" || run.runMode === "preserve") &&
+    typeof run.createdAt === "string" &&
+    typeof run.updatedAt === "string" &&
+    typeof run.pollAfterMs === "number" &&
+    (run.status === "pending" || run.status === "running" || run.status === "completed" || run.status === "failed" || run.status === "cancelled") &&
+    validProgress
+  );
+}
+
+function isEditorialReviewResponseShape(value: unknown): value is EditorialReviewResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const result = value as Record<string, unknown>;
+  const items = result.items;
+  const factCheckRows = result.factCheckRows;
+  return Boolean(
+    typeof result.reviewSessionId === "string" &&
+    isEditorialStepId(result.stepId) &&
+    typeof result.stepRunId === "string" &&
+    (result.runMode === "replace" || result.runMode === "preserve") &&
+    Array.isArray(items) && items.every(isEditorialReviewItemShape) &&
+    (factCheckRows === undefined || (Array.isArray(factCheckRows) && factCheckRows.every(isEditorialFactCheckRowShape))) &&
+    (result.expertise === undefined || typeof result.expertise === "string") &&
+    typeof result.providerUsed === "string" &&
+    typeof result.usedFallback === "boolean" &&
+    (result.error === undefined || typeof result.error === "string") &&
+    isEditorialReviewDiagnosticsShape(result.diagnostics)
+  );
+}
+
+function isEditorialReviewDiagnosticsShape(value: unknown): value is EditorialReviewDiagnostics {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const diagnostics = value as Record<string, unknown>;
+  return (
+    typeof diagnostics.requestId === "string" &&
+    typeof diagnostics.reviewSessionId === "string" &&
+    isEditorialStepId(diagnostics.stepId) &&
+    typeof diagnostics.stepRunId === "string" &&
+    (diagnostics.runMode === "replace" || diagnostics.runMode === "preserve") &&
+    typeof diagnostics.requestedProvider === "string" &&
+    typeof diagnostics.requestedModelId === "string" &&
+    typeof diagnostics.blockCount === "number" &&
+    typeof diagnostics.changeLevel === "number" &&
+    typeof diagnostics.returnedItemCount === "number" &&
+    typeof diagnostics.returnedFactCheckCount === "number" &&
+    typeof diagnostics.droppedItemCount === "number" &&
+    typeof diagnostics.generatedAt === "string"
+  );
+}
+
+function isEditorialReviewItemShape(value: unknown): value is EditorialReviewItem {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const item = value as Record<string, unknown>;
+  const anchor = item.anchor as Record<string, unknown> | undefined;
+  const range = anchor?.generationBlockRange as Record<string, unknown> | undefined;
+  const insertionPoint = item.insertionPoint as Record<string, unknown> | undefined;
+  const emphasisTarget = item.emphasisTarget as Record<string, unknown> | undefined;
+  return Boolean(
+    typeof item.id === "string" &&
+    typeof item.reviewSessionId === "string" &&
+    typeof item.documentRevisionId === "string" &&
+    typeof item.changeLevel === "number" &&
+    typeof item.title === "string" &&
+    typeof item.reason === "string" &&
+    typeof item.recommendation === "string" &&
+    (item.recommendationType === "rewrite" || item.recommendationType === "expand" || item.recommendationType === "simplify" ||
+      item.recommendationType === "list" || item.recommendationType === "subsection" || item.recommendationType === "callout" || item.recommendationType === "visual") &&
+    (item.suggestedAction === "rewrite_text" || item.suggestedAction === "insert_text" || item.suggestedAction === "prepare_callout" || item.suggestedAction === "prepare_visual") &&
+    (item.priority === "high" || item.priority === "medium" || item.priority === "low") &&
+    anchor &&
+    Array.isArray(anchor.blockIds) && anchor.blockIds.every((entry) => typeof entry === "string") &&
+    range && typeof range.start === "number" && typeof range.end === "number" &&
+    typeof anchor.excerpt === "string" && typeof anchor.fingerprint === "string" &&
+    insertionPoint &&
+    (insertionPoint.mode === "replace" || insertionPoint.mode === "before" || insertionPoint.mode === "after") &&
+    typeof insertionPoint.anchorBlockId === "string" &&
+    (item.status === "pending" || item.status === "preparing" || item.status === "ready" || item.status === "applied" || item.status === "dismissed" || item.status === "stale") &&
+    (emphasisTarget === undefined || (
+      typeof emphasisTarget.text === "string" &&
+      (emphasisTarget.occurrence === undefined || typeof emphasisTarget.occurrence === "number")
+    ))
+  );
+}
+
+function isEditorialFactCheckRowShape(value: unknown): value is EditorialFactCheckRow {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const row = value as Record<string, unknown>;
+  return Boolean(
+    typeof row.claim === "string" &&
+    (row.status === "ok" || row.status === "questionable" || row.status === "unsupported") &&
+    typeof row.explanation === "string" &&
+    Array.isArray(row.sources) &&
+    row.sources.every((source) => {
+      if (!source || typeof source !== "object") {
+        return false;
+      }
+      const entry = source as Record<string, unknown>;
+      return typeof entry.title === "string" && typeof entry.url === "string" && typeof entry.domain === "string";
+    })
+  );
+}
+
+function isEditorialStepId(value: unknown): value is EditorialReviewStepId {
+  return value === "diagnostics" || value === "fact_check" || value === "structure" || value === "clarity" ||
+    value === "interest" || value === "visuals" || value === "formatting" || value === "emphasis" ||
+    value === "final_editing";
+}
 
 export interface ReviewActionRequest {
   document: EditorDocument;
