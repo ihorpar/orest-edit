@@ -396,7 +396,7 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
     {
       id: "gpt-5.6-sol",
       label: "GPT-5.6 Sol",
-      description: "Найсильніший OpenAI-профіль (medium reasoning) для складного editorial review і точних локальних правок.",
+      description: "Найсильніша модель, але результати можуть бути повільними.",
       smartness: 10,
       priceTier: 4,
       openaiReasoningEffort: "medium"
@@ -404,15 +404,15 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
     {
       id: "gpt-5.6-luna",
       label: "GPT-5.6 Luna",
-      description: "Швидкий якісний OpenAI-профіль із high reasoning для складних локальних правок та editorial review.",
+      description: "Оптимальний баланс швидкості, якості та вартості. Рекомендовано для більшості редакторських завдань.",
       smartness: 8,
-      priceTier: 2,
+      priceTier: 1,
       openaiReasoningEffort: "high"
     },
     {
       id: "gpt-5.6-luna-low",
       label: "GPT-5.6 Luna (low)",
-      description: "Найдешевший OpenAI-профіль із low reasoning для легших правок та чернеткових проходів.",
+      description: "Швидка та розумна модель. Рекомендується для швидкого аналізу",
       smartness: 6,
       priceTier: 1,
       apiModelId: "gpt-5.6-luna",
@@ -440,17 +440,17 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
     {
       id: "gemini-3.6-flash",
       label: "Gemini 3.6 Flash",
-      description: "Новітня швидка модель Google з high thinking для editorial review і складніших правок.",
-      smartness: 9,
+      description: "Найрозумніша серед моделей Гугл. Добре працює з нюансами української науково-популярної мови.",
+      smartness: 8,
       priceTier: 2,
       geminiThinkingLevel: "high"
     },
     {
       id: "gemini-3.5-flash-lite",
       label: "Gemini 3.5 Flash-Lite",
-      description: "Дешевший production-орієнтований варіант з high thinking для повсякденних patch-запитів.",
+      description: "Швидка модель від Гугл.",
       smartness: 5,
-      priceTier: 1,
+      priceTier: 2,
       geminiThinkingLevel: "high"
     }
   ]
