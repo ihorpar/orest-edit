@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { BlockEditorSurface } from "../../components/editor/BlockEditorSurface";
 import { EditorialReviewCard } from "../../components/editor/EditorialReviewCard";
 import { FloatingComposerPanel } from "../../components/editor/FloatingComposerPanel";
+import { StructureOutlineTree } from "../../components/editor/StructureOutlineTree";
 import { TopBar } from "../../components/layout/TopBar";
 import { type RequestHistoryItem } from "../../components/layout/RightOperationsRail";
 import { StepReviewWorkspaceShell } from "../../components/layout/StepReviewWorkspaceShell";
@@ -63,6 +64,7 @@ import {
   resolveReviewItemSelection,
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
+import { buildStructureOutlineTree } from "../../lib/editor/structure-outline";
 import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
 import {
   createCompareHistoryEntry,
@@ -2923,6 +2925,28 @@ export default function EditorPage() {
     }
   }
 
+  function focusStructureOutlineExisting(blockId: string) {
+    setShowRecommendationStatusStrip(false);
+    setSelection(EMPTY_BLOCK_SELECTION);
+    setFocusedBlockId(blockId);
+    setActiveReviewItemId(null);
+    if (activeProposal?.kind === "subsection_prompt") {
+      setActiveProposal(null);
+    }
+    window.requestAnimationFrame(() => {
+      const element = window.document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+      element?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function focusStructureOutlineProposed(reviewItemId: string) {
+    const item = reviewItems.find((entry) => entry.id === reviewItemId);
+    if (!item) {
+      return;
+    }
+    focusReviewItem(item);
+  }
+
   function resetActiveExecutionLane() {
     setActiveReviewItemId(null);
     setActiveProposal(null);
@@ -4083,6 +4107,17 @@ export default function EditorPage() {
   const visibleActiveStepItems = activeStepItems.filter(
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
   );
+  const structureOutlineModel = useMemo(
+    () =>
+      buildStructureOutlineTree({
+        document,
+        items: activeWorkflowStep === "structure" ? activeStepItems : [],
+        showCompleted: showCompletedCards,
+        untitledLabel: st.untitled,
+        emptyRootLabel: st.sectionOutline
+      }),
+    [activeStepItems, activeWorkflowStep, document, showCompletedCards, st.sectionOutline, st.untitled]
+  );
   const activeStepRunCount = activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0;
   const spellcheckIssueResults = useMemo(
     () => spellcheckResults.filter((result) => result.error || result.issues.length > 0),
@@ -4900,6 +4935,16 @@ export default function EditorPage() {
     }
 
     if (activeWorkflowStep === "structure") {
+      const structureEmptyCopy =
+        structureOutlineModel.proposedCount === 0 && activeStepCardStats.actionable === 0
+          && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
+          ? editorCopy.structureOutline.allStructureCardsDone
+          : structureOutlineModel.nodes.length === 0
+            ? st.noSubheadings
+            : structureOutlineModel.proposedCount === 0
+              ? st.noStructureActions
+              : null;
+
       return (
         <div className="step-review-prototype-content step-review-prototype-content-structure">
           <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
@@ -4917,47 +4962,24 @@ export default function EditorPage() {
             </button>
           </div>
 
-          <section className="step-review-structure-cards" aria-label={editorCopy.cards.actionCards}>
-            <div className="step-review-structure-section-head step-review-structure-section-head-stack">
+          <section className="step-review-structure-outline" aria-label={st.sectionOutline}>
+            <div className="step-review-structure-outline-head step-review-structure-section-head-stack">
               <div>
-                <h3>{cd.actionCards}</h3>
+                <h3>{st.sectionOutline}</h3>
                 <p className="step-review-structure-section-copy">{workflowStepSummaries.structure}</p>
               </div>
             </div>
-            <div className="step-review-prototype-suggestions-list step-review-structure-card-list">
-              {activeStepItems.map((item) => {
-                const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
-                const headingLevel = item.subsectionDraft?.headingLevel ?? item.headingLevel ?? 3;
-                const headingTitle = item.subsectionDraft?.title?.trim() || item.title.trim() || item.recommendation.trim();
-                return (
-                  <EditorialReviewCard
-                    key={item.id}
-                    item={item}
-                    revision={revision}
-                    isActive={item.id === activeReviewItemId}
-                    isHidden={isHidden}
-                    title={
-                      <span className="err-compact-title-with-level">
-                        <span className="editorial-review-heading-level-badge">{st.headingLevelBadge(headingLevel)}</span>
-                        <span>{headingTitle}</span>
-                      </span>
-                    }
-                    onFocus={focusReviewItem}
-                    onPrepare={(entry) => void prepareReviewItem(entry)}
-                    onApplyCallout={applyReviewCallout}
-                    onDismiss={dismissReviewItem}
-                    isLoading={item.id === preparingReviewItemId}
-                  />
-                );
-              })}
-              {visibleActiveStepItems.length === 0 ? (
-                <p className="step-review-empty-copy step-review-prototype-empty-copy">
-                  {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
-                    ? editorCopy.structureOutline.allStructureCardsDone
-                    : editorCopy.cards.noStructureCards}
-                </p>
-              ) : null}
-            </div>
+            <StructureOutlineTree
+              model={structureOutlineModel}
+              activeReviewItemId={activeReviewItemId}
+              preparingReviewItemId={preparingReviewItemId}
+              emptyLabel={structureEmptyCopy ?? st.noSubheadings}
+              onFocusExisting={focusStructureOutlineExisting}
+              onFocusProposed={focusStructureOutlineProposed}
+            />
+            {structureEmptyCopy && structureOutlineModel.nodes.length > 0 ? (
+              <p className="step-review-empty-copy step-review-prototype-empty-copy">{structureEmptyCopy}</p>
+            ) : null}
           </section>
         </div>
       );

@@ -4,6 +4,11 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-11
 
+### Structure drawer is a bare dashed outline tree
+Decision: the Structure step drawer shows a bare hierarchical outline of existing H2/H3 (solid gray/black branch + black text) mixed with proposed inserts (dashed blue branch + blue text). Action cards are not used for Structure navigation. Clicking a proposed node focuses the existing manuscript ghost preview / prepare path; clicking an existing heading scrolls to that block.
+
+Reason: editors need to see where new subheads sit in the chapter plan at a glance; card lists hid that hierarchy.
+
 ### Structure cards ship ready heading titles with the review
 Decision: Structure/subsection review cards carry a ready `headingTitle` (plus `headingLevel`) from the review response. Normalization hydrates `subsectionDraft` and marks the card `ready`, so focusing «Відкрити деталі» opens the manuscript ghost preview without a second LLM prepare. A separate prepare/regenerate remains available only when no usable title exists yet.
 

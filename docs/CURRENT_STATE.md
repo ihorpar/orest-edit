@@ -6,8 +6,9 @@ Status: Active handoff
 ## What exists now
 - A web-only Next.js app under `apps/web`
 - The `Структура` step is heading-insert only: recommendation cards are limited to `subsection`, AI chooses H2 or H3 (`headingLevel`), existing headings are not edited, and non-subsection types from a Structure run are filtered server-side
-- Structure review cards include a ready `headingTitle` with the card; normalization hydrates `subsectionDraft` and marks cards `ready`, so «Відкрити деталі» opens the manuscript ghost heading preview without a second LLM prepare
-- Structure drawer no longer shows a duplicate section outline queue; it keeps action cards with an H2/H3 badge (card title prefers the ready heading text) and Insert/Reject in the manuscript preview
+- Structure subsection items include a ready `headingTitle`; normalization hydrates `subsectionDraft` and marks them `ready`, so focusing a proposed tree node opens the manuscript ghost heading preview without a second LLM prepare
+- Structure drawer shows a bare outline tree (not action cards): existing H2/H3 are solid black branches/text; proposed inserts are blue dashed branches/text. Clicking a proposed node opens the manuscript ghost preview; clicking an existing heading scrolls to it
+- The Structure tree is the sole Structure navigation surface in the drawer; Insert/Reject stay in the manuscript ghost preview
 - Subsection proposal prompts receive the current H2/H3 outline, require `{"title","headingLevel"}`, and avoid copying existing headings; apply inserts `{ type: "heading", level: 2|3 }` before the anchor
 - Subsection normalization shifts insert anchors past a leading existing heading so new subheads land before prose, not as a fake replace of the old heading
 - A locale foundation now exists for a same-repo English edition: `apps/web/lib/i18n/product-locale.ts`, locale copy catalogs, and a `ProductLocaleProvider` wrap the app so runtime UI language can switch between Ukrainian and English

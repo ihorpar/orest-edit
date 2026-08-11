@@ -1,0 +1,112 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import type { EditorDocument } from "../lib/editor/document-model.ts";
+import type { EditorialReviewItem } from "../lib/editor/review-contract.ts";
+import { buildStructureOutlineTree } from "../lib/editor/structure-outline.ts";
+
+function createDocument(): EditorDocument {
+  return {
+    version: 2,
+    blocks: [
+      { id: "h1", type: "heading", level: 1, content: [{ text: "Схильність і діатези" }] },
+      { id: "h2a", type: "heading", level: 2, content: [{ text: "Що таке діатез" }] },
+      { id: "h3a", type: "heading", level: 3, content: [{ text: "Спадковість і середовище" }] },
+      { id: "p18", type: "paragraph", content: [{ text: "Три типи діатезів." }] },
+      { id: "h2b", type: "heading", level: 2, content: [{ text: "Алергічна предиспозиція" }] },
+      { id: "p32", type: "paragraph", content: [{ text: "Практичне розпізнавання." }] },
+      { id: "h3b", type: "heading", level: 3, content: [{ text: "Ранні періоди розвитку" }] }
+    ]
+  };
+}
+
+function createSubsectionItem(partial: Partial<EditorialReviewItem> & Pick<EditorialReviewItem, "id" | "insertionPoint">): EditorialReviewItem {
+  return {
+    id: partial.id,
+    reviewSessionId: "session",
+    documentRevisionId: "rev",
+    changeLevel: 3,
+    title: partial.title ?? "Картка",
+    reason: partial.reason ?? "reason",
+    recommendation: partial.recommendation ?? "recommendation",
+    recommendationType: "subsection",
+    suggestedAction: "insert_text",
+    priority: "medium",
+    anchor: {
+      blockIds: [partial.insertionPoint.anchorBlockId],
+      generationBlockRange: { start: 0, end: 0 },
+      excerpt: "excerpt",
+      fingerprint: "fp"
+    },
+    insertionPoint: partial.insertionPoint,
+    origin: "review",
+    stepId: "structure",
+    status: partial.status ?? "ready",
+    headingLevel: partial.headingLevel,
+    subsectionDraft: partial.subsectionDraft
+  };
+}
+
+test("buildStructureOutlineTree nests existing headings and inserts proposed before anchors", () => {
+  const document = createDocument();
+  const items = [
+    createSubsectionItem({
+      id: "prop-1",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      headingLevel: 3,
+      subsectionDraft: { title: "Три моделі предиспозицій", headingLevel: 3, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "prop-2",
+      insertionPoint: { mode: "before", anchorBlockId: "p32" },
+      headingLevel: 2,
+      subsectionDraft: { title: "Що справді оцінюють на практиці", headingLevel: 2, prompt: "" }
+    })
+  ];
+
+  const tree = buildStructureOutlineTree({
+    document,
+    items,
+    untitledLabel: "Без назви",
+    emptyRootLabel: "План розділу"
+  });
+
+  assert.equal(tree.rootTitle, "Схильність і діатези");
+  assert.equal(tree.proposedCount, 2);
+  assert.equal(tree.nodes.length, 2);
+  assert.equal(tree.nodes[0]?.title, "Що таке діатез");
+  assert.equal(tree.nodes[0]?.children[0]?.title, "Спадковість і середовище");
+  assert.equal(tree.nodes[0]?.children[1]?.kind, "proposed");
+  assert.equal(tree.nodes[0]?.children[1]?.title, "Три моделі предиспозицій");
+  assert.equal(tree.nodes[1]?.title, "Алергічна предиспозиція");
+  assert.equal(tree.nodes[1]?.children[0]?.kind, "proposed");
+  assert.equal(tree.nodes[1]?.children[0]?.title, "Що справді оцінюють на практиці");
+  assert.equal(tree.nodes[1]?.children[0]?.level, 2);
+  assert.equal(tree.nodes[1]?.children[1]?.title, "Ранні періоди розвитку");
+});
+
+test("buildStructureOutlineTree skips applied proposals and hides dismissed unless showCompleted", () => {
+  const document = createDocument();
+  const items = [
+    createSubsectionItem({
+      id: "applied",
+      status: "applied",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      subsectionDraft: { title: "Already in", headingLevel: 3, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "dismissed",
+      status: "dismissed",
+      insertionPoint: { mode: "before", anchorBlockId: "p32" },
+      subsectionDraft: { title: "Rejected", headingLevel: 3, prompt: "" }
+    })
+  ];
+
+  const hidden = buildStructureOutlineTree({ document, items, showCompleted: false });
+  assert.equal(hidden.proposedCount, 0);
+
+  const shown = buildStructureOutlineTree({ document, items, showCompleted: true });
+  assert.equal(shown.proposedCount, 1);
+  assert.equal(shown.nodes.some((node) => node.kind === "proposed" && node.title === "Rejected")
+    || shown.nodes.some((node) => node.children.some((child) => child.title === "Rejected")), true);
+});
