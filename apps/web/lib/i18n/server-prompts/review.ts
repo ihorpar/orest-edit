@@ -102,7 +102,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation.",
     recommendationCardsSingleRange: "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів.",
     recommendationCardsSubsectionOneAction:
-      "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один новий підзаголовок (H2 або H3) перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків. Для subsection обов'язково вкажи headingLevel: 2 або 3.",
+      "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один новий підзаголовок (H2 або H3) перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків. Для subsection обов'язково вкажи headingLevel: 2 або 3 і headingTitle — готовий короткий текст підзаголовка для вставки в рукопис.",
     recommendationCardsSplitFragments:
       "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент.",
     recommendationCardsCalloutKindDepth:
@@ -124,7 +124,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     structureFocus:
       "Для «Структура» дозволений лише recommendationType='subsection'. Не пропонуй list, callout, visual, rewrite, simplify або expand. Не редагуй і не перейменовуй уже наявні заголовки — лише вставки нових.",
     structureHeadingLevels:
-      "Обирай headingLevel=2 для нового смислового розділу глави і headingLevel=3 для дроблення всередині поточного H2. Не копіюй дослівно існуючі заголовки.",
+      "Обирай headingLevel=2 для нового смислового розділу глави і headingLevel=3 для дроблення всередині поточного H2. У headingTitle повертай готовий короткий підзаголовок для вставки, а не опис дії. Не копіюй дослівно існуючі заголовки.",
     structureSubsectionSplit:
       "Якщо один великий блок треба розбити на кілька майбутніх підрозділів, поверни кілька окремих subsection-карток: одна картка = один конкретний підзаголовок перед одним місцем вставки.",
     formattingFocus:
@@ -232,7 +232,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "For blockStart and blockEnd, use zero-based document row numbering. Do not mention block id in title/reason/recommendation.",
     recommendationCardsSingleRange: "One card must cover only one contiguous paragraph range without gaps.",
     recommendationCardsSubsectionOneAction:
-      "For recommendationType='subsection', one card means exactly one action: insert one new subhead (H2 or H3) before one location. Do not describe two or more future subheads within one subsection card. For subsection, always set headingLevel: 2 or 3.",
+      "For recommendationType='subsection', one card means exactly one action: insert one new subhead (H2 or H3) before one location. Do not describe two or more future subheads within one subsection card. For subsection, always set headingLevel: 2 or 3 and headingTitle — the ready short subhead text to insert into the manuscript.",
     recommendationCardsSplitFragments:
       "If one problem appears in non-adjacent places (for example 2, 10, 15-17), return multiple cards: one per separate contiguous fragment.",
     recommendationCardsCalloutKindDepth:
@@ -254,7 +254,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     structureFocus:
       'For "Structure", only recommendationType=\'subsection\' is allowed. Do not propose list, callout, visual, rewrite, simplify, or expand. Do not edit or rename existing headings — insert new ones only.',
     structureHeadingLevels:
-      "Choose headingLevel=2 for a new major chapter section and headingLevel=3 for splitting inside the current H2. Do not copy existing headings verbatim.",
+      "Choose headingLevel=2 for a new major chapter section and headingLevel=3 for splitting inside the current H2. In headingTitle return a ready short subhead for insertion, not an action description. Do not copy existing headings verbatim.",
     structureSubsectionSplit:
       "If one large block should be split into several future subsections, return several separate subsection cards: one card = one specific subhead before one insertion point.",
     formattingFocus:

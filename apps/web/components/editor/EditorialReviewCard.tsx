@@ -55,7 +55,10 @@ export function EditorialReviewCard({
       ? recommendationText.length > 0 && recommendationText !== titleText
       : Boolean(descriptionContent);
   const isCompleted = item.status === "applied" || item.status === "dismissed";
-  const primaryActionLabel = item.status === "ready" ? rc.openDetails : rc.prepare;
+  const hasReadySubsectionDraft =
+    item.recommendationType === "subsection" && Boolean(item.subsectionDraft?.title?.trim());
+  const needsPrepare = !isCompleted && item.status !== "ready" && !hasReadySubsectionDraft;
+  const primaryActionLabel = needsPrepare ? rc.prepare : rc.openDetails;
 
   useEffect(() => {
     if (isActive) {
@@ -151,7 +154,11 @@ export function EditorialReviewCard({
                       className="err-compact-action-button err-compact-action-button-primary"
                       onClick={(event) => {
                         event.stopPropagation();
-                        onPrepare(item);
+                        if (needsPrepare) {
+                          onPrepare(item);
+                          return;
+                        }
+                        onFocus(item);
                       }}
                       disabled={isHidden}
                     >

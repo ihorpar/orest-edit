@@ -2847,17 +2847,11 @@ export default function EditorPage() {
       return;
     }
 
-    // Automatically prepare the item (e.g., generate diff) when focused in compact mode
-    if (item.status === "pending") {
-      void prepareReviewItem(item);
-    } else if (item.status === "stale") {
-      void prepareReviewItem(item);
-    } else if (
-      item.status === "ready"
-      && item.recommendationType === "subsection"
-      && item.subsectionDraft
-      && activeProposal?.reviewItemId !== item.id
-    ) {
+    const openSubsectionPreview = (draft: NonNullable<EditorialReviewItem["subsectionDraft"]>) => {
+      if (activeProposal?.reviewItemId === item.id && activeProposal.kind === "subsection_prompt") {
+        return;
+      }
+
       setActiveProposal({
         id: item.activeProposalId ?? createPatchId("proposal-subsection"),
         reviewItemId: item.id,
@@ -2867,12 +2861,41 @@ export default function EditorPage() {
         summary: item.reason,
         canApplyDirectly: true,
         subsectionDraft: {
-          title: item.subsectionDraft.title,
-          headingLevel: item.subsectionDraft.headingLevel ?? item.headingLevel ?? 3,
+          title: draft.title,
+          headingLevel: draft.headingLevel ?? item.headingLevel ?? 3,
           lead: "",
-          prompt: item.subsectionDraft.prompt
+          prompt: draft.prompt
         }
       });
+      setReviewItems((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                headingLevel: draft.headingLevel ?? entry.headingLevel ?? 3,
+                subsectionDraft: {
+                  title: draft.title,
+                  headingLevel: draft.headingLevel ?? entry.headingLevel ?? 3,
+                  lead: "",
+                  prompt: draft.prompt
+                },
+                status: entry.status === "pending" || entry.status === "preparing" ? "ready" : entry.status
+              }
+            : entry
+        )
+      );
+    };
+
+    if (item.recommendationType === "subsection" && item.subsectionDraft?.title?.trim()) {
+      openSubsectionPreview(item.subsectionDraft);
+      return;
+    }
+
+    // Automatically prepare the item (e.g., generate diff) when focused in compact mode
+    if (item.status === "pending") {
+      void prepareReviewItem(item);
+    } else if (item.status === "stale") {
+      void prepareReviewItem(item);
     } else if (item.status === "ready" && item.activeProposalId) {
       const existingOp = operations.find((op) => op.id === item.activeProposalId);
       if (existingOp && existingOp.op === "replace_blocks") {
@@ -4905,6 +4928,7 @@ export default function EditorPage() {
               {activeStepItems.map((item) => {
                 const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
                 const headingLevel = item.subsectionDraft?.headingLevel ?? item.headingLevel ?? 3;
+                const headingTitle = item.subsectionDraft?.title?.trim() || item.title.trim() || item.recommendation.trim();
                 return (
                   <EditorialReviewCard
                     key={item.id}
@@ -4915,7 +4939,7 @@ export default function EditorPage() {
                     title={
                       <span className="err-compact-title-with-level">
                         <span className="editorial-review-heading-level-badge">{st.headingLevelBadge(headingLevel)}</span>
-                        <span>{item.title.trim() || item.recommendation.trim()}</span>
+                        <span>{headingTitle}</span>
                       </span>
                     }
                     onFocus={focusReviewItem}

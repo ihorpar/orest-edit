@@ -4,6 +4,11 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-11
 
+### Structure cards ship ready heading titles with the review
+Decision: Structure/subsection review cards carry a ready `headingTitle` (plus `headingLevel`) from the review response. Normalization hydrates `subsectionDraft` and marks the card `ready`, so focusing «Відкрити деталі» opens the manuscript ghost preview without a second LLM prepare. A separate prepare/regenerate remains available only when no usable title exists yet.
+
+Reason: auto-prepare on focus looked like title regeneration, and manuscript placeholders stayed on «ШІ готує…» even when the card already had a concrete subhead.
+
 ### Structure step is heading-insert only (H2/H3)
 Decision: the `structure` workflow step proposes only `subsection` cards that insert a new heading before an anchor. AI chooses `headingLevel` 2 or 3; the UI shows that level as a read-only badge. Existing headings are never renamed or releveled in this step. Lists and callouts are out of scope for Structure (they remain in Formatting/Interest). Server-side type filtering for mixed card types is re-enabled **only** for `structure`; other recommendation steps still keep mixed types visible.
 

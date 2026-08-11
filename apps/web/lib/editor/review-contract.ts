@@ -1072,6 +1072,14 @@ export function normalizeEditorialReviewItems(input: {
 
       const calloutDepth = recommendationType === "callout" ? normalizeCalloutDepthForRecord(record) : undefined;
       const headingLevel = recommendationType === "subsection" ? normalizeHeadingLevel(record.headingLevel) : undefined;
+      const subsectionDraft =
+        recommendationType === "subsection"
+          ? buildSubsectionDraftFromReviewRecord(record, {
+              title,
+              recommendation,
+              headingLevel: headingLevel ?? 3
+            })
+          : undefined;
 
       acceptedForRecord += 1;
 
@@ -1105,12 +1113,13 @@ export function normalizeEditorialReviewItems(input: {
         calloutDepth,
         calloutDraft: normalizeCalloutDraft(record, calloutDepth),
         headingLevel,
+        subsectionDraft,
         visualIntent: normalizeVisualIntent(record.visualIntent),
         emphasisTarget,
         origin: "review",
         stepId: input.stepId,
         stepRunId: input.stepRunId,
-        status: "pending"
+        status: recommendationType === "subsection" && subsectionDraft?.title ? "ready" : "pending"
       });
     }
 
@@ -1757,6 +1766,62 @@ export function normalizeHeadingLevel(value: unknown): EditorialHeadingLevel {
   }
 
   return 3;
+}
+
+export function extractSubsectionHeadingTitle(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/\r\n?/g, "\n").trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const labeledMatch = /(?:^|\n|\s)(?:підзаголовок|заголовок|headingTitle|heading)\s*:\s*(.+?)(?=(?:\n|\s)+(?:текст|рамка|рівень|headingLevel|level)\s*:|$)/i.exec(
+    normalized
+  );
+
+  if (labeledMatch?.[1]) {
+    const titled = normalizeCopy(labeledMatch[1], 140);
+    if (titled) {
+      return titled;
+    }
+  }
+
+  const guillemetMatch = /[«"]([^»"]{3,140})[»"]/.exec(normalized);
+
+  if (guillemetMatch?.[1]) {
+    const titled = normalizeCopy(guillemetMatch[1], 140);
+    if (titled) {
+      return titled;
+    }
+  }
+
+  return null;
+}
+
+function buildSubsectionDraftFromReviewRecord(
+  record: Record<string, unknown>,
+  fallback: { title: string; recommendation: string; headingLevel: EditorialHeadingLevel }
+): { title: string; headingLevel: EditorialHeadingLevel; lead?: string; prompt: string } | undefined {
+  const headingTitle =
+    normalizeCopy(record.headingTitle, 140)
+    ?? normalizeCopy(record.subheadingTitle, 140)
+    ?? extractSubsectionHeadingTitle(typeof record.recommendation === "string" ? record.recommendation : fallback.recommendation)
+    ?? extractSubsectionHeadingTitle(fallback.title);
+
+  if (!headingTitle) {
+    return undefined;
+  }
+
+  return {
+    title: headingTitle,
+    headingLevel: fallback.headingLevel,
+    lead: "",
+    prompt: ""
+  };
 }
 
 function appendRangeClipNote(reason: string): string {

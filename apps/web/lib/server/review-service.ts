@@ -110,6 +110,7 @@ const openAiSchema = {
               { type: "null" }
             ]
           },
+          headingTitle: { anyOf: [{ type: "string" }, { type: "null" }] },
           calloutKind: {
             anyOf: [
               { type: "string", enum: ["mechanism", "analogy", "everyday_application", "myths_vs_truth", "top_list"] },
@@ -146,6 +147,7 @@ const openAiSchema = {
           "insertionHint",
           "anchorBlockId",
           "headingLevel",
+          "headingTitle",
           "calloutKind",
           "calloutDepth",
           "calloutTitle",
@@ -180,6 +182,7 @@ const geminiSchema = {
           insertionHint: { type: "STRING" },
           anchorBlockId: { type: "STRING" },
           headingLevel: { type: "INTEGER" },
+          headingTitle: { type: "STRING" },
           calloutKind: { type: "STRING" },
           calloutDepth: { type: "STRING" },
           calloutTitle: { type: "STRING" },

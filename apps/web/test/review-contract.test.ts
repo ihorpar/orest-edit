@@ -247,6 +247,70 @@ test("normalizeEditorialReviewItems shifts subsection insert past a leading head
   assert.equal(normalized.items[0]?.headingLevel, 3);
 });
 
+test("normalizeEditorialReviewItems hydrates subsection draft from headingTitle and marks ready", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-heading-title",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Додати підзаголовок",
+        reason: "Потрібна нова секція.",
+        recommendation: "Вставити підзаголовок перед поясненням.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "high",
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Перший абзац",
+        insertionHint: "before",
+        headingLevel: 2,
+        headingTitle: "Як читати сигнали шкіри"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.equal(normalized.items[0]?.status, "ready");
+  assert.equal(normalized.items[0]?.headingLevel, 2);
+  assert.equal(normalized.items[0]?.subsectionDraft?.title, "Як читати сигнали шкіри");
+  assert.equal(normalized.items[0]?.subsectionDraft?.headingLevel, 2);
+});
+
+test("normalizeEditorialReviewItems extracts subsection title from recommendation quotes", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-heading-quote",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Окремо позначити класифікацію",
+        reason: "Потрібна нова секція.",
+        recommendation: "Вставити підзаголовок «Три моделі предиспозицій» перед переліком.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "medium",
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Перший абзац",
+        insertionHint: "before",
+        headingLevel: 3
+      }
+    ]
+  });
+
+  assert.equal(normalized.items[0]?.status, "ready");
+  assert.equal(normalized.items[0]?.subsectionDraft?.title, "Три моделі предиспозицій");
+});
+
 test("normalizeEditorialReviewItems accepts emphasis targets without prose recommendation text", () => {
   const document = createDocument();
   const revision = deriveManuscriptRevisionState(document);

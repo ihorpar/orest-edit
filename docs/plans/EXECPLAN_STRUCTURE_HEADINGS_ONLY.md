@@ -34,15 +34,18 @@ Proof:
 - [x] (2026-08-11) Subsection insert anchor guard
 - [x] (2026-08-11) Structure UI badge + copy
 - [x] (2026-08-11) Tests + CURRENT_STATE + DECISIONS_LOG
+- [x] (2026-08-11) Ready `headingTitle` with cards; focus opens manuscript preview without re-prepare
 
 ## Surprises & Discoveries
 - Global allowed-type filtering would regress the intentional “mixed types stay visible” policy for other steps; the type gate was therefore limited to `structure` only.
 - Subsection request compaction previously dropped neighboring headings, so outline injection saw an empty plan; compact payloads now keep H2/H3 blocks alongside the anchor for Structure proposals.
 - Subsection proposal requests compact the document to anchor blocks, which previously dropped existing headings from the outline prompt; compaction now keeps H2/H3 headings alongside the anchor for Structure proposals.
+- «Відкрити деталі» previously always called prepare (or focus auto-prepared pending cards), so ready cards still showed «ШІ готує цю рекомендацію…» and looked like title regeneration.
 
 ## Decision Log
 - (2026-08-11) Structure = insert-only H2/H3; AI chooses level; no editor level toggle; existing headings are never renamed or releveled in this step.
 - (2026-08-11) Lists/callouts remain owned by Formatting/Interest, not Structure.
+- (2026-08-11) Review returns `headingTitle` with Structure cards; hydrate draft + ready status so manuscript preview uses that title without a second LLM call.
 
 ## Outcomes & Retrospective
-- Structure is a focused heading-insert tool with harder server filtering and clearer prompts. Remaining risk is model quality of titles; outline + anti-copy rules reduce copycat headings but do not eliminate them.
+- Structure is a focused heading-insert tool with harder server filtering and clearer prompts. Remaining risk is model quality of titles; outline + anti-copy rules reduce copycat headings but do not eliminate them. Ready titles with cards remove the false “regenerating” UX on open-details.
