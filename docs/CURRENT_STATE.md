@@ -6,6 +6,7 @@ Status: Active handoff
 ## What exists now
 - A web-only Next.js app under `apps/web`
 - The `Структура` step is heading-insert only: recommendation cards are limited to `subsection`, AI chooses H2 or H3 (`headingLevel`), existing headings are not edited, and non-subsection types from a Structure run are filtered server-side
+- Structure drawer no longer shows a duplicate section outline queue; it keeps action cards with an H2/H3 badge, and focusing a card auto-prepares the title then opens a manuscript preview at the insert point with Insert/Reject
 - Subsection proposal prompts receive the current H2/H3 outline, require `{"title","headingLevel"}`, and avoid copying existing headings; apply inserts `{ type: "heading", level: 2|3 }` before the anchor
 - Subsection normalization shifts insert anchors past a leading existing heading so new subheads land before prose, not as a fake replace of the old heading
 - A locale foundation now exists for a same-repo English edition: `apps/web/lib/i18n/product-locale.ts`, locale copy catalogs, and a `ProductLocaleProvider` wrap the app so runtime UI language can switch between Ukrainian and English

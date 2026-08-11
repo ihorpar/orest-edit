@@ -1571,7 +1571,7 @@
 .step-review-structure-outline-head,
 .step-review-structure-section-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 2px 0 0;
@@ -1582,6 +1582,12 @@
   margin: 0;
   color: #111827;
   font: 700 14px/1.2 var(--font-ui, sans-serif);
+}
+
+.step-review-structure-section-copy {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font: 500 12px/1.35 var(--font-ui, sans-serif);
 }
 
 .step-review-structure-outline-head p {

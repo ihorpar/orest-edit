@@ -158,7 +158,7 @@ import {
   presentRequestFeedback,
   type RequestFeedback
 } from "../../lib/editor/workflow-ui";
-import { getProductLocaleConfig, formatParagraphRangeLabel, getVisualStylePresetStorageKey, getVisualImageQualityStorageKey } from "../../lib/i18n/product-locale";
+import { getProductLocaleConfig, getVisualStylePresetStorageKey, getVisualImageQualityStorageKey } from "../../lib/i18n/product-locale";
 import { getWorkflowStepLabel, getEditorMessages } from "../../lib/i18n/editor-messages";
 import { buildFactCheckActionInstruction } from "../../lib/i18n/server-prompts/review-action";
 import {
@@ -211,25 +211,6 @@ interface CompareEntryDraft {
   blockIds: string[];
   beforeBlocks: Block[];
   afterBlocks: Block[];
-}
-
-interface StructureOutlineAction {
-  item: EditorialReviewItem;
-  rangeLabel: string;
-  label: string;
-  statusLabel: string;
-  isHidden: boolean;
-}
-
-interface StructureOutlineNode {
-  id: string;
-  title: string;
-  level: number;
-  rangeLabel: string;
-  startIndex: number;
-  endIndex: number;
-  anchorBlockId: string | null;
-  actions: StructureOutlineAction[];
 }
 
 interface EmphasisSuggestionViewModel {
@@ -2848,14 +2829,16 @@ export default function EditorPage() {
     const nextSelection = resolveReviewItemSelection(document, revision, item);
     // User requested to not select the paragraph to avoid triggering the local patch toolbar
     setSelection(EMPTY_BLOCK_SELECTION);
-    setFocusedBlockId(nextSelection.focusBlockId ?? nextSelection.anchorBlockId);
+    const scrollBlockId =
+      item.recommendationType === "subsection"
+        ? item.insertionPoint.anchorBlockId || nextSelection.anchorBlockId
+        : nextSelection.focusBlockId ?? nextSelection.anchorBlockId;
+    setFocusedBlockId(scrollBlockId);
     setActiveReviewItemId(item.id);
 
-    const anchorBlockId = nextSelection.anchorBlockId;
-
-    if (anchorBlockId) {
+    if (scrollBlockId) {
       window.requestAnimationFrame(() => {
-        const element = window.document.querySelector<HTMLElement>(`[data-block-id="${anchorBlockId}"]`);
+        const element = window.document.querySelector<HTMLElement>(`[data-block-id="${scrollBlockId}"]`);
         element?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
@@ -2869,6 +2852,27 @@ export default function EditorPage() {
       void prepareReviewItem(item);
     } else if (item.status === "stale") {
       void prepareReviewItem(item);
+    } else if (
+      item.status === "ready"
+      && item.recommendationType === "subsection"
+      && item.subsectionDraft
+      && activeProposal?.reviewItemId !== item.id
+    ) {
+      setActiveProposal({
+        id: item.activeProposalId ?? createPatchId("proposal-subsection"),
+        reviewItemId: item.id,
+        sourceRevisionId: item.documentRevisionId,
+        targetRevisionId: revision.documentRevisionId,
+        kind: "subsection_prompt",
+        summary: item.reason,
+        canApplyDirectly: true,
+        subsectionDraft: {
+          title: item.subsectionDraft.title,
+          headingLevel: item.subsectionDraft.headingLevel ?? item.headingLevel ?? 3,
+          lead: "",
+          prompt: item.subsectionDraft.prompt
+        }
+      });
     } else if (item.status === "ready" && item.activeProposalId) {
       const existingOp = operations.find((op) => op.id === item.activeProposalId);
       if (existingOp && existingOp.op === "replace_blocks") {
@@ -3237,7 +3241,8 @@ export default function EditorPage() {
                   lead: "",
                   prompt: payload.proposal.subsectionDraft!.prompt
                 },
-                status: "ready"
+                status: "ready",
+                activeProposalId: payload.proposal.id
               }
               : entry
           )
@@ -4054,10 +4059,6 @@ export default function EditorPage() {
   const activeStepItems = activeEditorialStepId ? stepItems[activeEditorialStepId] : [];
   const visibleActiveStepItems = activeStepItems.filter(
     (item) => showCompletedCards || (item.status !== "applied" && item.status !== "dismissed")
-  );
-  const structureOutline = useMemo(
-    () => buildStructureOutline(document, activeStepItems, revision, showCompletedCards, locale),
-    [document, activeStepItems, revision, showCompletedCards, locale]
   );
   const activeStepRunCount = activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0;
   const spellcheckIssueResults = useMemo(
@@ -4876,11 +4877,6 @@ export default function EditorPage() {
     }
 
     if (activeWorkflowStep === "structure") {
-      const visibleStructureActionCount = structureOutline.reduce(
-        (count, node) => count + node.actions.filter((action) => !action.isHidden).length,
-        0
-      );
-
       return (
         <div className="step-review-prototype-content step-review-prototype-content-structure">
           <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
@@ -4898,83 +4894,17 @@ export default function EditorPage() {
             </button>
           </div>
 
-          <section className="step-review-structure-outline" aria-label={editorCopy.structure.sectionOutline}>
-            <div className="step-review-structure-outline-head">
-              <div>
-                <h3>{st.sectionOutline}</h3>
-                <p>{visibleStructureActionCount > 0 ? editorCopy.structureOutline.actionsInStructure(visibleStructureActionCount) : editorCopy.structureOutline.currentManuscriptMap}</p>
-              </div>
-              <LayoutGrid aria-hidden="true" width={18} height={18} />
-            </div>
-
-            <div className="step-review-structure-outline-list">
-              {structureOutline.map((node, nodeIndex) => {
-                const visibleActions = node.actions.filter((action) => !action.isHidden);
-
-                return (
-                  <article
-                    key={node.id}
-                    className="step-review-structure-node"
-                    data-depth={Math.min(node.level, 3)}
-                    data-has-actions={visibleActions.length > 0 ? "true" : "false"}
-                  >
-                    <button
-                      type="button"
-                      className="step-review-structure-node-head"
-                      onClick={() => {
-                        if (node.anchorBlockId) {
-                          focusBlockById(node.anchorBlockId, { select: false });
-                        }
-                      }}
-                      disabled={!node.anchorBlockId}
-                    >
-                      <span className="step-review-structure-node-index">{String(nodeIndex + 1).padStart(2, "0")}</span>
-                      <span className="step-review-structure-node-copy">
-                        <span className="step-review-structure-node-title">{node.title}</span>
-                        <span className="step-review-structure-node-range">{node.rangeLabel}</span>
-                      </span>
-                      <LocateFixed aria-hidden="true" width={15} height={15} />
-                    </button>
-
-                    {visibleActions.length > 0 ? (
-                      <div className="step-review-structure-actions">
-                        {visibleActions.map((action) => (
-                          <button
-                            key={action.item.id}
-                            type="button"
-                            className="step-review-structure-action"
-                            data-active={action.item.id === activeReviewItemId ? "true" : "false"}
-                            data-status={action.item.status}
-                            onClick={() => focusReviewItem(action.item)}
-                          >
-                            <span className="step-review-structure-action-main">
-                              <span className="step-review-structure-action-title">
-                                {(action.item.headingLevel === 2 || action.item.headingLevel === 3 || action.item.subsectionDraft?.headingLevel)
-                                  ? `${st.headingLevelBadge(action.item.subsectionDraft?.headingLevel ?? action.item.headingLevel ?? 3)} · ${action.item.title}`
-                                  : action.item.title}
-                              </span>
-                              <span className="step-review-structure-action-meta">{action.rangeLabel} · {action.label}</span>
-                            </span>
-                            <span className="step-review-structure-action-status">{action.statusLabel}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="step-review-structure-node-empty">{st.noStructureActions}</p>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-
           <section className="step-review-structure-cards" aria-label={editorCopy.cards.actionCards}>
-            <div className="step-review-structure-section-head">
-              <h3>{cd.actionCards}</h3>
+            <div className="step-review-structure-section-head step-review-structure-section-head-stack">
+              <div>
+                <h3>{cd.actionCards}</h3>
+                <p className="step-review-structure-section-copy">{workflowStepSummaries.structure}</p>
+              </div>
             </div>
             <div className="step-review-prototype-suggestions-list step-review-structure-card-list">
               {activeStepItems.map((item) => {
                 const isHidden = !showCompletedCards && (item.status === "applied" || item.status === "dismissed");
+                const headingLevel = item.subsectionDraft?.headingLevel ?? item.headingLevel ?? 3;
                 return (
                   <EditorialReviewCard
                     key={item.id}
@@ -4982,6 +4912,12 @@ export default function EditorPage() {
                     revision={revision}
                     isActive={item.id === activeReviewItemId}
                     isHidden={isHidden}
+                    title={
+                      <span className="err-compact-title-with-level">
+                        <span className="editorial-review-heading-level-badge">{st.headingLevelBadge(headingLevel)}</span>
+                        <span>{item.title.trim() || item.recommendation.trim()}</span>
+                      </span>
+                    }
                     onFocus={focusReviewItem}
                     onPrepare={(entry) => void prepareReviewItem(entry)}
                     onApplyCallout={applyReviewCallout}
@@ -6944,159 +6880,6 @@ function tokenizeForFactMatching(input: string): string[] {
     .split(/[^\p{L}\p{N}]+/u)
     .map((token) => token.trim())
     .filter((token) => token.length >= 4 && !FACT_CHECK_SKIP_TOKENS.has(token));
-}
-
-function buildStructureOutline(
-  document: EditorDocument,
-  items: EditorialReviewItem[],
-  revision: ManuscriptRevisionState,
-  showCompletedCards: boolean,
-  locale: AppLocale
-): StructureOutlineNode[] {
-  const structureLabels = getEditorMessages(locale).structure;
-
-  if (document.blocks.length === 0) {
-    return [];
-  }
-
-  const blockIndexById = new Map(document.blocks.map((block, index) => [block.id, index]));
-  const nodes: StructureOutlineNode[] = [];
-
-  document.blocks.forEach((block, index) => {
-    if (block.type !== "heading") {
-      return;
-    }
-
-    const title = getBlockText(block).trim() || structureLabels.untitled;
-    nodes.push({
-      id: `heading-${block.id}`,
-      title,
-      level: block.level,
-      rangeLabel: "",
-      startIndex: index,
-      endIndex: index,
-      anchorBlockId: block.id,
-      actions: []
-    });
-  });
-
-  if (nodes.length === 0) {
-    nodes.push({
-      id: "structure-outline-root",
-      title: structureLabels.noSubheadings,
-      level: 1,
-      rangeLabel: "",
-      startIndex: 0,
-      endIndex: document.blocks.length - 1,
-      anchorBlockId: document.blocks[0]?.id ?? null,
-      actions: []
-    });
-  } else if (nodes[0] && nodes[0].startIndex > 0) {
-    nodes.unshift({
-      id: "structure-outline-prefix",
-      title: structureLabels.openingNoSubheading,
-      level: 1,
-      rangeLabel: "",
-      startIndex: 0,
-      endIndex: nodes[0].startIndex - 1,
-      anchorBlockId: document.blocks[0]?.id ?? null,
-      actions: []
-    });
-  }
-
-  for (let index = 0; index < nodes.length; index += 1) {
-    const next = nodes[index + 1];
-    nodes[index].endIndex = next ? Math.max(nodes[index].startIndex, next.startIndex - 1) : document.blocks.length - 1;
-    nodes[index].rangeLabel = formatStructureRangeLabel(locale, nodes[index].startIndex, nodes[index].endIndex);
-  }
-
-  const sortedItems = [...items].sort(
-    (left, right) => getItemStartIndex(left, blockIndexById) - getItemStartIndex(right, blockIndexById)
-  );
-
-  for (const item of sortedItems) {
-    const startIndex = getItemStartIndex(item, blockIndexById);
-    const targetNode = nodes.find((node) => startIndex >= node.startIndex && startIndex <= node.endIndex) ?? nodes[nodes.length - 1];
-
-    if (!targetNode) {
-      continue;
-    }
-
-    targetNode.actions.push({
-      item,
-      rangeLabel: getReviewParagraphRangeLabel(item, revision, locale),
-      label: getStructureActionLabel(item, locale),
-      statusLabel: getStructureActionStatusLabel(item.status, locale),
-      isHidden: !showCompletedCards && (item.status === "applied" || item.status === "dismissed")
-    });
-  }
-
-  return nodes;
-}
-
-function getItemStartIndex(item: EditorialReviewItem, blockIndexById: Map<string, number>): number {
-  const anchorId = item.anchor.blockIds[0] ?? item.insertionPoint.anchorBlockId;
-  return blockIndexById.get(anchorId) ?? Number.MAX_SAFE_INTEGER;
-}
-
-function formatStructureRangeLabel(locale: AppLocale, start: number, end: number): string {
-  return formatParagraphRangeLabel(locale, formatParagraphLabel(start), formatParagraphLabel(end));
-}
-
-function getStructureActionLabel(item: EditorialReviewItem, locale: AppLocale): string {
-  const actions = getEditorMessages(locale).structure.actions;
-
-  if (item.status === "ready") {
-    return actions.openDraft;
-  }
-
-  if (item.status === "applied") {
-    return actions.alreadyApplied;
-  }
-
-  if (item.status === "dismissed") {
-    return actions.dismissed;
-  }
-
-  if (item.recommendationType === "subsection") {
-    return actions.prepareSubheading;
-  }
-
-  if (item.recommendationType === "list") {
-    return actions.formatAsList;
-  }
-
-  if (item.recommendationType === "callout") {
-    return actions.prepareCallout;
-  }
-
-  return actions.prepareAction;
-}
-
-function getStructureActionStatusLabel(status: EditorialReviewItem["status"], locale: AppLocale): string {
-  const actionStatus = getEditorMessages(locale).structure.actionStatus;
-
-  if (status === "applied") {
-    return actionStatus.accepted;
-  }
-
-  if (status === "dismissed") {
-    return actionStatus.dismissed;
-  }
-
-  if (status === "ready") {
-    return actionStatus.ready;
-  }
-
-  if (status === "preparing") {
-    return actionStatus.preparing;
-  }
-
-  if (status === "stale") {
-    return actionStatus.stale;
-  }
-
-  return actionStatus.pending;
 }
 
 function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): boolean {
