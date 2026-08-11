@@ -994,6 +994,21 @@
   gap: 8px;
 }
 
+.editorial-review-heading-level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 2.25rem;
+  padding: 2px 8px;
+  border: 1px solid #d5deea;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  font: 600 12px/1.2 var(--font-ui, sans-serif);
+  letter-spacing: 0.02em;
+}
+
 .editorial-review-visual-intent-toggle {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

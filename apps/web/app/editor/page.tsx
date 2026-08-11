@@ -3230,8 +3230,10 @@ export default function EditorPage() {
             entry.id === item.id
               ? {
                 ...entry,
+                headingLevel: payload.proposal.subsectionDraft!.headingLevel,
                 subsectionDraft: {
                   title: payload.proposal.subsectionDraft!.title,
+                  headingLevel: payload.proposal.subsectionDraft!.headingLevel,
                   lead: "",
                   prompt: payload.proposal.subsectionDraft!.prompt
                 },
@@ -3353,7 +3355,7 @@ export default function EditorPage() {
       {
         id: createBlockId("heading"),
         type: "heading",
-        level: 3,
+        level: item.subsectionDraft.headingLevel ?? item.headingLevel ?? 3,
         content: parseBoldMarkdownToInlineNodes(title)
       }
     ];
@@ -3550,10 +3552,14 @@ export default function EditorPage() {
           return entry;
         }
 
+        const headingLevel = entry.subsectionDraft?.headingLevel ?? entry.headingLevel ?? 3;
+
         return {
           ...entry,
+          headingLevel,
           subsectionDraft: {
             title,
+            headingLevel,
             lead: "",
             prompt: entry.subsectionDraft?.prompt ?? ""
           }
@@ -4942,7 +4948,11 @@ export default function EditorPage() {
                             onClick={() => focusReviewItem(action.item)}
                           >
                             <span className="step-review-structure-action-main">
-                              <span className="step-review-structure-action-title">{action.item.title}</span>
+                              <span className="step-review-structure-action-title">
+                                {(action.item.headingLevel === 2 || action.item.headingLevel === 3 || action.item.subsectionDraft?.headingLevel)
+                                  ? `${st.headingLevelBadge(action.item.subsectionDraft?.headingLevel ?? action.item.headingLevel ?? 3)} · ${action.item.title}`
+                                  : action.item.title}
+                              </span>
                               <span className="step-review-structure-action-meta">{action.rangeLabel} · {action.label}</span>
                             </span>
                             <span className="step-review-structure-action-status">{action.statusLabel}</span>
@@ -6704,7 +6714,7 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<EditorialRev
       continue;
     }
 
-    if (item.recommendationType === "subsection" || item.recommendationType === "list") {
+    if (item.recommendationType === "subsection") {
       groups.structure.push(item);
     }
 
@@ -7095,7 +7105,7 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
   }
 
   if (stepId === "structure") {
-    return item.recommendationType === "subsection" || item.recommendationType === "list";
+    return item.recommendationType === "subsection";
   }
 
   if (stepId === "clarity") {

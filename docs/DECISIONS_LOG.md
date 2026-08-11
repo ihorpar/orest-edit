@@ -2,6 +2,13 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-08-11
+
+### Structure step is heading-insert only (H2/H3)
+Decision: the `structure` workflow step proposes only `subsection` cards that insert a new heading before an anchor. AI chooses `headingLevel` 2 or 3; the UI shows that level as a read-only badge. Existing headings are never renamed or releveled in this step. Lists and callouts are out of scope for Structure (they remain in Formatting/Interest). Server-side type filtering for mixed card types is re-enabled **only** for `structure`; other recommendation steps still keep mixed types visible.
+
+Reason: users expected Structure to add scan-friendly subheads between blocks, but the step mixed replace/list/callout actions and H3-only inserts that often echoed nearby headings.
+
 ## 2026-07-23
 
 ### One-time force of OpenAI GPT-5.6 Luna as the active default

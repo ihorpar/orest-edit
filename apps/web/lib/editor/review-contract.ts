@@ -24,6 +24,7 @@ export type EditorialReviewPriority = "high" | "medium" | "low";
 export type EditorialReviewInsertionHint = "replace" | "before" | "after";
 export type EditorialCalloutKind = "mechanism" | "analogy" | "everyday_application" | "myths_vs_truth" | "top_list";
 export type EditorialCalloutDepth = "brief" | "deep";
+export type EditorialHeadingLevel = 2 | 3;
 export type EditorialVisualIntent = "infographic" | "illustration";
 export type VisualStylePreset = "minimal" | "calm_gradient" | "neo_brutal" | "modern_glass";
 export type VisualImageQuality = "fast" | "quality";
@@ -180,8 +181,10 @@ export interface EditorialReviewItem {
     prompt: string;
     previewText: string;
   };
+  headingLevel?: EditorialHeadingLevel;
   subsectionDraft?: {
     title: string;
+    headingLevel: EditorialHeadingLevel;
     lead?: string;
     prompt: string;
   };
@@ -527,6 +530,7 @@ export interface ReviewActionProposal {
   };
   subsectionDraft?: {
     title: string;
+    headingLevel: EditorialHeadingLevel;
     lead?: string;
     prompt: string;
   };
@@ -1035,7 +1039,11 @@ export function normalizeEditorialReviewItems(input: {
 
     for (const [rangeIndex, range] of ranges.entries()) {
       const guardedRange = applyReplaceRangeGuard(paragraphs, range, recommendationType);
-      const blockIds = paragraphs.slice(guardedRange.start, guardedRange.end + 1).map((paragraph) => paragraph.id);
+      const subsectionGuarded =
+        recommendationType === "subsection"
+          ? applySubsectionRangeGuard(paragraphs, guardedRange)
+          : { ...guardedRange, clipped: guardedRange.clipped };
+      const blockIds = paragraphs.slice(subsectionGuarded.start, subsectionGuarded.end + 1).map((paragraph) => paragraph.id);
 
       if (blockIds.length === 0) {
         markDropped("empty_anchor_range");
@@ -1043,9 +1051,12 @@ export function normalizeEditorialReviewItems(input: {
       }
 
       const fallbackExcerpt = blockIds.map((blockId) => getBlockText(getBlock(input.document, blockId)!)).join("\n\n");
-      const excerpt = guardedRange.clipped ? fallbackExcerpt : normalizeCopy(record.excerpt, 420) ?? fallbackExcerpt;
+      const excerpt = subsectionGuarded.clipped ? fallbackExcerpt : normalizeCopy(record.excerpt, 420) ?? fallbackExcerpt;
       const insertionMode = normalizeInsertionHint(recommendationType, record.insertionHint);
-      const insertionAnchor = resolveInsertionAnchor(blockIds, insertionMode);
+      const insertionAnchor =
+        recommendationType === "subsection"
+          ? resolveSubsectionInsertionAnchor(input.document, paragraphs, blockIds)
+          : resolveInsertionAnchor(blockIds, insertionMode);
 
       if (!insertionAnchor) {
         markDropped("missing_insertion_anchor");
@@ -1053,9 +1064,14 @@ export function normalizeEditorialReviewItems(input: {
       }
 
       const requestedAnchorBlockId =
-        typeof record.anchorBlockId === "string" && record.anchorBlockId.trim() ? record.anchorBlockId.trim() : null;
+        recommendationType === "subsection"
+          ? null
+          : typeof record.anchorBlockId === "string" && record.anchorBlockId.trim()
+            ? record.anchorBlockId.trim()
+            : null;
 
       const calloutDepth = recommendationType === "callout" ? normalizeCalloutDepthForRecord(record) : undefined;
+      const headingLevel = recommendationType === "subsection" ? normalizeHeadingLevel(record.headingLevel) : undefined;
 
       acceptedForRecord += 1;
 
@@ -1070,14 +1086,14 @@ export function normalizeEditorialReviewItems(input: {
         documentRevisionId: input.revision.documentRevisionId,
         changeLevel: input.changeLevel,
         title,
-        reason: guardedRange.clipped ? appendRangeClipNote(reason ?? "") : (reason ?? ""),
+        reason: subsectionGuarded.clipped ? appendRangeClipNote(reason ?? "") : (reason ?? ""),
         recommendation,
         recommendationType,
         suggestedAction: normalizeSuggestedAction(recommendationType, record.suggestedAction),
         priority: normalizePriority(record.priority),
         anchor: {
           blockIds,
-          generationBlockRange: { start: guardedRange.start, end: guardedRange.end },
+          generationBlockRange: { start: subsectionGuarded.start, end: subsectionGuarded.end },
           excerpt,
           fingerprint: computeAnchorFingerprint(input.document, blockIds)
         },
@@ -1088,6 +1104,7 @@ export function normalizeEditorialReviewItems(input: {
         calloutKind: normalizeCalloutKind(record.calloutKind),
         calloutDepth,
         calloutDraft: normalizeCalloutDraft(record, calloutDepth),
+        headingLevel,
         visualIntent: normalizeVisualIntent(record.visualIntent),
         emphasisTarget,
         origin: "review",
@@ -1704,6 +1721,44 @@ function applyReplaceRangeGuard(
   return { start: nextStart, end: nextEnd, clipped };
 }
 
+function applySubsectionRangeGuard(
+  paragraphs: ReturnType<typeof getManuscriptParagraphs>,
+  range: { start: number; end: number; clipped: boolean }
+): { start: number; end: number; clipped: boolean } {
+  let nextStart = range.start;
+  let clipped = range.clipped;
+
+  while (nextStart <= range.end && paragraphs[nextStart]?.type === "heading") {
+    nextStart += 1;
+    clipped = true;
+  }
+
+  if (nextStart > range.end) {
+    return { start: range.start, end: range.end, clipped };
+  }
+
+  return { start: nextStart, end: range.end, clipped };
+}
+
+export function normalizeHeadingLevel(value: unknown): EditorialHeadingLevel {
+  if (value === 2 || value === "2" || value === "h2" || value === "H2") {
+    return 2;
+  }
+
+  if (value === 3 || value === "3" || value === "h3" || value === "H3") {
+    return 3;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === "2" || trimmed.includes("h2") || trimmed.includes("рівень 2") || trimmed.includes("level 2")) {
+      return 2;
+    }
+  }
+
+  return 3;
+}
+
 function appendRangeClipNote(reason: string): string {
   const note = "Діапазон автоматично обрізано, щоб не захопити сусідній заголовок.";
 
@@ -1720,6 +1775,33 @@ function resolveInsertionAnchor(blockIds: string[], insertionMode: EditorialRevi
   }
 
   return blockIds[0] ?? "";
+}
+
+function resolveSubsectionInsertionAnchor(
+  document: EditorDocument,
+  paragraphs: ReturnType<typeof getManuscriptParagraphs>,
+  blockIds: string[]
+): string | null {
+  for (const blockId of blockIds) {
+    const block = getBlock(document, blockId);
+    if (block && block.type !== "heading") {
+      return blockId;
+    }
+  }
+
+  const lastAnchoredIndex = paragraphs.findIndex((paragraph) => paragraph.id === blockIds[blockIds.length - 1]);
+  if (lastAnchoredIndex < 0) {
+    return null;
+  }
+
+  for (let index = lastAnchoredIndex + 1; index < paragraphs.length; index += 1) {
+    const paragraph = paragraphs[index];
+    if (paragraph && paragraph.type !== "heading") {
+      return paragraph.id;
+    }
+  }
+
+  return null;
 }
 
 function priorityWeight(priority: EditorialReviewPriority): number {

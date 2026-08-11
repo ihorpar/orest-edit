@@ -104,6 +104,12 @@ const openAiSchema = {
           excerpt: { type: "string" },
           insertionHint: { type: "string", enum: ["replace", "before", "after"] },
           anchorBlockId: { anyOf: [{ type: "string" }, { type: "null" }] },
+          headingLevel: {
+            anyOf: [
+              { type: "integer", enum: [2, 3] },
+              { type: "null" }
+            ]
+          },
           calloutKind: {
             anyOf: [
               { type: "string", enum: ["mechanism", "analogy", "everyday_application", "myths_vs_truth", "top_list"] },
@@ -139,6 +145,7 @@ const openAiSchema = {
           "excerpt",
           "insertionHint",
           "anchorBlockId",
+          "headingLevel",
           "calloutKind",
           "calloutDepth",
           "calloutTitle",
@@ -172,6 +179,7 @@ const geminiSchema = {
           excerpt: { type: "STRING" },
           insertionHint: { type: "STRING" },
           anchorBlockId: { type: "STRING" },
+          headingLevel: { type: "INTEGER" },
           calloutKind: { type: "STRING" },
           calloutDepth: { type: "STRING" },
           calloutTitle: { type: "STRING" },
@@ -886,10 +894,15 @@ function buildNormalizedReviewResult(
     items: items && typeof items === "object" && "items" in (items as Record<string, unknown>) ? (items as { items: unknown }).items : items
   });
 
-  const rejectedFiltered = filterRejectedReviewIdeas(normalized.items, request.rejectedIdeas);
-  const droppedCount = normalized.droppedCount + rejectedFiltered.droppedCount;
+  const typeFiltered =
+    stepSpec.id === "structure"
+      ? filterItemsByAllowedRecommendationTypes(normalized.items, stepSpec.allowedRecommendationTypes ?? ["subsection"])
+      : { items: normalized.items, droppedCount: 0, filteredByType: undefined };
+  const rejectedFiltered = filterRejectedReviewIdeas(typeFiltered.items, request.rejectedIdeas);
+  const droppedCount = normalized.droppedCount + typeFiltered.droppedCount + rejectedFiltered.droppedCount;
   const droppedByReason = mergeCountMaps(
     normalized.droppedByReason,
+    typeFiltered.droppedCount > 0 ? { filtered_by_step_type: typeFiltered.droppedCount } : undefined,
     rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
   );
 
@@ -900,9 +913,43 @@ function buildNormalizedReviewResult(
     factCheckRows: [],
     droppedItemCount: droppedCount,
     droppedItemCountsByReason: droppedByReason,
-    filteredItemCountsByType: undefined,
+    filteredItemCountsByType: typeFiltered.filteredByType,
     providerUsed,
     rawOutput
+  };
+}
+
+function filterItemsByAllowedRecommendationTypes(
+  items: EditorialReviewItem[],
+  allowedTypes: EditorialReviewRecommendationType[] | undefined
+): {
+  items: EditorialReviewItem[];
+  droppedCount: number;
+  filteredByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
+} {
+  if (!allowedTypes || allowedTypes.length === 0) {
+    return { items, droppedCount: 0 };
+  }
+
+  const allowed = new Set(allowedTypes);
+  const kept: EditorialReviewItem[] = [];
+  const filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> = {};
+  let droppedCount = 0;
+
+  for (const item of items) {
+    if (allowed.has(item.recommendationType)) {
+      kept.push(item);
+      continue;
+    }
+
+    droppedCount += 1;
+    filteredByType[item.recommendationType] = (filteredByType[item.recommendationType] ?? 0) + 1;
+  }
+
+  return {
+    items: kept,
+    droppedCount,
+    filteredByType: Object.keys(filteredByType).length > 0 ? filteredByType : undefined
   };
 }
 
@@ -1089,6 +1136,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "clarity" ? scaffold.clarityNoStructure : null,
     step.id === "clarity" ? scaffold.clarityNoDisclaimers : null,
     step.id === "structure" ? scaffold.structureFocus : null,
+    step.id === "structure" ? scaffold.structureHeadingLevels : null,
     step.id === "structure" ? scaffold.structureSubsectionSplit : null,
     step.id === "formatting" ? scaffold.formattingFocus : null,
     step.id === "emphasis" ? scaffold.emphasisNoRewrite : null,

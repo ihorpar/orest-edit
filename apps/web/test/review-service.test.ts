@@ -1714,8 +1714,11 @@ test("generateEditorialReview keeps mixed recommendation types visible within th
 
   assert.deepEqual(
     structureResponse.items.map((item) => item.recommendationType).sort(),
-    expectedRecommendationTypes
+    ["subsection"]
   );
+  assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.rewrite, 1);
+  assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.list, 1);
+  assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.callout, 1);
   assert.deepEqual(
     clarityResponse.items.map((item) => item.recommendationType).sort(),
     expectedRecommendationTypes
@@ -1755,7 +1758,8 @@ test("generateEditorialReview injects structure and formatting scope guardrails 
   const structureInstructions = String(requestBodies[0]?.instructions ?? "");
   const formattingInstructions = String(requestBodies[1]?.instructions ?? "");
 
-  assert.match(structureInstructions, /для «структура» не витрачай картки на мікролексичні або пунктуаційні правки/i);
+  assert.match(structureInstructions, /для «структура» дозволений лише recommendationtype='subsection'/i);
+  assert.match(structureInstructions, /headinglevel=2 для нового смислового розділу/i);
   assert.match(structureInstructions, /одна картка = один конкретний підзаголовок/i);
   assert.match(formattingInstructions, /для «форматування» фокусуйся на форматі подачі/i);
   assert.match(formattingInstructions, /не пропонуй мовне переписування абзаців як окремий тип правки/i);

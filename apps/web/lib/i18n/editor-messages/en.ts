@@ -14,7 +14,7 @@ const editorEn = {
   workflowSummaries: {
     diagnostics: "Brief analysis: where the text loses the reader, where it is overloaded, and what needs restructuring.",
     fact_check: "Check claims against evidence and sources.",
-    structure: "Section architecture, argument flow, and breaking up dense material.",
+    structure: "Add H2/H3 subheads for scanning. No callouts or lists.",
     clarity: "Simplify complex wording without losing precision.",
     interest: "Practical value, real-life examples, and readability.",
     visuals: "Places for illustrations, diagrams, and infographics.",
@@ -230,17 +230,18 @@ const editorEn = {
     showCompleted: "Show completed",
     recommendationsList: "Recommendations list",
     actionCards: "Action cards",
-    noStructureCards: "No structure cards yet.",
+    noStructureCards: "No subheading cards for structure yet.",
     noStepCards: "No cards for this step yet.",
     dismissedUndo: "Restore",
     dismissedMessage: "Recommendation dismissed."
   },
   structure: {
     sectionOutline: "Section outline",
-    noStructureActions: "No structure actions.",
+    noStructureActions: "No new subheading suggestions.",
     untitled: "Untitled",
     noSubheadings: "Manuscript without subheadings",
     openingNoSubheading: "Opening without subheading",
+    headingLevelBadge: (level: 2 | 3) => `H${level}`,
     actions: {
       openDraft: "open draft",
       alreadyApplied: "already applied",
@@ -370,6 +371,7 @@ const editorEn = {
     title: "Title",
     draft: "Draft",
     subheading: "Subheading",
+    headingLevelBadge: (level: 2 | 3) => `H${level}`,
     visualDescription: "Visual description",
     caption: "Caption",
     refine: "Refine",
@@ -581,7 +583,7 @@ const editorEn = {
     factCheckFocus: "e.g. Check questionable claims about biomarkers, hormones, and clinical guidelines.",
     emphasisFocus: "e.g. Only key theses, no decorative highlights or full-sentence bold.",
     customPromptFocus: "e.g. Add deep callouts, lists, and visuals where they help the reader.",
-    structureFocus: "e.g. Less subheading fragmentation, more attention to section rhythm."
+    structureFocus: "e.g. Fewer new H3s, more H2s for major meaning blocks."
   },
   stepActions: {
     rerunStep: "Re-run step",

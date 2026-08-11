@@ -250,7 +250,8 @@ export const DEFAULT_CARDS_PROMPT = appendBulletListPunctuationRule(`Ти ген
 Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.
 replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.
 Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.
-Для subsection одна картка означає рівно одну дію: вставити один конкретний H3-підзаголовок перед одним місцем. Якщо потрібно два підзаголовки, поверни дві окремі subsection-картки.
+Для subsection одна картка означає рівно одну дію: вставити один новий підзаголовок перед одним місцем. Обов'язково вкажи headingLevel: 2 (новий смисловий розділ) або 3 (дроблення всередині поточного H2). Якщо потрібно два підзаголовки, поверни дві окремі subsection-картки.
+Не редагуй і не перейменовуй уже наявні заголовки — лише вставки нових. Не копіюй існуючі заголовки дослівно.
 Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.
 Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.
 Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.
@@ -278,7 +279,7 @@ export const DEFAULT_WORKFLOW_STEP_PROMPTS: Record<EditorialReviewStepId, string
   fact_check:
     "Ти працюєш як суворий науковий фактчекер для медично-популярного рукопису. Повертай лише проблемні або сумнівні рядки таблиці, без редакторських карток і без підтвердження коректних тверджень.",
   structure:
-    "Оціни та покращ структуру розділу: де додати підзаголовки, де розділити блоки, де корисні локальні врізки.",
+    "Додай лише нові підзаголовки H2/H3, щоб покращити сканування розділу. Не пропонуй списки, врізки чи переписування. Не редагуй уже наявні заголовки.",
   clarity:
     "Працюй як редактор ясності: спрощуй формулювання, прибирай канцеляризм, знижуй зайву категоричність і зберігай структуру подачі. Не перетворюй локальні правки на медичні дисклеймери чи поради звернутися до лікаря.",
   interest:

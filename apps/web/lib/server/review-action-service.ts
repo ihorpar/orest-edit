@@ -4,6 +4,7 @@ import { createInlineText, getBlockText, getInlineText, type Block } from "../ed
 import { parseBoldMarkdownToInlineNodes, serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
 import type {
   EditorialCalloutKind,
+  EditorialHeadingLevel,
   EditorialReviewRecommendationType,
   EditorialVisualIntent,
   ReviewActionDiagnostics,
@@ -15,7 +16,8 @@ import {
   getEditorialCalloutKindLabel,
   getEditorialCalloutKindTitle,
   isReplaceReviewType,
-  normalizeEditorialCalloutDepth
+  normalizeEditorialCalloutDepth,
+  normalizeHeadingLevel
 } from "../editor/review-contract.ts";
 import {
   buildOpenAiRequestModelFields,
@@ -245,7 +247,10 @@ export async function generateReviewAction(
   }
 
   if (normalizedRequest.item.recommendationType === "subsection") {
-    const explicitDraft = parseSubsectionDraftFromRecommendation(normalizedRequest.item.recommendation);
+    const explicitDraft = parseSubsectionDraftFromRecommendation(
+      normalizedRequest.item.recommendation,
+      normalizeHeadingLevel(normalizedRequest.item.headingLevel)
+    );
 
     if (explicitDraft) {
       return {
@@ -259,6 +264,7 @@ export async function generateReviewAction(
           canApplyDirectly: true,
           subsectionDraft: {
             title: explicitDraft.title,
+            headingLevel: explicitDraft.headingLevel,
             lead: "",
             prompt: buildProviderPrompt(normalizedRequest, "subsection")
           }
@@ -329,6 +335,7 @@ export async function generateReviewAction(
 
 function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActionRequest {
   const isReplaceProposal = isReplaceReviewType(request.item.recommendationType);
+  const isSubsectionProposal = request.item.recommendationType === "subsection";
   const relatedBlockIds = Array.from(
     new Set(
       (
@@ -341,20 +348,36 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
       ).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     )
   );
-  const compactBlocks = relatedBlockIds.length > 0
-    ? relatedBlockIds
-      .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
-      .filter((block): block is Block => Boolean(block))
-    : request.document.blocks;
+  const outlineHeadingIds = isSubsectionProposal
+    ? request.document.blocks
+        .filter((block) => block.type === "heading" && (block.level === 2 || block.level === 3))
+        .map((block) => block.id)
+    : [];
+  const compactBlockIds =
+    relatedBlockIds.length > 0
+      ? Array.from(
+          new Set([
+            ...request.document.blocks
+              .map((block) => block.id)
+              .filter((blockId) => relatedBlockIds.includes(blockId) || outlineHeadingIds.includes(blockId))
+          ])
+        )
+      : [];
+  const compactBlocks =
+    compactBlockIds.length > 0
+      ? compactBlockIds
+          .map((blockId) => request.document.blocks.find((block) => block.id === blockId))
+          .filter((block): block is Block => Boolean(block))
+      : request.document.blocks;
   const compactDocument = {
     version: request.document.version,
     blocks: compactBlocks
   } as ReviewActionRequest["document"];
   const compactRevision = {
     documentRevisionId: request.currentRevision.documentRevisionId,
-    blockOrder: relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder,
+    blockOrder: compactBlockIds.length > 0 ? compactBlockIds : request.currentRevision.blockOrder,
     blockFingerprints: Object.fromEntries(
-      (relatedBlockIds.length > 0 ? relatedBlockIds : request.currentRevision.blockOrder).map((blockId) => [
+      (compactBlockIds.length > 0 ? compactBlockIds : request.currentRevision.blockOrder).map((blockId) => [
         blockId,
         request.currentRevision.blockFingerprints[blockId] ?? ""
       ])
@@ -378,6 +401,7 @@ function normalizeReviewActionRequest(request: ReviewActionRequest): ReviewActio
       fingerprint: sanitizePromptInput(request.item.anchor.fingerprint, 8000)
     },
     insertionPoint: request.item.insertionPoint,
+    headingLevel: request.item.headingLevel,
     status: request.item.status,
     origin: request.item.origin,
     stepId: request.item.stepId,
@@ -598,11 +622,8 @@ function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActi
 }
 
 function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewActionProposal {
-  const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
-  const parsed = parseSubsectionDraftOutput(excerpt, {
-    title: request.item.title,
-    lead: ""
-  });
+  const fallbackTitle = sanitizeCalloutTitle(request.item.title) || (request.locale === "en" ? "New subheading" : "Новий підзаголовок");
+  const headingLevel = normalizeHeadingLevel(request.item.headingLevel ?? request.item.subsectionDraft?.headingLevel);
   const prompt = buildProviderPrompt(request, "subsection");
 
   return {
@@ -614,7 +635,8 @@ function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewA
     summary: request.item.reason,
     canApplyDirectly: true,
     subsectionDraft: {
-      title: parsed.title,
+      title: fallbackTitle,
+      headingLevel,
       lead: "",
       prompt
     }
@@ -701,9 +723,10 @@ async function createSubsectionProposal(
     : request.provider === "anthropic"
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl, request.locale ?? "uk");
+  const fallbackTitle = sanitizeCalloutTitle(request.item.title) || (request.locale === "en" ? "New subheading" : "Новий підзаголовок");
   const parsed = parseSubsectionDraftOutput(result, {
-    title: request.item.title,
-    lead: ""
+    title: fallbackTitle,
+    headingLevel: normalizeHeadingLevel(request.item.headingLevel)
   });
 
   return {
@@ -719,6 +742,7 @@ async function createSubsectionProposal(
       canApplyDirectly: true,
       subsectionDraft: {
         title: parsed.title,
+        headingLevel: parsed.headingLevel,
         lead: "",
         prompt
       }
@@ -792,7 +816,8 @@ function buildProviderPrompt(request: ReviewActionRequest, mode: "callout" | "im
     return buildSubsectionProviderPrompt(locale, {
       excerpt,
       recommendation: request.item.recommendation,
-      editorialInstruction: request.editorialInstruction
+      editorialInstruction: request.editorialInstruction,
+      outline: buildManuscriptHeadingOutline(request.document.blocks, locale)
     });
   }
 
@@ -1772,16 +1797,20 @@ function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: st
 
 function parseSubsectionDraftOutput(
   rawOutput: string,
-  fallback: { title: string; lead: string }
-): { title: string; lead: string } {
+  fallback: { title: string; headingLevel: EditorialHeadingLevel }
+): { title: string; headingLevel: EditorialHeadingLevel; lead: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectTitle = parsedObject ? pickString(parsedObject, ["title", "heading", "subheading"]) : null;
+  const objectLevel = parsedObject
+    ? normalizeHeadingLevel(parsedObject.headingLevel ?? parsedObject.level ?? parsedObject.heading_level)
+    : fallback.headingLevel;
 
   const fallbackTitleValue = sanitizeCalloutTitle(fallback.title);
 
   if (objectTitle) {
     return {
       title: sanitizeCalloutTitle(objectTitle ?? fallbackTitleValue),
+      headingLevel: objectLevel,
       lead: ""
     };
   }
@@ -1790,21 +1819,26 @@ function parseSubsectionDraftOutput(
   const lines = plain.split("\n").map((line) => line.trimEnd());
   const titleLineIndex = lines.findIndex((line) => line.trim());
   const title = titleLineIndex >= 0 ? lines[titleLineIndex]!.trim() : fallbackTitleValue;
+  const levelFromPlain = /(?:^|\n)\s*(?:headingLevel|level|рівень)\s*[:=]\s*(2|3|h2|h3)/i.exec(plain);
 
   return {
     title: sanitizeCalloutTitle(title || fallbackTitleValue),
+    headingLevel: levelFromPlain ? normalizeHeadingLevel(levelFromPlain[1]) : fallback.headingLevel,
     lead: ""
   };
 }
 
-function parseSubsectionDraftFromRecommendation(value: string): { title: string; lead: string } | null {
+function parseSubsectionDraftFromRecommendation(
+  value: string,
+  fallbackHeadingLevel: EditorialHeadingLevel = 3
+): { title: string; headingLevel: EditorialHeadingLevel; lead: string } | null {
   const normalized = sanitizePromptInput(value, 6000);
 
   if (!normalized) {
     return null;
   }
 
-  const titleMatch = /(?:^|\n|\s)(?:підзаголовок|заголовок)\s*:\s*(.+?)(?=(?:\n|\s)+(?:текст|рамка)\s*:|$)/i.exec(normalized);
+  const titleMatch = /(?:^|\n|\s)(?:підзаголовок|заголовок)\s*:\s*(.+?)(?=(?:\n|\s)+(?:текст|рамка|рівень|headingLevel|level)\s*:|$)/i.exec(normalized);
   if (!titleMatch?.[1]) {
     return null;
   }
@@ -1815,10 +1849,28 @@ function parseSubsectionDraftFromRecommendation(value: string): { title: string;
     return null;
   }
 
+  const levelMatch = /(?:^|\n|\s)(?:рівень|headingLevel|level)\s*[:=]?\s*(2|3|h2|h3)\b/i.exec(normalized);
+
   return {
     title,
+    headingLevel: levelMatch ? normalizeHeadingLevel(levelMatch[1]) : fallbackHeadingLevel,
     lead: ""
   };
+}
+
+function buildManuscriptHeadingOutline(blocks: Block[], locale: AppLocale): string {
+  const lines = blocks
+    .filter((block): block is Extract<Block, { type: "heading" }> => block.type === "heading" && (block.level === 2 || block.level === 3))
+    .map((block) => {
+      const text = getBlockText(block).trim() || (locale === "en" ? "Untitled" : "Без назви");
+      return `- H${block.level}: ${text}`;
+    });
+
+  if (lines.length === 0) {
+    return locale === "en" ? "- (no H2/H3 headings yet)" : "- (поки немає H2/H3 заголовків)";
+  }
+
+  return lines.join("\n");
 }
 
 function sanitizeOptionalPrompt(value: string | undefined, maxLength: number): string | undefined {

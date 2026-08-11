@@ -196,6 +196,7 @@ test("normalizeEditorialReviewItems enforces subsection insert semantics", () =>
         excerpt: "Перший і другий абзаци",
         insertionHint: "subsection_after",
         anchorBlockId: "p1",
+        headingLevel: 2,
         calloutKind: null,
         calloutTitle: null,
         calloutPreviewText: null,
@@ -209,7 +210,41 @@ test("normalizeEditorialReviewItems enforces subsection insert semantics", () =>
   assert.equal(normalized.items.length, 1);
   assert.equal(normalized.items[0]?.suggestedAction, "insert_text");
   assert.equal(normalized.items[0]?.insertionPoint.mode, "before");
+  assert.equal(normalized.items[0]?.headingLevel, 2);
   assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1", "p2"]);
+});
+
+test("normalizeEditorialReviewItems shifts subsection insert past a leading heading", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-subsection-heading",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Додати підзаголовок",
+        reason: "Після заголовка йде щільний блок.",
+        recommendation: "Вставити H3 перед поясненням.",
+        recommendationType: "subsection",
+        suggestedAction: "insert_text",
+        priority: "high",
+        blockStart: 0,
+        blockEnd: 1,
+        excerpt: "Розділ\n\nПерший абзац",
+        insertionHint: "before",
+        anchorBlockId: "h1",
+        headingLevel: 3
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1"]);
+  assert.equal(normalized.items[0]?.insertionPoint.anchorBlockId, "p1");
+  assert.equal(normalized.items[0]?.headingLevel, 3);
 });
 
 test("normalizeEditorialReviewItems accepts emphasis targets without prose recommendation text", () => {

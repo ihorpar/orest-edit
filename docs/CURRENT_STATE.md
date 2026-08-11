@@ -1,10 +1,13 @@
 # CURRENT_STATE
 
-Date: 2026-08-04
+Date: 2026-08-11
 Status: Active handoff
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
+- The `Структура` step is heading-insert only: recommendation cards are limited to `subsection`, AI chooses H2 or H3 (`headingLevel`), existing headings are not edited, and non-subsection types from a Structure run are filtered server-side
+- Subsection proposal prompts receive the current H2/H3 outline, require `{"title","headingLevel"}`, and avoid copying existing headings; apply inserts `{ type: "heading", level: 2|3 }` before the anchor
+- Subsection normalization shifts insert anchors past a leading existing heading so new subheads land before prose, not as a fake replace of the old heading
 - A locale foundation now exists for a same-repo English edition: `apps/web/lib/i18n/product-locale.ts`, locale copy catalogs, and a `ProductLocaleProvider` wrap the app so runtime UI language can switch between Ukrainian and English
 - Settings, draft persistence, review/image job payloads, spellcheck contracts, workflow UI helpers, top-bar labels, login copy, and DOCX export metadata are now locale-aware at the contract/helper layer
 - The live `/editor` runtime now passes the active app locale through settings reads, draft persistence, visual-style storage, spellcheck language, spellcheck dictionary storage, local-action routing, patch/review/proposal/image payloads, and DOCX/TXT export naming/metadata
@@ -46,10 +49,10 @@ Status: Active handoff
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, and the persisted `final_editing` step now shown as `Власний запит`
 - The old visible `Фінальна редактура` stage is replaced by `Власний запит`; it requires an editor instruction and can generate all executable recommendation card types while keeping the internal `final_editing` id for draft/history compatibility
 - The visible `Глибина змін` selector has been removed from workflow settings; review-card prompts use automatic soft density guidance derived from manuscript size instead of a user-selected 1-5 level
-- Recommendation-step prompts still bias each stage toward its intended editorial focus, but server results now stay visible in the step that generated them even when the model mixes card types; one card must still target one contiguous paragraph range (non-contiguous cases split into separate cards)
+- Recommendation-step prompts still bias each stage toward its intended editorial focus; most steps keep mixed card types visible in the originating step, but **Structure hard-filters to `subsection` only**
 - Review normalization no longer deduplicates cards by shared title alone; dedup is anchor+type based so repeated labels like `Додати підзаголовок` survive across different anchors
 - Subsection normalization now parses explicit paragraph references in recommendation text (for example `абз. 2, 10, 15-17`) and splits them into multiple contiguous cards; overly wide subsection ranges are chunked into bounded contiguous segments
-- Review diagnostics still report normalization and duplicate-rejection drops, but step runs no longer discard mixed card types just because they fall outside the step's historical type bucket
+- Review diagnostics still report normalization and duplicate-rejection drops; Structure also reports per-type filter counts when non-subsection cards are dropped
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
 - Diagnostics now uses a macro-diagnostic prompt for long chapters: main structural diagnosis, full section map, systemic problems, missing subsection boundaries, redundant/extra material, representative paragraph evidence, and a prioritized restructuring plan
@@ -156,7 +159,7 @@ Status: Active handoff
 - Inline recommendation refine now treats typed уточнення as a first-class regenerate intent: `Перегенерувати` becomes an accent CTA once уточнення is present, applies via click or `Cmd/Ctrl+Enter`, and keeps apply/insert blocked until the variant is regenerated
 - Inline replace proposal editors now auto-fit height to content and keep an unlabeled clean vertical stack of green blocks
 - Repeated no-op regenerate attempts for the same rewrite/simplify review item now escalate warning copy with explicit instruction-quality guidance
-- `subsection` recommendation preparation now returns an editable H3 heading draft only and applies one heading insertion before the first affected block; legacy lead fields may still exist in stored payloads but are no longer generated, shown, or inserted
+- `subsection` recommendation preparation now returns an editable heading draft with AI-chosen `headingLevel` (2 or 3) and applies one heading insertion before the first affected non-heading block; legacy lead fields may still exist in stored payloads but are no longer generated, shown, or inserted
 - Subsection preparation now has a deterministic fast-path: when recommendation text already includes explicit `Підзаголовок:` + `Текст:`, the draft is built directly from that instruction without an extra model call
 - The floating `Локальна правка` panel can now launch manual AI inserts (`Врізка`, `Візуал`) from selected blocks via synthetic review items
 - Manual callout/visual launches now upsert a review item before proposal preparation, preserve one active execution lane, and dedupe repeated same-selection same-type clicks

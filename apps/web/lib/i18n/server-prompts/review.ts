@@ -31,7 +31,7 @@ const STEP_OUTPUT_KINDS: Record<EditorialReviewStepId, ReviewStepOutputKind> = {
 };
 
 const ALLOWED_RECOMMENDATION_TYPES: Partial<Record<EditorialReviewStepId, EditorialReviewRecommendationType[]>> = {
-  structure: ["subsection", "list", "callout"],
+  structure: ["subsection"],
   clarity: ["simplify", "rewrite", "expand"],
   interest: ["callout", "expand", "rewrite", "visual"],
   visuals: ["visual"],
@@ -43,7 +43,7 @@ const ALLOWED_RECOMMENDATION_TYPES: Partial<Record<EditorialReviewStepId, Editor
 const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, string>>> = {
   uk: {
     structure:
-      "Фокус: архітектура розділу, послідовність думки, місця для підзаголовків і дроблення масивних блоків.",
+      "Фокус: лише нові підзаголовки H2/H3 для сканування розділу. Не пропонуй списки, врізки, візуали чи мовне переписування.",
     clarity:
       "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
     interest:
@@ -58,7 +58,7 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
   },
   en: {
     structure:
-      "Focus: section architecture, flow of ideas, places for subheads, and splitting dense blocks.",
+      "Focus: only new H2/H3 subheads for scanning the section. Do not propose lists, callouts, visuals, or language rewrites.",
     clarity:
       "Focus: explain complex material simply, remove overloaded wording, calques, and excess certainty while preserving accuracy without academic heaviness or boilerplate disclaimers.",
     interest:
@@ -102,7 +102,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation.",
     recommendationCardsSingleRange: "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів.",
     recommendationCardsSubsectionOneAction:
-      "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один конкретний H3-підзаголовок перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків.",
+      "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один новий підзаголовок (H2 або H3) перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків. Для subsection обов'язково вкажи headingLevel: 2 або 3.",
     recommendationCardsSplitFragments:
       "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент.",
     recommendationCardsCalloutKindDepth:
@@ -122,7 +122,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     clarityNoDisclaimers:
       "Не пропонуй шаблонних застережень про консультацію з лікарем, самодіагностику, «варто перевірити стан» або інших повторюваних пересторог, якщо цього прямо не просить редактор і цього немає у фрагменті.",
     structureFocus:
-      "Для «Структура» не витрачай картки на мікролексичні або пунктуаційні правки. Фокус: підзаголовки, сегментація, послідовність блоків, врізки й списки як елементи архітектури читання.",
+      "Для «Структура» дозволений лише recommendationType='subsection'. Не пропонуй list, callout, visual, rewrite, simplify або expand. Не редагуй і не перейменовуй уже наявні заголовки — лише вставки нових.",
+    structureHeadingLevels:
+      "Обирай headingLevel=2 для нового смислового розділу глави і headingLevel=3 для дроблення всередині поточного H2. Не копіюй дослівно існуючі заголовки.",
     structureSubsectionSplit:
       "Якщо один великий блок треба розбити на кілька майбутніх підрозділів, поверни кілька окремих subsection-карток: одна картка = один конкретний підзаголовок перед одним місцем вставки.",
     formattingFocus:
@@ -230,7 +232,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "For blockStart and blockEnd, use zero-based document row numbering. Do not mention block id in title/reason/recommendation.",
     recommendationCardsSingleRange: "One card must cover only one contiguous paragraph range without gaps.",
     recommendationCardsSubsectionOneAction:
-      "For recommendationType='subsection', one card means exactly one action: insert one specific H3 subhead before one location. Do not describe two or more future subheads within one subsection card.",
+      "For recommendationType='subsection', one card means exactly one action: insert one new subhead (H2 or H3) before one location. Do not describe two or more future subheads within one subsection card. For subsection, always set headingLevel: 2 or 3.",
     recommendationCardsSplitFragments:
       "If one problem appears in non-adjacent places (for example 2, 10, 15-17), return multiple cards: one per separate contiguous fragment.",
     recommendationCardsCalloutKindDepth:
@@ -250,7 +252,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     clarityNoDisclaimers:
       "Do not propose boilerplate warnings about consulting a doctor, self-diagnosis, 'worth checking your condition', or other repeated cautions unless the editor explicitly asks for them or the fragment already contains them.",
     structureFocus:
-      'For "Structure", do not spend cards on micro-lexical or punctuation edits. Focus on subheads, segmentation, block order, callouts, and lists as elements of reading architecture.',
+      'For "Structure", only recommendationType=\'subsection\' is allowed. Do not propose list, callout, visual, rewrite, simplify, or expand. Do not edit or rename existing headings — insert new ones only.',
+    structureHeadingLevels:
+      "Choose headingLevel=2 for a new major chapter section and headingLevel=3 for splitting inside the current H2. Do not copy existing headings verbatim.",
     structureSubsectionSplit:
       "If one large block should be split into several future subsections, return several separate subsection cards: one card = one specific subhead before one insertion point.",
     formattingFocus:

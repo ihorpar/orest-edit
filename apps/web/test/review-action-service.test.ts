@@ -81,6 +81,7 @@ test("generateReviewAction builds subsection draft deterministically from explic
   assert.equal(response.providerUsed, "deterministic:subsection");
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри без самодіагностики");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
   assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
 });
 
@@ -96,7 +97,49 @@ test("generateReviewAction builds subsection draft deterministically from explic
   assert.equal(response.providerUsed, "deterministic:subsection");
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як токсиканти накопичуються в організмі");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
   assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
+});
+
+test("generateReviewAction parses headingLevel from deterministic subsection instruction", async () => {
+  const request = createRequest();
+  request.item.recommendation = "Вставити перед фрагментом. Підзаголовок: Новий смисловий блок Рівень: 2";
+
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
+
+  assert.equal(response.providerUsed, "deterministic:subsection");
+  assert.equal(response.proposal.subsectionDraft?.title, "Новий смисловий блок");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 2);
+});
+
+test("generateReviewAction keeps review headingLevel on deterministic prepare without embedded level", async () => {
+  const request = createRequest();
+  request.item.headingLevel = 2;
+  request.item.recommendation = "Вставити перед фрагментом. Підзаголовок: Коли сигнал неспецифічний";
+
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
+
+  assert.equal(response.providerUsed, "deterministic:subsection");
+  assert.equal(response.proposal.subsectionDraft?.title, "Коли сигнал неспецифічний");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 2);
+});
+
+test("generateReviewAction does not treat H2 inside title text as headingLevel", async () => {
+  const request = createRequest();
+  request.item.headingLevel = 3;
+  request.item.recommendation = "Вставити перед фрагментом. Підзаголовок: Порівняння H2 і H3 у тексті";
+
+  const response = await generateReviewAction(request, {
+    readEnvValue: () => null
+  });
+
+  assert.equal(response.providerUsed, "deterministic:subsection");
+  assert.equal(response.proposal.subsectionDraft?.title, "Порівняння H2 і H3 у тексті");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
 });
 
 test("generateReviewAction injects explicit callout-kind guidance into provider prompt", async () => {
@@ -976,7 +1019,44 @@ test("generateReviewAction ignores subsection lead prose from plain-text output"
 
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали шкіри");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
   assert.equal(response.proposal.subsectionDraft?.lead ?? "", "");
+});
+
+test("generateReviewAction parses subsection headingLevel from structured JSON", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "h1", type: "heading", level: 2, content: [{ text: "Шкіра як сигнал" }] },
+      { id: "p1", type: "paragraph", content: [{ text: "Щільний абзац про шкірні сигнали." }] }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+  const request = createRequest();
+  request.document = document;
+  request.currentRevision = revision;
+  request.item.documentRevisionId = revision.documentRevisionId;
+  request.item.anchor = {
+    blockIds: ["p1"],
+    generationBlockRange: { start: 1, end: 1 },
+    excerpt: "Щільний абзац про шкірні сигнали.",
+    fingerprint: computeAnchorFingerprint(document, ["p1"])
+  };
+  request.item.insertionPoint.anchorBlockId = "p1";
+
+  const response = await generateReviewAction(request, {
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          output_text: '{"title":"Коли сигнал неспецифічний","headingLevel":2}'
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+  });
+
+  assert.equal(response.proposal.subsectionDraft?.title, "Коли сигнал неспецифічний");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 2);
+  assert.match(response.proposal.subsectionDraft?.prompt ?? "", /H2: Шкіра як сигнал/);
 });
 
 test("generateReviewAction constrains rewrite output to the original block count", async () => {
@@ -1939,12 +2019,14 @@ test("generateReviewAction uses Gemini header auth and parses subsection output"
 
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Як читати сигнали");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
   assert.match(requestedUrl, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash:generateContent$/);
   assert.doesNotMatch(requestedUrl, /\?key=/);
   assert.equal(requestHeaders.get("x-goog-api-key"), "gemini-test-key");
   assert.match(requestPrompt, /Рекомендація:/i);
   assert.match(requestPrompt, /Щільний абзац/i);
-  assert.match(requestPrompt, /\{"title":"\.\.\."\}/i);
+  assert.match(requestPrompt, /\{"title":"\.\.\.","headingLevel":2\|3\}/i);
+  assert.match(requestPrompt, /Поточний план заголовків рукопису/i);
   assert.match(requestPrompt, /Не повертай lead, вступ, пояснення/i);
 });
 
@@ -1977,6 +2059,7 @@ test("generateReviewAction uses Anthropic headers and parses subsection output",
 
   assert.equal(response.proposal.kind, "subsection_prompt");
   assert.equal(response.proposal.subsectionDraft?.title, "Контекст перед сигналами");
+  assert.equal(response.proposal.subsectionDraft?.headingLevel, 3);
   assert.match(requestedUrl, /api\.anthropic\.com\/v1\/messages$/);
   assert.equal(requestHeaders.get("x-api-key"), "anthropic-test-key");
   assert.equal(requestHeaders.get("anthropic-version"), "2023-06-01");

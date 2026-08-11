@@ -30,7 +30,7 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
     fact_check:
       "Return only red-flag fact-check rows. Surface questionable or unsupported claims, weak numbers, or missing support. Do not return reassuring OK rows.",
     structure:
-      "Focus on section architecture, order of ideas, missing subheads, and places where large blocks should be split or regrouped.",
+      "Add only new H2/H3 subheads to improve section scanning. Do not propose lists, callouts, or rewrites. Do not edit existing headings.",
     clarity:
       "Focus on clarity, simpler phrasing, cleaner syntax, and removing overloaded scientific wording while preserving accuracy.",
     interest:

@@ -374,28 +374,42 @@ const CALLOUT_PROVIDER_SCAFFOLD = {
 const SUBSECTION_PROVIDER_SCAFFOLD = {
   uk: {
     intro:
-      "Ти готуєш вставку підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
+      "Ти готуєш вставку нового підзаголовка перед вибраним фрагментом українського науково-популярного рукопису.",
     bulletListRule: BULLET_LIST_PUNCTUATION_RULE,
-    jsonResponseFormat: 'Поверни лише JSON-об\'єкт без іншого markdown: {"title":"..."}.',
+    jsonResponseFormat: 'Поверни лише JSON-об\'єкт без іншого markdown: {"title":"...","headingLevel":2|3}.',
     titleRule:
-      "title: готовий короткий і точний H3-підзаголовок для вставки в рукопис (plain text, один рядок).",
+      "title: готовий короткий і точний підзаголовок для вставки в рукопис (plain text, один рядок).",
+    headingLevelRule:
+      "headingLevel: 2 для нового смислового розділу глави; 3 для дроблення всередині поточного H2-розділу. Обирай рівень сам.",
+    noExistingEdit:
+      "Не редагуй, не перейменовуй і не змінюй рівень уже наявних заголовків. Тільки новий insert.",
+    antiCopy:
+      "Не копіюй дослівно і майже дослівно заголовки з поточного плану розділу. Сформулюй новий орієнтир для читача.",
     noLead:
       "Не повертай lead, вступ, пояснення, редакторський коментар або опис ролі фрагмента.",
     noRewrite: "Не переписуй сам фрагмент і не додавай нових фактів поза контекстом.",
     recommendationLine: (recommendation: string) => `Рекомендація: ${recommendation}`,
     additionalInstructionLine: (instruction: string) => `Додаткова вказівка редактора: ${instruction}`,
+    outlineLine: (outline: string) => `Поточний план заголовків рукопису:\n${outline}`,
     fragmentLine: (excerpt: string) => `Фрагмент: ${excerpt}`
   },
   en: {
-    intro: "You are preparing a subhead insertion before the selected fragment in an English popular-science manuscript.",
+    intro: "You are preparing a new subhead insertion before the selected fragment in an English popular-science manuscript.",
     bulletListRule: ENGLISH_BULLET_LIST_PUNCTUATION_RULE,
-    jsonResponseFormat: 'Return only a JSON object without other markdown: {"title":"..."}.',
+    jsonResponseFormat: 'Return only a JSON object without other markdown: {"title":"...","headingLevel":2|3}.',
     titleRule:
-      "title: a ready short, precise H3 subhead for insertion in the manuscript (plain text, one line).",
+      "title: a ready short, precise subhead for insertion in the manuscript (plain text, one line).",
+    headingLevelRule:
+      "headingLevel: 2 for a new major section of the chapter; 3 for splitting inside the current H2 section. Choose the level yourself.",
+    noExistingEdit:
+      "Do not edit, rename, or relevel existing headings. Insert only.",
+    antiCopy:
+      "Do not copy existing outline headings verbatim or nearly verbatim. Write a new reader-facing cue.",
     noLead: "Do not return lead, intro, explanation, editorial comment, or a description of the fragment's role.",
     noRewrite: "Do not rewrite the fragment itself or add new facts beyond the context.",
     recommendationLine: (recommendation: string) => `Recommendation: ${recommendation}`,
     additionalInstructionLine: (instruction: string) => `Additional editor instruction: ${instruction}`,
+    outlineLine: (outline: string) => `Current manuscript heading outline:\n${outline}`,
     fragmentLine: (excerpt: string) => `Fragment: ${excerpt}`
   }
 } as const;
@@ -683,21 +697,26 @@ export interface SubsectionProviderPromptParams {
   excerpt: string;
   recommendation: string;
   editorialInstruction?: string | null;
+  outline?: string | null;
 }
 
 export function buildSubsectionProviderPrompt(locale: AppLocale, params: SubsectionProviderPromptParams): string {
   const scaffold = SUBSECTION_PROVIDER_SCAFFOLD[locale];
-  const { excerpt, recommendation, editorialInstruction } = params;
+  const { excerpt, recommendation, editorialInstruction, outline } = params;
 
   return [
     scaffold.intro,
     scaffold.bulletListRule,
     scaffold.jsonResponseFormat,
     scaffold.titleRule,
+    scaffold.headingLevelRule,
+    scaffold.noExistingEdit,
+    scaffold.antiCopy,
     scaffold.noLead,
     scaffold.noRewrite,
     scaffold.recommendationLine(recommendation),
     editorialInstruction?.trim() ? scaffold.additionalInstructionLine(editorialInstruction.trim()) : null,
+    outline?.trim() ? scaffold.outlineLine(outline.trim()) : null,
     scaffold.fragmentLine(excerpt)
   ]
     .filter(Boolean)

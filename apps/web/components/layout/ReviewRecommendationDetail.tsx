@@ -403,7 +403,12 @@ export function ReviewRecommendationDetail({
       {!isPreparing && currentItem.recommendationType === "subsection" ? (
         <div className="editorial-review-proposal">
           <div className="editorial-review-field-group">
-            <p className="editorial-review-detail-label">{detail.subheading}</p>
+            <div className="editorial-review-callout-kind-row">
+              <p className="editorial-review-detail-label">{detail.subheading}</p>
+              <span className="editorial-review-heading-level-badge" aria-label={detail.headingLevelBadge(subsectionDraft?.headingLevel ?? currentItem.headingLevel ?? 3)}>
+                {detail.headingLevelBadge(subsectionDraft?.headingLevel ?? currentItem.headingLevel ?? 3)}
+              </span>
+            </div>
             <input
               className="editorial-review-callout-title-input"
               value={subsectionDraft?.title ?? ""}
