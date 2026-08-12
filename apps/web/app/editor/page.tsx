@@ -52,7 +52,8 @@ import {
 } from "../../lib/editor/review-run-persistence";
 import {
   clearReviewItemsForReplaceRun,
-  mergeIncomingReviewItems
+  mergeIncomingReviewItems,
+  retainReviewRunProgress
 } from "../../lib/editor/review-run-merge";
 import {
   reviewChunkProgressPercent,
@@ -2525,7 +2526,12 @@ export default function EditorPage() {
           (run, capability, items) => {
             const existing = readEditorDraftState(locale)?.activeReviewRun;
             updateActiveReviewRun(
-              createPersistedActiveReviewRun(run, capability, false, existing?.snapshotBlockIds),
+              createPersistedActiveReviewRun(
+                retainReviewRunProgress(run, existing?.run),
+                capability,
+                false,
+                existing?.snapshotBlockIds
+              ),
               locale
             );
             if (items?.length) {
@@ -2588,17 +2594,6 @@ export default function EditorPage() {
     if (!fragmentRetryInFlightRef.current && progress?.failedChunks !== undefined) {
       setFailedReviewChunks(progress.failedChunks);
     }
-    if (!record.stale && progress && !isRunTerminal(record.run)) {
-      setFeedback({
-        tone: "info",
-        message: editorCopy.reviewFeedback.reviewRunProgress(
-          progress.completedChunks,
-          progress.totalChunks,
-          progress.attempt,
-          Boolean(progress.retryAt)
-        )
-      });
-    }
   }
 
   async function resumePersistedReviewRun(record: PersistedActiveReviewRun) {
@@ -2651,7 +2646,12 @@ export default function EditorPage() {
         locale,
         (run, capability, items) => {
           updateActiveReviewRun(
-            createPersistedActiveReviewRun(run, capability, false, record.snapshotBlockIds),
+            createPersistedActiveReviewRun(
+              retainReviewRunProgress(run, record.run),
+              capability,
+              false,
+              record.snapshotBlockIds
+            ),
             locale
           );
           if (items?.length) {
@@ -4369,7 +4369,7 @@ export default function EditorPage() {
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const shouldSuppressRecommendationFeedback =
     isRecommendationStep
-    && showRecommendationStatusStrip
+    && (showRecommendationStatusStrip || isReviewRequestInFlight)
     && feedback?.tone === "info";
   const feedbackPresentation = presentRequestFeedback(
     shouldSuppressRecommendationFeedback ? null : feedback,
@@ -5478,32 +5478,51 @@ export default function EditorPage() {
                 <header className="step-review-prototype-head">
                   <div className="step-review-prototype-head-copy">
                     <h1 className="step-review-prototype-title">{activeStepMeta.label}</h1>
-                    {activeReviewRun?.run.progress && (isReviewRequestInFlight || failedReviewChunks.length > 0) ? (
+                    {((isReviewRequestInFlight && activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" && activeWorkflowStep !== "spellcheck") || failedReviewChunks.length > 0) ? (
                       <div className="step-review-chunk-progress">
-                        <div
-                          className="step-review-chunk-progress-track"
-                          role="progressbar"
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={reviewChunkProgressPercent(activeReviewRun.run.progress)}
-                          aria-label={editorCopy.reviewFeedback.reviewRunProgress(
-                            activeReviewRun.run.progress.completedChunks,
-                            activeReviewRun.run.progress.totalChunks
-                          )}
-                        >
-                          <div
-                            className="step-review-chunk-progress-fill"
-                            style={{ width: `${reviewChunkProgressPercent(activeReviewRun.run.progress)}%` }}
-                          />
-                        </div>
-                        <p className="step-review-chunk-progress-copy">
-                          {editorCopy.reviewFeedback.reviewRunProgress(
-                            activeReviewRun.run.progress.completedChunks,
-                            activeReviewRun.run.progress.totalChunks,
-                            activeReviewRun.run.progress.attempt,
-                            Boolean(activeReviewRun.run.progress.retryAt)
-                          )}
-                        </p>
+                        {activeReviewRun?.run.progress ? (
+                          <>
+                            <div
+                              className="step-review-chunk-progress-track"
+                              role="progressbar"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={reviewChunkProgressPercent(activeReviewRun.run.progress)}
+                              aria-label={editorCopy.reviewFeedback.reviewRunProgress(
+                                activeReviewRun.run.progress.completedChunks,
+                                activeReviewRun.run.progress.totalChunks
+                              )}
+                            >
+                              <div
+                                className="step-review-chunk-progress-fill"
+                                style={{ width: `${reviewChunkProgressPercent(activeReviewRun.run.progress)}%` }}
+                              />
+                            </div>
+                            <p className="step-review-chunk-progress-copy">
+                              {editorCopy.reviewFeedback.reviewRunProgress(
+                                activeReviewRun.run.progress.completedChunks,
+                                activeReviewRun.run.progress.totalChunks,
+                                activeReviewRun.run.progress.attempt,
+                                Boolean(activeReviewRun.run.progress.retryAt)
+                              )}
+                            </p>
+                          </>
+                        ) : isReviewRequestInFlight ? (
+                          <>
+                            <div
+                              className="step-review-chunk-progress-track"
+                              role="progressbar"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-label={editorCopy.reviewFeedback.reviewRunProgressPending}
+                            >
+                              <div className="step-review-chunk-progress-fill" data-pending="true" />
+                            </div>
+                            <p className="step-review-chunk-progress-copy">
+                              {editorCopy.reviewFeedback.reviewRunProgressPending}
+                            </p>
+                          </>
+                        ) : null}
                         {failedReviewChunks.length > 0 ? (
                           <div className="step-review-chunk-progress-holes">
                             {failedReviewChunks.map((chunk) => (
@@ -5519,20 +5538,6 @@ export default function EditorPage() {
                             ))}
                           </div>
                         ) : null}
-                      </div>
-                    ) : failedReviewChunks.length > 0 ? (
-                      <div className="step-review-chunk-progress-holes">
-                        {failedReviewChunks.map((chunk) => (
-                          <button
-                            key={`${chunk.index}:${chunk.coreBlockIds.join("|")}`}
-                            type="button"
-                            className="step-review-chunk-progress-retry"
-                            onClick={() => retryFailedReviewChunk(chunk)}
-                            disabled={isReviewRequestInFlight}
-                          >
-                            {editorCopy.reviewFeedback.retryFragment} · {chunk.index + 1}
-                          </button>
-                        ))}
                       </div>
                     ) : null}
                   </div>

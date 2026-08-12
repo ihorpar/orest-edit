@@ -6,7 +6,8 @@ import type { EditorialReviewItem } from "../lib/editor/review-contract.ts";
 import { reconcileReviewItemsWithRevision } from "../lib/editor/review-contract.ts";
 import {
   clearReviewItemsForReplaceRun,
-  mergeIncomingReviewItems
+  mergeIncomingReviewItems,
+  retainReviewRunProgress
 } from "../lib/editor/review-run-merge.ts";
 
 function paragraph(id: string, text: string): EditorDocument["blocks"][number] {
@@ -114,4 +115,25 @@ test("reconcileReviewItemsWithRevision marks changed or deleted blocks stale and
   assert.equal(reconciled[0]?.status, "pending");
   assert.equal(reconciled[1]?.status, "stale");
   assert.equal(reconciled[2]?.status, "stale");
+});
+
+test("retainReviewRunProgress keeps the previous bar when a poll omits progress", () => {
+  const previous = {
+    runId: "wrun_1",
+    documentRevisionId: "rev-1",
+    stepId: "clarity" as const,
+    locale: "uk" as const,
+    provider: "openai",
+    modelId: "gpt-5.6-luna",
+    runMode: "replace" as const,
+    createdAt: "2026-08-12T12:00:00.000Z",
+    updatedAt: "2026-08-12T12:00:01.000Z",
+    status: "running" as const,
+    pollAfterMs: 2000,
+    progress: { completedChunks: 0, totalChunks: 8, completedSourceChars: 0, totalSourceChars: 128000 }
+  };
+  const incoming = { ...previous, progress: undefined, updatedAt: "2026-08-12T12:00:03.000Z" };
+
+  assert.deepEqual(retainReviewRunProgress(incoming, previous).progress, previous.progress);
+  assert.equal(retainReviewRunProgress({ ...incoming, progress: { completedChunks: 1, totalChunks: 8 } }, previous).progress?.completedChunks, 1);
 });

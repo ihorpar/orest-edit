@@ -111,6 +111,19 @@ export function sumChunkSourceChars(chunks: Array<{ sourceChars: number }>, endE
   return chunks.slice(0, Math.max(0, endExclusive)).reduce((total, chunk) => total + chunk.sourceChars, 0);
 }
 
+export function latestReviewProgress(
+  batches: Array<EditorialReviewRunProgress | undefined>
+): EditorialReviewRunProgress | undefined {
+  for (let index = batches.length - 1; index >= 0; index -= 1) {
+    const batch = batches[index];
+    if (batch && typeof batch.completedChunks === "number" && typeof batch.totalChunks === "number") {
+      return batch;
+    }
+  }
+
+  return undefined;
+}
+
 export function classifyReviewChunkFailure(input: {
   error?: string;
   providerError?: EditorialReviewResponse["diagnostics"]["providerError"];

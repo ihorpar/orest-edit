@@ -16,6 +16,7 @@ import {
   classifyReviewChunkFailure,
   consumeReadableBatches,
   filterCoreReviewChunkItems,
+  latestReviewProgress,
   summarizeReviewChunkRun
 } from "../lib/server/review-chunk-runtime.ts";
 
@@ -155,6 +156,19 @@ test("consumeReadableBatches concatenates GET prefix item batches including afte
     run: envelope.run,
     items: envelope.items
   }), true);
+});
+
+test("latestReviewProgress keeps the last written chunk progress", () => {
+  assert.equal(latestReviewProgress([]), undefined);
+  assert.deepEqual(latestReviewProgress([
+    { completedChunks: 0, totalChunks: 8, completedSourceChars: 0, totalSourceChars: 128000 },
+    { completedChunks: 1, totalChunks: 8, completedSourceChars: 16000, totalSourceChars: 128000 }
+  ]), {
+    completedChunks: 1,
+    totalChunks: 8,
+    completedSourceChars: 16000,
+    totalSourceChars: 128000
+  });
 });
 
 function createTenChunkFixture(): { request: EditorialReviewRequest; chunks: ReviewChunkPlan[] } {

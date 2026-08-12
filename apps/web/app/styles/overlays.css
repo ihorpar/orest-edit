@@ -1126,6 +1126,7 @@
   display: grid;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .step-review-chunk-progress {
@@ -1146,6 +1147,28 @@
   height: 100%;
   border-radius: inherit;
   background: #0f766e;
+}
+
+.step-review-chunk-progress-fill[data-pending="true"] {
+  width: 28%;
+  animation: step-review-chunk-progress-pending 1.4s ease-in-out infinite;
+}
+
+@keyframes step-review-chunk-progress-pending {
+  0% {
+    transform: translateX(-20%);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: translateX(240%);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(-20%);
+    opacity: 0.55;
+  }
 }
 
 .step-review-chunk-progress-copy {

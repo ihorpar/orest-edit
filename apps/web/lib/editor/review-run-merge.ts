@@ -3,6 +3,7 @@ import type { ManuscriptRevisionState } from "./manuscript-structure.ts";
 import {
   reconcileReviewItemsWithRevision,
   type EditorialReviewItem,
+  type EditorialReviewRunSnapshot,
   type EditorialReviewStepId
 } from "./review-contract.ts";
 
@@ -11,6 +12,17 @@ export function clearReviewItemsForReplaceRun(
   stepId: EditorialReviewStepId
 ): EditorialReviewItem[] {
   return items.filter((item) => item.stepId !== stepId);
+}
+
+export function retainReviewRunProgress(
+  incoming: EditorialReviewRunSnapshot,
+  previous?: EditorialReviewRunSnapshot
+): EditorialReviewRunSnapshot {
+  if (incoming.progress || !previous?.progress) {
+    return incoming;
+  }
+
+  return { ...incoming, progress: previous.progress };
 }
 
 export function manuscriptSharesIdentity(liveBlockIds: string[], snapshotBlockIds?: string[]): boolean {

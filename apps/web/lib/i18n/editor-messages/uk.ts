@@ -549,6 +549,7 @@ const editorUk = {
       retrying
         ? `Повторна спроба ${attempt ?? 1} · Розібрано початок розділу · ${completed} з ${total} фрагментів`
         : `Розібрано початок розділу · ${completed} з ${total} фрагментів`,
+    reviewRunProgressPending: "Розбираємо розділ…",
     reviewRunStale: "Перевірку завершено для попередньої версії рукопису. Результат збережено, але не застосовано.",
     retryFragment: "Повторити цей фрагмент",
     retryFragmentUnavailable: "Цей фрагмент уже не знайдено в рукописі."

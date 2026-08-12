@@ -19,10 +19,15 @@ import {
   editorialReviewWorkflow,
   parseEditorialReviewWorkflowFailure
 } from "../../../../lib/server/editorial-review-workflow";
+import { planReviewChunks } from "../../../../lib/server/review-chunk-planner";
 import {
   accumulateReviewPartialItemBatches,
+  buildReviewChunkProgress,
   consumeReadableBatches,
-  REVIEW_PARTIAL_ITEMS_NAMESPACE
+  isChunkedRecommendationStep,
+  latestReviewProgress,
+  REVIEW_PARTIAL_ITEMS_NAMESPACE,
+  sumChunkSourceChars
 } from "../../../../lib/server/review-chunk-runtime";
 import {
   assertReviewRunCapabilityConfigured,
@@ -213,6 +218,9 @@ export async function POST(request: Request) {
       const identity = buildRunIdentity(parsed.value, run.runId, createdAt);
       const capability = await createReviewRunCapability(identity);
       const snapshot = await buildRunSnapshot(identity, run, await run.status);
+      if (!snapshot.progress) {
+        snapshot.progress = seedChunkProgress(parsed.value);
+      }
 
       logEditorialReviewEvent("run_started", {
         runId: run.runId,
@@ -331,26 +339,30 @@ async function readFailedRunError(run: Run<EditorialReviewResponse>): Promise<{
   return { message: "Workflow failed without an error message.", provider: null };
 }
 
-async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<EditorialReviewRunProgress | undefined> {
-  const stream = run.getReadable<EditorialReviewRunProgress>({ namespace: "review-progress" });
-  const tailIndex = await stream.getTailIndex();
-
-  if (tailIndex < 0) {
+function seedChunkProgress(request: EditorialReviewRequest): EditorialReviewRunProgress | undefined {
+  if (!isChunkedRecommendationStep(request.stepId)) {
     return undefined;
   }
 
-  const reader = run.getReadable<EditorialReviewRunProgress>({
-    namespace: "review-progress",
-    startIndex: tailIndex
-  }).getReader();
-
-  try {
-    const { value } = await reader.read();
-    return value;
-  } finally {
-    await reader.cancel();
-    reader.releaseLock();
+  const chunks = planReviewChunks(request.document.blocks);
+  if (chunks.length === 0) {
+    return undefined;
   }
+
+  return buildReviewChunkProgress({
+    completedChunks: 0,
+    totalChunks: chunks.length,
+    completedSourceChars: 0,
+    totalSourceChars: sumChunkSourceChars(chunks, chunks.length)
+  });
+}
+
+async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<EditorialReviewRunProgress | undefined> {
+  const reader = run.getReadable<EditorialReviewRunProgress>({
+    namespace: "review-progress"
+  }).getReader();
+  const batches = await consumeReadableBatches(reader);
+  return latestReviewProgress(batches);
 }
 
 async function readReviewPartialItems(
