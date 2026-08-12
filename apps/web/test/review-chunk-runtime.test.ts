@@ -17,6 +17,7 @@ import {
   consumeReadableBatches,
   filterCoreReviewChunkItems,
   latestReviewProgress,
+  reviewRunPollAfterMs,
   summarizeReviewChunkRun
 } from "../lib/server/review-chunk-runtime.ts";
 
@@ -169,6 +170,13 @@ test("latestReviewProgress keeps the last written chunk progress", () => {
     completedSourceChars: 16000,
     totalSourceChars: 128000
   });
+});
+
+test("reviewRunPollAfterMs slows chunked running polls and keeps pending snappy", () => {
+  assert.equal(reviewRunPollAfterMs("pending", "clarity"), 900);
+  assert.equal(reviewRunPollAfterMs("running", "clarity"), 3000);
+  assert.equal(reviewRunPollAfterMs("running", "diagnostics"), 2000);
+  assert.equal(reviewRunPollAfterMs("completed", "clarity"), 0);
 });
 
 function createTenChunkFixture(): { request: EditorialReviewRequest; chunks: ReviewChunkPlan[] } {

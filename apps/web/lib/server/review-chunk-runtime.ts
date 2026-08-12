@@ -22,6 +22,21 @@ export function isChunkedRecommendationStep(stepId: EditorialReviewRequest["step
     stepId === "final_editing";
 }
 
+export function reviewRunPollAfterMs(
+  status: EditorialReviewRunSnapshot["status"],
+  stepId: EditorialReviewRequest["stepId"]
+): number {
+  if (status === "pending") {
+    return 900;
+  }
+
+  if (status === "running") {
+    return isChunkedRecommendationStep(stepId) ? 3000 : 2000;
+  }
+
+  return 0;
+}
+
 export function filterCoreReviewChunkItems(
   items: EditorialReviewItem[],
   coreBlockIds: string[]

@@ -27,6 +27,7 @@ import {
   isChunkedRecommendationStep,
   latestReviewProgress,
   REVIEW_PARTIAL_ITEMS_NAMESPACE,
+  reviewRunPollAfterMs,
   sumChunkSourceChars
 } from "../../../../lib/server/review-chunk-runtime";
 import {
@@ -309,7 +310,7 @@ async function buildRunSnapshot(
     ...identity,
     status,
     updatedAt: updatedAt.toISOString(),
-    pollAfterMs: status === "pending" ? 900 : status === "running" ? 2000 : 0,
+    pollAfterMs: reviewRunPollAfterMs(status, identity.stepId),
     progress: await readReviewProgress(run)
   };
 }
