@@ -2,6 +2,23 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-08-12
+
+### Large recommendation runs are character-budget chunks with prefix reveal
+Decision: recommendation-card steps (`clarity` first, then `structure`, `interest`, `visuals`, `formatting`, `final_editing`, and incremental reveal for `emphasis`) pack the manuscript into sequential durable chunks with a hard 16,000 source-character cap and any number of blocks, preferring H2/H3 boundaries. Completed chunks expose cards immediately. Progress is character-weighted and uses copy of the form `Розібрано початок розділу · N з M фрагментів`. In-flight chrome is blue/neutral; the finished prefix fill is teal (`#0f766e`), not manuscript apply-highlight green. Parallel chunk execution is out of scope. The 400-block safety cap supersedes the 2026-08-04 80-block emphasis packing limit.
+
+Reason: a ~140k-symbol Clarity run currently dies on the 280s provider abort (`This operation was aborted`). `Акценти` already proved 12-16k packing on the 142k fixture, but hiding cards until the end recreates a long black-box wait. Sequential document order makes “first 25% of the chapter” honest.
+
+### Prefix cards are apply-safe while the tail is still running
+Decision: editors may prepare, apply, or reject cards from finished fragments while later chunks still run. Remaining chunks analyze the frozen start snapshot. Live rebase uses stable `block.id` plus text fingerprint. A changed `documentRevisionId` must not cancel the in-flight run. Visible gutter numbers (`001`) stay positional labels, not anchors. UUID migration of block ids is not required.
+
+Reason: rewrite of an early paragraph must not invalidate analysis of a later untouched block. Canonical block ids are already unique; whole-run revision matching was the kill switch this decision removes.
+
+### Failed fragments become holes, not whole-step aborts
+Decision: after bounded retries, a failed chunk keeps earlier cards, is marked as a hole, and later chunks continue. The editor can retry only that fragment in preserve mode. Soft card density is about 4-8 strong cards per 16k chunk, not the whole-document 3-50 guide. `diagnostics` and `fact_check` stay whole-document until a later plan.
+
+Reason: all-or-nothing timeout is the failure mode already seen in production. Ten chunks times 40 cards would flood the drawer. Diagnostics is a macro chapter pass and is a separate timeout problem.
+
 ## 2026-08-11
 
 ### Structure manuscript ghosts use minimal blue text (variant 1)
@@ -664,12 +681,12 @@ Decision: asynchronous `/api/edit/review` execution uses Vercel Workflow for dur
 Reason: the prior process-local Map lost jobs when POST and GET reached different serverless instances. Managed Workflow is the smallest operational boundary that continues after the initiating request, tab, or function disappears while preserving completed chunk checkpoints.
 
 ### Review results are bound to immutable run identity
-Decision: a recovered result may be applied only when document revision, locale, step, provider, model, and run mode match the identity signed at start. Changed manuscripts keep the completed run as stale evidence and never auto-apply it. An exclusive same-origin Web Lock serializes start recheck and persistence; a short lease gives one tab polling ownership.
+Decision (updated 2026-08-12): recovered in-flight runs stay compatible when locale matches and snapshot block ids still overlap the live manuscript. A changed `documentRevisionId` does not cancel the run. A cleared or replaced manuscript still stale-cancels. Cards rebase by `block.id` plus fingerprint and are never auto-applied. An exclusive same-origin Web Lock serializes start recheck and persistence; a short lease gives one tab polling ownership.
 
-Reason: persistence must not trade infrastructure failures for stale or duplicate editorial changes. The browser capability prevents another authenticated browser session from reading a guessed or leaked run ID.
+Reason: persistence must not trade infrastructure failures for stale or duplicate editorial changes. The 2026-08-12 apply-while-running rule superseded whole-run revision matching. The browser capability still prevents another authenticated browser session from reading a guessed or leaked run ID.
 
 ### Emphasis uses section-aware durable chunks
-Decision: `Акценти` targets 12,000-16,000 source characters and at most 80 eligible blocks per chunk, uses at most one context-only boundary block on each side, and executes chunks sequentially as independently retryable Workflow steps. Only core-block output is merged, in global document order.
+Decision (updated 2026-08-12): recommendation-card steps including `Акценти` target 12,000-16,000 source characters with a 400-block safety cap, use at most one context-only boundary block on each side, and execute chunks sequentially as independently retryable Workflow steps. Only core-block output is merged, in global document order. See 2026-08-12 character-budget chunks.
 
 Reason: the old 18-block/two-overlap scheme produced 41 sequential provider calls for the representative 142,870-character manuscript. The new fixture produces about 10, reducing overload risk, repeated prompt cost, and boundary duplication while keeping deterministic coverage.
 

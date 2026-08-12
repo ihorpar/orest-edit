@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Block } from "../lib/editor/document-model.ts";
-import { planEmphasisChunks } from "../lib/server/emphasis-chunk-planner.ts";
+import { planEmphasisChunks, planReviewChunks } from "../lib/server/review-chunk-planner.ts";
 
 test("planEmphasisChunks covers every eligible block exactly once", () => {
   const blocks: Block[] = [
@@ -17,8 +17,7 @@ test("planEmphasisChunks covers every eligible block exactly once", () => {
 
   assert.deepEqual(coreIds, Array.from({ length: 12 }, (_, index) => `p${index + 1}`));
   assert.equal(new Set(coreIds).size, coreIds.length);
-  assert.ok(chunks.every((chunk) => chunk.coreBlockIds.length <= 80));
-  assert.ok(chunks.every((chunk) => chunk.sourceChars <= 16_000));
+  assert.ok(chunks.every((chunk) => chunk.sourceChars <= 16_000 || chunk.coreBlockIds.length === 1));
 });
 
 test("planEmphasisChunks uses headings as section-aware context", () => {
@@ -76,4 +75,38 @@ test("planEmphasisChunks reduces the representative manuscript to about ten chun
   assert.ok(chunks.length >= 9 && chunks.length <= 12, `expected 9-12 chunks, received ${chunks.length}`);
   assert.equal(allCoreIds.length, 650);
   assert.equal(new Set(allCoreIds).size, 650);
+  assert.ok(chunks.every((chunk) => chunk.sourceChars <= 16_000 || chunk.coreBlockIds.length === 1));
+});
+
+test("planReviewChunks packs by character budget even when block count exceeds 80", () => {
+  const blocks: Block[] = Array.from({ length: 120 }, (_, index) => ({
+    id: `tiny-${index}`,
+    type: "paragraph" as const,
+    content: [{ text: "n".repeat(80) }]
+  }));
+  const chunks = planReviewChunks(blocks);
+  const allCoreIds = chunks.flatMap((chunk) => chunk.coreBlockIds);
+
+  assert.equal(allCoreIds.length, 120);
+  assert.equal(new Set(allCoreIds).size, 120);
+  assert.ok(chunks.length <= 2, `expected character-first packing, received ${chunks.length} chunks`);
+  assert.ok(chunks.some((chunk) => chunk.coreBlockIds.length > 80));
+  assert.ok(chunks.every((chunk) => chunk.sourceChars <= 16_000));
+});
+
+test("planReviewChunks matches planEmphasisChunks for the representative fixture", () => {
+  const blocks: Block[] = [];
+
+  for (let section = 0; section < 10; section += 1) {
+    blocks.push({ id: `h${section}`, type: "heading", level: 2, content: [{ text: `Section ${section}` }] });
+    for (let paragraph = 0; paragraph < 65; paragraph += 1) {
+      blocks.push({
+        id: `p${section}-${paragraph}`,
+        type: "paragraph",
+        content: [{ text: `${section}-${paragraph} ${"т".repeat(215)}` }]
+      });
+    }
+  }
+
+  assert.deepEqual(planReviewChunks(blocks), planEmphasisChunks(blocks));
 });

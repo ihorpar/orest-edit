@@ -50,6 +50,14 @@ import {
   tryAcquireReviewRunPollLease,
   withReviewRunStartLock
 } from "../../lib/editor/review-run-persistence";
+import {
+  clearReviewItemsForReplaceRun,
+  mergeIncomingReviewItems
+} from "../../lib/editor/review-run-merge";
+import {
+  reviewChunkProgressPercent,
+  sliceDocumentForFragmentRetry
+} from "../../lib/editor/review-run-progress";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { buildImportFeedback } from "../../lib/editor/import-feedback";
 import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
@@ -114,6 +122,8 @@ import {
   type EditorialReviewDiagnostics,
   type EditorialReviewRunApiResponse,
   type EditorialReviewItem,
+  type EditorialReviewFailedChunk,
+  type EditorialReviewChunkScope,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type RejectedReviewIdea,
@@ -407,6 +417,7 @@ export default function EditorPage() {
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
   const [activeReviewRun, setActiveReviewRun] = useState<PersistedActiveReviewRun | null>(null);
+  const [failedReviewChunks, setFailedReviewChunks] = useState<EditorialReviewFailedChunk[]>([]);
   const [reviewLeaseRetryNonce, setReviewLeaseRetryNonce] = useState(0);
   const [isDocxExportInFlight, setIsDocxExportInFlight] = useState(false);
   const [preparingReviewItemId, setPreparingReviewItemId] = useState<string | null>(null);
@@ -462,6 +473,8 @@ export default function EditorPage() {
   const activeReviewJobRunRef = useRef<string | null>(null);
   const reviewPollTabIdRef = useRef(createPatchId("review-tab"));
   const consumedReviewRunIdsRef = useRef(new Set<string>());
+  const fragmentRetryInFlightRef = useRef(false);
+  const pendingFragmentRetryRef = useRef<EditorialReviewFailedChunk | null>(null);
   const reviewLeaseRetryTimeoutRef = useRef<number | null>(null);
   const pendingReviewRunCleanupRef = useRef<{
     runId: string;
@@ -587,6 +600,7 @@ export default function EditorPage() {
       setActiveProposal(draft.activeProposal);
       setReviewComposer(draft.reviewComposer ?? defaultReviewComposer);
       setActiveReviewRun(draft.activeReviewRun ?? null);
+      setFailedReviewChunks(draft.activeReviewRun?.run.progress?.failedChunks ?? []);
       setFocusedBlockId(draft.selection.focusBlockId ?? draft.document.blocks[0]?.id ?? null);
     }
 
@@ -594,6 +608,7 @@ export default function EditorPage() {
       skipNextDraftPersistRef.current = true;
       activeReviewJobRunRef.current = null;
       setActiveReviewRun(draft?.activeReviewRun ?? null);
+      setFailedReviewChunks([]);
       setOperations([]);
       setReviewItems([]);
       setRejectedReviewIdeas([]);
@@ -1565,6 +1580,13 @@ export default function EditorPage() {
     reviewNoOpStreakRef.current = {};
     patchNoOpStreakRef.current = {};
     clearSpellcheckResults();
+    activeReviewJobRunRef.current = null;
+    setActiveReviewRun(null);
+    writeEditorActiveReviewRun(null, locale);
+    setIsReviewRequestInFlight(false);
+    setFailedReviewChunks([]);
+    fragmentRetryInFlightRef.current = false;
+    pendingFragmentRetryRef.current = null;
   }
 
   function focusAndHighlightChangedBlocks(blockIds: string[]) {
@@ -2294,7 +2316,14 @@ export default function EditorPage() {
     }
   }
 
-  async function requestWorkflowStep(stepId: EditorialReviewStepId) {
+  async function requestWorkflowStep(
+    stepId: EditorialReviewStepId,
+    options?: {
+      runMode?: EditorialStepRunMode;
+      revision?: ManuscriptRevisionState;
+      reviewChunk?: EditorialReviewChunkScope;
+    }
+  ) {
     const requiresDiagnosticsContext =
       stepId !== "diagnostics" && stepId !== "emphasis" && stepId !== "final_editing";
 
@@ -2323,7 +2352,9 @@ export default function EditorPage() {
     setIsReviewRequestInFlight(true);
     setFeedback(null);
     const runMode: EditorialStepRunMode =
-      stepId === "final_editing" ? "replace" : (stepRunModeByStep[stepId] ?? "replace");
+      stepId === "final_editing"
+        ? "replace"
+        : options?.runMode ?? (stepRunModeByStep[stepId] ?? "replace");
     const currentStepFeedback = stepFeedback[stepId]?.trim();
     const diagnosticsFeedback = stepFeedback.diagnostics?.trim();
     const historyMessages: ChatMessage[] = [];
@@ -2353,13 +2384,18 @@ export default function EditorPage() {
         // For step review we only need stable order and revision id; fingerprints are recomputed server-side when absent.
         blockFingerprints: {}
       };
+      const reviewDocument = document;
+      const reviewRevision = options?.revision ?? compactReviewRevision;
+      if (runMode === "replace") {
+        setFailedReviewChunks([]);
+      }
       const isEmphasisStep = stepId === "emphasis";
       const diagnosticsPrompt = settings.expertisePrompt.trim() || settings.reviewPrompt.trim() || undefined;
       const downstreamPrompt = settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined;
       const requestBody: EditorialReviewRequest = isEmphasisStep
         ? {
-            document,
-            revision: compactReviewRevision,
+            document: reviewDocument,
+            revision: reviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
             locale,
@@ -2372,11 +2408,12 @@ export default function EditorPage() {
             stepId,
             runMode,
             stepFeedback: currentStepFeedback || undefined,
-            rejectedIdeas: rejectedReviewIdeas
+            rejectedIdeas: rejectedReviewIdeas,
+            reviewChunk: options?.reviewChunk
           }
         : {
-            document,
-            revision: compactReviewRevision,
+            document: reviewDocument,
+            revision: reviewRevision,
             provider: settings.provider,
             modelId: settings.modelId,
             locale,
@@ -2400,7 +2437,8 @@ export default function EditorPage() {
                   currentStepFeedback: currentStepFeedback || undefined
                 },
             expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined,
-            rejectedIdeas: rejectedReviewIdeas
+            rejectedIdeas: rejectedReviewIdeas,
+            reviewChunk: options?.reviewChunk
           };
 
       const startOutcome = await withReviewRunStartLock(locale, async () => {
@@ -2427,7 +2465,33 @@ export default function EditorPage() {
         }
 
         if (candidate.kind === "run") {
-          updateActiveReviewRun(createPersistedActiveReviewRun(candidate.run, candidate.capability), locale);
+          if (runMode === "replace") {
+            setReviewItems((current) => clearReviewItemsForReplaceRun(current, stepId));
+            setActiveReviewItemId((current) => {
+              const currentItem = currentReviewItemsRef.current.find((item) => item.id === current);
+              return currentItem && currentItem.stepId === stepId ? null : current;
+            });
+            setActiveProposal((current) => {
+              if (!current) {
+                return null;
+              }
+
+              const proposalItem = currentReviewItemsRef.current.find((item) => item.id === current.reviewItemId);
+              return proposalItem?.stepId === stepId ? null : current;
+            });
+          }
+          updateActiveReviewRun(
+            createPersistedActiveReviewRun(
+              candidate.run,
+              candidate.capability,
+              false,
+              currentDocumentRef.current.blocks.map((block) => block.id)
+            ),
+            locale
+          );
+          if (candidate.items?.length) {
+            applyPartialReviewItems(candidate.items, candidate.run.stepId);
+          }
         }
 
         return { kind: "started" as const, payload: candidate };
@@ -2449,13 +2513,25 @@ export default function EditorPage() {
 
       if (initialPayload.kind === "result") {
         payload = initialPayload.result;
+        if (runMode === "replace") {
+          setReviewItems((current) => clearReviewItemsForReplaceRun(current, stepId));
+        }
       } else {
         const completed = await pollEditorialReviewRun(
           initialPayload.run,
           initialPayload.capability,
           reviewRunToken,
           locale,
-          (run, capability) => updateActiveReviewRun(createPersistedActiveReviewRun(run, capability), locale)
+          (run, capability, items) => {
+            const existing = readEditorDraftState(locale)?.activeReviewRun;
+            updateActiveReviewRun(
+              createPersistedActiveReviewRun(run, capability, false, existing?.snapshotBlockIds),
+              locale
+            );
+            if (items?.length) {
+              applyPartialReviewItems(items, run.stepId);
+            }
+          }
         );
         payload = completed.result;
         terminalRun = completed.run;
@@ -2466,7 +2542,11 @@ export default function EditorPage() {
       }
 
       if (initialPayload.kind === "run") {
-        updateActiveReviewRun(createPersistedActiveReviewRun(terminalRun, initialPayload.capability), locale);
+        const existing = readEditorDraftState(locale)?.activeReviewRun;
+        updateActiveReviewRun(
+          createPersistedActiveReviewRun(terminalRun, initialPayload.capability, false, existing?.snapshotBlockIds),
+          locale
+        );
       }
       applyEditorialReviewResult(payload, {
         expectedStepId: stepId,
@@ -2505,6 +2585,9 @@ export default function EditorPage() {
     writeEditorActiveReviewRun(record, expectedLocale);
 
     const progress = record.run.progress;
+    if (!fragmentRetryInFlightRef.current && progress?.failedChunks !== undefined) {
+      setFailedReviewChunks(progress.failedChunks);
+    }
     if (!record.stale && progress && !isRunTerminal(record.run)) {
       setFeedback({
         tone: "info",
@@ -2525,8 +2608,8 @@ export default function EditorPage() {
 
     if (!isRunCompatibleWithEditor({
       record,
-      documentRevisionId: currentRevisionRef.current.documentRevisionId,
-      locale
+      locale,
+      liveBlockIds: currentDocumentRef.current.blocks.map((block) => block.id)
     })) {
       const staleRecord = { ...record, stale: true, updatedAt: new Date().toISOString() };
       updateActiveReviewRun(staleRecord, locale);
@@ -2566,10 +2649,18 @@ export default function EditorPage() {
         record.capability,
         reviewRunToken,
         locale,
-        (run, capability) => updateActiveReviewRun(createPersistedActiveReviewRun(run, capability), locale),
+        (run, capability, items) => {
+          updateActiveReviewRun(
+            createPersistedActiveReviewRun(run, capability, false, record.snapshotBlockIds),
+            locale
+          );
+          if (items?.length) {
+            applyPartialReviewItems(items, run.stepId);
+          }
+        },
         ownerId
       );
-      const terminalRecord = createPersistedActiveReviewRun(completed.run, record.capability);
+      const terminalRecord = createPersistedActiveReviewRun(completed.run, record.capability, false, record.snapshotBlockIds);
       updateActiveReviewRun(terminalRecord, locale);
       applyEditorialReviewResult(completed.result, {
         expectedStepId: record.run.stepId,
@@ -2596,6 +2687,55 @@ export default function EditorPage() {
     }
   }
 
+  function applyPartialReviewItems(incoming: EditorialReviewItem[], stepId: EditorialReviewStepId) {
+    if (stepId === "diagnostics" || stepId === "fact_check") {
+      return;
+    }
+
+    setReviewItems((current) => mergeIncomingReviewItems({
+      current,
+      incoming,
+      document: currentDocumentRef.current,
+      revision: currentRevisionRef.current,
+      stepId
+    }));
+  }
+
+  function retryFailedReviewChunk(failedChunk: EditorialReviewFailedChunk) {
+    const stepId = activeEditorialStepId;
+    if (!stepId || isReviewRequestInFlight) {
+      return;
+    }
+
+    if (!sliceDocumentForFragmentRetry(currentDocumentRef.current, failedChunk)) {
+      setFeedback({ tone: "error", message: editorCopy.reviewFeedback.retryFragmentUnavailable });
+      return;
+    }
+
+    const frozenRevisionId = activeReviewRun?.run.documentRevisionId;
+    const progress = activeReviewRun?.run.progress;
+
+    fragmentRetryInFlightRef.current = true;
+    pendingFragmentRetryRef.current = failedChunk;
+    setFailedReviewChunks((current) => current.filter((chunk) => chunk.index !== failedChunk.index));
+    void requestWorkflowStep(stepId, {
+      runMode: "preserve",
+      revision: frozenRevisionId
+        ? {
+            documentRevisionId: frozenRevisionId,
+            blockOrder: revision.blockOrder,
+            blockFingerprints: {}
+          }
+        : undefined,
+      reviewChunk: {
+        index: failedChunk.index,
+        total: progress?.totalChunks ?? 1,
+        coreBlockIds: failedChunk.coreBlockIds,
+        contextBlockIds: []
+      }
+    });
+  }
+
   function applyEditorialReviewResult(
     payload: EditorialReviewResponse,
     input: {
@@ -2608,18 +2748,21 @@ export default function EditorPage() {
       runId: string;
     }
   ) {
-    if (currentRevisionRef.current.documentRevisionId !== input.sourceRevisionId) {
-      const current = readEditorDraftState(locale)?.activeReviewRun;
-      if (current?.run.runId === input.runId) {
-        updateActiveReviewRun({ ...current, stale: true, updatedAt: new Date().toISOString() }, locale);
-      }
-      consumedReviewRunIdsRef.current.add(input.runId);
-      setFeedback({ tone: "error", message: editorCopy.reviewFeedback.reviewRunStale });
-      return;
-    }
-
     if (payload.stepId !== input.expectedStepId) {
       throw new Error(editorCopy.reviewStepMismatch(input.expectedStepId, payload.stepId));
+    }
+
+    if (payload.diagnostics.failedChunks !== undefined && !fragmentRetryInFlightRef.current) {
+      setFailedReviewChunks(payload.diagnostics.failedChunks);
+    } else if (fragmentRetryInFlightRef.current) {
+      const pending = pendingFragmentRetryRef.current;
+      fragmentRetryInFlightRef.current = false;
+      pendingFragmentRetryRef.current = null;
+      if (payload.error && pending) {
+        setFailedReviewChunks((current) => current.some((chunk) => chunk.index === pending.index)
+          ? current
+          : [...current, pending]);
+      }
     }
 
     if (
@@ -2666,11 +2809,13 @@ export default function EditorPage() {
     }
 
     if (payload.stepId !== "diagnostics" && payload.stepId !== "fact_check") {
-      const normalizedItems = payload.items.map((item) => ({ ...item, stepId: payload.stepId, stepRunId: payload.stepRunId }));
-      const baseItems = input.runMode === "replace"
-        ? liveReviewItems.filter((item) => item.stepId && item.stepId !== payload.stepId)
-        : liveReviewItems;
-      const nextItems = [...normalizedItems, ...baseItems];
+      const nextItems = mergeIncomingReviewItems({
+        current: liveReviewItems,
+        incoming: payload.items.map((item) => ({ ...item, stepId: payload.stepId, stepRunId: payload.stepRunId })),
+        document: liveDocument,
+        revision: liveRevision,
+        stepId: payload.stepId
+      });
       sectionItemCount = mapReviewItemsByStep(nextItems)[payload.stepId].length;
       setReviewItems(nextItems);
     }
@@ -2756,7 +2901,11 @@ export default function EditorPage() {
     initialCapability: string,
     reviewRunToken: string,
     expectedLocale = locale,
-    onSnapshot?: (run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"], capability: string) => void,
+    onSnapshot?: (
+      run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"],
+      capability: string,
+      items?: EditorialReviewItem[]
+    ) => void,
     pollOwnerId = reviewPollTabIdRef.current
   ): Promise<{ result: EditorialReviewResponse; run: Extract<EditorialReviewRunApiResponse, { kind: "result" }>["run"] }> {
     let currentRun = initialRun;
@@ -2801,7 +2950,9 @@ export default function EditorPage() {
       }
 
       if (payload.kind === "error") {
-        if (payload.run) {
+        if (payload.items?.length && payload.run) {
+          onSnapshot?.(payload.run, capability, payload.items);
+        } else if (payload.run) {
           onSnapshot?.(payload.run, capability);
         }
         throw new EditorialReviewRunTerminalError(payload.error.message, payload.run);
@@ -2822,7 +2973,7 @@ export default function EditorPage() {
 
       currentRun = payload.run;
       capability = payload.capability;
-      onSnapshot?.(currentRun, capability);
+      onSnapshot?.(currentRun, capability, payload.items);
     }
   }
 
@@ -5044,7 +5195,7 @@ export default function EditorPage() {
               />
             );
           })}
-          {visibleActiveStepItems.length === 0 ? (
+          {visibleActiveStepItems.length === 0 && !isReviewRequestInFlight ? (
             <p className="step-review-empty-copy step-review-prototype-empty-copy">
               {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
                 ? editorCopy.structureOutline.allStepCardsDone
@@ -5327,6 +5478,63 @@ export default function EditorPage() {
                 <header className="step-review-prototype-head">
                   <div className="step-review-prototype-head-copy">
                     <h1 className="step-review-prototype-title">{activeStepMeta.label}</h1>
+                    {activeReviewRun?.run.progress && (isReviewRequestInFlight || failedReviewChunks.length > 0) ? (
+                      <div className="step-review-chunk-progress">
+                        <div
+                          className="step-review-chunk-progress-track"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={reviewChunkProgressPercent(activeReviewRun.run.progress)}
+                          aria-label={editorCopy.reviewFeedback.reviewRunProgress(
+                            activeReviewRun.run.progress.completedChunks,
+                            activeReviewRun.run.progress.totalChunks
+                          )}
+                        >
+                          <div
+                            className="step-review-chunk-progress-fill"
+                            style={{ width: `${reviewChunkProgressPercent(activeReviewRun.run.progress)}%` }}
+                          />
+                        </div>
+                        <p className="step-review-chunk-progress-copy">
+                          {editorCopy.reviewFeedback.reviewRunProgress(
+                            activeReviewRun.run.progress.completedChunks,
+                            activeReviewRun.run.progress.totalChunks,
+                            activeReviewRun.run.progress.attempt,
+                            Boolean(activeReviewRun.run.progress.retryAt)
+                          )}
+                        </p>
+                        {failedReviewChunks.length > 0 ? (
+                          <div className="step-review-chunk-progress-holes">
+                            {failedReviewChunks.map((chunk) => (
+                              <button
+                                key={`${chunk.index}:${chunk.coreBlockIds.join("|")}`}
+                                type="button"
+                                className="step-review-chunk-progress-retry"
+                                onClick={() => retryFailedReviewChunk(chunk)}
+                                disabled={isReviewRequestInFlight}
+                              >
+                                {editorCopy.reviewFeedback.retryFragment} · {chunk.index + 1}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : failedReviewChunks.length > 0 ? (
+                      <div className="step-review-chunk-progress-holes">
+                        {failedReviewChunks.map((chunk) => (
+                          <button
+                            key={`${chunk.index}:${chunk.coreBlockIds.join("|")}`}
+                            type="button"
+                            className="step-review-chunk-progress-retry"
+                            onClick={() => retryFailedReviewChunk(chunk)}
+                            disabled={isReviewRequestInFlight}
+                          >
+                            {editorCopy.reviewFeedback.retryFragment} · {chunk.index + 1}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="step-review-prototype-head-actions">
                     {activeWorkflowStep === "emphasis" && actionableEmphasisSuggestionCount > 0 ? (
@@ -5335,7 +5543,6 @@ export default function EditorPage() {
                         size="sm"
                         className="step-review-prototype-accept-all-button"
                         onClick={applyAllEmphasisSuggestions}
-                        disabled={isReviewRequestInFlight}
                         aria-label={editorCopy.stepActions.acceptAllEmphasis}
                       >
                         <span className="button-content">

@@ -74,6 +74,56 @@ test("isEditorialReviewRunApiResponse rejects malformed success envelopes", () =
   );
 });
 
+test("isEditorialReviewRunApiResponse accepts a running envelope with prefix items and char progress", () => {
+  assert.equal(
+    isEditorialReviewRunApiResponse({
+      kind: "run",
+      capability: "cap-test",
+      items: [{
+        id: "item-p1",
+        reviewSessionId: "session-1",
+        documentRevisionId: "revision-1",
+        changeLevel: 3,
+        title: "Спростити",
+        reason: "Щільно",
+        recommendation: "Простіше.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "фрагмент",
+          fingerprint: "fp-p1"
+        },
+        insertionPoint: { mode: "replace", anchorBlockId: "p1" },
+        status: "pending"
+      }],
+      run: {
+        runId: "wrun_test",
+        documentRevisionId: "revision-1",
+        stepId: "clarity",
+        locale: "uk",
+        provider: "openai",
+        modelId: "gpt-5.6-sol",
+        runMode: "replace",
+        createdAt: "2026-08-12T12:00:00.000Z",
+        updatedAt: "2026-08-12T12:00:01.000Z",
+        status: "running",
+        pollAfterMs: 2000,
+        progress: {
+          completedChunks: 2,
+          totalChunks: 10,
+          completedSourceChars: 32000,
+          totalSourceChars: 160000,
+          failedChunks: [{ index: 2, coreBlockIds: ["p3"], message: "timeout" }]
+        }
+      }
+    }),
+    true
+  );
+});
+
 test("normalizeEditorialReviewItems coerces legacy visual/callout values into the new taxonomy", () => {
   const document = createDocument();
   const revision = deriveManuscriptRevisionState(document);
@@ -647,4 +697,153 @@ test("normalizeEditorialReviewItems splits subsection cards by explicit non-cont
     normalized.items.map((item) => item.anchor.blockIds),
     [["p2"], ["p5"], ["p7", "p8"]]
   );
+});
+
+test("normalizeEditorialReviewItems prefers explicit blockId over a wrong positional index", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-blockid",
+    changeLevel: 3,
+    stepId: "clarity",
+    items: [
+      {
+        title: "Спростити",
+        reason: "Формулювання перевантажене.",
+        recommendation: "Переписати простішими словами.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        blockId: "p2",
+        blockStart: 0,
+        blockEnd: 0,
+        excerpt: "Другий абзац",
+        insertionHint: "replace"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p2"]);
+});
+
+test("normalizeEditorialReviewItems falls back to blockStart when blockId is unknown", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-unknown-blockid",
+    changeLevel: 3,
+    stepId: "clarity",
+    items: [
+      {
+        title: "Спростити",
+        reason: "Формулювання перевантажене.",
+        recommendation: "Переписати простішими словами.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        blockId: "missing-block",
+        blockStart: 2,
+        blockEnd: 2,
+        excerpt: "Другий абзац",
+        insertionHint: "replace"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p2"]);
+});
+
+test("normalizeEditorialReviewItems keeps a multi-block range when blockId start and later blockEnd agree", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-blockid-range",
+    changeLevel: 3,
+    stepId: "clarity",
+    items: [
+      {
+        title: "Спростити",
+        reason: "Два абзаци варто ущільнити разом.",
+        recommendation: "Переписати обидва абзаци простіше.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        blockId: "p1",
+        blockStart: 1,
+        blockEnd: 2,
+        excerpt: "Перший і другий абзаци",
+        insertionHint: "replace"
+      }
+    ]
+  });
+
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p1", "p2"]);
+});
+
+test("normalizeEditorialReviewItems keeps a blockId anchor after the block is reordered", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-reorder",
+    changeLevel: 3,
+    stepId: "clarity",
+    items: [
+      {
+        title: "Спростити",
+        reason: "Формулювання перевантажене.",
+        recommendation: "Переписати простішими словами.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        blockId: "p2",
+        blockStart: 2,
+        blockEnd: 2,
+        excerpt: "Другий абзац",
+        insertionHint: "replace"
+      }
+    ]
+  });
+
+  const reordered = {
+    version: 2 as const,
+    blocks: [document.blocks[2], document.blocks[0], document.blocks[1]]
+  };
+  const reorderedRevision = deriveManuscriptRevisionState(reordered);
+  const reconciled = normalizeEditorialReviewItems({
+    document: reordered,
+    revision: reorderedRevision,
+    reviewSessionId: "review-session-reorder",
+    changeLevel: 3,
+    stepId: "clarity",
+    items: [
+      {
+        title: "Спростити",
+        reason: "Формулювання перевантажене.",
+        recommendation: "Переписати простішими словами.",
+        recommendationType: "simplify",
+        suggestedAction: "rewrite_text",
+        priority: "high",
+        blockId: "p2",
+        blockStart: 0,
+        blockEnd: 0,
+        excerpt: "Другий абзац",
+        insertionHint: "replace"
+      }
+    ]
+  });
+
+  assert.deepEqual(normalized.items[0]?.anchor.blockIds, ["p2"]);
+  assert.deepEqual(reconciled.items[0]?.anchor.blockIds, ["p2"]);
+  assert.equal(reorderedRevision.blockOrder[0], "p2");
 });

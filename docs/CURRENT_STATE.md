@@ -1,7 +1,9 @@
 # CURRENT_STATE
 
-Date: 2026-08-11
+Date: 2026-08-12
 Status: Active handoff
+
+Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md` (M1–M5 complete). No new active ExecPlan until the next phase is written. Do not treat `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md` or `.plans/durable-review-workflow.md` as the current build checklist.
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
@@ -50,8 +52,10 @@ Status: Active handoff
 - `/api/edit/review` is step-aware and starts a durable Vercel Workflow run by default; request/response contracts include `stepId`, `stepRunId`, `runMode`, `stepContext`, optional `factCheckRows`, and discriminated `run` / `result` / `error` envelopes; direct synchronous calls remain available with `async: false` for diagnostics
 - Long workflow reviews now use a 300-second Vercel route duration with an internal provider abort below the platform limit, so slow LLM analysis can return a clean app error instead of a hard `FUNCTION_INVOCATION_TIMEOUT`
 - Editorial review no longer uses process-local job state. Workflow checkpoints survive function recycling and browser closure; the locale draft stores only the signed run reference needed for same-browser recovery
-- Same-origin tabs serialize review starts with a Web Lock and hand polling ownership over with a short localStorage lease; recovered results are accepted only for the exact revision, locale, step, provider/model, and run mode
-- `Акценти` now plans section-aware chunks at 12,000-16,000 source characters and at most 80 eligible blocks. The representative 142,870-character/approximately 650-block fixture produces about 10 provider chunks instead of 41
+- Same-origin tabs serialize review starts with a Web Lock and hand polling ownership over with a short localStorage lease; recovered in-flight runs stay compatible across live manuscript edits when locale matches and snapshot block ids still overlap. A cleared or replaced manuscript still stale-cancels the run. Pre-M3 drafts that omit `snapshotBlockIds` stay compatible with any non-empty manuscript of the same locale
+- Recommendation-card steps (`structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, `final_editing`) plan character-budget chunks at 12,000-16,000 source characters with a 400-block safety cap. The representative 142,870-character fixture still produces about 10 provider chunks. Cards from finished fragments stream on GET `kind: "run"`; a failed chunk after retries is a hole and later chunks continue. Provider abort surfaces a localized timeout, never `This operation was aborted`
+- `Діагностика` and `Перевірка фактів` remain one-shot whole-document calls and can still hit the 280s provider abort on ~140k chapters
+- Drawer progress for chunked steps is character-weighted with copy `Розібрано початок розділу · N з M фрагментів`. Hole retry is a preserve run over that fragment's core blocks plus neighbors and does not clear prefix cards
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, and the persisted `final_editing` step now shown as `Власний запит`
 - The old visible `Фінальна редактура` stage is replaced by `Власний запит`; it requires a non-empty editor instruction (fail-loud without it), does not depend on diagnostics (and does not inject diagnostics context into the prompt), always uses `runMode: replace` so re-runs replace prior cards for that step, and can generate executable recommendation card types (not emphasis accents) while keeping the internal `final_editing` id for draft/history compatibility
 - The visible `Глибина змін` selector has been removed from workflow settings; review-card prompts use automatic soft density guidance derived from manuscript size instead of a user-selected 1-5 level
@@ -256,12 +260,13 @@ Status: Active handoff
 - Visual prompt editing now has two surfaces by design: the inline execution card for quick edits and a full-screen workspace for focused prompt/result review. Both surfaces edit the same active proposal state.
 
 ## Highest-priority next work
-1. Finish the remaining editor UX remediation milestones: touch-target/mixed-input improvements, step-specific config copy, and fact-check/table scanability.
-2. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions, step-header CTA behavior, destructive recovery flows).
+1. Finish the remaining editor UX remediation milestones: touch-target/mixed-input improvements, step-specific config copy, and fact-check/table scanability. Chunked incremental review (`docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`) is implemented; leftover risk is still one-shot `Діагностика` / `Перевірка фактів` on ~140k chapters.
+2. Expand browser QA scenarios beyond the current inline manual `callout`/`visual` path (stale anchors, subsection insert flow, dense-card interactions, step-header CTA behavior, destructive recovery flows, and a long-chapter `Ясність` prefix/apply/hole-retry pass).
 3. Add CI wiring for `qa:inline-review` in an environment with Playwright browser dependencies preinstalled.
 4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
+- `npm run typecheck -w @orest/web`, `npm run test -w @orest/web` (283/283), and `npm run build -w @orest/web` passed on 2026-08-12 after incremental chunked review closeout (M1–M5 of `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`). Suite now includes `review-chunk-runtime`, `review-run-merge`, and `review-run-progress`.
 - `npm run typecheck -w @orest/web` and `npm run test -w @orest/web` (221/221) passed on 2026-06-29 after post-review localization fixes: API error catalog (`api-errors.ts`), fact-check linked review cards, structure outline helpers, and localized fail-loud provider messages.
 - Browser QA on 2026-06-29 with English-default dev server (`NEXT_PUBLIC_OREST_APP_LOCALE=en`): English editor workflow UI, spelling step, and workspace shell labels verified; uk↔en switch preserves manuscript and clears analysis; Ukrainian UI confirmed after reload; settings page body copy still mostly Ukrainian in both locales.
 - `npm run typecheck -w @orest/web` passed on 2026-06-25 after the locale-foundation pass, stable fact-check status migration, locale-aware job payload updates, and targeted storage/test fixes.

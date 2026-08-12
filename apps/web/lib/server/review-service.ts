@@ -5,6 +5,7 @@ import {
   normalizeEditorialReviewItems,
   type EditorialFactCheckRow,
   type EditorialFactCheckSource,
+  type EditorialReviewFailedChunk,
   type EditorialReviewItem,
   type EditorialReviewRecommendationType,
   type RejectedReviewIdea,
@@ -14,7 +15,8 @@ import {
   type EditorialReviewResponse,
   type EditorialReviewStepId,
   type EditorialStepRunMode,
-  type FactCheckStatus
+  type FactCheckStatus,
+  resolveReviewChunkScope
 } from "../editor/review-contract.ts";
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
 import { serializeInlineNodesToBoldMarkdown } from "../editor/inline-markup.ts";
@@ -44,8 +46,14 @@ import { readServerEnvValue } from "./env.ts";
 import {
   isEmphasisEligibleBlock,
   planEmphasisChunks,
-  type EmphasisChunkPlan
+  planReviewChunks,
+  type EmphasisChunkPlan,
+  type ReviewChunkPlan
 } from "./emphasis-chunk-planner.ts";
+import {
+  collectFailedReviewChunks,
+  summarizeReviewChunkRun
+} from "./review-chunk-runtime.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
@@ -58,6 +66,7 @@ const geminiGroundedFactCheckProfile = resolveModelProfile("gemini", geminiGroun
 const groundedSourceResolveTimeoutMs = 4000;
 const emphasisChunkRetryAttempts = 3;
 const emphasisChunkRetryBaseDelayMs = 600;
+const chunkedDiagnosticsContextMaxChars = 1200;
 const missingTrustedSourceExplanation = "Не знайдено надійного зовнішнього джерела. Потрібна ручна перевірка.";
 const suspiciousMeasurementExplanation =
   "У твердженні є число або одиниця вимірювання, які можуть змінити медичний зміст. Перевірте діапазон, конверсію одиниць і актуальний клінічний контекст за надійним джерелом.";
@@ -101,6 +110,7 @@ const openAiSchema = {
           priority: { type: "string", enum: ["high", "medium", "low"] },
           blockStart: { type: "integer" },
           blockEnd: { type: "integer" },
+          blockId: { anyOf: [{ type: "string" }, { type: "null" }] },
           excerpt: { type: "string" },
           insertionHint: { type: "string", enum: ["replace", "before", "after"] },
           anchorBlockId: { anyOf: [{ type: "string" }, { type: "null" }] },
@@ -143,6 +153,7 @@ const openAiSchema = {
           "priority",
           "blockStart",
           "blockEnd",
+          "blockId",
           "excerpt",
           "insertionHint",
           "anchorBlockId",
@@ -178,6 +189,7 @@ const geminiSchema = {
           priority: { type: "STRING" },
           blockStart: { type: "INTEGER" },
           blockEnd: { type: "INTEGER" },
+          blockId: { type: "STRING" },
           excerpt: { type: "STRING" },
           insertionHint: { type: "STRING" },
           anchorBlockId: { type: "STRING" },
@@ -296,6 +308,8 @@ type EditorialReviewProviderResult = {
   filteredItemCountsByType?: Partial<Record<EditorialReviewRecommendationType, number>>;
   providerUsed: string;
   rawOutput?: string;
+  failedChunks?: EditorialReviewFailedChunk[];
+  error?: string;
 };
 
 type GeminiResponsePayload = {
@@ -448,13 +462,15 @@ export async function generateEditorialReview(
 
   try {
     const result =
-      stepId === "emphasis" && !request.emphasisChunk
+      stepId === "emphasis" && !resolveReviewChunkScope(request)
         ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
-        : request.provider === "gemini"
-          ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-          : request.provider === "anthropic"
-            ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-            : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
+        : stepSpec.outputKind === "recommendation_cards" && stepId !== "emphasis" && !resolveReviewChunkScope(request)
+          ? await createChunkedRecommendationReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
+          : request.provider === "gemini"
+            ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+            : request.provider === "anthropic"
+              ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+              : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
 
     return buildEditorialReviewResponse({
       requestId,
@@ -477,7 +493,9 @@ export async function generateEditorialReview(
       filteredItemCountsByType: result.filteredItemCountsByType,
       usedFallback: false,
       generatedAt: now(),
-      rawOutput: result.rawOutput
+      rawOutput: result.rawOutput,
+      error: result.error,
+      failedChunks: result.failedChunks
     });
   } catch (error) {
     const providerError = normalizeProviderErrorDetails(error);
@@ -500,7 +518,9 @@ export async function generateEditorialReview(
       droppedItemCountsByReason: undefined,
       filteredItemCountsByType: undefined,
       usedFallback: false,
-      error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(request.provider)),
+      error: isAbortError(error)
+        ? reviewErrors.providerTimeout(providerDisplayName(request.provider), Math.round(reviewRequestTimeoutMs / 1000))
+        : error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(request.provider)),
       providerError,
       generatedAt: now()
     });
@@ -524,11 +544,20 @@ function normalizeProviderErrorDetails(
     return { code: "timeout", retryable: true };
   }
 
+  if (error instanceof Error && error.name === "AbortError") {
+    return { code: "timeout", retryable: true };
+  }
+
   if (error instanceof TypeError) {
     return { code: "network_error", retryable: true };
   }
 
   return undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (error instanceof DOMException && error.name === "AbortError")
+    || (error instanceof Error && error.name === "AbortError");
 }
 
 function buildEditorialReviewResponse(input: {
@@ -553,6 +582,7 @@ function buildEditorialReviewResponse(input: {
   rawOutput?: string;
   error?: string;
   providerError?: EditorialReviewResponse["diagnostics"]["providerError"];
+  failedChunks?: EditorialReviewResponse["diagnostics"]["failedChunks"];
 }): EditorialReviewResponse {
   return {
     reviewSessionId: input.reviewSessionId,
@@ -582,7 +612,8 @@ function buildEditorialReviewResponse(input: {
       filteredItemCountsByType: input.filteredItemCountsByType,
       generatedAt: input.generatedAt,
       rawOutput: input.rawOutput,
-      providerError: input.providerError
+      providerError: input.providerError,
+      failedChunks: input.failedChunks
     }
   };
 }
@@ -1090,16 +1121,24 @@ function buildAutomaticCardDensityGuidance(
   }
 
   const scaffold = getReviewPromptScaffold(locale);
-  const { meaningfulBlocks, totalChars } = getReviewDensityStats(request.document.blocks);
+  const chunk = resolveReviewChunkScope(request);
+  const densityBlocks = chunk
+    ? request.document.blocks.filter((block) => chunk.coreBlockIds.includes(block.id))
+    : request.document.blocks;
+  const { meaningfulBlocks, totalChars } = getReviewDensityStats(densityBlocks);
 
   if (meaningfulBlocks === 0 || totalChars === 0) {
     return scaffold.cardDensityEmptyDoc;
   }
 
   const sizeUnits = Math.max(meaningfulBlocks, Math.ceil(totalChars / 900));
-  const targetCards = clampNumber(Math.round(sizeUnits / 4), 3, 40);
+  const targetCards = chunk
+    ? clampNumber(Math.round((totalChars / 16_000) * 6), 3, 8)
+    : clampNumber(Math.round(sizeUnits / 4), 3, 40);
   const minCards = clampNumber(Math.floor(targetCards * 0.75), 3, targetCards);
-  const maxCards = clampNumber(Math.ceil(targetCards * 1.45), Math.max(minCards + 2, targetCards), 50);
+  const maxCards = chunk
+    ? clampNumber(Math.ceil(targetCards * 1.35), targetCards, 8)
+    : clampNumber(Math.ceil(targetCards * 1.45), Math.max(minCards + 2, targetCards), 50);
 
   return [
     scaffold.cardDensityTarget(minCards, maxCards, meaningfulBlocks, totalChars),
@@ -1197,8 +1236,14 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const historyLines = (request.history ?? []).map(
     (msg) => `${msg.role === "user" ? scaffold.historyUserRole : scaffold.historyAssistantRole}: ${msg.content}`
   );
-  const diagnosticsExpertise = request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim();
-  const diagnosticsFeedback = request.stepContext?.diagnosticsFeedback?.trim();
+  const diagnosticsExpertise = clipChunkedContext(
+    request.stepContext?.diagnosticsExpertise?.trim() || request.expertise?.trim(),
+    Boolean(resolveReviewChunkScope(request))
+  );
+  const diagnosticsFeedback = clipChunkedContext(
+    request.stepContext?.diagnosticsFeedback?.trim(),
+    Boolean(resolveReviewChunkScope(request))
+  );
   const stepFeedback = request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim();
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
   const emphasisChunkScope = step.id === "emphasis" ? buildEmphasisChunkScopeGuidance(request, locale) : null;
@@ -1237,6 +1282,9 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "emphasis" ? scaffold.emphasisOneItemPerParagraph : null,
     emphasisCoverageGuidance ? `${scaffold.emphasisCoveragePrefix}\n${emphasisCoverageGuidance}` : null,
     emphasisChunkScope,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis"
+      ? buildReviewChunkScopeGuidance(request, locale)
+      : null,
     step.id === "emphasis" ? scaffold.emphasisOccurrenceHint : null,
     step.id === "emphasis" ? scaffold.emphasisNotTooSparse : null,
     step.id === "emphasis" ? scaffold.emphasisSkipOnlyWhen : null,
@@ -1277,6 +1325,20 @@ function buildRejectedIdeasPrompt(
   return [scaffold.rejectedIdeasHeader, lines.join("\n"), scaffold.rejectedIdeasFooter].join("\n");
 }
 
+function clipChunkedContext(text: string | undefined, enabled: boolean): string | undefined {
+  const trimmed = text?.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (!enabled || trimmed.length <= chunkedDiagnosticsContextMaxChars) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, chunkedDiagnosticsContextMaxChars).trimEnd()}…`;
+}
+
 async function createChunkedEmphasisReview(
   request: EditorialReviewRequest,
   reviewSessionId: string,
@@ -1312,7 +1374,7 @@ async function createChunkedEmphasisReview(
     const chunkRequest: EditorialReviewRequest = {
       ...request,
       document: chunkDocument,
-      revision: deriveManuscriptRevisionState(chunkDocument),
+      revision: request.revision,
       emphasisChunk: {
         index: chunkIndex,
         total: chunks.length,
@@ -1392,6 +1454,203 @@ async function createChunkedEmphasisReview(
     providerUsed,
     rawOutput: rawOutputs.join("\n\n")
   };
+}
+
+async function createChunkedRecommendationReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  stepSpec: ReviewStepSpec,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  sleepImpl: (ms: number) => Promise<void>
+): Promise<EditorialReviewProviderResult> {
+  const chunks = planReviewChunks(request.document.blocks);
+
+  if (chunks.length <= 1) {
+    return request.provider === "gemini"
+      ? createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+      : request.provider === "anthropic"
+        ? createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+        : createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
+  }
+
+  const locale = resolveReviewLocale(request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const runMode: EditorialStepRunMode =
+    stepSpec.id === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace";
+  const responses: EditorialReviewResponse[] = [];
+  let droppedItemCount = 0;
+  let droppedByReason: Record<string, number> | undefined;
+  let filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> | undefined;
+  const rawOutputs: string[] = [];
+
+  for (const [chunkIndex, chunk] of chunks.entries()) {
+    const chunkDocument = {
+      version: request.document.version,
+      blocks: chunk.blocks
+    };
+    const chunkRequest: EditorialReviewRequest = {
+      ...request,
+      document: chunkDocument,
+      reviewChunk: {
+        index: chunkIndex,
+        total: chunks.length,
+        coreBlockIds: chunk.coreBlockIds,
+        contextBlockIds: chunk.contextBlockIds
+      }
+    };
+
+    try {
+      const chunkResult = await runRecommendationChunkProviderRequestWithRetry({
+        chunkRequest,
+        reviewSessionId,
+        stepRunId,
+        chunkIndex,
+        stepSpec,
+        apiKey,
+        fetchImpl,
+        sleepImpl
+      });
+
+      droppedItemCount += chunkResult.droppedItemCount;
+      droppedByReason = mergeCountMaps(droppedByReason, chunkResult.droppedItemCountsByReason);
+      filteredByType = mergeRecommendationTypeCounts(filteredByType, chunkResult.filteredItemCountsByType);
+
+      if (chunkResult.rawOutput?.trim()) {
+        rawOutputs.push(`chunk ${chunkIndex + 1}/${chunks.length}\n${chunkResult.rawOutput}`);
+      }
+
+      responses.push(buildEditorialReviewResponse({
+        requestId: `${reviewSessionId}:chunk-${chunkIndex + 1}`,
+        reviewSessionId,
+        stepId: stepSpec.id,
+        stepRunId: `${stepRunId}:chunk-${chunkIndex + 1}`,
+        runMode,
+        requestedProvider: request.provider,
+        requestedModelId: request.modelId,
+        providerUsed: chunkResult.providerUsed,
+        blockCount: chunkDocument.blocks.length,
+        changeLevel: request.changeLevel,
+        items: chunkResult.items,
+        factCheckRows: [],
+        droppedItemCount: chunkResult.droppedItemCount,
+        droppedItemCountsByReason: chunkResult.droppedItemCountsByReason,
+        filteredItemCountsByType: chunkResult.filteredItemCountsByType,
+        usedFallback: false,
+        generatedAt: new Date().toISOString(),
+        rawOutput: chunkResult.rawOutput
+      }));
+    } catch (error) {
+      if (isFatalThrownProviderError(error) && responses.every((response) => Boolean(response.error))) {
+        throw error;
+      }
+
+      const message = isAbortError(error)
+        ? reviewErrors.providerTimeout(providerDisplayName(request.provider), Math.round(reviewRequestTimeoutMs / 1000))
+        : error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(request.provider));
+
+      responses.push(buildEditorialReviewResponse({
+        requestId: `${reviewSessionId}:chunk-${chunkIndex + 1}`,
+        reviewSessionId,
+        stepId: stepSpec.id,
+        stepRunId: `${stepRunId}:chunk-${chunkIndex + 1}`,
+        runMode,
+        requestedProvider: request.provider,
+        requestedModelId: request.modelId,
+        providerUsed: request.provider,
+        blockCount: chunkDocument.blocks.length,
+        changeLevel: request.changeLevel,
+        items: [],
+        factCheckRows: [],
+        droppedItemCount: 0,
+        usedFallback: false,
+        error: message,
+        providerError: normalizeProviderErrorDetails(error),
+        generatedAt: new Date().toISOString()
+      }));
+
+      if (isFatalThrownProviderError(error)) {
+        break;
+      }
+    }
+  }
+
+  const summary = summarizeReviewChunkRun(request, chunks, responses);
+  const allFailed = responses.length > 0 && responses.every((response) => Boolean(response.error));
+
+  return {
+    stepId: stepSpec.id,
+    stepRunId,
+    items: summary.items,
+    factCheckRows: [],
+    droppedItemCount,
+    droppedItemCountsByReason: droppedByReason,
+    filteredItemCountsByType: filteredByType,
+    providerUsed: `${request.provider}:chunked`,
+    rawOutput: rawOutputs.join("\n\n"),
+    failedChunks: summary.failedChunks.length > 0 ? summary.failedChunks : undefined,
+    error: allFailed ? summary.failedChunks[0]?.message : undefined
+  };
+}
+
+async function runRecommendationChunkProviderRequestWithRetry(input: {
+  chunkRequest: EditorialReviewRequest;
+  reviewSessionId: string;
+  stepRunId: string;
+  chunkIndex: number;
+  stepSpec: ReviewStepSpec;
+  apiKey: string;
+  fetchImpl: FetchLike;
+  sleepImpl: (ms: number) => Promise<void>;
+}): Promise<EditorialReviewProviderResult> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= emphasisChunkRetryAttempts; attempt += 1) {
+    try {
+      return input.chunkRequest.provider === "gemini"
+        ? await createGeminiEditorialReview(
+          input.chunkRequest,
+          input.reviewSessionId,
+          `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+          input.stepSpec,
+          input.apiKey,
+          input.fetchImpl
+        )
+        : input.chunkRequest.provider === "anthropic"
+          ? await createAnthropicEditorialReview(
+            input.chunkRequest,
+            input.reviewSessionId,
+            `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+            input.stepSpec,
+            input.apiKey,
+            input.fetchImpl
+          )
+          : await createOpenAiEditorialReview(
+            input.chunkRequest,
+            input.reviewSessionId,
+            `${input.stepRunId}:chunk-${input.chunkIndex + 1}`,
+            input.stepSpec,
+            input.apiKey,
+            input.fetchImpl
+          );
+    } catch (error) {
+      lastError = error;
+
+      if (isFatalThrownProviderError(error) || !shouldRetryChunkedEmphasisError(error) || attempt >= emphasisChunkRetryAttempts) {
+        throw error;
+      }
+
+      const delayMs = emphasisChunkRetryBaseDelayMs * 2 ** (attempt - 1);
+      await input.sleepImpl(delayMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Chunk provider request failed.");
+}
+
+function isFatalThrownProviderError(error: unknown): boolean {
+  return error instanceof EditorialReviewProviderError && (error.status === 401 || error.status === 403);
 }
 
 async function runChunkedEmphasisProviderRequestWithRetry(input: {
@@ -1532,7 +1791,8 @@ function compareEmphasisCandidates(left: Record<string, unknown>, right: Record<
 
 function buildEmphasisCoverageGuidance(request: EditorialReviewRequest, locale: AppLocale): string {
   const scaffold = getReviewPromptScaffold(locale);
-  const coreBlockIds = request.emphasisChunk ? new Set(request.emphasisChunk.coreBlockIds) : null;
+  const chunk = resolveReviewChunkScope(request);
+  const coreBlockIds = chunk ? new Set(chunk.coreBlockIds) : null;
   const eligibleBlocks = request.document.blocks.filter((block) => {
     if (coreBlockIds && !coreBlockIds.has(block.id)) {
       return false;
@@ -1606,6 +1866,7 @@ export function mergeDurableEmphasisChunkResponses(
     items: dedupeChunkedEmphasisItems(mergedRawItems)
   });
   const rejectedFiltered = filterRejectedReviewIdeas(normalized.items, request.rejectedIdeas);
+  const failedChunks = collectFailedReviewChunks(chunks, responses);
   const normalizedDropReasons = mergeCountMaps(
     normalized.droppedByReason,
     rejectedFiltered.droppedCount > 0 ? { rejected_idea_duplicate: rejectedFiltered.droppedCount } : undefined
@@ -1629,6 +1890,10 @@ export function mergeDurableEmphasisChunkResponses(
     filteredItemCountsByType: filteredByType,
     usedFallback: false,
     generatedAt,
+    failedChunks: failedChunks.length > 0 ? failedChunks : undefined,
+    error: responses.length > 0 && responses.every((response) => Boolean(response.error))
+      ? failedChunks[0]?.message
+      : undefined,
     rawOutput: responses
       .map((response, index) => response.diagnostics.rawOutput?.trim()
         ? `chunk ${index + 1}/${responses.length}\n${response.diagnostics.rawOutput}`
@@ -1638,8 +1903,80 @@ export function mergeDurableEmphasisChunkResponses(
   });
 }
 
+export function mergeDurableRecommendationChunkResponses(
+  request: EditorialReviewRequest,
+  chunks: ReviewChunkPlan[],
+  responses: EditorialReviewResponse[],
+  generatedAt = new Date().toISOString()
+): EditorialReviewResponse {
+  const summary = summarizeReviewChunkRun(request, chunks, responses);
+  const lastSuccess = [...responses].reverse().find((response) => !response.error);
+  const allFailed = responses.length > 0 && responses.every((response) => Boolean(response.error));
+  const stepId = request.stepId ?? lastSuccess?.stepId ?? "clarity";
+  const runMode: EditorialStepRunMode =
+    stepId === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace";
+
+  return buildEditorialReviewResponse({
+    requestId: lastSuccess?.diagnostics.requestId ?? createPatchId("review"),
+    reviewSessionId: lastSuccess?.reviewSessionId ?? createPatchId("review-session"),
+    stepId,
+    stepRunId: lastSuccess?.stepRunId ?? createPatchId(`step-run-${stepId}`),
+    runMode,
+    requestedProvider: request.provider,
+    requestedModelId: request.modelId,
+    providerUsed: `${lastSuccess?.providerUsed ?? request.provider}:chunked`,
+    blockCount: request.document.blocks.length,
+    changeLevel: request.changeLevel,
+    items: summary.items,
+    factCheckRows: [],
+    droppedItemCount: responses.reduce((total, response) => total + response.diagnostics.droppedItemCount, 0),
+    droppedItemCountsByReason: responses.reduce(
+      (counts, response) => mergeCountMaps(counts, response.diagnostics.droppedItemCountsByReason),
+      undefined as Record<string, number> | undefined
+    ),
+    filteredItemCountsByType: responses.reduce(
+      (counts, response) => mergeRecommendationTypeCounts(counts, response.diagnostics.filteredItemCountsByType),
+      undefined as Partial<Record<EditorialReviewRecommendationType, number>> | undefined
+    ),
+    usedFallback: false,
+    generatedAt,
+    error: allFailed ? summary.failedChunks[0]?.message : undefined,
+    providerError: allFailed ? responses.find((response) => response.error)?.diagnostics.providerError : undefined,
+    failedChunks: summary.failedChunks.length > 0 ? summary.failedChunks : undefined,
+    rawOutput: responses
+      .map((response, index) => response.diagnostics.rawOutput?.trim()
+        ? `chunk ${index + 1}/${responses.length}\n${response.diagnostics.rawOutput}`
+        : null)
+      .filter(Boolean)
+      .join("\n\n")
+  });
+}
+
+function buildReviewChunkScopeGuidance(request: EditorialReviewRequest, locale: AppLocale): string | null {
+  const chunk = resolveReviewChunkScope(request);
+
+  if (!chunk) {
+    return null;
+  }
+
+  const coreIds = chunk.coreBlockIds.join(", ");
+  const contextIds = chunk.contextBlockIds.join(", ");
+
+  if (locale === "en") {
+    return [
+      `Chunk ${chunk.index + 1}/${chunk.total}. Return recommendation cards only for these core blockId values: ${coreIds}.`,
+      contextIds ? `These blocks are context only; never return cards for them: ${contextIds}.` : null
+    ].filter(Boolean).join("\n");
+  }
+
+  return [
+    `Чанк ${chunk.index + 1}/${chunk.total}. Повертай картки лише для основних blockId: ${coreIds}.`,
+    contextIds ? `Ці блоки подано лише як контекст; не повертай для них картки: ${contextIds}.` : null
+  ].filter(Boolean).join("\n");
+}
+
 function buildEmphasisChunkScopeGuidance(request: EditorialReviewRequest, locale: AppLocale): string | null {
-  const chunk = request.emphasisChunk;
+  const chunk = resolveReviewChunkScope(request);
 
   if (!chunk) {
     return null;

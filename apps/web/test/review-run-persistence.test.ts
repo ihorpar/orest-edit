@@ -7,6 +7,7 @@ import {
   tryAcquireReviewRunPollLease,
   withReviewRunStartLock
 } from "../lib/editor/review-run-persistence.ts";
+import { manuscriptSharesIdentity } from "../lib/editor/review-run-merge.ts";
 import type { EditorialReviewRunSnapshot } from "../lib/editor/review-contract.ts";
 
 class TestLocalStorage {
@@ -61,8 +62,32 @@ test("active review record retains only the durable run reference and capability
   assert.equal(record.run.runId, "wrun_test");
   assert.equal(record.capability, "signed-capability");
   assert.equal(record.stale, false);
-  assert.equal(isRunCompatibleWithEditor({ record, documentRevisionId: "revision-1", locale: "uk" }), true);
-  assert.equal(isRunCompatibleWithEditor({ record, documentRevisionId: "revision-2", locale: "uk" }), false);
+  assert.equal(isRunCompatibleWithEditor({ record, locale: "uk", liveBlockIds: ["p1"] }), true);
+  assert.equal(isRunCompatibleWithEditor({
+    record: createPersistedActiveReviewRun(run({ documentRevisionId: "revision-2" }), "signed-capability"),
+    locale: "uk",
+    liveBlockIds: ["p1"]
+  }), true);
+  assert.equal(isRunCompatibleWithEditor({ record, locale: "en", liveBlockIds: ["p1"] }), false);
+  assert.equal(isRunCompatibleWithEditor({ record, locale: "uk", liveBlockIds: [] }), false);
+  assert.equal(isRunCompatibleWithEditor({
+    record: createPersistedActiveReviewRun(run(), "signed-capability", false, ["p1", "p2"]),
+    locale: "uk",
+    liveBlockIds: ["other"]
+  }), false);
+});
+
+test("isRunCompatibleWithEditor stays true after a live rewrite when snapshot block ids still overlap", () => {
+  const record = createPersistedActiveReviewRun(run(), "signed-capability", false, ["p1", "p2", "p3"]);
+
+  assert.equal(isRunCompatibleWithEditor({
+    record,
+    locale: "uk",
+    liveBlockIds: ["p1", "p2-rewritten", "p3"]
+  }), true);
+  assert.equal(manuscriptSharesIdentity(["p1", "p2"], ["p1", "p2", "p3"]), true);
+  assert.equal(manuscriptSharesIdentity(["x"], ["p1", "p2"]), false);
+  assert.equal(manuscriptSharesIdentity([], ["p1"]), false);
 });
 
 test("poll lease allows one tab, renews its owner, and hands off after expiry", () => {

@@ -11,7 +11,11 @@ import {
   parseEditorialReviewWorkflowFailure
 } from "../lib/server/editorial-review-workflow.ts";
 import type { EmphasisChunkPlan } from "../lib/server/emphasis-chunk-planner.ts";
-import { mergeDurableEmphasisChunkResponses } from "../lib/server/review-service.ts";
+import {
+  mergeDurableEmphasisChunkResponses,
+  mergeDurableRecommendationChunkResponses
+} from "../lib/server/review-service.ts";
+import { classifyReviewChunkFailure } from "../lib/server/review-chunk-runtime.ts";
 
 test("parseEditorialReviewWorkflowFailure preserves provider retry diagnostics", () => {
   const payload = Buffer.from(JSON.stringify({
@@ -162,3 +166,76 @@ function responseFor(
     }
   };
 }
+
+test("mergeDurableRecommendationChunkResponses keeps prefix cards and records a hole", () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      paragraph("p1", "Перший абзац для ясності."),
+      paragraph("p2", "Другий абзац для ясності."),
+      paragraph("p3", "Третій абзац для ясності."),
+      paragraph("p4", "Четвертий абзац для ясності.")
+    ]
+  };
+  const request: EditorialReviewRequest = {
+    document,
+    revision: deriveManuscriptRevisionState(document),
+    locale: "uk",
+    provider: "openai",
+    modelId: "gpt-5.6-sol",
+    changeLevel: 3,
+    stepId: "clarity",
+    runMode: "replace"
+  };
+  const chunks: EmphasisChunkPlan[] = document.blocks.map((block, index) => ({
+    index,
+    startBlockIndex: index,
+    endBlockIndex: index + 1,
+    sourceChars: 20,
+    coreBlockIds: [block.id],
+    contextBlockIds: [],
+    blocks: [block]
+  }));
+  const clarityItem = (blockId: string): EditorialReviewItem => ({
+    id: `item-${blockId}`,
+    reviewSessionId: "review-session-source",
+    documentRevisionId: "chunk-local-revision",
+    changeLevel: 3,
+    title: "Спростити",
+    reason: "Щільно",
+    recommendation: "Простіше.",
+    recommendationType: "simplify",
+    suggestedAction: "rewrite_text",
+    priority: "high",
+    anchor: {
+      blockIds: [blockId],
+      generationBlockRange: { start: 0, end: 0 },
+      excerpt: "фрагмент",
+      fingerprint: `fingerprint-${blockId}`
+    },
+    insertionPoint: { mode: "replace", anchorBlockId: blockId },
+    stepId: "clarity",
+    stepRunId: "step-run-source",
+    status: "pending"
+  });
+  const responses = [
+    { ...responseFor(request, [clarityItem("p1")]), stepId: "clarity" as const },
+    { ...responseFor(request, [clarityItem("p2")]), stepId: "clarity" as const },
+    { ...responseFor(request, []), stepId: "clarity" as const, error: "OpenAI перевищив таймаут 280с." },
+    { ...responseFor(request, [clarityItem("p4")]), stepId: "clarity" as const }
+  ];
+
+  const merged = mergeDurableRecommendationChunkResponses(request, chunks, responses, "2026-08-12T12:00:00.000Z");
+
+  assert.equal(merged.error, undefined);
+  assert.deepEqual(merged.items.map((item) => item.anchor.blockIds[0]), ["p1", "p2", "p4"]);
+  assert.ok(merged.items.every((item) => item.documentRevisionId === request.revision.documentRevisionId));
+  assert.equal(merged.diagnostics.failedChunks?.length, 1);
+  assert.equal(merged.diagnostics.failedChunks?.[0]?.index, 2);
+  assert.equal(classifyReviewChunkFailure({
+    error: "OpenAI перевищив таймаут 280с.",
+    providerError: { code: "timeout", retryable: true },
+    attempt: 3
+  }), "hole");
+});
+

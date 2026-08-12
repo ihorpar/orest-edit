@@ -98,11 +98,12 @@ Review-image route behavior:
 
 Review route behavior:
 - `POST /api/edit/review` starts a managed Vercel Workflow run by default and returns `202` with a run ID plus a signed browser capability
-- `GET /api/edit/review?runId=...` requires the app session and capability header, then returns a discriminated run, result, or error payload (`Cache-Control: no-store`)
-- `POST /api/edit/review` with `async: false` keeps the direct synchronous path for debugging and tests
+- GET `/api/edit/review?runId=...` requires the app session and capability header, then returns a discriminated run, result, or error payload (`Cache-Control: no-store`). In-flight `kind: "run"` includes accumulated prefix `items` and character-weighted progress; failed/provider-error envelopes may also include already-streamed prefix items
+- `POST /api/edit/review` with `async: false` keeps the direct synchronous path for debugging and tests; recommendation-card steps still chunk sequentially on that path
 - Workflow owns durable step state and retries, so browser closure and Vercel function recycling do not cancel a run. Browser recovery is same-profile only; clearing site data removes the local run reference
 - active/recent recovery is supported, but Workflow is not permanent editorial history. Exact retention is platform-managed; a genuinely unavailable old run is reported as missing rather than reconstructed
-- `Акценти` executes one durable provider request per planned chunk, sequentially, with bounded retry of 408/429/transient 5xx/network/timeout failures and fatal handling for auth/schema/invalid output
+- Recommendation-card steps (`clarity`, `structure`, `interest`, `visuals`, `formatting`, `emphasis`, `final_editing`) execute one durable provider request per planned 16k character chunk, sequentially. Retryable timeout/network/429 errors retry that chunk; after retries a hole is recorded and later chunks continue. Missing API key / 401 / 403 remain whole-run fatal. `diagnostics` and `fact_check` stay one-shot whole-document and can still abort at 280s on large chapters
+- Provider `AbortError` is mapped to a localized timeout string, never the raw `This operation was aborted` text
 - structured logs use `scope=editorial_review`; every workflow event includes the run ID, and request ID, chunk index, attempt, duration, provider status/request ID, and outcome are included when available. Terminal workflow outcome is logged by a durable step even when no browser remains open. Logs never include API keys or manuscript text
 
 Workflow operations:

@@ -1,12 +1,26 @@
 import { FatalError, RetryableError, getStepMetadata, getWorkflowMetadata, getWritable } from "workflow";
 import type {
+  EditorialReviewFailedChunk,
+  EditorialReviewItem,
   EditorialReviewRequest,
   EditorialReviewResponse,
   EditorialReviewRunProgress
 } from "../editor/review-contract.ts";
-import { deriveManuscriptRevisionState } from "../editor/manuscript-structure.ts";
-import { planEmphasisChunks, type EmphasisChunkPlan } from "./emphasis-chunk-planner.ts";
-import { generateEditorialReview, mergeDurableEmphasisChunkResponses } from "./review-service.ts";
+import { planReviewChunks, type ReviewChunkPlan } from "./review-chunk-planner.ts";
+import {
+  CHUNKED_REVIEW_MAX_RETRIES,
+  REVIEW_PARTIAL_ITEMS_NAMESPACE,
+  alignReviewItemsToSnapshot,
+  classifyReviewChunkFailure,
+  filterCoreReviewChunkItems,
+  isChunkedRecommendationStep,
+  sumChunkSourceChars
+} from "./review-chunk-runtime.ts";
+import {
+  generateEditorialReview,
+  mergeDurableEmphasisChunkResponses,
+  mergeDurableRecommendationChunkResponses
+} from "./review-service.ts";
 import { logEditorialReviewEvent } from "./review-observability.ts";
 
 export interface EditorialReviewWorkflowInput {
@@ -39,26 +53,34 @@ async function executeEditorialReviewStep(input: EditorialReviewWorkflowInput): 
   return response;
 }
 
-async function executeEmphasisChunkStep(input: {
+async function executeReviewChunkStep(input: {
   request: EditorialReviewRequest;
-  chunk: EmphasisChunkPlan;
+  chunk: ReviewChunkPlan;
   totalChunks: number;
+  totalSourceChars: number;
+  completedChunks: number;
+  completedSourceChars: number;
+  failedChunks: EditorialReviewFailedChunk[];
 }): Promise<EditorialReviewResponse> {
   "use step";
 
   const metadata = getStepMetadata();
   const workflowRunId = getWorkflowMetadata().workflowRunId;
   const startedAt = Date.now();
-  const progressBase = {
-    completedChunks: input.chunk.index,
+  const stepId = input.request.stepId ?? "clarity";
+  const progressBase: EditorialReviewRunProgress = {
+    completedChunks: input.completedChunks,
     totalChunks: input.totalChunks,
+    completedSourceChars: input.completedSourceChars,
+    totalSourceChars: input.totalSourceChars,
+    failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
     attempt: metadata.attempt
   };
   await writeReviewProgress(progressBase);
   logEditorialReviewEvent("chunk_started", {
     workflowStepId: metadata.stepId,
     runId: workflowRunId,
-    step: "emphasis",
+    step: stepId,
     provider: input.request.provider,
     model: input.request.modelId,
     chunkIndex: input.chunk.index,
@@ -70,25 +92,32 @@ async function executeEmphasisChunkStep(input: {
     version: input.request.document.version,
     blocks: input.chunk.blocks
   };
+  const chunkScope = {
+    index: input.chunk.index,
+    total: input.totalChunks,
+    coreBlockIds: input.chunk.coreBlockIds,
+    contextBlockIds: input.chunk.contextBlockIds
+  };
   const response = await generateEditorialReview({
     ...input.request,
     document: chunkDocument,
-    revision: deriveManuscriptRevisionState(chunkDocument),
-    emphasisChunk: {
-      index: input.chunk.index,
-      total: input.totalChunks,
-      coreBlockIds: input.chunk.coreBlockIds,
-      contextBlockIds: input.chunk.contextBlockIds
-    },
+    reviewChunk: chunkScope,
+    emphasisChunk: stepId === "emphasis" ? chunkScope : input.request.emphasisChunk,
     providerRequestKey: metadata.stepId
   });
 
   if (response.error) {
     const providerError = response.diagnostics.providerError;
     const failure = encodeWorkflowProviderFailure(response.error, providerError);
+    const classification = classifyReviewChunkFailure({
+      error: response.error,
+      providerError,
+      attempt: metadata.attempt,
+      maxRetries: CHUNKED_REVIEW_MAX_RETRIES
+    });
 
-    if (providerError?.retryable) {
-      const retryAfterMs = providerError.retryAfterMs ?? deterministicBackoffMs(input.chunk.index, metadata.attempt);
+    if (classification === "retry") {
+      const retryAfterMs = providerError?.retryAfterMs ?? deterministicBackoffMs(input.chunk.index, metadata.attempt);
       await writeReviewProgress({
         ...progressBase,
         retryAt: new Date(Date.now() + retryAfterMs).toISOString()
@@ -97,25 +126,55 @@ async function executeEmphasisChunkStep(input: {
         workflowStepId: metadata.stepId,
         runId: workflowRunId,
         requestId: response.diagnostics.requestId,
-        step: "emphasis",
+        step: stepId,
         provider: input.request.provider,
         model: input.request.modelId,
         chunkIndex: input.chunk.index,
         totalChunks: input.totalChunks,
         attempt: metadata.attempt,
         durationMs: Date.now() - startedAt,
-        providerStatus: providerError.status,
-        providerRequestId: providerError.requestId,
+        providerStatus: providerError?.status,
+        providerRequestId: providerError?.requestId,
         retryAfterMs
       }, "error");
       throw new RetryableError(failure, { retryAfter: retryAfterMs });
     }
 
+    if (classification === "fatal") {
+      logEditorialReviewEvent("chunk_failed", {
+        workflowStepId: metadata.stepId,
+        runId: workflowRunId,
+        requestId: response.diagnostics.requestId,
+        step: stepId,
+        provider: input.request.provider,
+        model: input.request.modelId,
+        chunkIndex: input.chunk.index,
+        totalChunks: input.totalChunks,
+        attempt: metadata.attempt,
+        durationMs: Date.now() - startedAt,
+        providerStatus: providerError?.status,
+        providerRequestId: providerError?.requestId
+      }, "error");
+      throw new FatalError(failure);
+    }
+
+    const failedChunks = [
+      ...input.failedChunks,
+      {
+        index: input.chunk.index,
+        coreBlockIds: input.chunk.coreBlockIds,
+        message: response.error
+      }
+    ];
+    await writeReviewProgress({
+      ...progressBase,
+      failedChunks
+    });
     logEditorialReviewEvent("chunk_failed", {
       workflowStepId: metadata.stepId,
       runId: workflowRunId,
       requestId: response.diagnostics.requestId,
-      step: "emphasis",
+      step: stepId,
       provider: input.request.provider,
       model: input.request.modelId,
       chunkIndex: input.chunk.index,
@@ -123,42 +182,58 @@ async function executeEmphasisChunkStep(input: {
       attempt: metadata.attempt,
       durationMs: Date.now() - startedAt,
       providerStatus: providerError?.status,
-      providerRequestId: providerError?.requestId
+      providerRequestId: providerError?.requestId,
+      hole: true
     }, "error");
-    throw new FatalError(failure);
+    return response;
+  }
+
+  const coreItems = alignReviewItemsToSnapshot(
+    filterCoreReviewChunkItems(response.items, input.chunk.coreBlockIds),
+    input.request
+  );
+  if (coreItems.length > 0) {
+    await writeReviewPartialItems(coreItems);
   }
 
   await writeReviewProgress({
-    completedChunks: input.chunk.index + 1,
+    completedChunks: input.completedChunks + 1,
     totalChunks: input.totalChunks,
+    completedSourceChars: input.completedSourceChars + input.chunk.sourceChars,
+    totalSourceChars: input.totalSourceChars,
+    failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
     attempt: metadata.attempt
   });
   logEditorialReviewEvent("chunk_completed", {
     workflowStepId: metadata.stepId,
     runId: workflowRunId,
     requestId: response.diagnostics.requestId,
-    step: "emphasis",
+    step: stepId,
     provider: input.request.provider,
     model: input.request.modelId,
     chunkIndex: input.chunk.index,
     totalChunks: input.totalChunks,
     attempt: metadata.attempt,
     durationMs: Date.now() - startedAt,
-    returnedItems: response.items.length
+    returnedItems: coreItems.length
   });
   return response;
 }
 
-(executeEmphasisChunkStep as typeof executeEmphasisChunkStep & { maxRetries?: number }).maxRetries = 2;
+(executeReviewChunkStep as typeof executeReviewChunkStep & { maxRetries?: number }).maxRetries = CHUNKED_REVIEW_MAX_RETRIES;
 
-async function mergeEmphasisChunksStep(input: {
+async function mergeReviewChunksStep(input: {
   request: EditorialReviewRequest;
-  chunks: EmphasisChunkPlan[];
+  chunks: ReviewChunkPlan[];
   responses: EditorialReviewResponse[];
 }): Promise<EditorialReviewResponse> {
   "use step";
 
-  return mergeDurableEmphasisChunkResponses(input.request, input.chunks, input.responses);
+  if (input.request.stepId === "emphasis") {
+    return mergeDurableEmphasisChunkResponses(input.request, input.chunks, input.responses);
+  }
+
+  return mergeDurableRecommendationChunkResponses(input.request, input.chunks, input.responses);
 }
 
 async function recordWorkflowOutcomeStep(input: {
@@ -182,22 +257,50 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
 
   try {
     let response: EditorialReviewResponse;
+    const stepId = input.request.stepId;
 
-    if (input.request.stepId === "emphasis") {
-      const chunks = planEmphasisChunks(input.request.document.blocks);
+    if (isChunkedRecommendationStep(stepId)) {
+      const plannedChunks = planReviewChunks(input.request.document.blocks);
+      const scopedRetry = input.request.reviewChunk;
+      const chunks = scopedRetry
+        ? plannedChunks.filter((chunk) => chunk.index === scopedRetry.index)
+        : plannedChunks;
 
-      if (chunks.length > 0) {
+      if (scopedRetry && chunks.length === 0) {
+        throw new FatalError(`Fragment retry could not resolve chunk ${scopedRetry.index}`);
+      } else if (chunks.length > 0) {
         const responses: EditorialReviewResponse[] = [];
+        const failedChunks: EditorialReviewFailedChunk[] = [];
+        let completedChunks = 0;
+        let completedSourceChars = 0;
+        const totalChunks = plannedChunks.length;
+        const totalSourceChars = sumChunkSourceChars(plannedChunks, totalChunks);
 
         for (const chunk of chunks) {
-          responses.push(await executeEmphasisChunkStep({
+          const chunkResponse = await executeReviewChunkStep({
             request: input.request,
             chunk,
-            totalChunks: chunks.length
-          }));
+            totalChunks,
+            totalSourceChars,
+            completedChunks,
+            completedSourceChars,
+            failedChunks: [...failedChunks]
+          });
+          responses.push(chunkResponse);
+
+          if (chunkResponse.error) {
+            failedChunks.push({
+              index: chunk.index,
+              coreBlockIds: chunk.coreBlockIds,
+              message: chunkResponse.error
+            });
+          } else {
+            completedChunks += 1;
+            completedSourceChars += chunk.sourceChars;
+          }
         }
 
-        response = await mergeEmphasisChunksStep({ request: input.request, chunks, responses });
+        response = await mergeReviewChunksStep({ request: input.request, chunks, responses });
       } else {
         response = await executeEditorialReviewStep(input);
       }
@@ -283,6 +386,16 @@ async function writeReviewProgress(progress: EditorialReviewRunProgress): Promis
 
   try {
     await writer.write(progress);
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+async function writeReviewPartialItems(items: EditorialReviewItem[]): Promise<void> {
+  const writer = getWritable<EditorialReviewItem[]>({ namespace: REVIEW_PARTIAL_ITEMS_NAMESPACE }).getWriter();
+
+  try {
+    await writer.write(items);
   } finally {
     writer.releaseLock();
   }

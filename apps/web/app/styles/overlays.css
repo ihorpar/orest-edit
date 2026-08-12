@@ -1128,6 +1128,55 @@
   min-width: 0;
 }
 
+.step-review-chunk-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 420px;
+}
+
+.step-review-chunk-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.step-review-chunk-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.step-review-chunk-progress-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #4b5563;
+}
+
+.step-review-chunk-progress-holes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.step-review-chunk-progress-retry {
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.step-review-chunk-progress-retry:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .step-review-prototype-kicker {
   color: #8b95a3;
 }

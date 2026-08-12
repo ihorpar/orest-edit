@@ -319,7 +319,50 @@ test("generateEditorialReview uses automatic card density instead of visible cha
 
   assert.match(requestBody, /М'який орієнтир за кількістю карток/);
   assert.match(requestBody, /Це не квота і не максимум/);
+  assert.match(requestBody, /blockId/);
   assert.doesNotMatch(requestBody, /Рівень змін|1\/5|2\/5|3\/5|4\/5|5\/5/);
+});
+
+test("generateEditorialReview uses a 4-8 card density guide for a 16k review chunk", async () => {
+  let requestBody = "";
+  const blocks = Array.from({ length: 40 }, (_, index) => ({
+    id: `p${index + 1}`,
+    type: "paragraph" as const,
+    content: [{ text: "т".repeat(400) }]
+  }));
+  const document: EditorDocument = { version: 2, blocks };
+  const coreBlockIds = blocks.map((block) => block.id);
+
+  await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "clarity",
+      apiKey: "test-key",
+      reviewChunk: {
+        index: 0,
+        total: 1,
+        coreBlockIds,
+        contextBlockIds: []
+      }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({ items: [] })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /приблизно 4-8 на 40 змістовних блоків і 16000 знаків/);
+  assert.doesNotMatch(requestBody, /приблизно 3-50|приблизно 40-50/);
 });
 
 test("generateEditorialReview injects rejected ideas into step prompt", async () => {
@@ -1955,4 +1998,172 @@ test("generateEditorialReview injects structure, formatting, and interest scope 
   assert.match(interestInstructions, /для «інтерес» дозволені лише recommendationtype='callout' та 'expand'/i);
   assert.match(interestInstructions, /не пропонуй візуали/i);
   assert.match(interestInstructions, /не роби мовне переписування заради ясності/i);
+});
+
+function clarityCardPayload(blockId: string) {
+  return {
+    title: "Спростити абзац",
+    reason: "Фрагмент щільний.",
+    recommendation: "Переписати цей абзац простішою мовою.",
+    recommendationType: "simplify",
+    suggestedAction: "rewrite_text",
+    priority: "high",
+    blockStart: 0,
+    blockEnd: 0,
+    blockId,
+    excerpt: "Фрагмент",
+    insertionHint: "replace",
+    anchorBlockId: null,
+    calloutKind: null,
+    calloutDepth: null,
+    calloutTitle: null,
+    calloutPreviewText: null,
+    calloutSummary: null,
+    calloutPrompt: null,
+    visualIntent: null
+  };
+}
+
+test("generateEditorialReview maps AbortError to a localized timeout instead of the raw abort text", async () => {
+  const ukResponse = await generateEditorialReview(
+    createRequest({ stepId: "clarity", apiKey: "test-key" }),
+    {
+      fetchImpl: async () => {
+        throw new DOMException("This operation was aborted", "AbortError");
+      },
+      now: () => "2026-08-12T12:00:00.000Z"
+    }
+  );
+
+  assert.match(ukResponse.error ?? "", /OpenAI перевищив таймаут 280с/);
+  assert.doesNotMatch(ukResponse.error ?? "", /This operation was aborted/);
+  assert.deepEqual(ukResponse.diagnostics.providerError, { code: "timeout", retryable: true });
+
+  const enResponse = await generateEditorialReview(
+    createRequest({ stepId: "clarity", locale: "en", apiKey: "test-key" }),
+    {
+      fetchImpl: async () => {
+        const error = new Error("This operation was aborted");
+        error.name = "AbortError";
+        throw error;
+      },
+      now: () => "2026-08-12T12:00:00.000Z"
+    }
+  );
+
+  assert.match(enResponse.error ?? "", /OpenAI exceeded the 280s timeout/);
+  assert.doesNotMatch(enResponse.error ?? "", /This operation was aborted/);
+});
+
+test("generateEditorialReview keeps prefix clarity cards when a later chunk times out", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "p1", type: "paragraph", content: [{ text: "перший ".repeat(1500) }] },
+      { id: "p2", type: "paragraph", content: [{ text: "другий ".repeat(1500) }] }
+    ]
+  };
+  let requestCount = 0;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "clarity",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        requestCount += 1;
+
+        if (requestCount === 1) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({ items: [clarityCardPayload("p1")] })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        throw new DOMException("This operation was aborted", "AbortError");
+      },
+      sleepImpl: async () => undefined,
+      now: () => "2026-08-12T12:00:00.000Z"
+    }
+  );
+
+  assert.ok(requestCount >= 2);
+  assert.equal(response.error, undefined);
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0]?.anchor.blockIds[0], "p1");
+  assert.equal(response.items[0]?.documentRevisionId, deriveManuscriptRevisionState(document).documentRevisionId);
+  assert.equal(response.diagnostics.failedChunks?.length, 1);
+  assert.deepEqual(response.diagnostics.failedChunks?.[0]?.coreBlockIds, ["p2"]);
+  assert.match(response.diagnostics.failedChunks?.[0]?.message ?? "", /таймаут 280с/);
+  assert.doesNotMatch(response.diagnostics.failedChunks?.[0]?.message ?? "", /This operation was aborted/);
+});
+
+test("generateEditorialReview truncates diagnostics context for a review chunk", async () => {
+  let requestBody = "";
+  const uniqueTail = "UNIQUE_DIAGNOSTICS_TAIL_MARKER";
+  const longDiagnostics = `${"Діагностика розділу. ".repeat(80)}${uniqueTail}`;
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key",
+      expertise: longDiagnostics,
+      reviewChunk: {
+        index: 0,
+        total: 2,
+        coreBlockIds: ["p1"],
+        contextBlockIds: []
+      }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+        return new Response(
+          JSON.stringify({ output_text: JSON.stringify({ items: [] }) }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-08-12T12:00:00.000Z"
+    }
+  );
+
+  assert.ok(requestBody.includes("Діагностика розділу."));
+  assert.ok(!requestBody.includes(uniqueTail));
+  assert.ok(requestBody.includes("…"));
+});
+
+test("generateEditorialReview tells chunked clarity to skip context-only blocks", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "clarity",
+      apiKey: "test-key",
+      reviewChunk: {
+        index: 1,
+        total: 4,
+        coreBlockIds: ["p1"],
+        contextBlockIds: ["h1"]
+      }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+        return new Response(
+          JSON.stringify({ output_text: JSON.stringify({ items: [] }) }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-08-12T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Чанк 2\/4/);
+  assert.match(requestBody, /основних blockId: p1/);
+  assert.match(requestBody, /не повертай для них картки: h1/);
 });

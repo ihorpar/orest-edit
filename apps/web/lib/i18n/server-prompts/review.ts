@@ -97,9 +97,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     emphasisJsonFormat:
       'Формат відповіді: JSON {"items":[{"blockId":"точний id блока з документа","excerpt":"...","priority":"high|medium|low","emphasisText":"точний підрядок із документа","occurrence":1}]}. Не повертай title, reason, recommendation або будь-які пояснення.',
     recommendationCardsJsonFormat:
-      'Формат відповіді: JSON {"items":[...]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON.',
+      'Формат відповіді: JSON {"items":[{"blockId":"точний id блока з документа","blockStart":0,"blockEnd":0,...}]} за контрактом рекомендацій. Не додавай будь-який текст поза JSON.',
     recommendationCardsBlockIndexing:
-      "Для blockStart і blockEnd використовуй нульову нумерацію рядків документа. Не згадуй block id у title/reason/recommendation.",
+      "Для кожного item поверни blockId рівно як у квадратних дужках біля відповідного рядка документа. blockStart і blockEnd — лише запасний варіант з нульовою нумерацією рядків цього фрагмента. Не згадуй block id у title/reason/recommendation.",
     recommendationCardsSingleRange: "Одна картка має охоплювати лише один суцільний діапазон абзаців без розривів.",
     recommendationCardsSubsectionOneAction:
       "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один новий підзаголовок (H2 або H3) перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків. Для subsection обов'язково вкажи headingLevel: 2 або 3 і headingTitle — готовий короткий текст підзаголовка для вставки в рукопис.",
@@ -231,9 +231,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     emphasisJsonFormat:
       'Response format: JSON {"items":[{"blockId":"exact block id from the document","excerpt":"...","priority":"high|medium|low","emphasisText":"exact substring from the document","occurrence":1}]}. Do not return title, reason, recommendation, or any explanations.',
     recommendationCardsJsonFormat:
-      'Response format: JSON {"items":[...]} per the recommendation contract. Do not add any text outside JSON.',
+      'Response format: JSON {"items":[{"blockId":"exact block id from the document","blockStart":0,"blockEnd":0,...}]} per the recommendation contract. Do not add any text outside JSON.',
     recommendationCardsBlockIndexing:
-      "For blockStart and blockEnd, use zero-based document row numbering. Do not mention block id in title/reason/recommendation.",
+      "For each item, return blockId exactly as shown in square brackets beside the corresponding document row. blockStart and blockEnd are fallback only, using zero-based row numbering for this fragment. Do not mention block id in title/reason/recommendation.",
     recommendationCardsSingleRange: "One card must cover only one contiguous paragraph range without gaps.",
     recommendationCardsSubsectionOneAction:
       "For recommendationType='subsection', one card means exactly one action: insert one new subhead (H2 or H3) before one location. Do not describe two or more future subheads within one subsection card. For subsection, always set headingLevel: 2 or 3 and headingTitle — the ready short subhead text to insert into the manuscript.",
@@ -349,6 +349,7 @@ const REVIEW_SERVICE_ERRORS = {
     emptyDocument: "Документ порожній. Немає що аналізувати.",
     missingApiKey: (providerName: string) => `Немає API key для ${providerName} у формі або .env.`,
     missingCustomPrompt: "Напишіть власний запит для цього етапу.",
+    providerTimeout: (providerName: string, seconds: number) => `${providerName} перевищив таймаут ${seconds}с.`,
     providerUnavailable: (providerName: string) => `${providerName} недоступний.`,
     unknownProviderError: "Невідома помилка провайдера.",
     invalidProviderJson: (providerName: string) => `${providerName} не повернув коректний JSON.`,
@@ -359,6 +360,7 @@ const REVIEW_SERVICE_ERRORS = {
     emptyDocument: "The document is empty. There is nothing to analyze.",
     missingApiKey: (providerName: string) => `No API key for ${providerName} in the form or .env.`,
     missingCustomPrompt: "Write a custom request for this step.",
+    providerTimeout: (providerName: string, seconds: number) => `${providerName} exceeded the ${seconds}s timeout.`,
     providerUnavailable: (providerName: string) => `${providerName} is unavailable.`,
     unknownProviderError: "Unknown provider error.",
     invalidProviderJson: (providerName: string) => `${providerName} did not return valid JSON.`,

@@ -112,6 +112,19 @@ export interface RejectedReviewIdea {
   recommendation: string;
 }
 
+export interface EditorialReviewChunkScope {
+  index: number;
+  total: number;
+  coreBlockIds: string[];
+  contextBlockIds: string[];
+}
+
+export function resolveReviewChunkScope(
+  request: Pick<EditorialReviewRequest, "reviewChunk" | "emphasisChunk">
+): EditorialReviewChunkScope | undefined {
+  return request.reviewChunk ?? request.emphasisChunk;
+}
+
 export interface EditorialReviewRequest {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -139,13 +152,10 @@ export interface EditorialReviewRequest {
   /** Expertise text from stage 1 — fed into card generation in stage 2 */
   expertise?: string;
   rejectedIdeas?: RejectedReviewIdea[];
-  /** Server-internal scope for a durable emphasis chunk. */
-  emphasisChunk?: {
-    index: number;
-    total: number;
-    coreBlockIds: string[];
-    contextBlockIds: string[];
-  };
+  /** Server-internal scope for a durable review chunk (recommendation steps and emphasis). */
+  reviewChunk?: EditorialReviewChunkScope;
+  /** @deprecated Use reviewChunk. Kept so existing emphasis call sites stay valid. */
+  emphasisChunk?: EditorialReviewChunkScope;
   /** Stable server-internal identity reused when a durable provider step retries. */
   providerRequestKey?: string;
 }
@@ -221,6 +231,7 @@ export interface EditorialReviewDiagnostics {
   generatedAt: string;
   rawOutput?: string;
   providerError?: EditorialReviewProviderErrorDetails;
+  failedChunks?: EditorialReviewFailedChunk[];
 }
 
 export interface EditorialReviewProviderErrorDetails {
@@ -261,8 +272,17 @@ export interface EditorialReviewRunIdentity {
 export interface EditorialReviewRunProgress {
   completedChunks: number;
   totalChunks: number;
+  completedSourceChars?: number;
+  totalSourceChars?: number;
+  failedChunks?: EditorialReviewFailedChunk[];
   attempt?: number;
   retryAt?: string;
+}
+
+export interface EditorialReviewFailedChunk {
+  index: number;
+  coreBlockIds: string[];
+  message: string;
 }
 
 export interface EditorialReviewRunSnapshot extends EditorialReviewRunIdentity {
@@ -294,6 +314,7 @@ export type EditorialReviewRunApiResponse =
       kind: "run";
       run: EditorialReviewRunSnapshot;
       capability: string;
+      items?: EditorialReviewItem[];
     }
   | {
       kind: "result";
@@ -304,6 +325,7 @@ export type EditorialReviewRunApiResponse =
       kind: "error";
       error: EditorialReviewRunError;
       run?: EditorialReviewRunSnapshot;
+      items?: EditorialReviewItem[];
     };
 
 export function isEditorialReviewRunApiResponse(value: unknown): value is EditorialReviewRunApiResponse {
@@ -321,7 +343,8 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
       typeof (error as Record<string, unknown>).code === "string" &&
       typeof (error as Record<string, unknown>).message === "string" &&
       typeof (error as Record<string, unknown>).retryable === "boolean" &&
-      (record.run === undefined || isEditorialReviewRunSnapshot(record.run))
+      (record.run === undefined || isEditorialReviewRunSnapshot(record.run)) &&
+      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape)))
     );
   }
 
@@ -330,7 +353,9 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
   }
 
   if (record.kind === "run") {
-    return typeof record.capability === "string" && record.capability.length > 0;
+    return typeof record.capability === "string" &&
+      record.capability.length > 0 &&
+      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape)));
   }
 
   if (record.kind === "result") {
@@ -340,6 +365,35 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
   return false;
 }
 
+function isEditorialReviewFailedChunkShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const chunk = value as Record<string, unknown>;
+  return typeof chunk.index === "number" &&
+    Array.isArray(chunk.coreBlockIds) &&
+    chunk.coreBlockIds.every((blockId) => typeof blockId === "string") &&
+    typeof chunk.message === "string";
+}
+
+function isEditorialReviewRunProgressShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const progress = value as Record<string, unknown>;
+  return typeof progress.completedChunks === "number" &&
+    typeof progress.totalChunks === "number" &&
+    (progress.completedSourceChars === undefined || typeof progress.completedSourceChars === "number") &&
+    (progress.totalSourceChars === undefined || typeof progress.totalSourceChars === "number") &&
+    (progress.failedChunks === undefined || (
+      Array.isArray(progress.failedChunks) && progress.failedChunks.every(isEditorialReviewFailedChunkShape)
+    )) &&
+    (progress.attempt === undefined || typeof progress.attempt === "number") &&
+    (progress.retryAt === undefined || typeof progress.retryAt === "string");
+}
+
 export function isEditorialReviewRunSnapshot(value: unknown): value is EditorialReviewRunSnapshot {
   if (!value || typeof value !== "object") {
     return false;
@@ -347,14 +401,7 @@ export function isEditorialReviewRunSnapshot(value: unknown): value is Editorial
 
   const run = value as Record<string, unknown>;
   const progress = run.progress;
-  const validProgress = progress === undefined || (
-    progress !== null &&
-    typeof progress === "object" &&
-    typeof (progress as Record<string, unknown>).completedChunks === "number" &&
-    typeof (progress as Record<string, unknown>).totalChunks === "number" &&
-    ((progress as Record<string, unknown>).attempt === undefined || typeof (progress as Record<string, unknown>).attempt === "number") &&
-    ((progress as Record<string, unknown>).retryAt === undefined || typeof (progress as Record<string, unknown>).retryAt === "string")
-  );
+  const validProgress = progress === undefined || isEditorialReviewRunProgressShape(progress);
 
   return (
     typeof run.runId === "string" &&
@@ -414,7 +461,10 @@ function isEditorialReviewDiagnosticsShape(value: unknown): value is EditorialRe
     typeof diagnostics.returnedItemCount === "number" &&
     typeof diagnostics.returnedFactCheckCount === "number" &&
     typeof diagnostics.droppedItemCount === "number" &&
-    typeof diagnostics.generatedAt === "string"
+    typeof diagnostics.generatedAt === "string" &&
+    (diagnostics.failedChunks === undefined || (
+      Array.isArray(diagnostics.failedChunks) && diagnostics.failedChunks.every(isEditorialReviewFailedChunkShape)
+    ))
   );
 }
 
@@ -1004,10 +1054,15 @@ export function normalizeEditorialReviewItems(input: {
     const resolvedEmphasisAnchor = isEmphasisStep
       ? resolveEmphasisAnchorIndex(input.document, paragraphs, record, emphasisTarget)
       : null;
+    const resolvedRecommendationAnchor = isEmphasisStep
+      ? null
+      : resolveRecommendationAnchorIndex(paragraphs, record);
     const rawBlockStart =
       isEmphasisStep && resolvedEmphasisAnchor !== null
         ? resolvedEmphasisAnchor
-        : normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
+        : resolvedRecommendationAnchor !== null
+          ? resolvedRecommendationAnchor.start
+          : normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
     const title = isEmphasisStep ? buildEmphasisTitle(emphasisTarget?.text) : normalizeCopy(record.title, 90);
     const reason = isEmphasisStep ? "" : normalizeCopy(record.reason, REVIEW_ITEM_COPY_MAX_LENGTH);
     const recommendation = isEmphasisStep
@@ -1026,7 +1081,11 @@ export function normalizeEditorialReviewItems(input: {
       continue;
     }
 
-    const rawBlockEnd = isEmphasisStep ? rawBlockStart : normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
+    const rawBlockEnd = isEmphasisStep
+      ? rawBlockStart
+      : resolvedRecommendationAnchor !== null
+        ? resolvedRecommendationAnchor.end
+        : normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
 
     if (rawBlockEnd === null) {
       markDropped("missing_required_fields");
@@ -1472,6 +1531,26 @@ function normalizeEmphasisTarget(record: Record<string, unknown>): EditorialEmph
         : undefined;
 
   return occurrence ? { text: rawText, occurrence } : { text: rawText };
+}
+
+function resolveRecommendationAnchorIndex(
+  paragraphs: ReturnType<typeof getManuscriptParagraphs>,
+  record: Record<string, unknown>
+): { start: number; end: number } | null {
+  const requestedBlockId = normalizeRequestedBlockId(record.blockId);
+  const fromId = requestedBlockId
+    ? paragraphs.findIndex((paragraph) => paragraph.id === requestedBlockId)
+    : -1;
+
+  if (fromId < 0) {
+    return null;
+  }
+
+  // blockEnd is an index in the current request document (the chunk, once sliced).
+  // A lower positional end is treated as a stale fallback, not a relative offset.
+  const rawEnd = normalizeIndex(record.blockEnd ?? record.paragraphEnd, paragraphs.length);
+  const end = rawEnd !== null && rawEnd >= fromId ? rawEnd : fromId;
+  return { start: fromId, end };
 }
 
 function resolveEmphasisAnchorIndex(

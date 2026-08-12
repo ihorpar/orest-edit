@@ -544,9 +544,11 @@ const editorEn = {
     reviewRunResuming: "Resuming the unfinished review…",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
       retrying
-        ? `Emphasis: retry ${attempt ?? 1}, ${completed} of ${total} chunks complete.`
-        : `Emphasis: ${completed} of ${total} chunks complete.`,
-    reviewRunStale: "The review completed for an older manuscript revision. Its result was kept but not applied."
+        ? `Retry ${attempt ?? 1} · Parsed the start of the chapter · ${completed} of ${total} fragments`
+        : `Parsed the start of the chapter · ${completed} of ${total} fragments`,
+    reviewRunStale: "The review completed for an older manuscript revision. Its result was kept but not applied.",
+    retryFragment: "Retry this fragment",
+    retryFragmentUnavailable: "This fragment is no longer in the manuscript."
   },
   patchFeedback: {
     safeModeDraft: "Quick edit prepared in safe mode. Review changes before applying.",

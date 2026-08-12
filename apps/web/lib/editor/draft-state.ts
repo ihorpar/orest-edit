@@ -65,6 +65,7 @@ export interface PersistedActiveReviewRun {
   capability: string;
   updatedAt: string;
   stale: boolean;
+  snapshotBlockIds?: string[];
 }
 
 export interface PersistedEditorDraftState {
@@ -265,7 +266,10 @@ function coerceActiveReviewRun(value: unknown): PersistedActiveReviewRun | null 
     run,
     capability: record.capability,
     updatedAt: record.updatedAt,
-    stale: record.stale === true
+    stale: record.stale === true,
+    snapshotBlockIds: Array.isArray(record.snapshotBlockIds)
+      ? record.snapshotBlockIds.filter((blockId): blockId is string => typeof blockId === "string")
+      : undefined
   };
 }
 

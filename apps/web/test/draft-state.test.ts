@@ -154,13 +154,15 @@ test("draft persistence round-trips and locale reset clears the durable review r
       status: "running",
       pollAfterMs: 1000,
       progress: { completedChunks: 2, totalChunks: 10, attempt: 1 }
-    }
+    },
+    snapshotBlockIds: ["p-1"]
   };
 
   writeEditorDraftState(draft, "uk");
   const restored = readEditorDraftState("uk");
 
   assert.equal(restored?.activeReviewRun?.run.runId, "wrun_test");
+  assert.deepEqual(restored?.activeReviewRun?.snapshotBlockIds, ["p-1"]);
   assert.deepEqual(restored?.activeReviewRun?.run.progress, { completedChunks: 2, totalChunks: 10, attempt: 1 });
   assert.equal(clearLocaleBoundEditorDraftState(restored!).activeReviewRun, null);
 });

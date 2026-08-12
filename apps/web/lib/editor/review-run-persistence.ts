@@ -1,6 +1,7 @@
 import type { AppLocale } from "../i18n/product-locale.ts";
 import type { EditorialReviewRunSnapshot } from "./review-contract.ts";
 import type { PersistedActiveReviewRun } from "./draft-state.ts";
+import { manuscriptSharesIdentity } from "./review-run-merge.ts";
 
 const pollLeasePrefix = "orest-review-run-poll-lease-v1:";
 const startLockPrefix = "orest-review-run-start-v1:";
@@ -13,14 +14,16 @@ interface PollLease {
 export function createPersistedActiveReviewRun(
   run: EditorialReviewRunSnapshot,
   capability: string,
-  stale = false
+  stale = false,
+  snapshotBlockIds?: string[]
 ): PersistedActiveReviewRun {
   return {
     version: 1,
     run,
     capability,
     updatedAt: new Date().toISOString(),
-    stale
+    stale,
+    snapshotBlockIds
   };
 }
 
@@ -30,10 +33,11 @@ export function isRunTerminal(run: EditorialReviewRunSnapshot): boolean {
 
 export function isRunCompatibleWithEditor(input: {
   record: PersistedActiveReviewRun;
-  documentRevisionId: string;
   locale: AppLocale;
+  liveBlockIds: string[];
 }): boolean {
-  return input.record.run.documentRevisionId === input.documentRevisionId && input.record.run.locale === input.locale;
+  return input.record.run.locale === input.locale &&
+    manuscriptSharesIdentity(input.liveBlockIds, input.record.snapshotBlockIds);
 }
 
 export async function withReviewRunStartLock<T>(locale: AppLocale, callback: () => Promise<T>): Promise<T> {

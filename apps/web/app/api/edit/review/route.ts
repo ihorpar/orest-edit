@@ -8,6 +8,7 @@ import {
   normalizeRejectedReviewIdeas,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
+  type EditorialReviewItem,
   type EditorialReviewStepId
 } from "../../../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-structure";
@@ -18,6 +19,11 @@ import {
   editorialReviewWorkflow,
   parseEditorialReviewWorkflowFailure
 } from "../../../../lib/server/editorial-review-workflow";
+import {
+  accumulateReviewPartialItemBatches,
+  consumeReadableBatches,
+  REVIEW_PARTIAL_ITEMS_NAMESPACE
+} from "../../../../lib/server/review-chunk-runtime";
 import {
   assertReviewRunCapabilityConfigured,
   createReviewRunCapability,
@@ -71,6 +77,7 @@ export async function GET(request: Request) {
 
     const status = await run.status;
     const snapshot = await buildRunSnapshot(identity, run, status);
+    const partialItems = await readReviewPartialItems(run);
 
     if (status === "completed") {
       const result = await run.returnValue;
@@ -96,7 +103,8 @@ export async function GET(request: Request) {
               providerStatus: result.diagnostics.providerError?.status,
               providerRequestId: result.diagnostics.providerError?.requestId,
               retryAfterMs: result.diagnostics.providerError?.retryAfterMs
-            }
+            },
+            items: result.items.length > 0 ? result.items : partialItems
           },
           noStore(502)
         );
@@ -138,7 +146,8 @@ export async function GET(request: Request) {
             providerStatus: failure.provider?.status,
             providerRequestId: failure.provider?.requestId,
             retryAfterMs: failure.provider?.retryAfterMs
-          }
+          },
+          items: partialItems
         },
         noStore(500)
       );
@@ -160,7 +169,12 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json<EditorialReviewRunApiResponse>(
-      { kind: "run", run: snapshot, capability },
+      {
+        kind: "run",
+        run: snapshot,
+        capability,
+        items: partialItems
+      },
       noStore(200)
     );
   } catch (error) {
@@ -337,6 +351,20 @@ async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<Ed
     await reader.cancel();
     reader.releaseLock();
   }
+}
+
+async function readReviewPartialItems(
+  run: Run<EditorialReviewResponse>
+): Promise<EditorialReviewItem[] | undefined> {
+  const reader = run.getReadable<EditorialReviewItem[]>({
+    namespace: REVIEW_PARTIAL_ITEMS_NAMESPACE
+  }).getReader();
+  const batches = await consumeReadableBatches(reader);
+  const items = accumulateReviewPartialItemBatches(
+    batches.filter((batch): batch is EditorialReviewItem[] => Array.isArray(batch) && batch.length > 0)
+  );
+
+  return items.length > 0 ? items : undefined;
 }
 
 function jsonRunError(

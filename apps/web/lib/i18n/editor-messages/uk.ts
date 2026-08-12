@@ -547,9 +547,11 @@ const editorUk = {
     reviewRunResuming: "Відновлюємо незавершену перевірку…",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
       retrying
-        ? `Акценти: повторна спроба ${attempt ?? 1}, готово ${completed} із ${total} чанків.`
-        : `Акценти: готово ${completed} із ${total} чанків.`,
-    reviewRunStale: "Перевірку завершено для попередньої версії рукопису. Результат збережено, але не застосовано."
+        ? `Повторна спроба ${attempt ?? 1} · Розібрано початок розділу · ${completed} з ${total} фрагментів`
+        : `Розібрано початок розділу · ${completed} з ${total} фрагментів`,
+    reviewRunStale: "Перевірку завершено для попередньої версії рукопису. Результат збережено, але не застосовано.",
+    retryFragment: "Повторити цей фрагмент",
+    retryFragmentUnavailable: "Цей фрагмент уже не знайдено в рукописі."
   },
   patchFeedback: {
     safeModeDraft: "Швидку правку підготовлено в безпечному режимі. Перевірте зміни перед застосуванням.",

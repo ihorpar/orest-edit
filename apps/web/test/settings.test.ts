@@ -100,7 +100,7 @@ test("model presets expose compact labels with smartness and price metadata", ()
 
   assert.deepEqual(openAiLabels, [
     "GPT-5.6 Sol [💡 10/10 | $$$$]",
-    "GPT-5.6 Luna [💡 8/10 | $$]",
+    "GPT-5.6 Luna [💡 8/10 | $]",
     "GPT-5.6 Luna (low) [💡 6/10 | $]"
   ]);
   assert.equal(geminiLabels.length, 2);
