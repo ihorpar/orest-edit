@@ -16,9 +16,9 @@ const editorEn = {
     fact_check: "Check claims against evidence and sources.",
     structure: "Add H2/H3 subheads for scanning. No callouts or lists.",
     clarity: "Simplify complex wording without losing precision.",
-    interest: "Practical value, real-life examples, and readability.",
+    interest: "Practical value, real-life examples, and callouts. No visuals or language rewrites.",
     visuals: "Places for illustrations, diagrams, and infographics.",
-    formatting: "Lists, callouts, and tables for quick scanning.",
+    formatting: "Lists and callouts for quick scanning.",
     spellcheck: "Spelling, punctuation, grammar, and typographic polish.",
     emphasis: "Semantic emphasis for scanning key theses.",
     final_editing: "Any editorial prompt returned as local recommendation cards."

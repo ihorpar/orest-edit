@@ -34,11 +34,11 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
     clarity:
       "Focus on clarity, simpler phrasing, cleaner syntax, and removing overloaded scientific wording while preserving accuracy.",
     interest:
-      "Focus on reader interest, practical relevance, narrative momentum, and where a callout, expansion, or visual would make the section easier to follow.",
+      "Focus on reader interest and practical relevance through callouts and local expansions. Do not propose visuals or language rewrites.",
     visuals:
       "Focus only on useful visuals. Recommend infographics or illustrations only where they materially improve understanding.",
     formatting:
-      "Focus on lists, subheads, callouts, and scan-friendly restructuring for dense prose.",
+      "Focus on lists and callouts for scan-friendly restructuring. Do not propose subheads — those belong to Structure.",
     emphasis:
       "Focus only on inline emphasis. Suggest short bold accents for the key idea inside a paragraph without rewriting the paragraph.",
     final_editing:

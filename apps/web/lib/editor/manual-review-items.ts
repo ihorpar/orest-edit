@@ -20,6 +20,7 @@ export interface BuildManualReviewItemInput {
   blockIds: string[];
   changeLevel: WholeTextChangeLevel;
   recommendationType: "callout" | "visual" | "list" | "subsection";
+  stepId?: EditorialReviewItem["stepId"];
   calloutKind?: EditorialCalloutKind;
   calloutDepth?: EditorialCalloutDepth;
   visualIntent?: EditorialVisualIntent;
@@ -108,6 +109,7 @@ export function buildManualReviewItem(input: BuildManualReviewItemInput): Editor
     visualIntent: recommendationType === "visual" ? input.visualIntent ?? "infographic" : undefined,
     status: "pending",
     origin: "manual",
+    stepId: input.stepId,
     manualRequest: {
       source: "floating_local_bar",
       createdAt: now

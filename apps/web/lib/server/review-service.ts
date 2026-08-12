@@ -897,10 +897,17 @@ function buildNormalizedReviewResult(
     items: items && typeof items === "object" && "items" in (items as Record<string, unknown>) ? (items as { items: unknown }).items : items
   });
 
-  const typeFiltered =
-    stepSpec.id === "structure"
-      ? filterItemsByAllowedRecommendationTypes(normalized.items, stepSpec.allowedRecommendationTypes ?? ["subsection"])
-      : { items: normalized.items, droppedCount: 0, filteredByType: undefined };
+  const allowedTypesForFilter =
+    stepSpec.id === "final_editing"
+      ? undefined
+      : stepSpec.allowedRecommendationTypes && stepSpec.allowedRecommendationTypes.length > 0
+        ? stepSpec.allowedRecommendationTypes
+        : stepSpec.id === "structure"
+          ? (["subsection"] as EditorialReviewRecommendationType[])
+          : undefined;
+  const typeFiltered = allowedTypesForFilter
+    ? filterItemsByAllowedRecommendationTypes(normalized.items, allowedTypesForFilter)
+    : { items: normalized.items, droppedCount: 0, filteredByType: undefined };
   const rejectedFiltered = filterRejectedReviewIdeas(typeFiltered.items, request.rejectedIdeas);
   const droppedCount = normalized.droppedCount + typeFiltered.droppedCount + rejectedFiltered.droppedCount;
   const droppedByReason = mergeCountMaps(
@@ -1142,6 +1149,8 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "structure" ? scaffold.structureHeadingLevels : null,
     step.id === "structure" ? scaffold.structureSubsectionSplit : null,
     step.id === "formatting" ? scaffold.formattingFocus : null,
+    step.id === "interest" ? scaffold.interestFocus : null,
+    step.id === "interest" ? scaffold.interestNoVisualRewrite : null,
     step.id === "emphasis" ? scaffold.emphasisNoRewrite : null,
     step.id === "emphasis" ? scaffold.emphasisBlockIdExact : null,
     emphasisCoverageGuidance,

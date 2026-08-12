@@ -33,9 +33,9 @@ const STEP_OUTPUT_KINDS: Record<EditorialReviewStepId, ReviewStepOutputKind> = {
 const ALLOWED_RECOMMENDATION_TYPES: Partial<Record<EditorialReviewStepId, EditorialReviewRecommendationType[]>> = {
   structure: ["subsection"],
   clarity: ["simplify", "rewrite", "expand"],
-  interest: ["callout", "expand", "rewrite", "visual"],
+  interest: ["callout", "expand"],
   visuals: ["visual"],
-  formatting: ["list", "callout", "subsection"],
+  formatting: ["list", "callout"],
   emphasis: ["rewrite"],
   final_editing: ["rewrite", "simplify", "expand", "list", "subsection", "callout", "visual"]
 };
@@ -47,10 +47,10 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     clarity:
       "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
     interest:
-      "Фокус: читабельний інтерес, зв'язок із реальним життям, практичне застосування і мотивація дочитати розділ.",
+      "Фокус: інтерес і застосовність через врізки та локальні розгортання (callout, expand). Не пропонуй візуали чи мовне переписування або спрощення.",
     visuals: "Фокус: де і який візуал дає найбільшу користь. Схема вважається підтипом інфографіки.",
     formatting:
-      "Фокус: де потрібні списки, підзаголовки, врізки і компактні формати подачі для швидкого сканування.",
+      "Фокус: лише списки та врізки (list, callout) для швидкого сканування. Не пропонуй підзаголовки — вони належать кроку «Структура».",
     emphasis:
       "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
     final_editing:
@@ -62,10 +62,10 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     clarity:
       "Focus: explain complex material simply, remove overloaded wording, calques, and excess certainty while preserving accuracy without academic heaviness or boilerplate disclaimers.",
     interest:
-      "Focus: readable interest, real-life relevance, practical application, and motivation to keep reading the section.",
+      "Focus: reader interest and applicability via callouts and local expansions (callout, expand). Do not propose visuals or language rewrite/simplify.",
     visuals: "Focus: where and which visual adds the most value. A diagram counts as an infographic subtype.",
     formatting:
-      "Focus: where lists, subheads, callouts, and compact formats improve scan-friendly reading.",
+      'Focus: lists and callouts only (list, callout) for scan-friendly reading. Do not propose subheads — those belong to the "Structure" step.',
     emphasis:
       "Focus: selectively bold the main thesis or key phrase in a paragraph without rewriting content or adding visual noise.",
     final_editing:
@@ -128,7 +128,11 @@ const REVIEW_PROMPT_SCAFFOLD = {
     structureSubsectionSplit:
       "Якщо один великий блок треба розбити на кілька майбутніх підрозділів, поверни кілька окремих subsection-карток: одна картка = один конкретний підзаголовок перед одним місцем вставки.",
     formattingFocus:
-      "Для «Форматування» фокусуйся на форматі подачі (list/subsection/callout). Не пропонуй мовне переписування абзаців як окремий тип правки.",
+      "Для «Форматування» дозволені лише recommendationType='list' та 'callout'. Не пропонуй subsection/підзаголовки, visual, rewrite, simplify або expand. Не пропонуй мовне переписування абзаців як окремий тип правки.",
+    interestFocus:
+      "Для «Інтерес» дозволені лише recommendationType='callout' та 'expand'. Не пропонуй visual, rewrite, simplify, list або subsection.",
+    interestNoVisualRewrite:
+      "Не пропонуй візуали (вони належать кроку «Візуали») і не роби мовне переписування заради ясності (це крок «Ясність»). Фокус: практичні приклади, застосовність і врізки, що підсилюють інтерес.",
     emphasisNoRewrite:
       "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним.",
     emphasisBlockIdExact:
@@ -258,7 +262,11 @@ const REVIEW_PROMPT_SCAFFOLD = {
     structureSubsectionSplit:
       "If one large block should be split into several future subsections, return several separate subsection cards: one card = one specific subhead before one insertion point.",
     formattingFocus:
-      'For "Formatting", focus on presentation format (list/subsection/callout). Do not propose language rewrites of paragraphs as a separate edit type.',
+      'For "Formatting", only recommendationType=\'list\' and \'callout\' are allowed. Do not propose subsection/subheads, visual, rewrite, simplify, or expand. Do not propose language rewrites of paragraphs as a separate edit type.',
+    interestFocus:
+      'For "Interest", only recommendationType=\'callout\' and \'expand\' are allowed. Do not propose visual, rewrite, simplify, list, or subsection.',
+    interestNoVisualRewrite:
+      'Do not propose visuals (they belong to the "Visuals" step) and do not do language rewrites for clarity (that is the "Clarity" step). Focus on practical examples, applicability, and callouts that strengthen interest.',
     emphasisNoRewrite:
       'For the "Emphasis" step, do not rewrite text or generate editorial explanations. Return only exact substrings that should be bolded.',
     emphasisBlockIdExact:

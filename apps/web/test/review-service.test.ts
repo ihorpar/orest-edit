@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import { generateEditorialReview } from "../lib/server/review-service.ts";
 import { planEmphasisChunks } from "../lib/server/emphasis-chunk-planner.ts";
+import { getReviewStepSpec } from "../lib/i18n/server-prompts/review.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 
@@ -1604,7 +1605,10 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.match(String(requestBody?.input ?? ""), /збережи короткі окремі пункти/i);
 });
 
-test("generateEditorialReview keeps mixed recommendation types visible within the originating step", async () => {
+test("generateEditorialReview filters recommendation types by focused step allowlist", async () => {
+  assert.deepEqual(getReviewStepSpec("formatting", "uk").allowedRecommendationTypes, ["list", "callout"]);
+  assert.deepEqual(getReviewStepSpec("interest", "uk").allowedRecommendationTypes, ["callout", "expand"]);
+
   const providerItems = [
     {
       title: "Переписати речення",
@@ -1669,7 +1673,8 @@ test("generateEditorialReview keeps mixed recommendation types visible within th
       blockEnd: 1,
       excerpt: "Фрагмент абзацу",
       insertionHint: "before",
-      anchorBlockId: "p1"
+      anchorBlockId: "p1",
+      headingLevel: 3
     },
     {
       title: "Додати врізку",
@@ -1684,6 +1689,20 @@ test("generateEditorialReview keeps mixed recommendation types visible within th
       insertionHint: "after",
       anchorBlockId: "p1",
       calloutKind: "mechanism"
+    },
+    {
+      title: "Додати візуал",
+      reason: "Схема допоможе пояснити процес.",
+      recommendation: "Підготувати інфографіку процесу.",
+      recommendationType: "visual",
+      suggestedAction: "prepare_visual",
+      priority: "medium",
+      blockStart: 1,
+      blockEnd: 1,
+      excerpt: "Фрагмент абзацу",
+      insertionHint: "after",
+      anchorBlockId: "p1",
+      visualIntent: "infographic"
     }
   ];
 
@@ -1709,8 +1728,18 @@ test("generateEditorialReview keeps mixed recommendation types visible within th
     createRequest({ apiKey: "test-key", stepId: "formatting" }),
     { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
   );
-
-  const expectedRecommendationTypes = ["callout", "expand", "list", "rewrite", "simplify", "subsection"];
+  const interestResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "interest" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+  const visualsResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "visuals" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+  const finalEditingResponse = await generateEditorialReview(
+    createRequest({ apiKey: "test-key", stepId: "final_editing" }),
+    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
 
   assert.deepEqual(
     structureResponse.items.map((item) => item.recommendationType).sort(),
@@ -1719,19 +1748,94 @@ test("generateEditorialReview keeps mixed recommendation types visible within th
   assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.rewrite, 1);
   assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.list, 1);
   assert.equal(structureResponse.diagnostics.filteredItemCountsByType?.callout, 1);
+  assert.equal(structureResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 6);
+
   assert.deepEqual(
     clarityResponse.items.map((item) => item.recommendationType).sort(),
-    expectedRecommendationTypes
+    ["expand", "rewrite", "simplify"]
   );
+  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType?.list, 1);
+  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType?.subsection, 1);
+  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType?.callout, 1);
+  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType?.visual, 1);
+  assert.equal(clarityResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 4);
+
   assert.deepEqual(
     formattingResponse.items.map((item) => item.recommendationType).sort(),
-    expectedRecommendationTypes
+    ["callout", "list"]
   );
-  assert.equal(clarityResponse.diagnostics.filteredItemCountsByType, undefined);
-  assert.equal(clarityResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, undefined);
+  assert.equal(formattingResponse.diagnostics.filteredItemCountsByType?.subsection, 1);
+  assert.equal(formattingResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 5);
+
+  assert.deepEqual(
+    interestResponse.items.map((item) => item.recommendationType).sort(),
+    ["callout", "expand"]
+  );
+  assert.equal(interestResponse.diagnostics.filteredItemCountsByType?.rewrite, 1);
+  assert.equal(interestResponse.diagnostics.filteredItemCountsByType?.visual, 1);
+  assert.equal(interestResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 5);
+
+  assert.deepEqual(
+    visualsResponse.items.map((item) => item.recommendationType).sort(),
+    ["visual"]
+  );
+  assert.equal(visualsResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 6);
+
+  assert.deepEqual(
+    finalEditingResponse.items.map((item) => item.recommendationType).sort(),
+    ["callout", "expand", "list", "rewrite", "simplify", "subsection", "visual"]
+  );
+  assert.equal(finalEditingResponse.diagnostics.filteredItemCountsByType, undefined);
+  assert.equal(finalEditingResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, undefined);
+
+  const emphasisFetchImpl = async () =>
+    new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          items: [
+            {
+              blockId: "p1",
+              excerpt: "Це дуже довгий абзац",
+              priority: "high",
+              emphasisText: "дуже довгий",
+              occurrence: 1,
+              recommendationType: "rewrite"
+            },
+            {
+              blockId: "p1",
+              excerpt: "Це дуже довгий абзац",
+              priority: "medium",
+              emphasisText: "для читача",
+              occurrence: 1,
+              recommendationType: "callout"
+            }
+          ]
+        })
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+
+  const emphasisResponse = await generateEditorialReview(
+    createRequest({
+      apiKey: "test-key",
+      stepId: "emphasis",
+      emphasisChunk: {
+        index: 0,
+        total: 1,
+        coreBlockIds: ["p1"],
+        contextBlockIds: ["h1"]
+      }
+    }),
+    { fetchImpl: emphasisFetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+  );
+
+  assert.equal(emphasisResponse.items.length, 1);
+  assert.equal(emphasisResponse.items[0]?.recommendationType, "rewrite");
+  assert.equal(emphasisResponse.diagnostics.filteredItemCountsByType?.callout, 1);
+  assert.equal(emphasisResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 1);
 });
 
-test("generateEditorialReview injects structure and formatting scope guardrails into prompts", async () => {
+test("generateEditorialReview injects structure, formatting, and interest scope guardrails into prompts", async () => {
   const requestBodies: Record<string, unknown>[] = [];
   const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
     requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -1754,13 +1858,23 @@ test("generateEditorialReview injects structure and formatting scope guardrails 
     fetchImpl,
     now: () => "2026-03-10T12:00:00.000Z"
   });
+  await generateEditorialReview(createRequest({ apiKey: "test-key", stepId: "interest" }), {
+    fetchImpl,
+    now: () => "2026-03-10T12:00:00.000Z"
+  });
 
   const structureInstructions = String(requestBodies[0]?.instructions ?? "");
   const formattingInstructions = String(requestBodies[1]?.instructions ?? "");
+  const interestInstructions = String(requestBodies[2]?.instructions ?? "");
 
   assert.match(structureInstructions, /для «структура» дозволений лише recommendationtype='subsection'/i);
   assert.match(structureInstructions, /headinglevel=2 для нового смислового розділу/i);
   assert.match(structureInstructions, /одна картка = один конкретний підзаголовок/i);
-  assert.match(formattingInstructions, /для «форматування» фокусуйся на форматі подачі/i);
+  assert.match(formattingInstructions, /для «форматування» дозволені лише recommendationtype='list' та 'callout'/i);
+  assert.doesNotMatch(formattingInstructions, /list\/subsection\/callout/i);
+  assert.match(formattingInstructions, /не пропонуй subsection\/підзаголовки/i);
   assert.match(formattingInstructions, /не пропонуй мовне переписування абзаців як окремий тип правки/i);
+  assert.match(interestInstructions, /для «інтерес» дозволені лише recommendationtype='callout' та 'expand'/i);
+  assert.match(interestInstructions, /не пропонуй візуали/i);
+  assert.match(interestInstructions, /не роби мовне переписування заради ясності/i);
 });

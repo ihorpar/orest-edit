@@ -6,6 +6,8 @@ Status: Active handoff
 ## What exists now
 - A web-only Next.js app under `apps/web`
 - The `Структура` step is heading-insert only: recommendation cards are limited to `subsection`, AI chooses H2 or H3 (`headingLevel`), existing headings are not edited, and non-subsection types from a Structure run are filtered server-side
+- Focused recommendation steps hard-filter card types server-side by allowlist (`structure`→subsection; `formatting`→list+callout; `clarity`→rewrite/simplify/expand; `interest`→callout+expand; `visuals`→visual; `emphasis`→rewrite). `final_editing` / `Власний запит` keeps all executable types unfiltered
+- Legacy review cards without `stepId` map to a single primary owner (`subsection`→structure, `list`/`callout`→formatting, `rewrite`/`simplify`/`expand`→clarity, `visual`→visuals) and do not appear under Interest, Emphasis, or Власний запит; manual floating inserts set `stepId` (`callout`→interest, `list`→formatting, `visual`→visuals, `subsection`→structure)
 - Structure subsection items include a ready `headingTitle`; normalization hydrates `subsectionDraft` and marks them `ready`, so focusing a proposed tree node opens the manuscript ghost heading preview without a second LLM prepare
 - Structure drawer shows a bare outline tree (not action cards): existing H2/H3 are solid black branches/text; proposed inserts are blue dashed branches/text. Clicking a proposed node opens the manuscript ghost preview; clicking an existing heading scrolls to it
 - The Structure tree is the sole Structure navigation surface in the drawer; Insert/Reject stay in the manuscript ghost preview
@@ -52,10 +54,10 @@ Status: Active handoff
 - Step-specific Ukrainian prompts are now wired in backend for `diagnostics`, `fact_check`, `structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`, and the persisted `final_editing` step now shown as `Власний запит`
 - The old visible `Фінальна редактура` stage is replaced by `Власний запит`; it requires an editor instruction and can generate all executable recommendation card types while keeping the internal `final_editing` id for draft/history compatibility
 - The visible `Глибина змін` selector has been removed from workflow settings; review-card prompts use automatic soft density guidance derived from manuscript size instead of a user-selected 1-5 level
-- Recommendation-step prompts still bias each stage toward its intended editorial focus; most steps keep mixed card types visible in the originating step, but **Structure hard-filters to `subsection` only**
+- Recommendation-step prompts bias each stage toward its intended editorial focus, and focused steps also hard-filter off-bucket `recommendationType` values server-side; only `final_editing` keeps mixed types unfiltered
 - Review normalization no longer deduplicates cards by shared title alone; dedup is anchor+type based so repeated labels like `Додати підзаголовок` survive across different anchors
 - Subsection normalization now parses explicit paragraph references in recommendation text (for example `абз. 2, 10, 15-17`) and splits them into multiple contiguous cards; overly wide subsection ranges are chunked into bounded contiguous segments
-- Review diagnostics still report normalization and duplicate-rejection drops; Structure also reports per-type filter counts when non-subsection cards are dropped
+- Review diagnostics still report normalization and duplicate-rejection drops, plus per-type filter counts when a focused step drops off-bucket cards
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
 - Diagnostics now uses a macro-diagnostic prompt for long chapters: main structural diagnosis, full section map, systemic problems, missing subsection boundaries, redundant/extra material, representative paragraph evidence, and a prioritized restructuring plan

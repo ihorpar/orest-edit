@@ -32,6 +32,7 @@ test("buildManualReviewItem sets required metadata and anchor fields", () => {
     blockIds: ["p1", "p2"],
     changeLevel: 4,
     recommendationType: "callout",
+    stepId: "interest",
     calloutKind: "analogy",
     calloutDepth: "deep",
     now
@@ -41,6 +42,7 @@ test("buildManualReviewItem sets required metadata and anchor fields", () => {
   assert.equal(item.documentRevisionId, revision.documentRevisionId);
   assert.equal(item.changeLevel, 4);
   assert.equal(item.recommendationType, "callout");
+  assert.equal(item.stepId, "interest");
   assert.equal(item.calloutKind, "analogy");
   assert.equal(item.calloutDepth, "deep");
   assert.equal(item.origin, "manual");
@@ -179,4 +181,54 @@ test("buildManualReviewItem supports local subsection generation as H3 insertion
   assert.match(item.title, /підзаголовок/i);
   assert.match(item.recommendation, /один H3-підзаголовок/i);
   assert.match(item.reason, /Без довгого ліду/i);
+});
+
+test("buildManualReviewItem persists workflow stepId for each manual kind", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+
+  assert.equal(
+    buildManualReviewItem({
+      document,
+      revision,
+      blockIds: ["p1"],
+      changeLevel: 3,
+      recommendationType: "callout",
+      stepId: "interest"
+    }).stepId,
+    "interest"
+  );
+  assert.equal(
+    buildManualReviewItem({
+      document,
+      revision,
+      blockIds: ["p1"],
+      changeLevel: 3,
+      recommendationType: "list",
+      stepId: "formatting"
+    }).stepId,
+    "formatting"
+  );
+  assert.equal(
+    buildManualReviewItem({
+      document,
+      revision,
+      blockIds: ["p1"],
+      changeLevel: 3,
+      recommendationType: "visual",
+      stepId: "visuals"
+    }).stepId,
+    "visuals"
+  );
+  assert.equal(
+    buildManualReviewItem({
+      document,
+      revision,
+      blockIds: ["p1"],
+      changeLevel: 3,
+      recommendationType: "subsection",
+      stepId: "structure"
+    }).stepId,
+    "structure"
+  );
 });

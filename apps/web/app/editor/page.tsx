@@ -2986,6 +2986,7 @@ export default function EditorPage() {
       blockIds,
       changeLevel: reviewComposer.changeLevel,
       recommendationType,
+      stepId: getWorkflowStepForManualKind(kind),
       calloutKind: overrides?.calloutKind ?? manualCalloutKind,
       calloutDepth: overrides?.calloutDepth ?? manualCalloutDepth,
       visualIntent: overrides?.visualIntent ?? manualVisualIntent,
@@ -6698,33 +6699,32 @@ function mapReviewItemsByStep(items: EditorialReviewItem[]): Record<EditorialRev
 
     if (item.recommendationType === "subsection") {
       groups.structure.push(item);
+      continue;
     }
 
-    if (item.recommendationType === "rewrite" || item.recommendationType === "simplify" || item.recommendationType === "expand") {
-      groups.clarity.push(item);
-    }
-
-    if (item.recommendationType === "callout" || item.recommendationType === "expand") {
-      groups.interest.push(item);
+    if (item.recommendationType === "list" || item.recommendationType === "callout") {
+      groups.formatting.push(item);
+      continue;
     }
 
     if (item.recommendationType === "visual") {
       groups.visuals.push(item);
+      continue;
     }
 
-    if (item.recommendationType === "list" || item.recommendationType === "callout" || item.recommendationType === "subsection") {
-      groups.formatting.push(item);
-    }
-
-    if (item.recommendationType === "rewrite" || item.recommendationType === "simplify") {
-      groups.final_editing.push(item);
+    if (
+      item.recommendationType === "rewrite" ||
+      item.recommendationType === "simplify" ||
+      item.recommendationType === "expand"
+    ) {
+      groups.clarity.push(item);
     }
   }
 
   return groups;
 }
 
-function getWorkflowStepForManualKind(kind: ManualGenerationKind): WorkflowStepId {
+function getWorkflowStepForManualKind(kind: ManualGenerationKind): EditorialReviewStepId {
   if (kind === "visual") {
     return "visuals";
   }
@@ -6946,7 +6946,8 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
   }
 
   if (stepId === "interest") {
-    return item.recommendationType === "callout" || item.recommendationType === "expand";
+    // Without stepId, callout→formatting and expand→clarity (single-owner fallbacks).
+    return false;
   }
 
   if (stepId === "visuals") {
@@ -6954,27 +6955,17 @@ function itemBelongsToStep(item: EditorialReviewItem, stepId: WorkflowStepId): b
   }
 
   if (stepId === "formatting") {
-    return (
-      item.recommendationType === "list" ||
-      item.recommendationType === "callout" ||
-      item.recommendationType === "subsection"
-    );
+    return item.recommendationType === "list" || item.recommendationType === "callout";
   }
 
   if (stepId === "emphasis") {
-    return item.recommendationType === "rewrite" && item.stepId === "emphasis";
+    // Without stepId, rewrite→clarity; emphasis cards always carry stepId from the emphasis run.
+    return false;
   }
 
   if (stepId === "final_editing") {
-    return (
-      item.recommendationType === "rewrite" ||
-      item.recommendationType === "simplify" ||
-      item.recommendationType === "expand" ||
-      item.recommendationType === "list" ||
-      item.recommendationType === "subsection" ||
-      item.recommendationType === "callout" ||
-      item.recommendationType === "visual"
-    );
+    // Without stepId, primary owners are structure/clarity/formatting/visuals.
+    return false;
   }
 
   return false;

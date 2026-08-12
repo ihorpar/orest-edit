@@ -15,9 +15,25 @@ Decision: Structure/subsection review cards carry a ready `headingTitle` (plus `
 Reason: auto-prepare on focus looked like title regeneration, and manuscript placeholders stayed on «ШІ готує…» even when the card already had a concrete subhead.
 
 ### Structure step is heading-insert only (H2/H3)
-Decision: the `structure` workflow step proposes only `subsection` cards that insert a new heading before an anchor. AI chooses `headingLevel` 2 or 3; the UI shows that level as a read-only badge. Existing headings are never renamed or releveled in this step. Lists and callouts are out of scope for Structure (they remain in Formatting/Interest). Server-side type filtering for mixed card types is re-enabled **only** for `structure`; other recommendation steps still keep mixed types visible.
+Decision: the `structure` workflow step proposes only `subsection` cards that insert a new heading before an anchor. AI chooses `headingLevel` 2 or 3; the UI shows that level as a read-only badge. Existing headings are never renamed or releveled in this step. Lists and callouts are out of scope for Structure.
 
 Reason: users expected Structure to add scan-friendly subheads between blocks, but the step mixed replace/list/callout actions and H3-only inserts that often echoed nearby headings.
+
+### Focused workflow steps own recommendation types by allowlist
+Decision: recommendation-card steps hard-filter server-side by `allowedRecommendationTypes`, except `final_editing` which stays unfiltered. Ownership:
+
+- `structure`: `subsection`
+- `formatting`: `list`, `callout`
+- `clarity`: `simplify`, `rewrite`, `expand`
+- `interest`: `callout`, `expand`
+- `visuals`: `visual`
+- `emphasis`: `rewrite` (emphasis JSON path)
+
+`callout` and `expand` may appear in two steps when `stepId` is present (dual ownership by design). Legacy cards without `stepId` use single-owner fallbacks (`callout`→formatting, `expand`→clarity) and do not appear under `interest`, `emphasis`, or `final_editing`. Manual floating-bar inserts set `stepId` explicitly (`callout`→interest, `list`→formatting, `visual`→visuals, `subsection`→structure).
+
+Reason: prompt-only steering left steps overlapping; Structure already proved hard filtering works, and editors need one clear job per menu item.
+
+Supersedes the 2026-05-25 “keep mixed types visible in the originating step” policy for focused recommendation steps; `final_editing` retains that flexibility.
 
 ## 2026-07-23
 
@@ -96,9 +112,9 @@ Reason: editors consistently maxed the control out, so it did not represent a us
 ## 2026-05-25
 
 ### Step review keeps mixed recommendation types in the originating step
-Decision: recommendation-step prompts still steer the model toward the intended editorial focus, but the server no longer drops cards solely because their `recommendationType` falls outside that step's old type bucket. Mixed outputs remain visible in the step that generated them, and the success banner no longer reports per-step filter drops.
+Decision: **Superseded 2026-08-11** for focused recommendation steps by “Focused workflow steps own recommendation types by allowlist”. Historically, recommendation-step prompts steered the model toward the intended editorial focus while the server kept mixed card types visible in the originating step and did not report per-step type-filter drops.
 
-Reason: hiding useful findings because they landed in the "wrong" bucket made the workflow feel arbitrary and cost editors real recommendations. Seeing all findings in context is more important than preserving rigid per-step type purity.
+Reason (historical): hiding useful findings because they landed in the "wrong" bucket made the workflow feel arbitrary. Retained only for `final_editing` / `Власний запит`.
 
 ## 2026-03-19
 
