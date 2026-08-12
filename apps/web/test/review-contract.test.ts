@@ -174,6 +174,41 @@ test("normalizeEditorialReviewItems infers deep depth from deep-callout wording"
   assert.equal(normalized.items[0]?.calloutDraft?.calloutDepth, "deep");
 });
 
+test("normalizeEditorialReviewItems keeps long recommendation copy up to the raised limit", () => {
+  const document = createDocument();
+  const revision = deriveManuscriptRevisionState(document);
+  const recommendation =
+    "Додати після фрагмента глибоку механістичну врізку на 3–4 короткі абзаци. Побудувати її навколо трьох ланок: генетичні варіанти можуть змінювати регуляцію імунної відповіді; ослаблений шкірний бар'єр полегшує контакт алергенів з імунною системою; фактори довкілля можуть впливати на реалізацію цієї схильності через епігенетичні механізми. Перед частиною абзаців використати короткі жирні якорі-підзаголовки, а ключові думки виділити жирним усередині абзаців. Якщо є природне перерахування, додати один короткий список.";
+
+  assert.ok(recommendation.length > 420);
+
+  const normalized = normalizeEditorialReviewItems({
+    document,
+    revision,
+    reviewSessionId: "review-session-long-copy",
+    changeLevel: 3,
+    items: [
+      {
+        title: "Додати врізку про взаємодію генів, бар’єрів і довкілля",
+        reason: "Фрагмент пояснює щільний механізм, який легше читати як глибоку врізку.",
+        recommendation,
+        recommendationType: "callout",
+        priority: "high",
+        blockStart: 1,
+        blockEnd: 1,
+        excerpt: "Перший абзац",
+        insertionHint: "after",
+        calloutKind: "mechanism",
+        calloutDepth: "deep"
+      }
+    ]
+  });
+
+  assert.equal(normalized.droppedCount, 0);
+  assert.equal(normalized.items[0]?.recommendation, recommendation);
+  assert.ok((normalized.items[0]?.recommendation.length ?? 0) > 420);
+});
+
 test("normalizeEditorialReviewItems enforces subsection insert semantics", () => {
   const document = createDocument();
   const revision = deriveManuscriptRevisionState(document);

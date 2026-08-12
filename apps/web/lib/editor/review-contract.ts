@@ -48,6 +48,8 @@ export type EditorialStepRunMode = "preserve" | "replace";
 export type FactCheckStatus = "ok" | "questionable" | "unsupported";
 
 export const REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH = 300;
+/** Max length for visible card copy (`reason` / `recommendation`) after normalization. */
+export const REVIEW_ITEM_COPY_MAX_LENGTH = 1600;
 
 export interface EditorialFactCheckSource {
   title: string;
@@ -1007,8 +1009,10 @@ export function normalizeEditorialReviewItems(input: {
         ? resolvedEmphasisAnchor
         : normalizeIndex(record.blockStart ?? record.paragraphStart, paragraphs.length);
     const title = isEmphasisStep ? buildEmphasisTitle(emphasisTarget?.text) : normalizeCopy(record.title, 90);
-    const reason = isEmphasisStep ? "" : normalizeCopy(record.reason, 420);
-    const recommendation = isEmphasisStep ? buildEmphasisRecommendation(emphasisTarget?.text) : normalizeCopy(record.recommendation, 420);
+    const reason = isEmphasisStep ? "" : normalizeCopy(record.reason, REVIEW_ITEM_COPY_MAX_LENGTH);
+    const recommendation = isEmphasisStep
+      ? buildEmphasisRecommendation(emphasisTarget?.text)
+      : normalizeCopy(record.recommendation, REVIEW_ITEM_COPY_MAX_LENGTH);
     const recommendationType = normalizeRecommendationType(record.recommendationType);
 
     if (
@@ -1831,7 +1835,7 @@ function appendRangeClipNote(reason: string): string {
     return reason;
   }
 
-  return `${reason} ${note}`.slice(0, 420);
+  return `${reason} ${note}`.slice(0, REVIEW_ITEM_COPY_MAX_LENGTH);
 }
 
 function resolveInsertionAnchor(blockIds: string[], insertionMode: EditorialReviewInsertionHint): string {
