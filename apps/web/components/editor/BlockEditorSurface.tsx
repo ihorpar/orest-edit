@@ -1398,12 +1398,15 @@ export function BlockEditorSurface({
                           </span>
                         )}
                       </div>
-                      {isActivePreview && !isPreparingPreview ? (
+                      {isPreparingPreview ? null : (
                         <div className="manuscript-subsection-preview-actions">
                           <button
                             type="button"
                             className="err-compact-action-button err-compact-action-button-primary"
-                            onClick={() => onApplyReviewSubsection?.(previewItem)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onApplyReviewSubsection?.(previewItem);
+                            }}
                             disabled={!previewTitle}
                           >
                             {detail.insert}
@@ -1411,12 +1414,15 @@ export function BlockEditorSurface({
                           <button
                             type="button"
                             className="err-compact-action-button err-compact-text-action"
-                            onClick={() => onDismissReviewItem?.(previewItem)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDismissReviewItem?.(previewItem);
+                            }}
                           >
                             {detail.reject}
                           </button>
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   );
                 })}

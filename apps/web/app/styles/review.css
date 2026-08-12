@@ -1379,7 +1379,6 @@
 }
 
 .manuscript-subsection-preview[data-active="false"] {
-  gap: 0;
   cursor: pointer;
 }
 
