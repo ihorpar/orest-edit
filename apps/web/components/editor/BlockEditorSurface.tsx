@@ -55,6 +55,7 @@ import { formatParagraphLabel, type ManuscriptRevisionState } from "../../lib/ed
 import type { SpellcheckIssue } from "../../lib/editor/spellcheck-contract";
 import type { SpellcheckBlockResult } from "../../lib/editor/spellcheck-view-model";
 import { resolveReviewExecutionLaneState } from "../../lib/editor/review-execution-lane";
+import { listSubsectionManuscriptPreviewItems } from "../../lib/editor/structure-outline";
 import { Button } from "../ui/Button";
 import { BlockDiffOverlay } from "./BlockDiffOverlay";
 import { ReviewRecommendationDetail } from "../layout/ReviewRecommendationDetail";
@@ -209,6 +210,7 @@ export function BlockEditorSurface({
   onApplyReviewCallout,
   onApplyReviewSubsection,
   onDismissReviewItem,
+  onFocusReviewItem,
   onUpdateActiveCalloutKind,
   onUpdateActiveCalloutDepth,
   onUpdateActiveCalloutTitle,
@@ -232,7 +234,8 @@ export function BlockEditorSurface({
   onApplyEmphasisSuggestion,
   onDismissEmphasisSuggestion,
   editorHotkeyCommand,
-  editorHotkeyCommandNonce = 0
+  editorHotkeyCommandNonce = 0,
+  showAllSubsectionManuscriptPreviews = false
 }: {
   document: EditorDocument;
   revision: ManuscriptRevisionState;
@@ -267,6 +270,7 @@ export function BlockEditorSurface({
   onApplyReviewCallout?: (item: EditorialReviewItem) => void;
   onApplyReviewSubsection?: (item: EditorialReviewItem) => void;
   onDismissReviewItem?: (item: EditorialReviewItem) => void;
+  onFocusReviewItem?: (item: EditorialReviewItem) => void;
   onUpdateActiveCalloutKind?: (item: EditorialReviewItem, kind: EditorialCalloutKind) => void;
   onUpdateActiveCalloutDepth?: (item: EditorialReviewItem, depth: EditorialCalloutDepth) => void;
   onUpdateActiveCalloutTitle?: (item: EditorialReviewItem, title: string) => void;
@@ -291,6 +295,7 @@ export function BlockEditorSurface({
   onDismissEmphasisSuggestion?: (input: { itemId: string }) => void;
   editorHotkeyCommand?: ExternalEditorCommand | null;
   editorHotkeyCommandNonce?: number;
+  showAllSubsectionManuscriptPreviews?: boolean;
 }) {
   const { blockEditor: be, spellcheckUi: sc, reviewDetail: detail, structure: st } = useProductCopy().editor;
   const { locale } = useProductLocale();
@@ -990,11 +995,30 @@ export function BlockEditorSurface({
   const isSubsectionPreparing = Boolean(
     subsectionPreviewItem && preparingItem?.id === subsectionPreviewItem.id
   );
-  const showSubsectionManuscriptPreview = Boolean(
-    subsectionPreviewItem
+  const showSingleSubsectionManuscriptPreview = Boolean(
+    !showAllSubsectionManuscriptPreviews
+    && subsectionPreviewItem
     && subsectionInsertBeforeBlockId
     && (subsectionDraft || isSubsectionPreparing)
   );
+  const subsectionManuscriptPreviewsByBlockId = useMemo(() => {
+    const map = new Map<string, EditorialReviewItem[]>();
+    if (!showAllSubsectionManuscriptPreviews) {
+      return map;
+    }
+
+    for (const item of listSubsectionManuscriptPreviewItems(reviewItems)) {
+      const anchorBlockId = item.insertionPoint.anchorBlockId?.trim();
+      if (!anchorBlockId) {
+        continue;
+      }
+      const bucket = map.get(anchorBlockId) ?? [];
+      bucket.push(item);
+      map.set(anchorBlockId, bucket);
+    }
+
+    return map;
+  }, [reviewItems, showAllSubsectionManuscriptPreviews]);
   const spellcheckIssuesByBlockId = useMemo(
     () => new Map(spellcheckResults.map((result) => [result.blockId, result.issues])),
     [spellcheckResults]
@@ -1263,7 +1287,9 @@ export function BlockEditorSurface({
         {document.blocks.map((block, index) => {
           const isSelected = normalizedSelection.blockIds.includes(block.id);
           const isFocused = focusedBlockId === block.id;
-          const isReviewAnchor = highlightedSet.has(block.id);
+          const isReviewAnchor =
+            highlightedSet.has(block.id)
+            && highlightedItem?.recommendationType !== "subsection";
           const reviewAnchorState = preparingItem?.id === highlightedItem?.id ? "preparing" : highlightedItem ? "active" : "idle";
           const reviewAnchorEdge =
             highlightedStartBlockId === block.id && highlightedEndBlockId === block.id
@@ -1276,8 +1302,11 @@ export function BlockEditorSurface({
                     ? "middle"
                     : "none";
           const isDiffAnchorEnd = activeProposal?.kind === "text_diff" && activeProposal.textDiff?.blockIds.at(-1) === block.id;
+          const stackedSubsectionPreviews = showAllSubsectionManuscriptPreviews
+            ? subsectionManuscriptPreviewsByBlockId.get(block.id) ?? []
+            : [];
           const isSubsectionInsertBefore =
-            showSubsectionManuscriptPreview && subsectionInsertBeforeBlockId === block.id;
+            showSingleSubsectionManuscriptPreview && subsectionInsertBeforeBlockId === block.id;
           const isInlineDetailAnchor =
             shouldShowInlineDetail
             && highlightedEndBlockId === block.id
@@ -1316,8 +1345,84 @@ export function BlockEditorSurface({
                   <Trash2 size={14} />
                 </button>
 
+                {stackedSubsectionPreviews.map((previewItem) => {
+                  const isActivePreview =
+                    previewItem.id === activeReviewItem?.id
+                    || previewItem.id === preparingReviewItemId
+                    || (
+                      Boolean(activeProposal?.reviewItemId)
+                      && activeProposal?.reviewItemId === previewItem.id
+                    );
+                  const isPreparingPreview = preparingReviewItemId === previewItem.id;
+                  const liveDraft =
+                    isActivePreview
+                    && activeProposal?.kind === "subsection_prompt"
+                    && activeProposal.reviewItemId === previewItem.id
+                    && activeProposal.subsectionDraft
+                      ? activeProposal.subsectionDraft
+                      : previewItem.subsectionDraft ?? null;
+                  const previewLevel = liveDraft?.headingLevel ?? previewItem.headingLevel ?? 3;
+                  const previewTitle = liveDraft?.title?.trim() || previewItem.subsectionDraft?.title?.trim() || "";
+
+                  return (
+                    <div
+                      key={previewItem.id}
+                      className="manuscript-subsection-preview"
+                      data-level={previewLevel}
+                      data-active={isActivePreview ? "true" : "false"}
+                      data-preparing={isPreparingPreview ? "true" : "false"}
+                      role={isActivePreview ? undefined : "button"}
+                      tabIndex={isActivePreview ? undefined : 0}
+                      onClick={isActivePreview ? undefined : () => onFocusReviewItem?.(previewItem)}
+                      onKeyDown={isActivePreview ? undefined : (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onFocusReviewItem?.(previewItem);
+                        }
+                      }}
+                    >
+                      <div className="manuscript-subsection-preview-head">
+                        <span className="editorial-review-heading-level-badge">{st.headingLevelBadge(previewLevel)}</span>
+                        {isPreparingPreview && !previewTitle ? (
+                          <p className="manuscript-subsection-preview-loading">{detail.preparing}</p>
+                        ) : isActivePreview ? (
+                          <input
+                            className="manuscript-subsection-preview-title"
+                            value={liveDraft?.title ?? previewTitle}
+                            onChange={(event) => onUpdateActiveSubsectionTitle?.(previewItem, event.target.value)}
+                            aria-label={detail.subheading}
+                          />
+                        ) : (
+                          <span className="manuscript-subsection-preview-title manuscript-subsection-preview-title-static">
+                            {previewTitle}
+                          </span>
+                        )}
+                      </div>
+                      {isActivePreview && !isPreparingPreview ? (
+                        <div className="manuscript-subsection-preview-actions">
+                          <button
+                            type="button"
+                            className="err-compact-action-button err-compact-action-button-primary"
+                            onClick={() => onApplyReviewSubsection?.(previewItem)}
+                            disabled={!previewTitle}
+                          >
+                            {detail.insert}
+                          </button>
+                          <button
+                            type="button"
+                            className="err-compact-action-button err-compact-text-action"
+                            onClick={() => onDismissReviewItem?.(previewItem)}
+                          >
+                            {detail.reject}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+
                 {isSubsectionInsertBefore && subsectionPreviewItem ? (
-                  <div className="manuscript-subsection-preview" data-level={subsectionLevel} data-preparing={isSubsectionPreparing ? "true" : "false"}>
+                  <div className="manuscript-subsection-preview" data-level={subsectionLevel} data-preparing={isSubsectionPreparing ? "true" : "false"} data-active="true">
                     <div className="manuscript-subsection-preview-head">
                       <span className="editorial-review-heading-level-badge">{st.headingLevelBadge(subsectionLevel)}</span>
                       {isSubsectionPreparing ? (
@@ -1343,7 +1448,7 @@ export function BlockEditorSurface({
                         </button>
                         <button
                           type="button"
-                          className="err-compact-action-button"
+                          className="err-compact-action-button err-compact-text-action"
                           onClick={() => onDismissReviewItem?.(subsectionPreviewItem)}
                         >
                           {detail.reject}

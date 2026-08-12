@@ -54,7 +54,7 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     emphasis:
       "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
     final_editing:
-      "Фокус: виконай власний промпт редактора, але поверни результат тільки як локальні executable-картки. Якщо промпт просить врізки, підзаголовки, списки, переписування або візуали, використовуй відповідні recommendationType."
+      "Фокус: виконай власний запит редактора, але поверни результат тільки як локальні executable-картки (rewrite, simplify, expand, list, subsection, callout, visual). Не генеруй акценти — для них є окремий крок."
   },
   en: {
     structure:
@@ -69,7 +69,7 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     emphasis:
       "Focus: selectively bold the main thesis or key phrase in a paragraph without rewriting content or adding visual noise.",
     final_editing:
-      "Focus: execute the editor's own prompt, but return the result only as local executable cards. If the prompt asks for callouts, subheads, lists, rewrites, or visuals, use the matching recommendationType."
+      "Focus: execute the editor's own request, but return only local executable cards (rewrite, simplify, expand, list, subsection, callout, visual). Do not generate emphasis accents — that belongs to a separate step."
   }
 };
 
@@ -164,9 +164,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     stepFeedbackPrefix: (title: string) => `Фідбек користувача для кроку «${title}»:`,
     dialogueContextPrefix: "Релевантний контекст діалогу:",
     additionalInstructionsPrefix: "Додаткові інструкції редактора:",
-    finalEditingCustomPromptPrefix: "Власний промпт редактора для цього запуску:",
+    finalEditingCustomPromptPrefix: "Власний запит редактора для цього запуску:",
     finalEditingExecuteAsCards:
-      "Виконай саме власний промпт редактора, але не редагуй документ напряму. Поверни результат як набір локальних карток за стандартним recommendation-card контрактом.",
+      "Виконай саме власний запит редактора, але не редагуй документ напряму. Поверни результат як локальні recommendation-картки (rewrite, simplify, expand, list, subsection, callout, visual). Не генеруй акценти/emphasis — для цього є окремий крок «Акценти».",
     diagnosticsRubric:
       "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови.",
     diagnosticsHeadings:
@@ -298,9 +298,9 @@ const REVIEW_PROMPT_SCAFFOLD = {
     stepFeedbackPrefix: (title: string) => `User feedback for step "${title}":`,
     dialogueContextPrefix: "Relevant dialogue context:",
     additionalInstructionsPrefix: "Additional editor instructions:",
-    finalEditingCustomPromptPrefix: "Editor custom prompt for this run:",
+    finalEditingCustomPromptPrefix: "Editor custom request for this run:",
     finalEditingExecuteAsCards:
-      "Execute the editor's own prompt, but do not edit the document directly. Return the result as a set of local cards per the standard recommendation-card contract.",
+      "Execute the editor's own request, but do not edit the document directly. Return local recommendation cards (rewrite, simplify, expand, list, subsection, callout, visual). Do not generate emphasis accents — that belongs to the separate Emphasis step.",
     diagnosticsRubric:
       "Run a strict macro-diagnosis using this rubric: main structural diagnosis, section map, key structural problems, where subsections are needed, what is redundant or duplicated, exemplar paragraphs, and priority rebuild plan.",
     diagnosticsHeadings:
@@ -348,6 +348,7 @@ const REVIEW_SERVICE_ERRORS = {
   uk: {
     emptyDocument: "Документ порожній. Немає що аналізувати.",
     missingApiKey: (providerName: string) => `Немає API key для ${providerName} у формі або .env.`,
+    missingCustomPrompt: "Напишіть власний запит для цього етапу.",
     providerUnavailable: (providerName: string) => `${providerName} недоступний.`,
     unknownProviderError: "Невідома помилка провайдера.",
     invalidProviderJson: (providerName: string) => `${providerName} не повернув коректний JSON.`,
@@ -357,6 +358,7 @@ const REVIEW_SERVICE_ERRORS = {
   en: {
     emptyDocument: "The document is empty. There is nothing to analyze.",
     missingApiKey: (providerName: string) => `No API key for ${providerName} in the form or .env.`,
+    missingCustomPrompt: "Write a custom request for this step.",
     providerUnavailable: (providerName: string) => `${providerName} is unavailable.`,
     unknownProviderError: "Unknown provider error.",
     invalidProviderJson: (providerName: string) => `${providerName} did not return valid JSON.`,

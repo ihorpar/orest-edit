@@ -2295,7 +2295,8 @@ export default function EditorPage() {
   }
 
   async function requestWorkflowStep(stepId: EditorialReviewStepId) {
-    const requiresDiagnosticsContext = stepId !== "diagnostics" && stepId !== "emphasis";
+    const requiresDiagnosticsContext =
+      stepId !== "diagnostics" && stepId !== "emphasis" && stepId !== "final_editing";
 
     if (requiresDiagnosticsContext && !reviewExpertise?.trim()) {
       setFeedback({ tone: "error", message: fb.runDiagnosticsFirst });
@@ -2312,11 +2313,17 @@ export default function EditorPage() {
       return;
     }
 
+    if (stepId === "final_editing" && !stepFeedback.final_editing?.trim()) {
+      setFeedback({ tone: "error", message: editorCopy.disabledReasons.writeCustomPrompt });
+      return;
+    }
+
     const reviewRunToken = createPatchId("review-job-run");
     activeReviewJobRunRef.current = reviewRunToken;
     setIsReviewRequestInFlight(true);
     setFeedback(null);
-    const runMode: EditorialStepRunMode = stepId === "final_editing" ? "preserve" : stepRunModeByStep[stepId] ?? "replace";
+    const runMode: EditorialStepRunMode =
+      stepId === "final_editing" ? "replace" : (stepRunModeByStep[stepId] ?? "replace");
     const currentStepFeedback = stepFeedback[stepId]?.trim();
     const diagnosticsFeedback = stepFeedback.diagnostics?.trim();
     const historyMessages: ChatMessage[] = [];
@@ -4234,7 +4241,7 @@ export default function EditorPage() {
         : activeWorkflowStep === "emphasis"
           ? canRequestReview
           : activeWorkflowStep === "final_editing"
-            ? canRunDownstreamStep && Boolean(activeStepFeedbackValue)
+            ? canRequestReview && Boolean(activeStepFeedbackValue)
             : canRunDownstreamStep;
   const activeStepRunDisabledReason = getActiveStepRunDisabledReason({
     stepId: activeWorkflowStep,
@@ -4248,7 +4255,10 @@ export default function EditorPage() {
     disabledReasons: editorCopy.disabledReasons
   });
   const activeStepHasPrerequisite =
-    activeWorkflowStep === "diagnostics" || activeWorkflowStep === "spellcheck" || activeWorkflowStep === "emphasis"
+    activeWorkflowStep === "diagnostics" ||
+    activeWorkflowStep === "spellcheck" ||
+    activeWorkflowStep === "emphasis" ||
+    activeWorkflowStep === "final_editing"
       ? true
       : Boolean(reviewExpertise);
   const activeStepHasSettings = activeWorkflowStep !== "spellcheck" && activeWorkflowStep !== "final_editing";
@@ -4306,15 +4316,28 @@ export default function EditorPage() {
                 successMessage: editorCopy.stepWorkspace.emphasis.success,
                 zeroResultMessage: editorCopy.stepWorkspace.emphasis.zeroResult
               }, locale)
+          : activeWorkflowStep === "final_editing"
+            ? getStepWorkspaceStatus("final_editing", {
+                canRun: activeStepCanRun,
+                hasPrerequisite: true,
+                isInFlight: isReviewRequestInFlight,
+                hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
+                zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
+                activeMessage: editorCopy.stepWorkspace.finalEditing.active,
+                idleMessage: editorCopy.stepWorkspace.finalEditing.idle,
+                waitingMessage: editorCopy.stepWorkspace.finalEditing.waiting,
+                successMessage: editorCopy.stepWorkspace.finalEditing.success,
+                zeroResultMessage: editorCopy.stepWorkspace.finalEditing.zeroResult
+              }, locale)
           : getStepWorkspaceStatus(activeWorkflowStep, {
-              canRun: activeWorkflowStep === "final_editing" ? activeStepCanRun : canRunDownstreamStep,
+              canRun: canRunDownstreamStep,
               hasPrerequisite: Boolean(reviewExpertise),
               isInFlight: isReviewRequestInFlight,
               hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
               zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
-              activeMessage: activeWorkflowStep === "final_editing" ? editorCopy.stepWorkspace.finalEditing.active : editorCopy.stepWorkspace.recommendations.active,
-              idleMessage: activeWorkflowStep === "final_editing" ? editorCopy.stepWorkspace.finalEditing.idle : editorCopy.stepWorkspace.recommendations.idle,
-              waitingMessage: activeWorkflowStep === "final_editing" && reviewExpertise ? editorCopy.stepWorkspace.finalEditing.waiting : editorCopy.stepWorkspace.recommendations.waiting,
+              activeMessage: editorCopy.stepWorkspace.recommendations.active,
+              idleMessage: editorCopy.stepWorkspace.recommendations.idle,
+              waitingMessage: editorCopy.stepWorkspace.recommendations.waiting,
               successMessage: editorCopy.stepWorkspace.recommendations.success,
               zeroResultMessage: editorCopy.stepWorkspace.recommendations.zeroResult
             }, locale);
@@ -5182,6 +5205,8 @@ export default function EditorPage() {
               onApplyReviewCallout={applyReviewCallout}
               onApplyReviewSubsection={applyReviewSubsection}
               onDismissReviewItem={dismissReviewItem}
+              onFocusReviewItem={focusReviewItem}
+              showAllSubsectionManuscriptPreviews={activeWorkflowStep === "structure"}
               onUpdateActiveCalloutKind={updateActiveCalloutKind}
               onUpdateActiveCalloutDepth={updateActiveCalloutDepth}
               onUpdateActiveCalloutTitle={updateActiveCalloutTitle}
@@ -7030,9 +7055,13 @@ function getActiveStepRunDisabledReason(input: {
     return undefined;
   }
 
-  if (input.stepId === "diagnostics" || input.stepId === "emphasis") {
+  if (input.stepId === "diagnostics" || input.stepId === "emphasis" || input.stepId === "final_editing") {
     if (input.isReviewRequestInFlight) {
       return input.disabledReasons.waitCurrentRun;
+    }
+
+    if (input.stepId === "final_editing" && !input.stepFeedback?.trim()) {
+      return input.disabledReasons.writeCustomPrompt;
     }
 
     if (!input.canRequestReview) {
@@ -7052,10 +7081,6 @@ function getActiveStepRunDisabledReason(input: {
 
   if (!input.reviewExpertise?.trim()) {
     return input.disabledReasons.runDiagnosticsContext;
-  }
-
-  if (input.stepId === "final_editing" && !input.stepFeedback?.trim()) {
-    return input.disabledReasons.writeCustomPrompt;
   }
 
   if (input.isReviewRequestInFlight) {

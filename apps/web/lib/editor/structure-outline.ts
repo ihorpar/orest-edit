@@ -186,3 +186,25 @@ export function buildStructureOutlineTree(input: {
 
   return { rootTitle, nodes: roots, proposedCount };
 }
+
+/**
+ * Subsection items that should appear as manuscript ghosts:
+ * ready titles always; preparing items even before a title arrives.
+ */
+export function listSubsectionManuscriptPreviewItems(items: EditorialReviewItem[]): EditorialReviewItem[] {
+  return items.filter((item) => {
+    if (item.recommendationType !== "subsection") {
+      return false;
+    }
+
+    if (item.status === "applied" || item.status === "dismissed") {
+      return false;
+    }
+
+    if (item.status === "preparing") {
+      return true;
+    }
+
+    return Boolean(item.subsectionDraft?.title?.trim());
+  });
+}

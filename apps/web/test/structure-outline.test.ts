@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import type { EditorialReviewItem } from "../lib/editor/review-contract.ts";
-import { buildStructureOutlineTree } from "../lib/editor/structure-outline.ts";
+import { buildStructureOutlineTree, listSubsectionManuscriptPreviewItems } from "../lib/editor/structure-outline.ts";
 
 function createDocument(): EditorDocument {
   return {
@@ -109,4 +109,40 @@ test("buildStructureOutlineTree skips applied proposals and hides dismissed unle
   assert.equal(shown.proposedCount, 1);
   assert.equal(shown.nodes.some((node) => node.kind === "proposed" && node.title === "Rejected")
     || shown.nodes.some((node) => node.children.some((child) => child.title === "Rejected")), true);
+});
+
+test("listSubsectionManuscriptPreviewItems keeps ready and preparing, drops applied/dismissed", () => {
+  const items = [
+    createSubsectionItem({
+      id: "ready",
+      status: "ready",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      subsectionDraft: { title: "Ready title", headingLevel: 3, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "pending-no-draft",
+      status: "pending",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" }
+    }),
+    createSubsectionItem({
+      id: "preparing",
+      status: "preparing",
+      insertionPoint: { mode: "before", anchorBlockId: "p32" }
+    }),
+    createSubsectionItem({
+      id: "applied",
+      status: "applied",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      subsectionDraft: { title: "Applied", headingLevel: 3, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "dismissed",
+      status: "dismissed",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      subsectionDraft: { title: "Dismissed", headingLevel: 3, prompt: "" }
+    })
+  ];
+
+  const visible = listSubsectionManuscriptPreviewItems(items).map((item) => item.id);
+  assert.deepEqual(visible, ["ready", "preparing"]);
 });

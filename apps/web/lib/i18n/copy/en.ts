@@ -96,7 +96,7 @@ const en = {
     expertisePromptNote: "This prompt is used during expertise — a high-level overview and block-by-block analysis without technical codes.",
     reviewPromptNote: "Compatibility fallback for older review requests when separate expertise or card prompts are empty.",
     cardsPromptNote: "This prompt is used during card generation — enum types, suggestedAction, and insertionHint live here.",
-    workflowStepPromptNote: "Instructions for the selected step: diagnostics, fact-check, structure, clarity, visuals, emphasis, and so on.",
+    workflowStepPromptNote: "Instructions for the selected step: diagnostics, fact-check, structure, clarity, visuals, emphasis, and so on. For Custom request, this is the step's system scaffold; the editor types the actual request in the editor before running.",
     calloutPromptNote: "Placeholders: {{calloutKindLabel}}, {{calloutDepth}}, {{calloutDepthLabel}}, {{fragment}}, {{recommendation}}. The prompt can use callout type and depth as separate parameters.",
     imagePromptNote: "Placeholders: {{visualIntent}}, {{visualStyleGuide}}, {{fragment}}, {{recommendation}}.",
     defaultPrompt: "Default prompt",

@@ -42,7 +42,7 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
     emphasis:
       "Focus only on inline emphasis. Suggest short bold accents for the key idea inside a paragraph without rewriting the paragraph.",
     final_editing:
-      "Execute the editor's own prompt, but return the result only as local executable recommendation cards."
+      "Execute the editor's own request, but return the result only as local executable recommendation cards (rewrites, lists, subheads, callouts, or visuals). Do not generate emphasis accents."
   },
   calloutPromptTemplate:
     "Create one English callout draft for a science-pop or medical-pop manuscript. Callout kind: {{calloutKindLabel}}. Depth: {{calloutDepthLabel}}. Use only the fragment and recommendation below. Return plain text content that can be inserted into the manuscript without extra framing.",

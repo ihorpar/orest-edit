@@ -212,12 +212,86 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
   );
 
   assert.equal(response.stepId, "final_editing");
-  assert.equal(response.runMode, "preserve");
+  assert.equal(response.runMode, "replace");
   assert.equal(response.items[0]?.recommendationType, "visual");
   assert.equal(JSON.parse(requestBody).temperature, undefined);
-  assert.match(requestBody, /Крок workflow: Власний промпт/);
-  assert.match(requestBody, /Власний промпт редактора для цього запуску/);
+  assert.match(requestBody, /Крок workflow: Власний запит/);
+  assert.match(requestBody, /Власний запит редактора для цього запуску/);
   assert.match(requestBody, /Додай візуал і врізку/);
+  assert.doesNotMatch(requestBody, /Фідбек користувача для кроку/);
+});
+
+test("generateEditorialReview forces replace and skips diagnostics for final_editing", async () => {
+  let requestBody = "";
+
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      runMode: "preserve",
+      apiKey: "test-key",
+      expertise: "Макродіагноз: розділ перевантажений деталями.",
+      stepFeedback: "Додай короткий список ключових кроків.",
+      stepContext: {
+        diagnosticsExpertise: "Макродіагноз: розділ перевантажений деталями.",
+        diagnosticsFeedback: "Більше уваги до структури.",
+        currentStepFeedback: "Додай короткий список ключових кроків."
+      }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Список кроків",
+                  reason: "Фрагмент легше сканувати як список.",
+                  recommendation: "Перетворити ключові кроки на список.",
+                  recommendationType: "list",
+                  suggestedAction: "restructure_as_list",
+                  priority: "medium",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  excerpt: "Фрагмент"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.runMode, "replace");
+  assert.doesNotMatch(requestBody, /Контекст діагностики/);
+  assert.doesNotMatch(requestBody, /Фідбек користувача до діагностики/);
+  assert.doesNotMatch(requestBody, /Макродіагноз/);
+  assert.match(requestBody, /Додай короткий список ключових кроків/);
+});
+
+test("generateEditorialReview fails loud when final_editing has no custom request", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      apiKey: "test-key",
+      stepFeedback: "   "
+    }),
+    {
+      fetchImpl: async () => {
+        throw new Error("provider must not be called without a custom request");
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.stepId, "final_editing");
+  assert.equal(response.usedFallback, false);
+  assert.equal(response.items.length, 0);
+  assert.match(String(response.error), /власний запит/i);
 });
 
 test("generateEditorialReview uses automatic card density instead of visible change levels", async () => {
@@ -1737,7 +1811,11 @@ test("generateEditorialReview filters recommendation types by focused step allow
     { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
   );
   const finalEditingResponse = await generateEditorialReview(
-    createRequest({ apiKey: "test-key", stepId: "final_editing" }),
+    createRequest({
+      apiKey: "test-key",
+      stepId: "final_editing",
+      stepFeedback: "Зроби все корисне для читача."
+    }),
     { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
   );
 

@@ -1,4 +1,4 @@
-﻿import { createPatchId } from "../editor/patch-contract.ts";
+import { createPatchId } from "../editor/patch-contract.ts";
 import {
   getEditorialCalloutKindLabel,
   REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH,
@@ -355,7 +355,8 @@ export async function generateEditorialReview(
   const stepId = resolveStepId(request);
   const stepSpec = getReviewStepSpec(stepId, locale);
   const reviewErrors = getReviewServiceErrors(locale);
-  const runMode: EditorialStepRunMode = stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace";
+  const runMode: EditorialStepRunMode =
+    stepId === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace";
   const stableProviderRequestKey = request.providerRequestKey
     ? normalizeProviderRequestKey(request.providerRequestKey)
     : undefined;
@@ -371,6 +372,32 @@ export async function generateEditorialReview(
   const sleepImpl = options.sleepImpl ?? defaultSleep;
   const now = options.now ?? (() => new Date().toISOString());
   const blockCount = request.document.blocks.length;
+  const customPrompt =
+    request.stepContext?.currentStepFeedback?.trim() || request.stepFeedback?.trim() || "";
+
+  if (stepId === "final_editing" && !customPrompt) {
+    return buildEditorialReviewResponse({
+      requestId,
+      reviewSessionId,
+      stepId,
+      stepRunId,
+      runMode,
+      requestedProvider: request.provider,
+      requestedModelId: request.modelId,
+      providerUsed: request.provider,
+      blockCount,
+      changeLevel: request.changeLevel,
+      items: [],
+      factCheckRows: [],
+      expertise: undefined,
+      droppedItemCount: 0,
+      droppedItemCountsByReason: undefined,
+      filteredItemCountsByType: undefined,
+      usedFallback: false,
+      error: reviewErrors.missingCustomPrompt,
+      generatedAt: now()
+    });
+  }
 
   if (blockCount === 0) {
     return buildEditorialReviewResponse({
@@ -1178,13 +1205,13 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks, locale);
 
   return [
-    diagnosticsExpertise && step.id !== "diagnostics"
+    diagnosticsExpertise && step.id !== "diagnostics" && step.id !== "final_editing"
       ? `${scaffold.diagnosticsContextPrefix}\n${diagnosticsExpertise}`
       : null,
-    diagnosticsFeedback && step.id !== "diagnostics"
+    diagnosticsFeedback && step.id !== "diagnostics" && step.id !== "final_editing"
       ? `${scaffold.diagnosticsFeedbackPrefix}\n${diagnosticsFeedback}`
       : null,
-    stepFeedback ? `${scaffold.stepFeedbackPrefix(step.title)}\n${stepFeedback}` : null,
+    stepFeedback && step.id !== "final_editing" ? `${scaffold.stepFeedbackPrefix(step.title)}\n${stepFeedback}` : null,
     historyLines.length > 0 ? `${scaffold.dialogueContextPrefix}\n${historyLines.join("\n")}` : null,
     request.additionalInstructions?.trim()
       ? `${scaffold.additionalInstructionsPrefix} ${request.additionalInstructions.trim()}`
@@ -1200,7 +1227,9 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "fact_check" ? scaffold.factCheckFocus : null,
     step.id === "fact_check" ? scaffold.factCheckEvidenceStandards : null,
     step.id === "fact_check" ? scaffold.factCheckExplanationRules : null,
-    step.outputKind === "recommendation_cards" ? scaffold.recommendationCardsFromDiagnostics : null,
+    step.outputKind === "recommendation_cards" && step.id !== "final_editing"
+      ? scaffold.recommendationCardsFromDiagnostics
+      : null,
     step.outputKind === "recommendation_cards" ? scaffold.recommendationCardsCalloutDepthChoice : null,
     step.id === "clarity" ? scaffold.clarityPreserveListStructure : null,
     step.id === "emphasis" ? scaffold.emphasisCheckEachParagraph : null,

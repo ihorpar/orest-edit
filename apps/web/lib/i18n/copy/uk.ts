@@ -96,7 +96,7 @@ const uk = {
     expertisePromptNote: "Цей промпт використовується на етапі експертизи — загальний огляд та поблочний аналіз без технічних кодів.",
     reviewPromptNote: "Сумісний fallback для старих review-запитів, якщо окремі промпти експертизи або карток порожні.",
     cardsPromptNote: "Цей промпт використовується на етапі генерації карток — тут живуть enum-типи, suggestedAction і insertionHint.",
-    workflowStepPromptNote: "Це інструкція саме для вибраного етапу: діагностика, фактчек, структура, ясність, візуали, акценти тощо.",
+    workflowStepPromptNote: "Це інструкція саме для вибраного етапу: діагностика, фактчек, структура, ясність, візуали, акценти тощо. Для «Власний запит» це системний каркас кроку; текст самого запиту редактор вводить у редакторі перед запуском.",
     calloutPromptNote: "Плейсхолдери: {{calloutKindLabel}}, {{calloutDepth}}, {{calloutDepthLabel}}, {{fragment}}, {{recommendation}}. Prompt може використати тип і глибину врізки як окремі параметри.",
     imagePromptNote: "Плейсхолдери: {{visualIntent}}, {{visualStyleGuide}}, {{fragment}}, {{recommendation}}.",
     defaultPrompt: "Типовий промпт",

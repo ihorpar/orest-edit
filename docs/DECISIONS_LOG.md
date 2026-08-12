@@ -4,6 +4,16 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-11
 
+### Structure manuscript ghosts use minimal blue text (variant 1)
+Decision: proposed Structure headings in the manuscript render as blue text with a small H2/H3 badge and quiet Insert/Reject under the active item only. No dashed border, gradient fill, or review-anchor blue bar/background on the following paragraph for subsection items.
+
+Reason: the previous ghost card plus paragraph highlight stacked two chrome layers and felt heavier than the proposal itself.
+
+### Structure shows all proposed heading ghosts in the manuscript
+Decision: on the Structure step, every ready (or preparing) subsection proposal renders as a blue dashed ghost heading in the manuscript at its insert anchor. Only the focused/active ghost exposes editable title plus Insert/Reject; inactive ghosts are click-to-focus. Other workflow steps keep the previous single-preview behavior.
+
+Reason: the tree already listed all proposals, but the manuscript only revealed one after click, so editors could not scan insertion placement in context.
+
 ### Structure drawer is a bare dashed outline tree
 Decision: the Structure step drawer shows a bare hierarchical outline of existing H2/H3 (solid gray/black branch + black text) mixed with proposed inserts (dashed blue branch + blue text). Action cards are not used for Structure navigation. Clicking a proposed node focuses the existing manuscript ghost preview / prepare path; clicking an existing heading scrolls to that block.
 
@@ -99,10 +109,10 @@ Decision: when an editor rejects a recommendation, the app stores only a compact
 
 Reason: editors should not have to reject the same local editorial move across later stages, but the memory must stay simple and avoid blocking different kinds of useful recommendations for the same paragraph.
 
-### Custom prompt replaces the old final editing stage
-Decision: the visible `Фінальна редактура` workflow stage is replaced by `Власний запит`. The persisted step id remains `final_editing` for draft/history compatibility, but the step now requires an editor instruction and may return any executable recommendation card type, including rewrites, lists, subsections, callouts, and visuals.
+### Custom request replaces the old final editing stage
+Decision: the visible `Фінальна редактура` workflow stage is replaced by `Власний запит` / `Custom request`. The persisted step id remains `final_editing` for draft/history compatibility. The step requires a non-empty editor instruction (server and client fail loud if empty), does not require diagnostics and does not inject diagnostics context into the prompt, always uses `runMode: replace` (including when a draft or API request asks for preserve), and may return executable recommendation cards (rewrite/simplify/expand/list/subsection/callout/visual). Emphasis accents stay on the separate Emphasis step.
 
-Reason: editors were not using a fixed final-editing pass, but they still need a flexible way to ask for a specific editorial operation while preserving the card-first, patch-first review model.
+Reason: editors were not using a fixed final-editing pass, but they still need a flexible way to ask for a specific editorial operation while preserving the card-first, patch-first review model. Accumulating cards across custom-request re-runs was confusing; replace keeps one current answer set per request.
 
 ### Review-card density is automatic, not user-selected
 Decision: the visible `Глибина змін` control is removed from workflow settings. Review prompts now receive an automatic soft card-density hint based on meaningful block count and character volume; the hint is explicitly not a quota or cap.

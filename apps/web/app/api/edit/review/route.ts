@@ -267,7 +267,8 @@ function buildRunIdentity(
     locale: request.locale ?? getDefaultAppLocale(),
     provider: request.provider,
     modelId: request.modelId,
-    runMode: stepId === "final_editing" || request.runMode === "preserve" ? "preserve" : "replace",
+    runMode:
+      stepId === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace",
     createdAt
   };
 }

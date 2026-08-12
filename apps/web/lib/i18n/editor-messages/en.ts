@@ -9,7 +9,7 @@ const editorEn = {
     formatting: "Formatting",
     spellcheck: "Spelling",
     emphasis: "Emphasis",
-    final_editing: "Custom prompt"
+    final_editing: "Custom request"
   },
   workflowSummaries: {
     diagnostics: "Brief analysis: where the text loses the reader, where it is overloaded, and what needs restructuring.",
@@ -21,7 +21,7 @@ const editorEn = {
     formatting: "Lists and callouts for quick scanning.",
     spellcheck: "Spelling, punctuation, grammar, and typographic polish.",
     emphasis: "Semantic emphasis for scanning key theses.",
-    final_editing: "Any editorial prompt returned as local recommendation cards."
+    final_editing: "Editor's own request as local cards (rewrites, lists, callouts, visuals, etc.). Not emphasis — that has its own step."
   },
   localModes: {
     spellcheck: "Spelling",
@@ -119,9 +119,9 @@ const editorEn = {
       zeroResult: "Step finished with no new emphasis."
     },
     finalEditing: {
-      active: "Preparing cards from your custom prompt.",
-      idle: "Describe your custom prompt to get local cards.",
-      waiting: "Write a custom prompt for this step.",
+      active: "Preparing cards from your custom request.",
+      idle: "Describe your custom request to get local cards.",
+      waiting: "Write a custom request for this step.",
       success: "Recommendations ready. Review and apply cards.",
       zeroResult: "Step finished with no new cards."
     },
@@ -266,7 +266,7 @@ const editorEn = {
     keepSeparate: "Keep as separate run",
     contextNextRun: "Context for next run",
     focusNextRun: "Focus for next run",
-    customPrompt: "Custom prompt",
+    customPrompt: "Custom request",
     stepSettings: "Step settings"
   },
   disabledReasons: {
@@ -275,7 +275,7 @@ const editorEn = {
     waitSpellcheck: "Wait for spelling check to finish.",
     addTextBlocks: "Add text paragraphs or headings to run this step.",
     runDiagnosticsContext: "Run diagnostics first to give this step context.",
-    writeCustomPrompt: "Write a custom prompt for this step.",
+    writeCustomPrompt: "Write a custom request for this step.",
     temporarilyUnavailable: "This action is temporarily unavailable."
   },
   blockEditor: {
@@ -594,7 +594,7 @@ const editorEn = {
     dismissMessage: "Dismiss message",
     goToFactCheck: "Go to fact-check",
     emphasisCounter: "Emphasis counter",
-    customPromptAria: "Custom prompt"
+    customPromptAria: "Custom request"
   },
   structureOutline: {
     actionsInStructure: (count: number) => `${count} structure actions`,
