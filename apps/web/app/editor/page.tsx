@@ -56,6 +56,7 @@ import {
   retainReviewRunProgress
 } from "../../lib/editor/review-run-merge";
 import {
+  isReviewRunProgressFeedback,
   reviewChunkProgressPercent,
   sliceDocumentForFragmentRetry
 } from "../../lib/editor/review-run-progress";
@@ -594,7 +595,11 @@ export default function EditorPage() {
       setStepRunHistory(draft.stepRunHistory ?? createEmptyStepRunHistory());
       setStepFeedback(draft.stepFeedback ?? createDefaultStepFeedbackMap());
       setStepRunModeByStep(draft.stepRunModeByStep ?? createDefaultStepRunModeMap("replace"));
-      setFeedback(draft.feedback);
+      setFeedback(
+        draft.feedback && isReviewRunProgressFeedback(draft.feedback.message, editorCopy.reviewFeedback)
+          ? null
+          : draft.feedback
+      );
       setHistory(draft.history);
       setCompareHistory(draft.compareHistory ?? []);
       setActiveReviewItemId(draft.activeReviewItemId);
@@ -4366,11 +4371,22 @@ export default function EditorPage() {
     && activeWorkflowStep !== "spellcheck"
     && activeWorkflowStep !== "emphasis";
   const usesPrototypeShell = true;
+  const showChunkProgressChrome =
+    failedReviewChunks.length > 0
+    || (
+      isReviewRequestInFlight
+      && activeWorkflowStep !== "diagnostics"
+      && activeWorkflowStep !== "fact_check"
+      && activeWorkflowStep !== "spellcheck"
+    );
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const shouldSuppressRecommendationFeedback =
-    isRecommendationStep
-    && (showRecommendationStatusStrip || isReviewRequestInFlight)
-    && feedback?.tone === "info";
+    feedback?.tone === "info"
+    && (
+      isReviewRunProgressFeedback(feedback.message, editorCopy.reviewFeedback)
+      || (isRecommendationStep && (showRecommendationStatusStrip || isReviewRequestInFlight))
+      || showChunkProgressChrome
+    );
   const feedbackPresentation = presentRequestFeedback(
     shouldSuppressRecommendationFeedback ? null : feedback,
     locale
@@ -5478,7 +5494,7 @@ export default function EditorPage() {
                 <header className="step-review-prototype-head">
                   <div className="step-review-prototype-head-copy">
                     <h1 className="step-review-prototype-title">{activeStepMeta.label}</h1>
-                    {((isReviewRequestInFlight && activeWorkflowStep !== "diagnostics" && activeWorkflowStep !== "fact_check" && activeWorkflowStep !== "spellcheck") || failedReviewChunks.length > 0) ? (
+                    {showChunkProgressChrome ? (
                       <div className="step-review-chunk-progress">
                         {activeReviewRun?.run.progress ? (
                           <>

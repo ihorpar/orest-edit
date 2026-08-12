@@ -16,6 +16,26 @@ export function reviewChunkProgressPercent(progress: EditorialReviewRunProgress)
   return Math.max(0, Math.min(100, Math.round((progress.completedChunks / progress.totalChunks) * 100)));
 }
 
+export function isReviewRunProgressFeedback(
+  message: string,
+  copy: {
+    reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) => string;
+    reviewRunProgressPending: string;
+  }
+): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed === copy.reviewRunProgressPending) {
+    return true;
+  }
+
+  const marker = copy.reviewRunProgress(1, 8).split("·")[0]?.trim();
+  return Boolean(marker && trimmed.includes(marker));
+}
+
 export function sliceDocumentForFragmentRetry(
   document: EditorDocument,
   failedChunk: Pick<EditorialReviewFailedChunk, "coreBlockIds">
