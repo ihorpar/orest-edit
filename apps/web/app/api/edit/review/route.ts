@@ -97,10 +97,9 @@ export async function GET(request: Request) {
     }
 
     const status = await run.status;
-    const isTerminalRun = status === "completed" || status === "failed" || status === "cancelled";
-    const snapshot = await buildRunSnapshot(identity, run, status, isTerminalRun);
-    const partialItems = await readReviewPartialItems(run, isTerminalRun);
-    const plan = await readReviewPlan(run, isTerminalRun);
+    const snapshot = await buildRunSnapshot(identity, run, status);
+    const partialItems = await readReviewPartialItems(run);
+    const plan = await readReviewPlan(run);
 
     try {
       if (status === "completed") {
@@ -242,6 +241,67 @@ export async function GET(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  const authFailure = await requireApiSession(request);
+
+  if (authFailure) {
+    return normalizeReviewAuthFailure(authFailure);
+  }
+
+  const { searchParams } = new URL(request.url);
+  const runId = searchParams.get("runId")?.trim();
+  const capability = request.headers.get("x-review-run-capability")?.trim();
+  const errors = getApiErrors(resolveQueryLocale(searchParams));
+
+  if (!runId || !capability) {
+    return jsonRunError("invalid_request", errors.jobIdRequired, false, 400);
+  }
+
+  try {
+    const verified = await verifyReviewRunCapability(capability, runId);
+
+    if (!verified) {
+      return jsonRunError("run_access_denied", resolveRunMessage(searchParams, "accessDenied"), false, 403);
+    }
+
+    const run = getRun<EditorialReviewResponse>(runId);
+
+    if (await run.exists) {
+      try {
+        await run.cancel();
+      } catch {
+        // Already terminal or not cancellable; the client still drops the local poll.
+      }
+    }
+
+    logEditorialReviewEvent("run_cancelled", {
+      runId,
+      step: verified.stepId,
+      provider: verified.provider,
+      model: verified.modelId
+    });
+
+    return NextResponse.json<EditorialReviewRunApiResponse>(
+      {
+        kind: "error",
+        error: {
+          code: "run_cancelled",
+          message: resolveRunMessage(searchParams, "cancelled"),
+          retryable: false
+        }
+      },
+      noStore(200)
+    );
+  } catch (error) {
+    return jsonRunError(
+      "workflow_unavailable",
+      sanitizeExposedErrorMessage(toErrorMessage(error), errors.reviewResultInvalid),
+      true,
+      503
+    );
+  }
+}
+
 export async function POST(request: Request) {
   const authFailure = await requireApiSession(request);
 
@@ -367,8 +427,7 @@ function buildRunIdentity(
 async function buildRunSnapshot(
   identity: EditorialReviewRunIdentity,
   run: Run<EditorialReviewResponse>,
-  status: EditorialReviewRunSnapshot["status"],
-  isTerminalRun = status === "completed" || status === "failed" || status === "cancelled"
+  status: EditorialReviewRunSnapshot["status"]
 ): Promise<EditorialReviewRunSnapshot> {
   const updatedAt =
     (status === "completed" || status === "failed" || status === "cancelled"
@@ -380,7 +439,7 @@ async function buildRunSnapshot(
     status,
     updatedAt: updatedAt.toISOString(),
     pollAfterMs: reviewRunPollAfterMs(status, identity.stepId),
-    progress: await readReviewProgress(run, isTerminalRun)
+    progress: await readReviewProgress(run)
   };
 }
 
@@ -444,24 +503,22 @@ function seedChunkProgress(request: EditorialReviewRequest): EditorialReviewRunP
 }
 
 async function readReviewProgress(
-  run: Run<EditorialReviewResponse>,
-  isTerminalRun: boolean
+  run: Run<EditorialReviewResponse>
 ): Promise<EditorialReviewRunProgress | undefined> {
   const stream = run.getReadable<EditorialReviewRunProgress>({
     namespace: "review-progress"
   });
-  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: false });
   return latestReviewProgress(batches);
 }
 
 async function readReviewPlan(
-  run: Run<EditorialReviewResponse>,
-  isTerminalRun: boolean
+  run: Run<EditorialReviewResponse>
 ): Promise<CustomRequestPlan | undefined> {
   const stream = run.getReadable<CustomRequestPlan>({
     namespace: REVIEW_PLAN_NAMESPACE
   });
-  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: false });
   for (let index = batches.length - 1; index >= 0; index -= 1) {
     const batch = batches[index];
     if (batch && typeof batch === "object" && Array.isArray((batch as CustomRequestPlan).actions)) {
@@ -472,13 +529,12 @@ async function readReviewPlan(
 }
 
 async function readReviewPartialItems(
-  run: Run<EditorialReviewResponse>,
-  isTerminalRun: boolean
+  run: Run<EditorialReviewResponse>
 ): Promise<EditorialReviewItem[] | undefined> {
   const stream = run.getReadable<EditorialReviewItem[]>({
     namespace: REVIEW_PARTIAL_ITEMS_NAMESPACE
   });
-  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: false });
   const items = accumulateReviewPartialItemBatches(
     batches.filter((batch): batch is EditorialReviewItem[] => Array.isArray(batch) && batch.length > 0)
   );
@@ -627,6 +683,7 @@ function parseEditorialReviewRequest(
       rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas),
       reviewChunk: parseReviewChunkScope(record.reviewChunk),
       customRequestPlanAction: parseCustomRequestPlanAction(record.customRequestPlanAction),
+      customRequestPlan: parseCustomRequestPlan(record.customRequestPlan),
       customRequestPlanOnly: record.customRequestPlanOnly === true
     }
   };
@@ -682,6 +739,32 @@ function parseCustomRequestPlanAction(value: unknown): EditorialReviewRequest["c
     recommendation: record.recommendation.trim(),
     priority: record.priority === "high" || record.priority === "low" ? record.priority : "medium",
     index: typeof record.index === "number" ? record.index : undefined
+  };
+}
+
+function parseCustomRequestPlan(value: unknown): EditorialReviewRequest["customRequestPlan"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.actions)) {
+    return undefined;
+  }
+
+  const actions = record.actions
+    .map((action) => parseCustomRequestPlanAction(action))
+    .filter((action): action is NonNullable<EditorialReviewRequest["customRequestPlanAction"]> => Boolean(action))
+    .map(({ index: _index, ...action }) => action);
+
+  if (actions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    actions,
+    documentRevisionId: typeof record.documentRevisionId === "string" ? record.documentRevisionId : undefined,
+    stepRunId: typeof record.stepRunId === "string" ? record.stepRunId : undefined
   };
 }
 

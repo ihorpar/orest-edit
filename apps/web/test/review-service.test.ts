@@ -30,6 +30,37 @@ function createRequest(overrides: Partial<EditorialReviewRequest> = {}): Editori
   };
 }
 
+function customRequestCardItem(recommendationType: string, extras: Record<string, unknown> = {}) {
+  const isCallout = recommendationType === "callout";
+  const isVisual = recommendationType === "visual";
+  const isSubsection = recommendationType === "subsection";
+
+  return {
+    title: "Картка",
+    reason: "Потрібна локальна дія.",
+    recommendation: "Зробити локальну правку.",
+    recommendationType,
+    suggestedAction: isCallout ? "prepare_callout" : isVisual ? "prepare_visual" : isSubsection ? "insert_text" : "rewrite_text",
+    priority: "medium",
+    blockId: "p1",
+    blockStart: 1,
+    blockEnd: 1,
+    excerpt: "Фрагмент",
+    insertionHint: isCallout || isVisual ? "after" : isSubsection ? "before" : "replace",
+    anchorBlockId: "p1",
+    headingLevel: isSubsection ? 2 : null,
+    headingTitle: isSubsection ? "Новий підзаголовок" : null,
+    calloutKind: isCallout ? "mechanism" : null,
+    calloutDepth: isCallout ? "brief" : null,
+    calloutTitle: null,
+    calloutPreviewText: null,
+    calloutSummary: null,
+    calloutPrompt: null,
+    visualIntent: isVisual ? "infographic" : null,
+    ...extras
+  };
+}
+
 test("generateEditorialReview returns an explicit error without API key", async () => {
   const response = await generateEditorialReview(createRequest({ stepId: "clarity" }), {
     readEnvValue: () => null,
@@ -216,29 +247,8 @@ test("generateEditorialReview builds a custom-request plan without executable ca
           JSON.stringify({
             output_text: JSON.stringify({
               items: [
-                {
-                  title: "Картка",
-                  reason: "Потрібна локальна дія.",
-                  recommendation: "Зробити локальну правку.",
-                  recommendationType: callCount === 2 ? "visual" : "callout",
-                  priority: "medium",
-                  blockId: "p1",
-                  blockStart: 1,
-                  blockEnd: 1,
-                  excerpt: "Фрагмент",
-                  insertionHint: "after",
-                  suggestedAction: callCount === 2 ? "prepare_visual" : "prepare_callout",
-                  anchorBlockId: "p1",
-                  headingLevel: null,
-                  headingTitle: null,
-                  calloutKind: callCount === 2 ? null : "mechanism",
-                  calloutDepth: callCount === 2 ? null : "brief",
-                  calloutTitle: null,
-                  calloutPreviewText: null,
-                  calloutSummary: null,
-                  calloutPrompt: null,
-                  visualIntent: callCount === 2 ? "infographic" : null
-                }
+                customRequestCardItem("visual", { title: "Додати візуал" }),
+                customRequestCardItem("callout", { title: "Врізка" })
               ]
             })
           }),
@@ -251,6 +261,7 @@ test("generateEditorialReview builds a custom-request plan without executable ca
 
   assert.equal(response.stepId, "final_editing");
   assert.equal(response.runMode, "replace");
+  assert.equal(callCount, 2);
   assert.equal(response.plan?.actions.length, 2);
   assert.equal(response.items.length, 2);
   assert.deepEqual(
@@ -306,31 +317,7 @@ test("generateEditorialReview forces replace and skips diagnostics for final_edi
         return new Response(
           JSON.stringify({
             output_text: JSON.stringify({
-              items: [
-                {
-                  title: "Список кроків",
-                  reason: "Фрагмент легше сканувати як список.",
-                  recommendation: "Перетворити ключові кроки на список.",
-                  recommendationType: "list",
-                  suggestedAction: "rewrite_text",
-                  priority: "medium",
-                  blockStart: 1,
-                  blockEnd: 1,
-                  blockId: "p1",
-                  excerpt: "Фрагмент",
-                  insertionHint: "replace",
-                  anchorBlockId: "p1",
-                  headingLevel: null,
-                  headingTitle: null,
-                  calloutKind: null,
-                  calloutDepth: null,
-                  calloutTitle: null,
-                  calloutPreviewText: null,
-                  calloutSummary: null,
-                  calloutPrompt: null,
-                  visualIntent: null
-                }
-              ]
+              items: [customRequestCardItem("list", { title: "Список кроків" })]
             })
           }),
           { status: 200, headers: { "content-type": "application/json" } }
@@ -1964,29 +1951,13 @@ test("generateEditorialReview filters recommendation types by focused step allow
           JSON.stringify({
             output_text: JSON.stringify({
               items: [
-                {
-                  title: "Картка",
-                  reason: "Seed",
-                  recommendation: "Seed",
-                  recommendationType: "rewrite",
-                  suggestedAction: "rewrite_text",
-                  priority: "medium",
-                  blockStart: 1,
-                  blockEnd: 1,
-                  blockId: "p1",
-                  excerpt: "Фрагмент",
-                  insertionHint: "replace",
-                  anchorBlockId: "p1",
-                  headingLevel: null,
-                  headingTitle: null,
-                  calloutKind: null,
-                  calloutDepth: null,
-                  calloutTitle: null,
-                  calloutPreviewText: null,
-                  calloutSummary: null,
-                  calloutPrompt: null,
-                  visualIntent: null
-                }
+                customRequestCardItem("rewrite"),
+                customRequestCardItem("simplify"),
+                customRequestCardItem("expand"),
+                customRequestCardItem("list"),
+                customRequestCardItem("subsection"),
+                customRequestCardItem("callout"),
+                customRequestCardItem("visual")
               ]
             })
           }),
@@ -2461,9 +2432,8 @@ test("generateEditorialReview plan prompt aims near whole-chapter volume without
   assert.doesNotMatch(requestBody, /Квота редактора на весь розділ: 10/);
 });
 
-test("generateEditorialReview generates planned custom-request cards with at most three concurrent calls", async () => {
-  let inFlight = 0;
-  let maxInFlight = 0;
+test("generateEditorialReview generates planned custom-request cards in one provider call", async () => {
+  let generateBody = "";
   let callCount = 0;
 
   const response = await generateEditorialReview(
@@ -2473,7 +2443,7 @@ test("generateEditorialReview generates planned custom-request cards with at mos
       stepFeedback: "зроби чотири локальні правки"
     }),
     {
-      fetchImpl: async () => {
+      fetchImpl: async (_input, init) => {
         callCount += 1;
         if (callCount === 1) {
           return new Response(
@@ -2491,37 +2461,15 @@ test("generateEditorialReview generates planned custom-request cards with at mos
           );
         }
 
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        inFlight -= 1;
+        generateBody = String(init?.body ?? "");
         return new Response(
           JSON.stringify({
             output_text: JSON.stringify({
               items: [
-                {
-                  title: "Картка",
-                  reason: "Seed",
-                  recommendation: "Seed",
-                  recommendationType: "rewrite",
-                  suggestedAction: "rewrite_text",
-                  priority: "medium",
-                  blockStart: 1,
-                  blockEnd: 1,
-                  blockId: "p1",
-                  excerpt: "Фрагмент",
-                  insertionHint: "replace",
-                  anchorBlockId: "p1",
-                  headingLevel: null,
-                  headingTitle: null,
-                  calloutKind: null,
-                  calloutDepth: null,
-                  calloutTitle: null,
-                  calloutPreviewText: null,
-                  calloutSummary: null,
-                  calloutPrompt: null,
-                  visualIntent: null
-                }
+                customRequestCardItem("rewrite", { title: "A" }),
+                customRequestCardItem("simplify", { title: "B" }),
+                customRequestCardItem("expand", { title: "C" }),
+                customRequestCardItem("list", { title: "D" })
               ]
             })
           }),
@@ -2532,8 +2480,11 @@ test("generateEditorialReview generates planned custom-request cards with at mos
     }
   );
 
+  assert.equal(callCount, 2);
   assert.equal(response.plan?.actions.length, 4);
   assert.equal(response.items.length, 4);
-  assert.equal(maxInFlight, 3);
+  assert.match(generateBody, /title\\":\\"A\\"/);
+  assert.match(generateBody, /title\\":\\"D\\"/);
+  assert.match(generateBody, /рівно по одному item на кожну planned action/);
 });
 

@@ -99,3 +99,34 @@ export function toTerminalFailedRunSnapshot(
     pollAfterMs: 0
   };
 }
+
+export const REVIEW_POLL_FETCH_TIMEOUT_MS = 12_000;
+
+export function isReviewPollPlatformFailureText(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith("An error occurred with your deployment")
+    || trimmed.includes("FUNCTION_INVOCATION_TIMEOUT");
+}
+
+export function interpretReviewRunPollBody(
+  responseText: string,
+  messages: { invalid: string; platformTimeout: string }
+): { ok: true; payload: unknown } | { ok: false; message: string } {
+  try {
+    return { ok: true, payload: JSON.parse(responseText) as unknown };
+  } catch {
+    return {
+      ok: false,
+      message: isReviewPollPlatformFailureText(responseText)
+        ? messages.platformTimeout
+        : messages.invalid
+    };
+  }
+}
+
+export function shouldAbandonReviewRunAfterPollError(
+  error: unknown,
+  supersededMessage: string
+): boolean {
+  return !(error instanceof Error && error.message === supersededMessage);
+}

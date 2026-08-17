@@ -4,7 +4,7 @@ import { AUTH_COOKIE_NAME, createSessionToken } from "../lib/auth/password-auth.
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
-import { GET, POST } from "../app/api/edit/review/route.ts";
+import { DELETE, GET, POST } from "../app/api/edit/review/route.ts";
 
 function createRequestBody(overrides: Partial<EditorialReviewRequest> = {}): EditorialReviewRequest {
   const document: EditorDocument = {
@@ -159,6 +159,45 @@ test("review route GET returns authentication failures in the discriminated run 
     assert.equal(payload.error?.code, "authentication_required");
     assert.equal(payload.error?.retryable, false);
     assert.ok(payload.error?.message);
+  } finally {
+    if (previousPassword === undefined) {
+      delete process.env.APP_PASSWORD;
+    } else {
+      process.env.APP_PASSWORD = previousPassword;
+    }
+  }
+});
+
+test("review route DELETE requires a run capability", async () => {
+  const previousPassword = process.env.APP_PASSWORD;
+  process.env.APP_PASSWORD = "review-secret";
+
+  try {
+    const missingIdResponse = await DELETE(
+      new Request("http://localhost/api/edit/review", {
+        method: "DELETE",
+        headers: { cookie: await createAuthCookie() }
+      })
+    );
+    assert.equal(missingIdResponse.status, 400);
+    const missingIdPayload = (await missingIdResponse.json()) as { kind?: string; error?: { code?: string } };
+    assert.equal(missingIdPayload.kind, "error");
+    assert.equal(missingIdPayload.error?.code, "invalid_request");
+
+    const deniedResponse = await DELETE(
+      new Request("http://localhost/api/edit/review?runId=missing-run&locale=en", {
+        method: "DELETE",
+        headers: {
+          cookie: await createAuthCookie(),
+          "x-review-run-capability": "invalid"
+        }
+      })
+    );
+    assert.equal(deniedResponse.status, 403);
+    const deniedPayload = (await deniedResponse.json()) as { kind?: string; error?: { code?: string; message?: string } };
+    assert.equal(deniedPayload.kind, "error");
+    assert.equal(deniedPayload.error?.code, "run_access_denied");
+    assert.match(deniedPayload.error?.message ?? "", /cannot be opened/i);
   } finally {
     if (previousPassword === undefined) {
       delete process.env.APP_PASSWORD;

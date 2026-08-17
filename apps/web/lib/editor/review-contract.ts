@@ -162,6 +162,8 @@ export interface EditorialReviewRequest {
   emphasisChunk?: EditorialReviewChunkScope;
   /** Single planned custom-request action for generate or per-action retry (skips re-plan). */
   customRequestPlanAction?: CustomRequestPlanAction & { index?: number };
+  /** Full planned custom-request actions for one generate call (skips re-plan). */
+  customRequestPlan?: CustomRequestPlan;
   /** When true, final_editing stops after the chapter plan (durable plan step). */
   customRequestPlanOnly?: boolean;
   /** Stable server-internal identity reused when a durable provider step retries. */

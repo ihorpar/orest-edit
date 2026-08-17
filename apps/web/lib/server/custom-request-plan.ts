@@ -27,6 +27,7 @@ import { sliceDocumentForFragmentRetry } from "../editor/review-run-progress.ts"
 export const CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS = 24_000;
 export const CUSTOM_REQUEST_PLAN_SAMPLE_CHARS = 160;
 export const CUSTOM_REQUEST_PLAN_SAMPLES_PER_SECTION = 3;
+export const CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS = 36_000;
 
 export const REVIEW_PLAN_NAMESPACE = "review-plan";
 
@@ -46,6 +47,17 @@ export function buildCustomRequestGenerateSystemPrompt(locale: AppLocale): strin
     scaffold.customRequestGenerateJsonFormat,
     scaffold.customRequestGenerateSeedRule,
     scaffold.customRequestGenerateOneCardRule,
+    scaffold.idsInBracketsRule
+  ].join("\n");
+}
+
+export function buildCustomRequestGenerateAllSystemPrompt(locale: AppLocale): string {
+  const scaffold = getReviewPromptScaffold(locale);
+  return [
+    scaffold.customRequestGenerateAllRole,
+    scaffold.customRequestGenerateJsonFormat,
+    scaffold.customRequestGenerateSeedRule,
+    scaffold.customRequestGenerateAllCardsRule,
     scaffold.idsInBracketsRule
   ].join("\n");
 }
@@ -84,6 +96,98 @@ export function buildCustomRequestGenerateUserPrompt(input: {
   ].join("\n");
 }
 
+export function buildCustomRequestGenerateAllUserPrompt(input: {
+  request: EditorialReviewRequest;
+  actions: CustomRequestPlanAction[];
+  customPrompt: string;
+  locale: AppLocale;
+}): string {
+  const scaffold = getReviewPromptScaffold(input.locale);
+  const pack = packCustomRequestGenerateDocument(input.request.document, input.actions);
+
+  return [
+    scaffold.finalEditingCustomPromptPrefix,
+    input.customPrompt.trim(),
+    "",
+    scaffold.customRequestGenerateActionsPrefix,
+    JSON.stringify(input.actions.map((action) => ({
+      blockId: action.blockId,
+      recommendationType: action.recommendationType,
+      title: action.title,
+      recommendation: action.recommendation,
+      priority: action.priority
+    }))),
+    "",
+    scaffold.customRequestGenerateContextPrefix,
+    pack.packedText
+  ].join("\n");
+}
+
+export function packCustomRequestGenerateDocument(
+  document: EditorDocument,
+  actions: CustomRequestPlanAction[]
+): { packedText: string; includedBlockIds: string[]; truncated: boolean } {
+  const anchorIds = new Set(actions.map((action) => action.blockId));
+  const neighborIds = new Set<string>();
+
+  for (const action of actions) {
+    const slice = sliceDocumentForFragmentRetry(document, { coreBlockIds: [action.blockId] });
+    for (const block of slice?.blocks ?? []) {
+      if (!anchorIds.has(block.id)) {
+        neighborIds.add(block.id);
+      }
+    }
+  }
+
+  const lines: string[] = [];
+  const includedBlockIds: string[] = [];
+  let used = 0;
+  let truncated = false;
+
+  const appendBlock = (block: Block, index: number, force: boolean): boolean => {
+    const text = getBlockText(block).replace(/\s+/g, " ").trim();
+    const line = `${lines.length + 1}. абз. ${formatParagraphLabel(index)} [${block.id}] ${text}`;
+    const cost = line.length + (lines.length > 0 ? 1 : 0);
+    if (!force && used + cost > CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS) {
+      truncated = true;
+      return false;
+    }
+    if (force && used + cost > CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS) {
+      truncated = true;
+      const clipped = `${line.slice(0, Math.max(24, CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS - used - 1)).trimEnd()}…`;
+      lines.push(clipped);
+      includedBlockIds.push(block.id);
+      used = CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS;
+      return true;
+    }
+    lines.push(line);
+    includedBlockIds.push(block.id);
+    used += cost;
+    return true;
+  };
+
+  for (const [index, block] of document.blocks.entries()) {
+    if (anchorIds.has(block.id)) {
+      appendBlock(block, index, true);
+    }
+  }
+
+  for (const [index, block] of document.blocks.entries()) {
+    if (!neighborIds.has(block.id) || anchorIds.has(block.id)) {
+      continue;
+    }
+    if (!appendBlock(block, index, false)) {
+      break;
+    }
+  }
+
+  return {
+    packedText: lines.join("\n"),
+    includedBlockIds,
+    truncated
+  };
+}
+
 export function mergePlanActionIntoProviderItem(
   rawItem: unknown,
   action: CustomRequestPlanAction
@@ -106,6 +210,30 @@ export function mergePlanActionIntoProviderItem(
         ? record.reason
         : action.recommendation
   };
+}
+
+export function mergePlanActionsIntoProviderItems(
+  rawItems: unknown[],
+  actions: CustomRequestPlanAction[]
+): Array<{ action: CustomRequestPlanAction; item: Record<string, unknown> | null; index: number }> {
+  const remaining = [...rawItems];
+
+  return actions.map((action, index) => {
+    const matchIndex = remaining.findIndex((item) => {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+      const record = item as Record<string, unknown>;
+      return record.blockId === action.blockId && record.recommendationType === action.recommendationType;
+    });
+    const fallbackIndex = matchIndex >= 0 ? matchIndex : remaining.length > 0 ? 0 : -1;
+    if (fallbackIndex < 0) {
+      return { action, item: null, index };
+    }
+
+    const raw = remaining.splice(fallbackIndex, 1)[0];
+    return { action, item: mergePlanActionIntoProviderItem(raw, action), index };
+  });
 }
 
 export function packCustomRequestPlanDocument(document: EditorDocument): CustomRequestPlanPack {

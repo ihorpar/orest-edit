@@ -61,11 +61,33 @@ Proof:
 - Concurrency test: 4 planned actions → max 3 in-flight generate calls.
 - Plan+generate tests return cards whose types follow the plan; empty plans still fail loud.
 
+### Milestone 3: One generate call and non-blocking poll
+
+Status: Complete.
+
+Done:
+
+- Full custom-request generate is one provider call + one durable workflow step (`executeCustomRequestGenerateAllStep`), with packed local slices around planned anchors.
+- GET poll reads already-written workflow stream chunks via `getTailIndex()` instead of waiting for stream close.
+- Single-action `customRequestPlanAction` retry remains for missing cards.
+- Tests: two provider calls for four planned actions; generate-all prompt includes every seed.
+
+Remaining:
+
+- None for this milestone.
+
+Proof:
+
+- `generateEditorialReview generates planned custom-request cards in one provider call` asserts `callCount === 2`.
+- `consumeAvailableReadableBatches reads existing chunks without waiting for close`.
+
 ## Progress
 
 - [x] (2026-08-17) Drafted this ExecPlan after rejecting regex quotas and soft per-fragment caps as insufficient for exact or stable chapter totals.
 - [x] (2026-08-17) Milestone 1: chapter-level plan contract + durable plan step + plan-ready UX.
 - [x] (2026-08-17) Milestone 2: generate-from-plan, editor progress, docs.
+- [x] (2026-08-17) Milestone 3: one generate call for the whole plan; non-blocking GET poll.
+- [x] (2026-08-17) Poll recovery: 12s client GET timeout, bury persisted run on poll/JSON/platform failure, `Зупинити` DELETE-cancels the workflow without clearing the manuscript.
 
 ## Surprises & Discoveries
 
@@ -73,6 +95,7 @@ Proof:
 - Observation: regex/NLP extraction of counts fails on Ukrainian morphology and false positives (“пункт 10”, “топ 5”, “2 врізки про топ 5”).
 - Observation: M1 plan-only success with `items: []` was initially shown as “no recommendations” / zero-result in the editor until feedback and workspace status branched on `plan.actions`.
 - Observation: per-action hole retry required honoring `preserve` when `customRequestPlanAction` is set, and retaining full `planActions` across single-action responses.
+- Observation: production `FUNCTION_INVOCATION_TIMEOUT` on GET `review?runId=` was the poller waiting for open workflow streams to close, not the model taking 5 minutes. Per-card durable steps still made generate slower than one text pass.
 
 ## Decision Log
 
@@ -96,13 +119,17 @@ Proof:
   Rationale: hole retry must not clear sibling cards or fail runMode validation.
   Date/Author: 2026-08-17 / agent (plan-implement review)
 
+- Decision: generate all planned custom-request cards in one LLM call / one durable step; GET poll must not wait for stream close.
+  Rationale: N Vercel steps for N cards made a fast model feel like a 5-minute chapter scan. Custom request is two text passes: plan, then cards.
+  Date/Author: 2026-08-17 / user + agent
+
 ## Outcomes & Retrospective
 
-Shipped plan → generate for `final_editing`. Residual risks: weak plan anchors when outline/samples miss a good site; cost scales with planned action count (capped at 20); free-text “exactly N” is still soft without a UI count field.
+Shipped plan → one generate call for `final_editing`. Residual risks: weak plan anchors when outline/samples miss a good site; one generate timeout fails the whole card set (single-action retry still exists); free-text “exactly N” is still soft without a UI count field.
 ## Context and Orientation
 
 Product: web-only Next.js app in `apps/web`. Editorial review starts from `POST /api/edit/review` and durable work lives in `apps/web/lib/server/editorial-review-workflow.ts`. Recommendation chunking lives in `apps/web/lib/server/review-chunk-planner.ts` and `apps/web/lib/server/review-service.ts`. Step id `final_editing` is shown as `Власний запит`. Cards are `EditorialReviewItem` in `apps/web/lib/editor/review-contract.ts`.
 
-A **plan** is a validated list of intended local actions for one custom-request run. A **generate** step turns one planned action into one recommendation card the editor can prepare/apply.
+A **plan** is a validated list of intended local actions for one custom-request run. A **generate** step turns the whole plan into recommendation cards the editor can prepare/apply, in one provider call. A single planned action can still be regenerated on retry.
 
 Out of scope for this plan: UI count field; changing Clarity/Formatting chunking; chunking diagnostics/fact-check; exact guaranteed N without a structured count input.

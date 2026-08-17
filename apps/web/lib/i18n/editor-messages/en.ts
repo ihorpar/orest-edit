@@ -545,12 +545,15 @@ const editorEn = {
     reviewJobWrongLocale: "Review run was created for another app language. Run the step again.",
     reviewJobInvalid: "Server returned an invalid review run state.",
     reviewJobReadFailed: "Could not read review run state.",
-    reviewJobPlatformTimeout: "The review run exceeded the server time limit. Try a smaller custom request or retry.",
+    reviewJobPlatformTimeout: "The review run exceeded the server time limit. Stop the run and try again.",
+    reviewJobPollTimeout: "The server did not answer the review status check. The run was stopped so it cannot stay stuck.",
     reviewJobFailed: "Review run failed. Run the step again.",
     reviewRunResultInvalid: "The review run finished without a valid result. Run the step again.",
     reviewRunOtherStepActive: (stepLabel: string) => `The "${stepLabel}" step is still running. Wait for it to finish or open that step.`,
     reviewRunFailed: "Could not start review.",
     reviewRunResuming: "Resuming the unfinished review…",
+    reviewRunStopped: "The review run was stopped.",
+    stopReview: "Stop",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
       retrying
         ? `Retry ${attempt ?? 1} · Parsed the start of the chapter · ${completed} of ${total} fragments`

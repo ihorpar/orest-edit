@@ -63,8 +63,11 @@ import {
 } from "../../lib/editor/review-run-progress";
 import {
   isActiveStepReviewRunning,
+  interpretReviewRunPollBody,
+  REVIEW_POLL_FETCH_TIMEOUT_MS,
   resolveReviewRunStartIntent,
   sanitizeExposedErrorMessage,
+  shouldAbandonReviewRunAfterPollError,
   shouldShowReviewRunChrome
 } from "../../lib/editor/review-run-recovery";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
@@ -199,6 +202,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Square,
   MessageSquareText,
   Stethoscope,
   Table2,
@@ -495,6 +499,7 @@ export default function EditorPage() {
   const patchNoOpStreakRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const activeReviewJobRunRef = useRef<string | null>(null);
+  const reviewPollAbortRef = useRef<AbortController | null>(null);
   const reviewPollTabIdRef = useRef(createPatchId("review-tab"));
   const consumedReviewRunIdsRef = useRef(new Set<string>());
   const fragmentRetryInFlightRef = useRef(false);
@@ -2414,6 +2419,8 @@ export default function EditorPage() {
     setReviewFlightStepId(stepId);
     setIsReviewRequestInFlight(true);
     setFeedback(null);
+    let startedRunId: string | undefined;
+    let startedCapability: string | undefined;
     const runMode: EditorialStepRunMode =
       stepId === "final_editing" && !options?.customRequestPlanAction
         ? "replace"
@@ -2523,7 +2530,15 @@ export default function EditorPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         });
-        const candidate: unknown = await response.json();
+        const startText = await response.text();
+        const parsedStart = interpretReviewRunPollBody(startText, {
+          invalid: editorCopy.reviewFeedback.reviewJobInvalid,
+          platformTimeout: editorCopy.reviewFeedback.reviewJobPlatformTimeout
+        });
+        if (!parsedStart.ok) {
+          throw new Error(parsedStart.message);
+        }
+        const candidate: unknown = parsedStart.payload;
 
         if (!isEditorialReviewRunApiResponse(candidate)) {
           throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);
@@ -2533,7 +2548,9 @@ export default function EditorPage() {
           throw new Error(candidate.error.message);
         }
 
+        startedRunId = candidate.run.runId;
         if (candidate.kind === "run") {
+          startedCapability = candidate.capability;
           if (runMode === "replace") {
             if (stepId === "final_editing") {
               customRequestPlanActionsRef.current = null;
@@ -2580,6 +2597,8 @@ export default function EditorPage() {
       }
 
       const initialPayload = startOutcome.payload;
+      startedRunId = initialPayload.run.runId;
+      startedCapability = initialPayload.kind === "run" ? initialPayload.capability : undefined;
 
       let terminalRun = initialPayload.run;
       let payload: EditorialReviewResponse;
@@ -2639,11 +2658,20 @@ export default function EditorPage() {
         runId: terminalRun.runId
       });
     } catch (error) {
-      if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+      if (!shouldAbandonReviewRunAfterPollError(error, REVIEW_JOB_SUPERSEDED_ERROR)) {
         return;
       }
 
-      clearTerminalReviewRunError(error, locale);
+      if (startedRunId) {
+        abandonInFlightReviewRun({
+          runId: startedRunId,
+          capability: startedCapability,
+          locale,
+          cancelRemote: true
+        });
+      } else {
+        clearTerminalReviewRunError(error, locale);
+      }
 
       setFeedback({
         tone: "error",
@@ -2753,16 +2781,23 @@ export default function EditorPage() {
         runId: record.run.runId
       });
     } catch (error) {
-      if (!(error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR)) {
-        clearTerminalReviewRunError(error, locale);
-        setFeedback({
-          tone: "error",
-          message: sanitizeExposedErrorMessage(
-            error instanceof Error ? error.message : "",
-            editorCopy.reviewFeedback.reviewRunResultInvalid
-          )
-        });
+      if (!shouldAbandonReviewRunAfterPollError(error, REVIEW_JOB_SUPERSEDED_ERROR)) {
+        return;
       }
+
+      abandonInFlightReviewRun({
+        runId: record.run.runId,
+        capability: record.capability,
+        locale,
+        cancelRemote: true
+      });
+      setFeedback({
+        tone: "error",
+        message: sanitizeExposedErrorMessage(
+          error instanceof Error ? error.message : "",
+          editorCopy.reviewFeedback.reviewRunResultInvalid
+        )
+      });
     } finally {
       releaseReviewRunPollLease(record.run.runId, ownerId);
       if (activeReviewJobRunRef.current === reviewRunToken) {
@@ -3033,6 +3068,50 @@ export default function EditorPage() {
     setFailedReviewChunks((current) => (persisted?.run.runId === runId || !persisted ? [] : current));
   }
 
+  function cancelRemoteReviewRun(runId: string, capability?: string) {
+    if (!capability) {
+      return;
+    }
+
+    void fetch(`/api/edit/review?runId=${encodeURIComponent(runId)}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: {
+        "x-review-run-capability": capability
+      }
+    }).catch(() => undefined);
+  }
+
+  function abandonInFlightReviewRun(input: {
+    runId: string;
+    capability?: string;
+    locale: AppLocale;
+    cancelRemote: boolean;
+  }) {
+    buryActiveReviewRun(input.runId, input.locale);
+    releaseReviewRunPollLease(input.runId, reviewPollTabIdRef.current);
+    if (input.cancelRemote) {
+      cancelRemoteReviewRun(input.runId, input.capability);
+    }
+  }
+
+  function stopActiveReviewRun() {
+    const record = activeReviewRun ?? readEditorDraftState(locale)?.activeReviewRun;
+    reviewPollAbortRef.current?.abort();
+    activeReviewJobRunRef.current = null;
+    setReviewFlightStepId(null);
+    setIsReviewRequestInFlight(false);
+    if (record?.run.runId) {
+      abandonInFlightReviewRun({
+        runId: record.run.runId,
+        capability: record.capability,
+        locale,
+        cancelRemote: true
+      });
+    }
+    setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunStopped });
+  }
+
   function clearTerminalReviewRunError(error: unknown, expectedLocale: AppLocale) {
     if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
       return;
@@ -3083,27 +3162,54 @@ export default function EditorPage() {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
       }
 
-      const response = await fetch(
-        `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
-        {
-        method: "GET",
-        credentials: "same-origin",
-        headers: {
-          "Cache-Control": "no-store",
-          "x-review-run-capability": capability
-        }
-      });
-      const responseText = await response.text();
+      const controller = new AbortController();
+      reviewPollAbortRef.current = controller;
+      const timeoutId = window.setTimeout(() => controller.abort(), REVIEW_POLL_FETCH_TIMEOUT_MS);
       let payload: unknown;
+      let response: Response;
 
       try {
-        payload = JSON.parse(responseText) as unknown;
-      } catch {
-        throw new Error(
-          responseText.trim().startsWith("An error occurred with your deployment")
-            ? editorCopy.reviewFeedback.reviewJobPlatformTimeout
-            : editorCopy.reviewFeedback.reviewJobInvalid
+        response = await fetch(
+          `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
+          {
+            method: "GET",
+            credentials: "same-origin",
+            signal: controller.signal,
+            headers: {
+              "Cache-Control": "no-store",
+              "x-review-run-capability": capability
+            }
+          }
         );
+        const responseText = await response.text();
+        if (activeReviewJobRunRef.current !== reviewRunToken) {
+          throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+        }
+
+        const parsed = interpretReviewRunPollBody(responseText, {
+          invalid: editorCopy.reviewFeedback.reviewJobInvalid,
+          platformTimeout: editorCopy.reviewFeedback.reviewJobPlatformTimeout
+        });
+        if (!parsed.ok) {
+          throw new Error(parsed.message);
+        }
+        payload = parsed.payload;
+      } catch (error) {
+        if (activeReviewJobRunRef.current !== reviewRunToken) {
+          throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+        }
+        if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+          throw error;
+        }
+        if ((error instanceof DOMException || error instanceof Error) && error.name === "AbortError") {
+          throw new Error(editorCopy.reviewFeedback.reviewJobPollTimeout);
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (reviewPollAbortRef.current === controller) {
+          reviewPollAbortRef.current = null;
+        }
       }
 
       if (!isEditorialReviewRunApiResponse(payload)) {
@@ -5398,7 +5504,26 @@ export default function EditorPage() {
     );
   }
 
-  const runStepButton = (
+  function renderStopReviewButton(className: string) {
+    return (
+      <Button
+        variant="secondary"
+        size="sm"
+        className={className}
+        onClick={stopActiveReviewRun}
+        aria-label={editorCopy.reviewFeedback.stopReview}
+      >
+        <span className="button-content">
+          <Square size={14} aria-hidden="true" />
+          <span>{editorCopy.reviewFeedback.stopReview}</span>
+        </span>
+      </Button>
+    );
+  }
+
+  const runStepButton = isCurrentStepReviewRunning && activeWorkflowStep !== "spellcheck"
+    ? renderStopReviewButton(`step-review-head-action-button ${activeStepPrimaryAction.emphasis === "primary" ? "step-review-head-action-button-primary" : ""}`.trim())
+    : (
     <Button
       variant={activeStepPrimaryAction.emphasis === "primary" ? "primary" : "secondary"}
       className={`step-review-head-action-button ${activeStepPrimaryAction.emphasis === "primary" ? "step-review-head-action-button-primary" : ""}`.trim()}
@@ -5762,6 +5887,9 @@ export default function EditorPage() {
                         </span>
                       </Button>
                     ) : null}
+                    {isCurrentStepReviewRunning && activeWorkflowStep !== "spellcheck"
+                      ? renderStopReviewButton("step-review-prototype-run-button")
+                      : (
                     <Button
                       variant="primary"
                       size="sm"
@@ -5777,6 +5905,7 @@ export default function EditorPage() {
                         <span>{activeStepRunButtonLabel}</span>
                       </span>
                     </Button>
+                      )}
                   </div>
                 </header>
 

@@ -176,11 +176,17 @@ const REVIEW_PROMPT_SCAFFOLD = {
     customRequestPlanDocumentPrefix: "Огляд розділу для планування (outline + зразки, не повний текст):",
     customRequestGenerateRole:
       "Ти генеруєш рівно одну локальну recommendation-картку за запланованою дією. Не плануй інші дії.",
+    customRequestGenerateAllRole:
+      "Ти генеруєш локальні recommendation-картки за готовим планом дій. Не плануй нові дії і не додавай картки поза планом.",
     customRequestGenerateJsonFormat:
       'Формат відповіді: JSON {"items":[{"blockId":"...","title":"...","reason":"...","recommendation":"...","recommendationType":"rewrite|simplify|expand|list|subsection|callout|visual","priority":"high|medium|low","excerpt":"...","insertionHint":"replace|before|after","headingLevel":2|3|null,"headingTitle":null,"calloutKind":null,"calloutDepth":null,"visualIntent":null}]} без markdown.',
     customRequestGenerateSeedRule:
       "Дотримуйся recommendationType і blockId із запланованої дії. Можеш уточнити title/reason/recommendation, але не змінюй якір і тип.",
     customRequestGenerateOneCardRule: "Поверни рівно один item. Не повертай порожній items[].",
+    customRequestGenerateAllCardsRule:
+      "Поверни рівно по одному item на кожну planned action, у тому ж порядку. Не повертай порожній items[] і не додавай зайвих карток.",
+    customRequestGenerateActionsPrefix: "Заплановані дії (по одній картці на кожну, той самий порядок):",
+    customRequestGenerateContextPrefix: "Локальний контекст навколо якорів плану (не повний розділ):",
     diagnosticsRubric:
       "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови.",
     diagnosticsHeadings:
@@ -324,11 +330,17 @@ const REVIEW_PROMPT_SCAFFOLD = {
     customRequestPlanDocumentPrefix: "Chapter overview for planning (outline + samples, not full text):",
     customRequestGenerateRole:
       "You generate exactly one local recommendation card from a planned action. Do not plan other actions.",
+    customRequestGenerateAllRole:
+      "You generate local recommendation cards from a ready action plan. Do not plan new actions and do not add cards outside the plan.",
     customRequestGenerateJsonFormat:
       'Response format: JSON {"items":[{"blockId":"...","title":"...","reason":"...","recommendation":"...","recommendationType":"rewrite|simplify|expand|list|subsection|callout|visual","priority":"high|medium|low","excerpt":"...","insertionHint":"replace|before|after","headingLevel":2|3|null,"headingTitle":null,"calloutKind":null,"calloutDepth":null,"visualIntent":null}]} with no markdown.',
     customRequestGenerateSeedRule:
       "Keep the planned recommendationType and blockId. You may refine title/reason/recommendation, but do not change the anchor or type.",
     customRequestGenerateOneCardRule: "Return exactly one item. Do not return an empty items[].",
+    customRequestGenerateAllCardsRule:
+      "Return exactly one item per planned action, in the same order. Do not return an empty items[] and do not add extra cards.",
+    customRequestGenerateActionsPrefix: "Planned actions (one card each, same order):",
+    customRequestGenerateContextPrefix: "Local context around the planned anchors (not the full chapter):",
     diagnosticsRubric:
       "Run a strict macro-diagnosis using this rubric: main structural diagnosis, section map, key structural problems, where subsections are needed, what is redundant or duplicated, exemplar paragraphs, and priority rebuild plan.",
     diagnosticsHeadings:

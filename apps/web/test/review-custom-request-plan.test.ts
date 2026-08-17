@@ -7,9 +7,13 @@ import {
   normalizeCustomRequestPlan
 } from "../lib/editor/review-contract.ts";
 import {
+  CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS,
   CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS,
+  buildCustomRequestGenerateAllSystemPrompt,
+  buildCustomRequestGenerateAllUserPrompt,
   buildCustomRequestPlanSystemPrompt,
   buildCustomRequestPlanUserPrompt,
+  packCustomRequestGenerateDocument,
   packCustomRequestPlanDocument,
   parseCustomRequestPlanPayload
 } from "../lib/server/custom-request-plan.ts";
@@ -175,5 +179,73 @@ test("custom request plan prompts use packed overview and custom request, not fu
   assert.doesNotMatch(system, /recommendationCardsJsonFormat|items\[\{"blockId"/);
   assert.match(user, /запропонуй 10 врізок/);
   assert.match(user, /OUTLINE/);
+  assert.doesNotMatch(user, /Контекст діагностики/);
+});
+
+test("packCustomRequestGenerateDocument keeps planned anchors and neighboring blocks", () => {
+  const document = createMultiSectionDocument();
+  const pack = packCustomRequestGenerateDocument(document, [
+    {
+      blockId: "s0p0",
+      recommendationType: "callout",
+      title: "Врізка",
+      recommendation: "Seed",
+      priority: "medium"
+    },
+    {
+      blockId: "s2p4",
+      recommendationType: "list",
+      title: "Список",
+      recommendation: "Seed",
+      priority: "medium"
+    }
+  ]);
+
+  assert.match(pack.packedText, /\[s0p0\]/);
+  assert.match(pack.packedText, /\[s2p4\]/);
+  assert.ok(pack.includedBlockIds.includes("s0p0"));
+  assert.ok(pack.packedText.length <= CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS + 32);
+});
+
+test("custom request generate-all prompts include every planned action and local context", () => {
+  const document = createMultiSectionDocument();
+  const request: EditorialReviewRequest = {
+    document,
+    revision: deriveManuscriptRevisionState(document),
+    provider: "openai",
+    modelId: "gpt-5.6-luna",
+    changeLevel: 3,
+    stepId: "final_editing",
+    stepFeedback: "запропонуй 10 врізок"
+  };
+  const actions = [
+    {
+      blockId: "s0p0",
+      recommendationType: "callout" as const,
+      title: "Врізка 1",
+      recommendation: "Seed 1",
+      priority: "medium" as const
+    },
+    {
+      blockId: "s1p2",
+      recommendationType: "callout" as const,
+      title: "Врізка 2",
+      recommendation: "Seed 2",
+      priority: "medium" as const
+    }
+  ];
+  const system = buildCustomRequestGenerateAllSystemPrompt("uk");
+  const user = buildCustomRequestGenerateAllUserPrompt({
+    request,
+    actions,
+    customPrompt: "запропонуй 10 врізок",
+    locale: "uk"
+  });
+
+  assert.match(system, /по одному item на кожну planned action/);
+  assert.match(user, /Врізка 1/);
+  assert.match(user, /Врізка 2/);
+  assert.match(user, /\[s0p0\]/);
+  assert.match(user, /\[s1p2\]/);
   assert.doesNotMatch(user, /Контекст діагностики/);
 });

@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import type { EditorialReviewResponse, EditorialReviewRunSnapshot } from "../lib/editor/review-contract.ts";
 import {
   interpretCompletedEditorialReviewReturnValue,
+  interpretReviewRunPollBody,
   isActiveStepReviewRunning,
+  isReviewPollPlatformFailureText,
   resolveReviewRunStartIntent,
   sanitizeExposedErrorMessage,
+  shouldAbandonReviewRunAfterPollError,
   shouldShowReviewRunChrome,
   toTerminalFailedRunSnapshot
 } from "../lib/editor/review-run-recovery.ts";
@@ -199,4 +202,37 @@ test("toTerminalFailedRunSnapshot marks a completed zombie as failed", () => {
 
   assert.equal(toTerminalFailedRunSnapshot(run).status, "failed");
   assert.equal(toTerminalFailedRunSnapshot(run).pollAfterMs, 0);
+});
+
+test("interpretReviewRunPollBody maps Vercel HTML timeouts instead of JSON parse errors", () => {
+  const platform = interpretReviewRunPollBody(
+    "An error occurred with your deployment\nFUNCTION_INVOCATION_TIMEOUT",
+    { invalid: "invalid", platformTimeout: "platform-timeout" }
+  );
+  assert.deepEqual(platform, { ok: false, message: "platform-timeout" });
+  assert.equal(isReviewPollPlatformFailureText("FUNCTION_INVOCATION_TIMEOUT"), true);
+
+  const invalid = interpretReviewRunPollBody("<html>oops</html>", {
+    invalid: "invalid",
+    platformTimeout: "platform-timeout"
+  });
+  assert.deepEqual(invalid, { ok: false, message: "invalid" });
+
+  const ok = interpretReviewRunPollBody("{\"kind\":\"run\"}", {
+    invalid: "invalid",
+    platformTimeout: "platform-timeout"
+  });
+  assert.deepEqual(ok, { ok: true, payload: { kind: "run" } });
+});
+
+test("shouldAbandonReviewRunAfterPollError keeps a superseded poll alive", () => {
+  assert.equal(
+    shouldAbandonReviewRunAfterPollError(new Error("review_job_superseded"), "review_job_superseded"),
+    false
+  );
+  assert.equal(
+    shouldAbandonReviewRunAfterPollError(new Error("Unexpected token 'A'"), "review_job_superseded"),
+    true
+  );
+  assert.equal(shouldAbandonReviewRunAfterPollError("not-an-error", "review_job_superseded"), true);
 });

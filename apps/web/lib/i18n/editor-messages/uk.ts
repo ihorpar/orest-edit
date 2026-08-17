@@ -548,12 +548,15 @@ const editorUk = {
     reviewJobWrongLocale: "Перевірку було створено для іншої мови застосунку. Запустіть крок ще раз.",
     reviewJobInvalid: "Сервер повернув некоректний стан перевірки.",
     reviewJobReadFailed: "Не вдалося прочитати стан перевірки.",
-    reviewJobPlatformTimeout: "Перевірка перевищила ліміт часу сервера. Спробуйте менший власний запит або повторіть крок.",
+    reviewJobPlatformTimeout: "Перевірка перевищила ліміт часу сервера. Зупиніть запуск і спробуйте ще раз.",
+    reviewJobPollTimeout: "Сервер не відповів на перевірку стану. Запуск зупинено, щоб він не завис.",
     reviewJobFailed: "Перевірка завершилася з помилкою. Запустіть крок ще раз.",
     reviewRunResultInvalid: "Запуск завершився без коректної відповіді. Запустіть крок ще раз.",
     reviewRunOtherStepActive: (stepLabel: string) => `Зараз виконується крок «${stepLabel}». Дочекайтеся завершення або відкрийте той крок.`,
     reviewRunFailed: "Не вдалося запустити перевірку.",
     reviewRunResuming: "Відновлюємо незавершену перевірку…",
+    reviewRunStopped: "Перевірку зупинено.",
+    stopReview: "Зупинити",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
       retrying
         ? `Повторна спроба ${attempt ?? 1} · Розібрано початок розділу · ${completed} з ${total} фрагментів`

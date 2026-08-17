@@ -45,6 +45,8 @@ import {
 } from "../i18n/server-prompts/review.ts";
 import { buildFallbackCalloutPrompt } from "../i18n/server-prompts/review-action.ts";
 import {
+  buildCustomRequestGenerateAllSystemPrompt,
+  buildCustomRequestGenerateAllUserPrompt,
   buildCustomRequestGenerateSystemPrompt,
   buildCustomRequestGenerateUserPrompt,
   buildCustomRequestPlanSystemPrompt,
@@ -52,6 +54,7 @@ import {
   buildValidatedCustomRequestPlan,
   geminiCustomRequestPlanSchema,
   mergePlanActionIntoProviderItem,
+  mergePlanActionsIntoProviderItems,
   openAiCustomRequestPlanSchema,
   packCustomRequestPlanDocument,
   parseCustomRequestPlanPayload
@@ -498,6 +501,17 @@ export async function generateEditorialReview(
           )
           : request.customRequestPlanOnly
             ? await createCustomRequestPlanOnlyReview(request, reviewSessionId, stepRunId, apiKey, fetchImpl, customPrompt)
+            : request.customRequestPlan
+              ? await generateCardsForCustomRequestPlan({
+                request,
+                reviewSessionId,
+                stepRunId,
+                apiKey,
+                fetchImpl,
+                customPrompt,
+                plan: request.customRequestPlan,
+                providerUsed: request.provider
+              })
             : await createCustomRequestPlanReview(request, reviewSessionId, stepRunId, apiKey, fetchImpl, customPrompt)
         : stepId === "emphasis" && !resolveReviewChunkScope(request)
           ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
@@ -941,59 +955,155 @@ async function generateCardsForCustomRequestPlan(input: {
 }): Promise<EditorialReviewProviderResult> {
   const locale = resolveReviewLocale(input.request);
   const reviewErrors = getReviewServiceErrors(locale);
-  const failedChunks: EditorialReviewFailedChunk[] = [];
-  const items: EditorialReviewItem[] = [];
+  const stepSpec = getReviewStepSpec("final_editing", locale);
+  const systemPrompt = buildCustomRequestGenerateAllSystemPrompt(locale);
+  const userPrompt = buildCustomRequestGenerateAllUserPrompt({
+    request: input.request,
+    actions: input.plan.actions,
+    customPrompt: input.customPrompt,
+    locale
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
 
-  const waveResults = await mapInWaves(
-    input.plan.actions,
-    REVIEW_CHUNK_CONCURRENCY,
-    async (action, index) => {
-      try {
-        return await createCustomRequestActionCard({
-          request: input.request,
-          action,
-          reviewSessionId: input.reviewSessionId,
-          stepRunId: input.stepRunId,
-          apiKey: input.apiKey,
-          fetchImpl: input.fetchImpl,
-          customPrompt: input.customPrompt
-        });
-      } catch (error) {
-        return {
-          item: undefined,
-          providerUsed: input.providerUsed,
-          error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(input.request.provider))
-        };
-      }
+  try {
+    let rawOutput = "";
+    let providerUsed = input.request.provider;
+
+    if (input.request.provider === "gemini") {
+      const profile = resolveModelProfile("gemini", input.request.modelId);
+      const body: Record<string, unknown> = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        generationConfig: withGeminiThinkingConfig({
+          responseMimeType: "application/json",
+          responseSchema: geminiSchema
+        }, profile)
+      };
+      const response = await input.fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": input.apiKey
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      rawOutput = await readGeminiText(response, locale);
+      providerUsed = "gemini";
+    } else if (input.request.provider === "anthropic") {
+      const response = await input.fetchImpl(anthropicEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": input.apiKey,
+          "anthropic-version": anthropicVersion
+        },
+        body: JSON.stringify({
+          model: input.request.modelId,
+          max_tokens: 8192,
+          temperature: 0.2,
+          system: `${systemPrompt} ${getAnthropicSystemPromptSuffix(stepSpec, locale)}`,
+          messages: [{ role: "user", content: userPrompt }]
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readAnthropicText(response, locale);
+      providerUsed = "anthropic";
+    } else {
+      const profile = resolveModelProfile("openai", input.request.modelId);
+      const response = await input.fetchImpl(openAiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.apiKey}`,
+          ...(input.request.providerRequestKey
+            ? { "X-Client-Request-Id": normalizeProviderRequestKey(input.request.providerRequestKey) }
+            : {})
+        },
+        body: JSON.stringify({
+          ...buildOpenAiRequestModelFields(profile),
+          instructions: systemPrompt,
+          input: userPrompt,
+          text: {
+            format: {
+              type: "json_schema",
+              name: "custom_request_action_cards",
+              strict: true,
+              schema: openAiSchema
+            }
+          }
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readProviderText(response, locale);
+      providerUsed = "openai";
     }
-  );
 
-  for (const [index, result] of waveResults.entries()) {
-    if (result.item) {
-      items.push(result.item);
-      continue;
-    }
+    const parsed = parseEditorialReviewItems(rawOutput);
+    const rawItems = parsed && typeof parsed === "object" && Array.isArray((parsed as { items?: unknown }).items)
+      ? (parsed as { items: unknown[] }).items
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+    const merged = mergePlanActionsIntoProviderItems(rawItems, input.plan.actions);
+    const seededItems = merged.flatMap((entry) => entry.item ? [entry.item] : []);
+    const normalized = buildNormalizedReviewResult(
+      input.request,
+      input.reviewSessionId,
+      input.stepRunId,
+      stepSpec,
+      { items: seededItems },
+      providerUsed,
+      rawOutput
+    );
+    const failedChunks: EditorialReviewFailedChunk[] = merged
+      .filter((entry) => !entry.item)
+      .map((entry) => ({
+        index: entry.index,
+        coreBlockIds: [entry.action.blockId],
+        message: reviewErrors.emptyCustomRequestPlan
+      }));
 
-    failedChunks.push({
-      index,
-      coreBlockIds: [input.plan.actions[index].blockId],
-      message: result.error ?? reviewErrors.emptyCustomRequestPlan
-    });
+    return {
+      stepId: "final_editing",
+      stepRunId: input.stepRunId,
+      items: normalized.items,
+      plan: input.plan,
+      factCheckRows: [],
+      droppedItemCount: normalized.droppedItemCount,
+      droppedItemCountsByReason: normalized.droppedItemCountsByReason,
+      filteredItemCountsByType: normalized.filteredItemCountsByType,
+      providerUsed,
+      rawOutput,
+      failedChunks: failedChunks.length > 0 ? failedChunks : undefined,
+      error: normalized.items.length === 0
+        ? (failedChunks[0]?.message ?? reviewErrors.emptyCustomRequestPlan)
+        : undefined
+    };
+  } catch (error) {
+    return {
+      stepId: "final_editing",
+      stepRunId: input.stepRunId,
+      items: [],
+      plan: input.plan,
+      factCheckRows: [],
+      droppedItemCount: 0,
+      providerUsed: input.request.provider,
+      error: error instanceof Error
+        ? error.message
+        : reviewErrors.providerUnavailable(providerDisplayName(input.request.provider)),
+      failedChunks: input.plan.actions.map((action, index) => ({
+        index,
+        coreBlockIds: [action.blockId],
+        message: error instanceof Error
+          ? error.message
+          : reviewErrors.providerUnavailable(providerDisplayName(input.request.provider))
+      }))
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return {
-    stepId: "final_editing",
-    stepRunId: input.stepRunId,
-    items,
-    plan: input.plan,
-    factCheckRows: [],
-    droppedItemCount: 0,
-    providerUsed: input.providerUsed,
-    failedChunks: failedChunks.length > 0 ? failedChunks : undefined,
-    error: items.length === 0 && failedChunks.length > 0
-      ? failedChunks[0]?.message
-      : undefined
-  };
 }
 
 async function createCustomRequestActionCard(input: {

@@ -4,8 +4,15 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-17
 
+### Custom request uses plan then one generate call
+Date: 2026-08-17
+Decision: `final_editing` / `Власний запит` builds one chapter-level action plan (anchors + types + short seeds) from outline + section samples, then generates all recommendation cards in **one** provider call (one durable workflow step) using local slices around planned anchors. No regex count parsing. Hard ceiling 20 actions. Other recommendation steps keep 16k character-budget waves of 3. A failed whole generate retries that generate step; a missing card can still be retried as a single `customRequestPlanAction` (preserve). GET review polls read already-written workflow stream chunks and do not wait for stream close.
+Reason: one durable Vercel step per card made “10 short inserts” pay Clarity-scan orchestration cost (waves of 3, full-request serialization, 5-minute GET hang). The job is two LLM calls, not eleven function invocations.
+Rollback: restore `executeCustomRequestGenerateActionStep` waves in `editorial-review-workflow.ts` and per-action `mapInWaves` in `generateCardsForCustomRequestPlan`.
+
 ### Custom request uses plan then generate
 Date: 2026-08-17
+Status: Superseded by “Custom request uses plan then one generate call” (2026-08-17). Kept for history: generate originally ran one durable step per planned action in waves of 3.
 Decision: `final_editing` / `Власний запит` builds one chapter-level action plan (anchors + types + short seeds) from outline + section samples, then generates one recommendation card per planned action in waves of 3. No regex count parsing. Hard ceiling 20 actions. Other recommendation steps keep 16k character-budget waves. Failed generates retry that action only (preserve), not a full re-plan.
 Reason: copying the custom request into every 16k fragment multiplied absolute quantities (e.g. “10 callouts” × fragment count). Soft per-fragment caps could not produce a stable chapter total.
 Rollback: temporarily route `final_editing` through `isChunkedRecommendationStep` again and remove the plan/generate branch in `editorial-review-workflow.ts`.
@@ -27,8 +34,14 @@ Decision: allowlisted recommendation steps (`structure`, `clarity`, `interest`, 
 
 Reason: the shared catalog listed every type and deep-callout drafting instructions on every fragment, including Clarity and Structure.
 
+### Review polls never block and failed polls stay dead
+Date: 2026-08-17
+Decision: GET review polls never wait for workflow stream close. The browser aborts a hung GET after 12 seconds, buries the persisted run on poll/JSON/platform failure, and exposes `Зупинити` which DELETE-cancels the workflow without `Очистити`.
+Reason: a blocking GET occupied the 300s route until `FUNCTION_INVOCATION_TIMEOUT`; IndexedDB then auto-resumed the same hung run on reload, and the only local escape was wiping the manuscript.
+Rollback: restore `waitForClose: true` on GET stream reads and remove DELETE `/api/edit/review` plus the Stop control.
+
 ### Review Start never switches the visible step
-Decision: `Запустити` on step X starts or resumes only step X. A live run for another step blocks the new start with an explicit wait message and does not change the drawer. A non-terminal run that this tab is not polling is treated as a zombie: it is buried locally and the requested step starts. Progress, fragment retries, and the run-button loading state are scoped to the run's `stepId`. Poll/read failures always bury the persisted run, even when the error envelope has no `run`. Completed workflow `returnValue` is accepted only if it matches the review response contract; otherwise the client gets a localized fail-loud error, never a raw `TypeError`.
+Decision: `Запустити` on step X starts or resumes only step X. A live run for another step blocks the new start with an explicit wait message and does not change the drawer. A non-terminal run that this tab is not polling is treated as a zombie: it is buried locally and the requested step starts. Progress, fragment retries, and the run-button loading state are scoped to the run's `stepId`. Poll/read/JSON/platform failures always bury the persisted run, even when the error envelope has no `run`, and fire a workflow cancel. `Зупинити` cancels the run without clearing the manuscript. Completed workflow `returnValue` is accepted only if it matches the review response contract; otherwise the client gets a localized fail-loud error, never a raw `TypeError`.
 
 Reason: a failed Custom Request left a zombie pending run. Starting Accents resumed that run and switched the UI to Custom Request, while `Cannot read properties of undefined (reading 'requestId')` leaked from an unguarded `result.diagnostics` access.
 
