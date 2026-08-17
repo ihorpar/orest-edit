@@ -324,6 +324,19 @@ const WORKFLOW_STEP_ICONS: Record<WorkflowStepId, typeof Stethoscope> = {
   final_editing: MessageSquareText
 };
 
+const WORKFLOW_STEP_ORDER: WorkflowStepId[] = [
+  "diagnostics",
+  "fact_check",
+  "structure",
+  "clarity",
+  "interest",
+  "formatting",
+  "final_editing",
+  "emphasis",
+  "spellcheck",
+  "visuals"
+];
+
 function isEditorialReviewStepId(stepId: WorkflowStepId): stepId is EditorialReviewStepId {
   return stepId !== "spellcheck";
 }
@@ -367,7 +380,7 @@ export default function EditorPage() {
   const localeConfig = useProductLocaleConfig();
   const baseWorkflowSteps = useMemo(
     () =>
-      (Object.keys(WORKFLOW_STEP_ICONS) as WorkflowStepId[]).map((id) => ({
+      WORKFLOW_STEP_ORDER.map((id) => ({
         id,
         label: editorCopy.workflowSteps[id],
         icon: WORKFLOW_STEP_ICONS[id]
