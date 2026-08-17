@@ -6,6 +6,7 @@ import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structur
 import {
   getEditorialRecommendationTypeLabel,
   getReviewParagraphRangeLabel,
+  isEditorialReviewResponse,
   isEditorialReviewRunApiResponse,
   normalizeEditorialReviewItems
 } from "../lib/editor/review-contract.ts";
@@ -20,6 +21,19 @@ function createDocument(): EditorDocument {
     ]
   };
 }
+
+test("isEditorialReviewResponse rejects a completed payload without diagnostics", () => {
+  assert.equal(isEditorialReviewResponse({ error: "failed" }), false);
+  assert.equal(isEditorialReviewResponse({
+    reviewSessionId: "session-1",
+    stepId: "final_editing",
+    stepRunId: "step-1",
+    runMode: "replace",
+    items: [],
+    providerUsed: "openai",
+    usedFallback: false
+  }), false);
+});
 
 test("isEditorialReviewRunApiResponse rejects malformed success envelopes", () => {
   assert.equal(isEditorialReviewRunApiResponse({ kind: "result", result: {} }), false);

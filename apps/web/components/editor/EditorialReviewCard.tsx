@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useProductCopy, useProductLocale } from "../providers/ProductLocaleProvider";
 import type { ManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
@@ -43,6 +43,9 @@ export function EditorialReviewCard({
   const sc = useProductCopy().editor.spellcheckUi;
   const { locale } = useProductLocale();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isCopyExpanded, setIsCopyExpanded] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const descriptionRef = useRef<HTMLDivElement>(null);
   const { label: statusLabel, tone: statusTone } = getReviewStatusPresentation(item.status, rc);
   const shouldShowStatus = item.status !== "pending";
   const rangeLabel = rangeLabelOverride ?? getReviewParagraphRangeLabel(item, revision, locale);
@@ -72,12 +75,42 @@ export function EditorialReviewCard({
     }
   }, [isHidden]);
 
+  useEffect(() => {
+    if (!isExpanded) {
+      setIsCopyExpanded(false);
+    }
+  }, [isExpanded]);
+
+  useEffect(() => {
+    setIsCopyExpanded(false);
+  }, [item.id]);
+
+  useLayoutEffect(() => {
+    const node = descriptionRef.current;
+    if (!node || !isExpanded || isCopyExpanded) {
+      if (!isCopyExpanded) {
+        setHasOverflow(false);
+      }
+      return;
+    }
+
+    const measure = () => {
+      setHasOverflow(node.scrollHeight > node.clientHeight + 1);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isExpanded, isCopyExpanded, descriptionContent]);
+
   return (
     <article
       className="editorial-review-card-compact"
       data-status={item.status}
       data-active={isActive ? "true" : "false"}
       data-expanded={isExpanded ? "true" : "false"}
+      data-copy-expanded={isCopyExpanded ? "true" : "false"}
       data-variant={variant}
       data-hidden={isHidden ? "true" : "false"}
       role={isHidden ? undefined : "button"}
@@ -145,7 +178,23 @@ export function EditorialReviewCard({
         <div className="err-compact-body">
           {isExpanded ? (
             <>
-              <div className="err-compact-description">{descriptionContent}</div>
+              <div ref={descriptionRef} className="err-compact-description">
+                {descriptionContent}
+              </div>
+              {isCopyExpanded || hasOverflow ? (
+                <button
+                  type="button"
+                  className="err-compact-more"
+                  aria-expanded={isCopyExpanded}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsCopyExpanded((current) => !current);
+                  }}
+                  disabled={isHidden}
+                >
+                  {isCopyExpanded ? rc.showLess : rc.showMore}
+                </button>
+              ) : null}
               <div className="err-compact-actions">
                 {!isCompleted ? (
                   <>

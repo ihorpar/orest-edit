@@ -54,6 +54,20 @@ export function getReviewRunPollLeaseStorageKey(runId: string): string {
   return `${pollLeasePrefix}${runId}`;
 }
 
+export function isReviewRunPollLeasedByOther(input: {
+  runId: string;
+  ownerId: string;
+  now?: number;
+}): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const now = input.now ?? Date.now();
+  const current = readPollLease(getReviewRunPollLeaseStorageKey(input.runId));
+  return Boolean(current && current.ownerId !== input.ownerId && current.expiresAt > now);
+}
+
 export function tryAcquireReviewRunPollLease(input: {
   runId: string;
   ownerId: string;

@@ -127,7 +127,7 @@ test("English review system prompt excludes Cyrillic scaffolding", async () => {
   assert.ok(parsed.instructions, "expected OpenAI instructions in request body");
   assert.doesNotMatch(parsed.instructions ?? "", CYRILLIC_PATTERN);
   assert.match(parsed.instructions ?? "", /Workflow step:/i);
-  assert.match(parsed.instructions ?? "", /English manuscript|Work mode:/i);
+  assert.match(parsed.instructions ?? "", /Return strong local recommendations/i);
 });
 
 test("English review-action replace system prompt mentions English manuscript", () => {
@@ -164,9 +164,42 @@ test("Ukrainian review prompts keep Ukrainian scaffolding", async () => {
   const parsed = JSON.parse(requestBody) as { instructions?: string };
   assert.match(parsed.instructions ?? "", /Крок workflow:/i);
   assert.match(parsed.instructions ?? "", CYRILLIC_PATTERN);
+  assert.doesNotMatch(parsed.instructions ?? "", /якорі-підзаголовки|prepare_callout|visualIntent/i);
 
   const ukReplacePrompt = buildReplaceSystemPrompt("uk", createReplaceRequest("uk"));
   assert.match(ukReplacePrompt, /українського рукопису/i);
+});
+
+test("focused review steps omit the shared cards catalog and callout-prepare ballast", async () => {
+  const capture = async (stepId: "clarity" | "structure" | "formatting") => {
+    let requestBody = "";
+    await generateEditorialReview(
+      createReviewRequest({ locale: "uk", stepId, apiKey: "test-key" }),
+      {
+        fetchImpl: async (_input, init) => {
+          requestBody = String(init?.body ?? "");
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ items: [] }) }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        },
+        now: () => "2026-03-10T12:00:00.000Z"
+      }
+    );
+    return String(JSON.parse(requestBody).instructions ?? "");
+  };
+
+  const clarity = await capture("clarity");
+  const structure = await capture("structure");
+  const formatting = await capture("formatting");
+
+  assert.doesNotMatch(clarity, /Доступні типи: rewrite, expand, simplify, list, subsection, callout, visual/);
+  assert.doesNotMatch(clarity, /якорі-підзаголовки/);
+  assert.doesNotMatch(clarity, /calloutKind/);
+  assert.doesNotMatch(structure, /calloutKind/);
+  assert.match(formatting, /calloutKind/);
+  assert.match(formatting, /глобальна рамка|глобальну рамку/i);
+  assert.doesNotMatch(formatting, /якорі-підзаголовки/);
 });
 
 test("getOpenAiFactCheckStatusEnum returns locale-specific status values", () => {

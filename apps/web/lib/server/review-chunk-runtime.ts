@@ -10,7 +10,30 @@ import type {
 import type { ReviewChunkPlan } from "./review-chunk-planner.ts";
 
 export const CHUNKED_REVIEW_MAX_RETRIES = 2;
+export const REVIEW_CHUNK_CONCURRENCY = 3;
 export const REVIEW_PARTIAL_ITEMS_NAMESPACE = "review-partial-items";
+
+export async function mapInWaves<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const waveSize = Math.max(1, concurrency);
+  const results: R[] = new Array(items.length);
+
+  for (let start = 0; start < items.length; start += waveSize) {
+    const wave = items.slice(start, start + waveSize);
+    const waveResults = await Promise.all(
+      wave.map((item, offset) => mapper(item, start + offset))
+    );
+
+    for (let offset = 0; offset < waveResults.length; offset += 1) {
+      results[start + offset] = waveResults[offset];
+    }
+  }
+
+  return results;
+}
 
 export function isChunkedRecommendationStep(stepId: EditorialReviewRequest["stepId"]): boolean {
   return stepId === "structure" ||
@@ -18,8 +41,11 @@ export function isChunkedRecommendationStep(stepId: EditorialReviewRequest["step
     stepId === "interest" ||
     stepId === "visuals" ||
     stepId === "formatting" ||
-    stepId === "emphasis" ||
-    stepId === "final_editing";
+    stepId === "emphasis";
+}
+
+export function isCustomRequestPlanStep(stepId: EditorialReviewRequest["stepId"]): boolean {
+  return stepId === "final_editing";
 }
 
 export function reviewRunPollAfterMs(
@@ -31,7 +57,7 @@ export function reviewRunPollAfterMs(
   }
 
   if (status === "running") {
-    return isChunkedRecommendationStep(stepId) ? 3000 : 2000;
+    return isChunkedRecommendationStep(stepId) || isCustomRequestPlanStep(stepId) ? 3000 : 2000;
   }
 
   return 0;

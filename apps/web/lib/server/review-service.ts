@@ -3,6 +3,8 @@ import {
   getEditorialCalloutKindLabel,
   REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH,
   normalizeEditorialReviewItems,
+  type CustomRequestPlan,
+  type CustomRequestPlanAction,
   type EditorialFactCheckRow,
   type EditorialFactCheckSource,
   type EditorialReviewFailedChunk,
@@ -42,6 +44,18 @@ import {
   type ReviewStepSpec
 } from "../i18n/server-prompts/review.ts";
 import { buildFallbackCalloutPrompt } from "../i18n/server-prompts/review-action.ts";
+import {
+  buildCustomRequestGenerateSystemPrompt,
+  buildCustomRequestGenerateUserPrompt,
+  buildCustomRequestPlanSystemPrompt,
+  buildCustomRequestPlanUserPrompt,
+  buildValidatedCustomRequestPlan,
+  geminiCustomRequestPlanSchema,
+  mergePlanActionIntoProviderItem,
+  openAiCustomRequestPlanSchema,
+  packCustomRequestPlanDocument,
+  parseCustomRequestPlanPayload
+} from "./custom-request-plan.ts";
 import { readServerEnvValue } from "./env.ts";
 import {
   isEmphasisEligibleBlock,
@@ -51,7 +65,9 @@ import {
   type ReviewChunkPlan
 } from "./emphasis-chunk-planner.ts";
 import {
+  REVIEW_CHUNK_CONCURRENCY,
   collectFailedReviewChunks,
+  mapInWaves,
   summarizeReviewChunkRun
 } from "./review-chunk-runtime.ts";
 import { resolveProviderApiKey } from "./patch-service.ts";
@@ -301,6 +317,7 @@ type EditorialReviewProviderResult = {
   stepId: EditorialReviewStepId;
   stepRunId: string;
   items: EditorialReviewItem[];
+  plan?: CustomRequestPlan;
   factCheckRows?: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
@@ -370,7 +387,13 @@ export async function generateEditorialReview(
   const stepSpec = getReviewStepSpec(stepId, locale);
   const reviewErrors = getReviewServiceErrors(locale);
   const runMode: EditorialStepRunMode =
-    stepId === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace";
+    stepId === "final_editing" && request.customRequestPlanAction
+      ? (request.runMode === "preserve" ? "preserve" : "replace")
+      : stepId === "final_editing"
+        ? "replace"
+        : request.runMode === "preserve"
+          ? "preserve"
+          : "replace";
   const stableProviderRequestKey = request.providerRequestKey
     ? normalizeProviderRequestKey(request.providerRequestKey)
     : undefined;
@@ -462,15 +485,29 @@ export async function generateEditorialReview(
 
   try {
     const result =
-      stepId === "emphasis" && !resolveReviewChunkScope(request)
-        ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
-        : stepSpec.outputKind === "recommendation_cards" && stepId !== "emphasis" && !resolveReviewChunkScope(request)
-          ? await createChunkedRecommendationReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
-          : request.provider === "gemini"
-            ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-            : request.provider === "anthropic"
-              ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
-              : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
+      stepId === "final_editing"
+        ? request.customRequestPlanAction
+          ? await createCustomRequestActionOnlyReview(
+            request,
+            reviewSessionId,
+            stepRunId,
+            apiKey,
+            fetchImpl,
+            customPrompt,
+            request.customRequestPlanAction
+          )
+          : request.customRequestPlanOnly
+            ? await createCustomRequestPlanOnlyReview(request, reviewSessionId, stepRunId, apiKey, fetchImpl, customPrompt)
+            : await createCustomRequestPlanReview(request, reviewSessionId, stepRunId, apiKey, fetchImpl, customPrompt)
+        : stepId === "emphasis" && !resolveReviewChunkScope(request)
+          ? await createChunkedEmphasisReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
+          : stepSpec.outputKind === "recommendation_cards" && stepId !== "emphasis" && !resolveReviewChunkScope(request)
+            ? await createChunkedRecommendationReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl, sleepImpl)
+            : request.provider === "gemini"
+              ? await createGeminiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+              : request.provider === "anthropic"
+                ? await createAnthropicEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl)
+                : await createOpenAiEditorialReview(request, reviewSessionId, stepRunId, stepSpec, apiKey, fetchImpl);
 
     return buildEditorialReviewResponse({
       requestId,
@@ -484,6 +521,7 @@ export async function generateEditorialReview(
       blockCount,
       changeLevel: request.changeLevel,
       items: result.items,
+      plan: result.plan,
       factCheckRows: stepSpec.outputKind === "fact_check_rows"
         ? finalizeActionableFactCheckRows(request, result.factCheckRows ?? [])
         : result.factCheckRows ?? [],
@@ -572,6 +610,7 @@ function buildEditorialReviewResponse(input: {
   blockCount: number;
   changeLevel: EditorialReviewRequest["changeLevel"];
   items: EditorialReviewItem[];
+  plan?: CustomRequestPlan;
   factCheckRows: EditorialFactCheckRow[];
   expertise?: string;
   droppedItemCount: number;
@@ -590,6 +629,7 @@ function buildEditorialReviewResponse(input: {
     stepRunId: input.stepRunId,
     runMode: input.runMode,
     items: input.items,
+    plan: input.plan,
     factCheckRows: input.factCheckRows,
     expertise: input.expertise,
     providerUsed: input.providerUsed,
@@ -664,6 +704,432 @@ function buildFallbackEditorialReviewResponse(input: {
     error: input.error,
     generatedAt: input.generatedAt
   });
+}
+
+async function createCustomRequestPlanOnlyReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  customPrompt: string
+): Promise<EditorialReviewProviderResult> {
+  return createCustomRequestPlanWithoutGenerate(request, reviewSessionId, stepRunId, apiKey, fetchImpl, customPrompt);
+}
+
+async function createCustomRequestPlanReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  customPrompt: string
+): Promise<EditorialReviewProviderResult> {
+  const planned = await createCustomRequestPlanWithoutGenerate(
+    request,
+    reviewSessionId,
+    stepRunId,
+    apiKey,
+    fetchImpl,
+    customPrompt
+  );
+
+  if (planned.error || !planned.plan || planned.plan.actions.length === 0) {
+    return planned;
+  }
+
+  return generateCardsForCustomRequestPlan({
+    request,
+    reviewSessionId,
+    stepRunId,
+    apiKey,
+    fetchImpl,
+    customPrompt,
+    plan: planned.plan,
+    providerUsed: planned.providerUsed
+  });
+}
+
+async function createCustomRequestPlanWithoutGenerate(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  customPrompt: string
+): Promise<EditorialReviewProviderResult> {
+  const locale = resolveReviewLocale(request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const pack = packCustomRequestPlanDocument(request.document);
+  const systemPrompt = buildCustomRequestPlanSystemPrompt(locale);
+  const userPrompt = buildCustomRequestPlanUserPrompt({ request, customPrompt, locale, pack });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
+
+  try {
+    let rawOutput = "";
+    let providerUsed = request.provider;
+
+    if (request.provider === "gemini") {
+      const profile = resolveModelProfile("gemini", request.modelId);
+      const body: Record<string, unknown> = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        generationConfig: withGeminiThinkingConfig({
+          responseMimeType: "application/json",
+          responseSchema: geminiCustomRequestPlanSchema
+        }, profile)
+      };
+      const response = await fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      rawOutput = await readGeminiText(response, locale);
+      providerUsed = "gemini";
+    } else if (request.provider === "anthropic") {
+      const stepSpec = getReviewStepSpec("final_editing", locale);
+      const response = await fetchImpl(anthropicEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": anthropicVersion
+        },
+        body: JSON.stringify({
+          model: request.modelId,
+          max_tokens: 4096,
+          temperature: 0.2,
+          system: `${systemPrompt} ${getAnthropicSystemPromptSuffix(stepSpec, locale)}`,
+          messages: [{ role: "user", content: userPrompt }]
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readAnthropicText(response, locale);
+      providerUsed = "anthropic";
+    } else {
+      const profile = resolveModelProfile("openai", request.modelId);
+      const response = await fetchImpl(openAiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...(request.providerRequestKey
+            ? { "X-Client-Request-Id": normalizeProviderRequestKey(request.providerRequestKey) }
+            : {})
+        },
+        body: JSON.stringify({
+          ...buildOpenAiRequestModelFields(profile),
+          instructions: systemPrompt,
+          input: userPrompt,
+          text: {
+            format: {
+              type: "json_schema",
+              name: "custom_request_plan",
+              strict: true,
+              schema: openAiCustomRequestPlanSchema
+            }
+          }
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readProviderText(response, locale);
+      providerUsed = "openai";
+    }
+
+    const plan = buildValidatedCustomRequestPlan({
+      raw: parseCustomRequestPlanPayload(rawOutput),
+      document: request.document,
+      documentRevisionId: request.revision?.documentRevisionId,
+      stepRunId
+    });
+
+    if (plan.actions.length === 0) {
+      return {
+        stepId: "final_editing",
+        stepRunId,
+        items: [],
+        plan,
+        factCheckRows: [],
+        droppedItemCount: 0,
+        providerUsed,
+        rawOutput,
+        error: reviewErrors.emptyCustomRequestPlan
+      };
+    }
+
+    return {
+      stepId: "final_editing",
+      stepRunId,
+      items: [],
+      plan,
+      factCheckRows: [],
+      droppedItemCount: 0,
+      providerUsed,
+      rawOutput
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function createCustomRequestActionOnlyReview(
+  request: EditorialReviewRequest,
+  reviewSessionId: string,
+  stepRunId: string,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  customPrompt: string,
+  action: CustomRequestPlanAction & { index?: number }
+): Promise<EditorialReviewProviderResult> {
+  const locale = resolveReviewLocale(request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const card = await createCustomRequestActionCard({
+    request,
+    action,
+    reviewSessionId,
+    stepRunId,
+    apiKey,
+    fetchImpl,
+    customPrompt
+  });
+
+  if (!card.item) {
+    return {
+      stepId: "final_editing",
+      stepRunId,
+      items: [],
+      plan: { actions: [action], stepRunId, documentRevisionId: request.revision?.documentRevisionId },
+      factCheckRows: [],
+      droppedItemCount: 0,
+      providerUsed: card.providerUsed,
+      rawOutput: card.rawOutput,
+      error: card.error ?? reviewErrors.emptyCustomRequestPlan,
+      failedChunks: [{
+        index: action.index ?? 0,
+        coreBlockIds: [action.blockId],
+        message: card.error ?? reviewErrors.emptyCustomRequestPlan
+      }]
+    };
+  }
+
+  return {
+    stepId: "final_editing",
+    stepRunId,
+    items: [card.item],
+    plan: { actions: [action], stepRunId, documentRevisionId: request.revision?.documentRevisionId },
+    factCheckRows: [],
+    droppedItemCount: 0,
+    providerUsed: card.providerUsed,
+    rawOutput: card.rawOutput
+  };
+}
+
+async function generateCardsForCustomRequestPlan(input: {
+  request: EditorialReviewRequest;
+  reviewSessionId: string;
+  stepRunId: string;
+  apiKey: string;
+  fetchImpl: FetchLike;
+  customPrompt: string;
+  plan: CustomRequestPlan;
+  providerUsed: string;
+}): Promise<EditorialReviewProviderResult> {
+  const locale = resolveReviewLocale(input.request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const failedChunks: EditorialReviewFailedChunk[] = [];
+  const items: EditorialReviewItem[] = [];
+
+  const waveResults = await mapInWaves(
+    input.plan.actions,
+    REVIEW_CHUNK_CONCURRENCY,
+    async (action, index) => {
+      try {
+        return await createCustomRequestActionCard({
+          request: input.request,
+          action,
+          reviewSessionId: input.reviewSessionId,
+          stepRunId: input.stepRunId,
+          apiKey: input.apiKey,
+          fetchImpl: input.fetchImpl,
+          customPrompt: input.customPrompt
+        });
+      } catch (error) {
+        return {
+          item: undefined,
+          providerUsed: input.providerUsed,
+          error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(input.request.provider))
+        };
+      }
+    }
+  );
+
+  for (const [index, result] of waveResults.entries()) {
+    if (result.item) {
+      items.push(result.item);
+      continue;
+    }
+
+    failedChunks.push({
+      index,
+      coreBlockIds: [input.plan.actions[index].blockId],
+      message: result.error ?? reviewErrors.emptyCustomRequestPlan
+    });
+  }
+
+  return {
+    stepId: "final_editing",
+    stepRunId: input.stepRunId,
+    items,
+    plan: input.plan,
+    factCheckRows: [],
+    droppedItemCount: 0,
+    providerUsed: input.providerUsed,
+    failedChunks: failedChunks.length > 0 ? failedChunks : undefined,
+    error: items.length === 0 && failedChunks.length > 0
+      ? failedChunks[0]?.message
+      : undefined
+  };
+}
+
+async function createCustomRequestActionCard(input: {
+  request: EditorialReviewRequest;
+  action: CustomRequestPlanAction;
+  reviewSessionId: string;
+  stepRunId: string;
+  apiKey: string;
+  fetchImpl: FetchLike;
+  customPrompt: string;
+}): Promise<{ item?: EditorialReviewItem; providerUsed: string; rawOutput?: string; error?: string }> {
+  const locale = resolveReviewLocale(input.request);
+  const reviewErrors = getReviewServiceErrors(locale);
+  const stepSpec = getReviewStepSpec("final_editing", locale);
+  const systemPrompt = buildCustomRequestGenerateSystemPrompt(locale);
+  const userPrompt = buildCustomRequestGenerateUserPrompt({
+    request: input.request,
+    action: input.action,
+    customPrompt: input.customPrompt,
+    locale
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), reviewRequestTimeoutMs);
+
+  try {
+    let rawOutput = "";
+    let providerUsed = input.request.provider;
+
+    if (input.request.provider === "gemini") {
+      const profile = resolveModelProfile("gemini", input.request.modelId);
+      const body: Record<string, unknown> = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        generationConfig: withGeminiThinkingConfig({
+          responseMimeType: "application/json",
+          responseSchema: geminiSchema
+        }, profile)
+      };
+      const response = await input.fetchImpl(`${geminiBaseUrl}/${profile.apiModelId}:generateContent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": input.apiKey
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      rawOutput = await readGeminiText(response, locale);
+      providerUsed = "gemini";
+    } else if (input.request.provider === "anthropic") {
+      const response = await input.fetchImpl(anthropicEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": input.apiKey,
+          "anthropic-version": anthropicVersion
+        },
+        body: JSON.stringify({
+          model: input.request.modelId,
+          max_tokens: 2400,
+          temperature: 0.2,
+          system: `${systemPrompt} ${getAnthropicSystemPromptSuffix(stepSpec, locale)}`,
+          messages: [{ role: "user", content: userPrompt }]
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readAnthropicText(response, locale);
+      providerUsed = "anthropic";
+    } else {
+      const profile = resolveModelProfile("openai", input.request.modelId);
+      const response = await input.fetchImpl(openAiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.apiKey}`,
+          ...(input.request.providerRequestKey
+            ? { "X-Client-Request-Id": normalizeProviderRequestKey(input.request.providerRequestKey) }
+            : {})
+        },
+        body: JSON.stringify({
+          ...buildOpenAiRequestModelFields(profile),
+          instructions: systemPrompt,
+          input: userPrompt,
+          text: {
+            format: {
+              type: "json_schema",
+              name: "custom_request_action_card",
+              strict: true,
+              schema: openAiSchema
+            }
+          }
+        }),
+        signal: controller.signal
+      });
+      rawOutput = await readProviderText(response, locale);
+      providerUsed = "openai";
+    }
+
+    const parsed = parseEditorialReviewItems(rawOutput);
+    const rawItems = parsed && typeof parsed === "object" && Array.isArray((parsed as { items?: unknown }).items)
+      ? (parsed as { items: unknown[] }).items
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+    const seeded = mergePlanActionIntoProviderItem(rawItems[0], input.action);
+    const normalized = buildNormalizedReviewResult(
+      input.request,
+      input.reviewSessionId,
+      input.stepRunId,
+      stepSpec,
+      { items: [seeded] },
+      providerUsed,
+      rawOutput
+    );
+
+    if (normalized.items.length === 0) {
+      return {
+        providerUsed,
+        rawOutput,
+        error: reviewErrors.emptyCustomRequestPlan
+      };
+    }
+
+    return {
+      item: normalized.items[0],
+      providerUsed,
+      rawOutput
+    };
+  } catch (error) {
+    return {
+      providerUsed: input.request.provider,
+      error: error instanceof Error ? error.message : reviewErrors.providerUnavailable(providerDisplayName(input.request.provider))
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function createOpenAiEditorialReview(
@@ -1135,7 +1601,9 @@ function buildAutomaticCardDensityGuidance(
   const targetCards = chunk
     ? clampNumber(Math.round((totalChars / 16_000) * 6), 3, 8)
     : clampNumber(Math.round(sizeUnits / 4), 3, 40);
-  const minCards = clampNumber(Math.floor(targetCards * 0.75), 3, targetCards);
+  const minCards = chunk
+    ? clampNumber(Math.floor(targetCards * 0.75), 3, targetCards)
+    : clampNumber(Math.floor(targetCards * 0.75), 3, targetCards);
   const maxCards = chunk
     ? clampNumber(Math.ceil(targetCards * 1.35), targetCards, 8)
     : clampNumber(Math.ceil(targetCards * 1.45), Math.max(minCards + 2, targetCards), 50);
@@ -1172,6 +1640,25 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function stepAllowsRecommendationType(
+  step: ReviewStepSpec,
+  type: EditorialReviewRecommendationType
+): boolean {
+  return !step.allowedRecommendationTypes || step.allowedRecommendationTypes.includes(type);
+}
+
+function shouldIncludeSharedCardsCatalog(step: ReviewStepSpec): boolean {
+  return step.outputKind === "recommendation_cards" && step.id === "final_editing";
+}
+
+function reviewBasePrompt(request: EditorialReviewRequest, step: ReviewStepSpec, locale: AppLocale): string {
+  const base = request.basePrompt;
+  if (step.id === "formatting" || step.id === "final_editing" || step.id === "clarity") {
+    return appendBulletListPunctuationRule(base, locale);
+  }
+  return base?.trim() ?? "";
+}
+
 function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStepSpec, locale: AppLocale): string {
   const scaffold = getReviewPromptScaffold(locale);
   const stepInstruction = request.workflowStepPrompts?.[step.id]?.trim() || step.systemInstruction;
@@ -1179,12 +1666,17 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
   const emphasisChunkScope = step.id === "emphasis" ? buildEmphasisChunkScopeGuidance(request, locale) : null;
   const factCheckStatuses = getOpenAiFactCheckStatusEnum(locale).join("|");
+  const allowsCallout = stepAllowsRecommendationType(step, "callout");
+  const allowsSubsection = stepAllowsRecommendationType(step, "subsection");
+  const isCardPlanning = step.outputKind === "recommendation_cards" && step.id !== "emphasis";
 
   return [
-    appendBulletListPunctuationRule(request.basePrompt, locale),
+    reviewBasePrompt(request, step, locale),
     step.outputKind === "analysis_markdown"
       ? appendBulletListPunctuationRule(request.expertisePrompt, locale)
-      : appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim(), locale),
+      : shouldIncludeSharedCardsCatalog(step)
+        ? appendBulletListPunctuationRule(request.cardsPrompt?.trim() || request.reviewPrompt?.trim(), locale)
+        : null,
     scaffold.workflowStepPrefix(step.title),
     stepInstruction,
     step.outputKind === "analysis_markdown" ? scaffold.analysisMode : scaffold.cardsMode,
@@ -1198,33 +1690,23 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.id === "diagnostics" ? scaffold.diagnosticsBeStrict : null,
     step.outputKind === "fact_check_rows" ? scaffold.factCheckJsonFormat(factCheckStatuses) : null,
     step.id === "emphasis" ? scaffold.emphasisJsonFormat : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsJsonFormat : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsBlockIndexing : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSingleRange : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSubsectionOneAction : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsSplitFragments : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutKindDepth : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutBriefDeep : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutPreferDeep : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutStructure : null,
-    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutNoHtmlHeadings : null,
-    step.allowedRecommendationTypes?.includes("callout") ? scaffold.recommendationCardsCalloutJobs : null,
-    step.id === "clarity" ? scaffold.clarityScope : null,
+    isCardPlanning ? scaffold.recommendationCardsJsonFormat : null,
+    isCardPlanning ? scaffold.recommendationCardsBlockIndexing : null,
+    isCardPlanning ? scaffold.recommendationCardsSingleRange : null,
+    isCardPlanning && allowsSubsection ? scaffold.recommendationCardsSubsectionOneAction : null,
+    isCardPlanning ? scaffold.recommendationCardsSplitFragments : null,
+    allowsCallout ? scaffold.recommendationCardsCalloutJobs : null,
     step.id === "clarity" ? scaffold.clarityNoStructure : null,
     step.id === "clarity" ? scaffold.clarityNoDisclaimers : null,
-    step.id === "structure" ? scaffold.structureFocus : null,
     step.id === "structure" ? scaffold.structureHeadingLevels : null,
     step.id === "structure" ? scaffold.structureSubsectionSplit : null,
-    step.id === "formatting" ? scaffold.formattingFocus : null,
-    step.id === "interest" ? scaffold.interestFocus : null,
     step.id === "interest" ? scaffold.interestNoVisualRewrite : null,
     step.id === "emphasis" ? scaffold.emphasisNoRewrite : null,
-    step.id === "emphasis" ? scaffold.emphasisBlockIdExact : null,
-    emphasisCoverageGuidance,
-    emphasisChunkScope,
     step.id === "emphasis" ? scaffold.emphasisNotRareExceptions : null,
     step.id === "emphasis" ? scaffold.emphasisDenseFinalPass : null,
     step.id === "emphasis" ? scaffold.emphasisNoWholeSentences : null,
+    emphasisCoverageGuidance,
+    emphasisChunkScope,
     scaffold.idsInBracketsRule
   ].filter(Boolean).join("\n\n");
 }
@@ -1273,10 +1755,9 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
     step.id === "fact_check" ? scaffold.factCheckFocus : null,
     step.id === "fact_check" ? scaffold.factCheckEvidenceStandards : null,
     step.id === "fact_check" ? scaffold.factCheckExplanationRules : null,
-    step.outputKind === "recommendation_cards" && step.id !== "final_editing"
+    step.outputKind === "recommendation_cards" && step.id !== "final_editing" && (diagnosticsExpertise || diagnosticsFeedback)
       ? scaffold.recommendationCardsFromDiagnostics
       : null,
-    step.outputKind === "recommendation_cards" ? scaffold.recommendationCardsCalloutDepthChoice : null,
     step.id === "clarity" ? scaffold.clarityPreserveListStructure : null,
     step.id === "emphasis" ? scaffold.emphasisCheckEachParagraph : null,
     step.id === "emphasis" ? scaffold.emphasisBlockIdRequired : null,
@@ -1287,8 +1768,6 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? buildReviewChunkScopeGuidance(request, locale)
       : null,
     step.id === "emphasis" ? scaffold.emphasisOccurrenceHint : null,
-    step.id === "emphasis" ? scaffold.emphasisNotTooSparse : null,
-    step.id === "emphasis" ? scaffold.emphasisSkipOnlyWhen : null,
     rejectedIdeasPrompt,
     scaffold.documentLabel,
     lines.join("\n")
@@ -1367,7 +1846,7 @@ async function createChunkedEmphasisReview(
   let filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> | undefined;
   const rawOutputs: string[] = [];
 
-  for (const [chunkIndex, chunk] of chunks.entries()) {
+  const chunkResults = await mapInWaves(chunks, REVIEW_CHUNK_CONCURRENCY, async (chunk, chunkIndex) => {
     const chunkDocument = {
       version: request.document.version,
       blocks: chunk.blocks
@@ -1383,18 +1862,24 @@ async function createChunkedEmphasisReview(
         contextBlockIds: chunk.contextBlockIds
       }
     };
-    const chunkResult = await runChunkedEmphasisProviderRequestWithRetry({
-      chunkRequest,
-      reviewSessionId,
-      stepRunId,
+    return {
+      chunk,
       chunkIndex,
-      totalChunks: chunks.length,
-      stepSpec,
-      apiKey,
-      fetchImpl,
-      sleepImpl
-    });
+      chunkResult: await runChunkedEmphasisProviderRequestWithRetry({
+        chunkRequest,
+        reviewSessionId,
+        stepRunId,
+        chunkIndex,
+        totalChunks: chunks.length,
+        stepSpec,
+        apiKey,
+        fetchImpl,
+        sleepImpl
+      })
+    };
+  });
 
+  for (const { chunk, chunkIndex, chunkResult } of chunkResults) {
     providerUsed = `${chunkResult.providerUsed}:chunked`;
     droppedItemCount += chunkResult.droppedItemCount;
     droppedByReason = mergeCountMaps(droppedByReason, chunkResult.droppedItemCountsByReason);
@@ -1485,64 +1970,81 @@ async function createChunkedRecommendationReview(
   let droppedByReason: Record<string, number> | undefined;
   let filteredByType: Partial<Record<EditorialReviewRecommendationType, number>> | undefined;
   const rawOutputs: string[] = [];
+  let stopAfterWave = false;
 
-  for (const [chunkIndex, chunk] of chunks.entries()) {
-    const chunkDocument = {
-      version: request.document.version,
-      blocks: chunk.blocks
-    };
-    const chunkRequest: EditorialReviewRequest = {
-      ...request,
-      document: chunkDocument,
-      reviewChunk: {
-        index: chunkIndex,
-        total: chunks.length,
-        coreBlockIds: chunk.coreBlockIds,
-        contextBlockIds: chunk.contextBlockIds
+  for (let start = 0; start < chunks.length && !stopAfterWave; start += REVIEW_CHUNK_CONCURRENCY) {
+    const wave = chunks.slice(start, start + REVIEW_CHUNK_CONCURRENCY);
+    const waveOutcomes = await Promise.all(wave.map(async (chunk, offset) => {
+      const chunkIndex = start + offset;
+      const chunkDocument = {
+        version: request.document.version,
+        blocks: chunk.blocks
+      };
+      const chunkRequest: EditorialReviewRequest = {
+        ...request,
+        document: chunkDocument,
+        reviewChunk: {
+          index: chunkIndex,
+          total: chunks.length,
+          coreBlockIds: chunk.coreBlockIds,
+          contextBlockIds: chunk.contextBlockIds
+        }
+      };
+
+      try {
+        const chunkResult = await runRecommendationChunkProviderRequestWithRetry({
+          chunkRequest,
+          reviewSessionId,
+          stepRunId,
+          chunkIndex,
+          stepSpec,
+          apiKey,
+          fetchImpl,
+          sleepImpl
+        });
+        return { chunk, chunkIndex, chunkDocument, chunkResult, error: undefined as unknown };
+      } catch (error) {
+        return { chunk, chunkIndex, chunkDocument, chunkResult: undefined, error };
       }
-    };
+    }));
 
-    try {
-      const chunkResult = await runRecommendationChunkProviderRequestWithRetry({
-        chunkRequest,
-        reviewSessionId,
-        stepRunId,
-        chunkIndex,
-        stepSpec,
-        apiKey,
-        fetchImpl,
-        sleepImpl
-      });
+    for (const outcome of waveOutcomes) {
+      const { chunkIndex, chunkDocument } = outcome;
 
-      droppedItemCount += chunkResult.droppedItemCount;
-      droppedByReason = mergeCountMaps(droppedByReason, chunkResult.droppedItemCountsByReason);
-      filteredByType = mergeRecommendationTypeCounts(filteredByType, chunkResult.filteredItemCountsByType);
+      if (outcome.chunkResult) {
+        const chunkResult = outcome.chunkResult;
+        droppedItemCount += chunkResult.droppedItemCount;
+        droppedByReason = mergeCountMaps(droppedByReason, chunkResult.droppedItemCountsByReason);
+        filteredByType = mergeRecommendationTypeCounts(filteredByType, chunkResult.filteredItemCountsByType);
 
-      if (chunkResult.rawOutput?.trim()) {
-        rawOutputs.push(`chunk ${chunkIndex + 1}/${chunks.length}\n${chunkResult.rawOutput}`);
+        if (chunkResult.rawOutput?.trim()) {
+          rawOutputs.push(`chunk ${chunkIndex + 1}/${chunks.length}\n${chunkResult.rawOutput}`);
+        }
+
+        responses.push(buildEditorialReviewResponse({
+          requestId: `${reviewSessionId}:chunk-${chunkIndex + 1}`,
+          reviewSessionId,
+          stepId: stepSpec.id,
+          stepRunId: `${stepRunId}:chunk-${chunkIndex + 1}`,
+          runMode,
+          requestedProvider: request.provider,
+          requestedModelId: request.modelId,
+          providerUsed: chunkResult.providerUsed,
+          blockCount: chunkDocument.blocks.length,
+          changeLevel: request.changeLevel,
+          items: chunkResult.items,
+          factCheckRows: [],
+          droppedItemCount: chunkResult.droppedItemCount,
+          droppedItemCountsByReason: chunkResult.droppedItemCountsByReason,
+          filteredItemCountsByType: chunkResult.filteredItemCountsByType,
+          usedFallback: false,
+          generatedAt: new Date().toISOString(),
+          rawOutput: chunkResult.rawOutput
+        }));
+        continue;
       }
 
-      responses.push(buildEditorialReviewResponse({
-        requestId: `${reviewSessionId}:chunk-${chunkIndex + 1}`,
-        reviewSessionId,
-        stepId: stepSpec.id,
-        stepRunId: `${stepRunId}:chunk-${chunkIndex + 1}`,
-        runMode,
-        requestedProvider: request.provider,
-        requestedModelId: request.modelId,
-        providerUsed: chunkResult.providerUsed,
-        blockCount: chunkDocument.blocks.length,
-        changeLevel: request.changeLevel,
-        items: chunkResult.items,
-        factCheckRows: [],
-        droppedItemCount: chunkResult.droppedItemCount,
-        droppedItemCountsByReason: chunkResult.droppedItemCountsByReason,
-        filteredItemCountsByType: chunkResult.filteredItemCountsByType,
-        usedFallback: false,
-        generatedAt: new Date().toISOString(),
-        rawOutput: chunkResult.rawOutput
-      }));
-    } catch (error) {
+      const error = outcome.error;
       if (isFatalThrownProviderError(error) && responses.every((response) => Boolean(response.error))) {
         throw error;
       }
@@ -1572,7 +2074,7 @@ async function createChunkedRecommendationReview(
       }));
 
       if (isFatalThrownProviderError(error)) {
-        break;
+        stopAfterWave = true;
       }
     }
   }
@@ -1962,17 +2464,18 @@ function buildReviewChunkScopeGuidance(request: EditorialReviewRequest, locale: 
 
   const coreIds = chunk.coreBlockIds.join(", ");
   const contextIds = chunk.contextBlockIds.join(", ");
-
-  if (locale === "en") {
-    return [
-      `Chunk ${chunk.index + 1}/${chunk.total}. Return recommendation cards only for these core blockId values: ${coreIds}.`,
-      contextIds ? `These blocks are context only; never return cards for them: ${contextIds}.` : null
-    ].filter(Boolean).join("\n");
-  }
+  const scaffold = getReviewPromptScaffold(locale);
 
   return [
-    `Чанк ${chunk.index + 1}/${chunk.total}. Повертай картки лише для основних blockId: ${coreIds}.`,
-    contextIds ? `Ці блоки подано лише як контекст; не повертай для них картки: ${contextIds}.` : null
+    locale === "en"
+      ? `Chunk ${chunk.index + 1}/${chunk.total}. Return recommendation cards only for these core blockId values: ${coreIds}.`
+      : `Чанк ${chunk.index + 1}/${chunk.total}. Повертай картки лише для основних blockId: ${coreIds}.`,
+    contextIds
+      ? (locale === "en"
+        ? `These blocks are context only; never return cards for them: ${contextIds}.`
+        : `Ці блоки подано лише як контекст; не повертай для них картки: ${contextIds}.`)
+      : null,
+    chunk.total > 1 ? scaffold.recommendationCardsChapterWideRequest(chunk.index, chunk.total) : null
   ].filter(Boolean).join("\n");
 }
 

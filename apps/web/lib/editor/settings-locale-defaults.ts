@@ -80,7 +80,7 @@ const ENGLISH_PROVIDER_MODEL_DESCRIPTIONS: Record<ProviderId, Record<string, str
     "claude-haiku-4-5": "Fastest option for rough passes and larger batches of local checks."
   },
   gemini: {
-    "gemini-3.6-flash": "Latest fast Google model with high thinking for editorial review and harder edits.",
+    "gemini-3.7-flash": "Latest fast Google model with high thinking for editorial review and harder edits.",
     "gemini-3.5-flash-lite": "Cheaper production-oriented option with high thinking for everyday patch requests."
   }
 };

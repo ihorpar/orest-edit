@@ -244,33 +244,13 @@ export const DEFAULT_EXPERTISE_PROMPT = appendBulletListPunctuationRule(`Пра�
 
 Не показуй технічні коди, enum-значення або JSON-поля.`);
 
-export const DEFAULT_CARDS_PROMPT = appendBulletListPunctuationRule(`Ти генеруєш конкретні локальні правки на основі попередньої експертизи документа та зворотного зв'язку від користувача.
+export const DEFAULT_CARDS_PROMPT = appendBulletListPunctuationRule(`Ти генеруєш конкретні локальні правки. Кожна картка — один суцільний діапазон абзаців.
 
-Кожна рекомендація має бути прив'язана до одного або кількох суміжних абзаців.
-Доступні типи (recommendationType): 'rewrite', 'expand', 'simplify', 'list', 'subsection', 'callout', 'visual'.
-replace-типи ('rewrite', 'expand', 'simplify', 'list') мають suggestedAction='rewrite_text' та insertionHint='replace'.
-Тип 'subsection' має suggestedAction='insert_text' та insertionHint='before'.
-Для subsection одна картка означає рівно одну дію: вставити один новий підзаголовок перед одним місцем. Обов'язково вкажи headingLevel: 2 (новий смисловий розділ) або 3 (дроблення всередині поточного H2) і headingTitle — готовий короткий текст підзаголовка для вставки в рукопис. Якщо потрібно два підзаголовки, поверни дві окремі subsection-картки.
-Не редагуй і не перейменовуй уже наявні заголовки — лише вставки нових. Не копіюй існуючі заголовки дослівно.
-Для callout дивись на весь переданий текст і пропонуй обидва типи карток:
-- глобальна врізка: у цьому тексті ще немає корисної рамки для читача — у recommendation вже напиши цю нову користь конкретно (як читати, критерії, міф/правда, побут), а не «додай врізку про тему»; якір лише місце вставки;
-- локальна врізка: щільний фрагмент краще живе як врізка — у recommendation скажи винести/перекомпонувати саме його.
-Не зводь усі callout до переказу якоря. Не вигадуй непідкріплені медтвердження (дослідження, дози, відсотки, бренди, діагнози), якщо цього немає в тексті й редактор цього не просив.
-Тип 'callout' має suggestedAction='prepare_callout' та insertionHint='after'.
-Тип 'visual' має suggestedAction='prepare_visual' та insertionHint='after'.
-Для callout дозволені лише calloutKind: mechanism, analogy, everyday_application, myths_vs_truth, top_list.
-Для callout також обери calloutDepth: brief або deep. Обирай профіль, який найкраще підходить до контексту статті та фрагмента.
-calloutDepth=brief означає компактну, але завершену врізку: заголовок плюс кілька коротких абзаців або пунктів, не одне речення-переказ. calloutDepth=deep означає глибокий розбір питання у 3-6 докладних абзацах із внутрішньою структурою.
-Не обирай brief за замовчуванням. Якщо фрагмент щільний, пояснювальний, описує механізм, причинно-наслідковий ланцюг, практичні наслідки або потребує розгортання контексту, віддавай перевагу deep.
-Для deep не пропонуй суцільне полотно тексту. Активно використовуй **жирний**: короткі **якорі-підзаголовки** з 1-3 слів окремим рядком перед частиною абзаців і **ключові думки** всередині тексту. Якщо є природне перерахування причин, кроків, наслідків або прикладів, додай один короткий список.
-Для visual дозволені visualIntent: infographic або illustration.
-Для blockStart і blockEnd використовуй нульову нумерацію рядків документа.
-У полях title, reason і recommendation не згадуй raw block id.
-Усі текстові поля plain text без markdown-розмітки.
-Для clarity/simplify/rewrite картка має описувати локальну редакторську дію над мовою, синтаксисом, категоричністю або структурою подачі, а не новий дисклеймер.
-Не використовуй картки ясності для шаблонних медичних попереджень, порад звернутися до лікаря, фраз про самодіагностику, «варто перевірити стан» чи повторюваних застережень, якщо редактор не просив цього явно.
-Якщо джерело вже подане як перелік або серія коротких пунктів, зберігай scan-friendly подачу й не роздувай кожен рядок у окремий довгий абзац.
-Не переписуй весь документ. Пропонуй лише локальні дії з високою цінністю.`);
+Доступні типи: rewrite, expand, simplify, list, subsection, callout, visual.
+Для subsection: одна картка = один новий H2/H3 (headingLevel + headingTitle). Не редагуй наявні заголовки.
+Для callout: вкажи calloutKind і calloutDepth (brief або deep); пропонуй і глобальну рамку (новизна в recommendation), і локальне винесення щільного фрагмента. Не вигадуй медтвердження, яких немає в тексті.
+Для visual: visualIntent infographic або illustration.
+Не переписуй весь документ. Не додавай шаблонних медичних дисклеймерів, якщо редактор цього не просив.`);
 
 /** @deprecated Kept for backward-compat with old localStorage. Use DEFAULT_EXPERTISE_PROMPT + DEFAULT_CARDS_PROMPT instead. */
 export const DEFAULT_REVIEW_PROMPT = DEFAULT_CARDS_PROMPT;
@@ -459,8 +439,8 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   ],
   gemini: [
     {
-      id: "gemini-3.6-flash",
-      label: "Gemini 3.6 Flash",
+      id: "gemini-3.7-flash",
+      label: "Gemini 3.7 Flash",
       description: "Найрозумніша серед моделей Гугл. Добре працює з нюансами української науково-популярної мови.",
       smartness: 8,
       priceTier: 2,
@@ -491,9 +471,10 @@ const LEGACY_MODEL_ID_MAP: Record<ProviderId, Record<string, string>> = {
     "gpt-5.4-mini": "gpt-5.6-luna-low"
   },
   gemini: {
-    "gemini-3.5-flash": "gemini-3.6-flash",
-    "gemini-3.1-pro": "gemini-3.6-flash",
-    "gemini-3.1-pro-preview": "gemini-3.6-flash",
+    "gemini-3.6-flash": "gemini-3.7-flash",
+    "gemini-3.5-flash": "gemini-3.7-flash",
+    "gemini-3.1-pro": "gemini-3.7-flash",
+    "gemini-3.1-pro-preview": "gemini-3.7-flash",
     "gemini-3.1-flash-lite": "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite-preview": "gemini-3.5-flash-lite"
   },

@@ -1466,6 +1466,38 @@
   font: 400 15px/1.6 var(--font-ui, sans-serif);
 }
 
+.editorial-review-card-compact[data-expanded="true"] .err-compact-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.editorial-review-card-compact[data-expanded="true"][data-copy-expanded="true"] .err-compact-description {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: calc(1.6em * 10);
+  overflow-y: auto;
+}
+
+.err-compact-more {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  justify-self: start;
+  cursor: pointer;
+  color: #9aa3ae;
+  font: 500 13px/1.2 var(--font-ui, sans-serif);
+}
+
+.err-compact-more:hover,
+.err-compact-more:focus-visible {
+  color: #6b7280;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .err-compact-description p {
   margin: 0;
 }
@@ -1486,11 +1518,15 @@
 }
 
 .editorial-review-card-compact[data-expanded="true"] .err-compact-body {
-  gap: 14px;
-  max-height: 220px;
+  gap: 10px;
+  max-height: 280px;
   opacity: 1;
   transform: translateY(0);
   padding-bottom: 20px;
+}
+
+.editorial-review-card-compact[data-expanded="true"][data-copy-expanded="true"] .err-compact-body {
+  max-height: 460px;
 }
 
 .editorial-review-card-compact[data-variant="emphasis"] .err-compact-title {

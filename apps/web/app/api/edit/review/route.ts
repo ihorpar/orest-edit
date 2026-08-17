@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getRun, start, type Run } from "workflow/api";
 import {
+  type CustomRequestPlan,
+  CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES,
   type EditorialReviewRunApiResponse,
   type EditorialReviewRunIdentity,
   type EditorialReviewRunProgress,
@@ -9,12 +11,14 @@ import {
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type EditorialReviewItem,
+  type EditorialReviewRecommendationType,
   type EditorialReviewStepId
 } from "../../../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-structure";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
+import { REVIEW_PLAN_NAMESPACE } from "../../../../lib/server/custom-request-plan";
 import {
   editorialReviewWorkflow,
   parseEditorialReviewWorkflowFailure
@@ -25,6 +29,7 @@ import {
   buildReviewChunkProgress,
   consumeReadableBatches,
   isChunkedRecommendationStep,
+  isCustomRequestPlanStep,
   latestReviewProgress,
   REVIEW_PARTIAL_ITEMS_NAMESPACE,
   reviewRunPollAfterMs,
@@ -37,6 +42,11 @@ import {
 } from "../../../../lib/server/review-run-capability";
 import { generateEditorialReview } from "../../../../lib/server/review-service";
 import { logEditorialReviewEvent } from "../../../../lib/server/review-observability";
+import {
+  interpretCompletedEditorialReviewReturnValue,
+  sanitizeExposedErrorMessage,
+  toTerminalFailedRunSnapshot
+} from "../../../../lib/editor/review-run-recovery";
 import { isAppLocale, type AppLocale } from "../../../../lib/i18n/product-locale";
 import { getApiErrors, getDefaultAppLocale, resolveQueryLocale, resolveRequestLocale, type ApiErrors } from "../../../../lib/i18n/api-errors";
 
@@ -71,7 +81,12 @@ export async function GET(request: Request) {
 
     identity = verified;
   } catch (error) {
-    return jsonRunError("workflow_unavailable", toErrorMessage(error), false, 503);
+    return jsonRunError(
+      "workflow_unavailable",
+      sanitizeExposedErrorMessage(toErrorMessage(error), errors.reviewResultInvalid),
+      false,
+      503
+    );
   }
 
   try {
@@ -84,107 +99,145 @@ export async function GET(request: Request) {
     const status = await run.status;
     const snapshot = await buildRunSnapshot(identity, run, status);
     const partialItems = await readReviewPartialItems(run);
+    const plan = await readReviewPlan(run);
 
-    if (status === "completed") {
-      const result = await run.returnValue;
+    try {
+      if (status === "completed") {
+        const rawResult = await run.returnValue;
+        const completed = interpretCompletedEditorialReviewReturnValue(rawResult, errors.reviewResultInvalid);
 
-      if (result.error) {
-        logEditorialReviewEvent("run_provider_failed", {
+        if (!completed.ok) {
+          logEditorialReviewEvent("run_failed", {
+            runId,
+            step: identity.stepId,
+            provider: identity.provider,
+            model: identity.modelId
+          }, "error");
+          return jsonRunError(
+            "workflow_failed",
+            completed.message,
+            false,
+            502,
+            toTerminalFailedRunSnapshot(snapshot),
+            partialItems
+          );
+        }
+
+        const result = completed.result;
+
+        if (result.error) {
+          logEditorialReviewEvent("run_provider_failed", {
+            runId,
+            requestId: result.diagnostics.requestId,
+            step: identity.stepId,
+            provider: identity.provider,
+            model: identity.modelId,
+            providerStatus: result.diagnostics.providerError?.status,
+            providerRequestId: result.diagnostics.providerError?.requestId
+          }, "error");
+          return NextResponse.json<EditorialReviewRunApiResponse>(
+            {
+              kind: "error",
+              run: snapshot,
+              error: {
+                code: "provider_failed",
+                message: result.error,
+                retryable: result.diagnostics.providerError?.retryable ?? false,
+                providerStatus: result.diagnostics.providerError?.status,
+                providerRequestId: result.diagnostics.providerError?.requestId,
+                retryAfterMs: result.diagnostics.providerError?.retryAfterMs
+              },
+              items: result.items.length > 0 ? result.items : partialItems
+            },
+            noStore(502)
+          );
+        }
+
+        logEditorialReviewEvent("run_completed", {
           runId,
           requestId: result.diagnostics.requestId,
           step: identity.stepId,
           provider: identity.provider,
           model: identity.modelId,
-          providerStatus: result.diagnostics.providerError?.status,
-          providerRequestId: result.diagnostics.providerError?.requestId
+          returnedItems: result.items.length
+        });
+
+        return NextResponse.json<EditorialReviewRunApiResponse>(
+          { kind: "result", run: { ...snapshot, status: "completed" }, result },
+          noStore(200)
+        );
+      }
+
+      if (status === "failed") {
+        const failure = await readFailedRunError(run, errors.reviewResultInvalid);
+        logEditorialReviewEvent("run_failed", {
+          runId,
+          step: identity.stepId,
+          provider: identity.provider,
+          model: identity.modelId,
+          providerStatus: failure.provider?.status,
+          providerRequestId: failure.provider?.requestId
         }, "error");
         return NextResponse.json<EditorialReviewRunApiResponse>(
           {
             kind: "error",
             run: snapshot,
             error: {
-              code: "provider_failed",
-              message: result.error,
-              retryable: result.diagnostics.providerError?.retryable ?? false,
-              providerStatus: result.diagnostics.providerError?.status,
-              providerRequestId: result.diagnostics.providerError?.requestId,
-              retryAfterMs: result.diagnostics.providerError?.retryAfterMs
+              code: failure.provider ? "provider_failed" : "workflow_failed",
+              message: failure.message,
+              retryable: failure.provider?.retryable ?? false,
+              providerStatus: failure.provider?.status,
+              providerRequestId: failure.provider?.requestId,
+              retryAfterMs: failure.provider?.retryAfterMs
             },
-            items: result.items.length > 0 ? result.items : partialItems
+            items: partialItems
           },
-          noStore(502)
+          noStore(500)
         );
       }
 
-      logEditorialReviewEvent("run_completed", {
-        runId,
-        requestId: result.diagnostics.requestId,
-        step: identity.stepId,
-        provider: identity.provider,
-        model: identity.modelId,
-        returnedItems: result.items.length
-      });
+      if (status === "cancelled") {
+        return NextResponse.json<EditorialReviewRunApiResponse>(
+          {
+            kind: "error",
+            run: snapshot,
+            error: {
+              code: "run_cancelled",
+              message: resolveRunMessage(searchParams, "cancelled"),
+              retryable: false
+            }
+          },
+          noStore(409)
+        );
+      }
 
       return NextResponse.json<EditorialReviewRunApiResponse>(
-        { kind: "result", run: { ...snapshot, status: "completed" }, result },
+        {
+          kind: "run",
+          run: snapshot,
+          capability,
+          items: partialItems,
+          ...(plan ? { plan } : {})
+        },
         noStore(200)
       );
-    }
-
-    if (status === "failed") {
-      const failure = await readFailedRunError(run);
-      logEditorialReviewEvent("run_failed", {
-        runId,
-        step: identity.stepId,
-        provider: identity.provider,
-        model: identity.modelId,
-        providerStatus: failure.provider?.status,
-        providerRequestId: failure.provider?.requestId
-      }, "error");
-      return NextResponse.json<EditorialReviewRunApiResponse>(
-        {
-          kind: "error",
-          run: snapshot,
-          error: {
-            code: failure.provider ? "provider_failed" : "workflow_failed",
-            message: failure.message,
-            retryable: failure.provider?.retryable ?? false,
-            providerStatus: failure.provider?.status,
-            providerRequestId: failure.provider?.requestId,
-            retryAfterMs: failure.provider?.retryAfterMs
-          },
-          items: partialItems
-        },
-        noStore(500)
+    } catch (error) {
+      return jsonRunError(
+        "workflow_unavailable",
+        sanitizeExposedErrorMessage(toErrorMessage(error), errors.reviewResultInvalid),
+        true,
+        503,
+        toTerminalFailedRunSnapshot(snapshot),
+        partialItems
       );
     }
-
-    if (status === "cancelled") {
-      return NextResponse.json<EditorialReviewRunApiResponse>(
-        {
-          kind: "error",
-          run: snapshot,
-          error: {
-            code: "run_cancelled",
-            message: resolveRunMessage(searchParams, "cancelled"),
-            retryable: false
-          }
-        },
-        noStore(409)
-      );
-    }
-
-    return NextResponse.json<EditorialReviewRunApiResponse>(
-      {
-        kind: "run",
-        run: snapshot,
-        capability,
-        items: partialItems
-      },
-      noStore(200)
-    );
   } catch (error) {
-    return jsonRunError("workflow_unavailable", toErrorMessage(error), true, 503);
+    return jsonRunError(
+      "workflow_unavailable",
+      sanitizeExposedErrorMessage(toErrorMessage(error), errors.reviewResultInvalid),
+      true,
+      503
+    );
   }
 }
 
@@ -237,7 +290,15 @@ export async function POST(request: Request) {
         noStore(202)
       );
     } catch (error) {
-      return jsonRunError("workflow_unavailable", toErrorMessage(error), true, 503);
+      return jsonRunError(
+        "workflow_unavailable",
+        sanitizeExposedErrorMessage(
+          toErrorMessage(error),
+          getApiErrors(resolveRequestLocale(parsed.value)).reviewResultInvalid
+        ),
+        true,
+        503
+      );
     }
   }
 
@@ -291,7 +352,13 @@ function buildRunIdentity(
     provider: request.provider,
     modelId: request.modelId,
     runMode:
-      stepId === "final_editing" ? "replace" : request.runMode === "preserve" ? "preserve" : "replace",
+      stepId === "final_editing" && request.customRequestPlanAction
+        ? (request.runMode === "preserve" ? "preserve" : "replace")
+        : stepId === "final_editing"
+          ? "replace"
+          : request.runMode === "preserve"
+            ? "preserve"
+            : "replace",
     createdAt
   };
 }
@@ -315,7 +382,10 @@ async function buildRunSnapshot(
   };
 }
 
-async function readFailedRunError(run: Run<EditorialReviewResponse>): Promise<{
+async function readFailedRunError(
+  run: Run<EditorialReviewResponse>,
+  invalidMessage: string
+): Promise<{
   message: string;
   provider: ReturnType<typeof parseEditorialReviewWorkflowFailure>;
 }> {
@@ -326,21 +396,34 @@ async function readFailedRunError(run: Run<EditorialReviewResponse>): Promise<{
       const cause = (error as { cause?: unknown }).cause;
 
       if (cause instanceof Error && cause.message) {
+        const parsed = parseEditorialReviewWorkflowFailure(cause.message);
         return {
-          message: parseEditorialReviewWorkflowFailure(cause.message)?.message ?? cause.message,
-          provider: parseEditorialReviewWorkflowFailure(cause.message)
+          message: sanitizeExposedErrorMessage(parsed?.message ?? cause.message, invalidMessage),
+          provider: parsed
         };
       }
     }
 
     const message = toErrorMessage(error);
-    return { message: parseEditorialReviewWorkflowFailure(message)?.message ?? message, provider: parseEditorialReviewWorkflowFailure(message) };
+    const parsed = parseEditorialReviewWorkflowFailure(message);
+    return {
+      message: sanitizeExposedErrorMessage(parsed?.message ?? message, invalidMessage),
+      provider: parsed
+    };
   }
 
-  return { message: "Workflow failed without an error message.", provider: null };
+  return { message: invalidMessage, provider: null };
 }
 
 function seedChunkProgress(request: EditorialReviewRequest): EditorialReviewRunProgress | undefined {
+  if (isCustomRequestPlanStep(request.stepId)) {
+    return {
+      phase: "planning",
+      completedChunks: 0,
+      totalChunks: 1
+    };
+  }
+
   if (!isChunkedRecommendationStep(request.stepId)) {
     return undefined;
   }
@@ -366,6 +449,20 @@ async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<Ed
   return latestReviewProgress(batches);
 }
 
+async function readReviewPlan(run: Run<EditorialReviewResponse>): Promise<CustomRequestPlan | undefined> {
+  const reader = run.getReadable<CustomRequestPlan>({
+    namespace: REVIEW_PLAN_NAMESPACE
+  }).getReader();
+  const batches = await consumeReadableBatches(reader);
+  for (let index = batches.length - 1; index >= 0; index -= 1) {
+    const batch = batches[index];
+    if (batch && typeof batch === "object" && Array.isArray((batch as CustomRequestPlan).actions)) {
+      return batch as CustomRequestPlan;
+    }
+  }
+  return undefined;
+}
+
 async function readReviewPartialItems(
   run: Run<EditorialReviewResponse>
 ): Promise<EditorialReviewItem[] | undefined> {
@@ -384,10 +481,17 @@ function jsonRunError(
   code: Extract<EditorialReviewRunApiResponse, { kind: "error" }>["error"]["code"],
   message: string,
   retryable: boolean,
-  status: number
+  status: number,
+  run?: EditorialReviewRunSnapshot,
+  items?: EditorialReviewItem[]
 ) {
   return NextResponse.json<EditorialReviewRunApiResponse>(
-    { kind: "error", error: { code, message, retryable } },
+    {
+      kind: "error",
+      error: { code, message, retryable },
+      ...(run ? { run } : {}),
+      ...(items && items.length > 0 ? { items } : {})
+    },
     noStore(status)
   );
 }
@@ -511,8 +615,64 @@ function parseEditorialReviewRequest(
           }
           : undefined,
       expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined,
-      rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas)
+      rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas),
+      reviewChunk: parseReviewChunkScope(record.reviewChunk),
+      customRequestPlanAction: parseCustomRequestPlanAction(record.customRequestPlanAction),
+      customRequestPlanOnly: record.customRequestPlanOnly === true
     }
+  };
+}
+
+function parseReviewChunkScope(value: unknown): EditorialReviewRequest["reviewChunk"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.index !== "number" ||
+    typeof record.total !== "number" ||
+    !Array.isArray(record.coreBlockIds) ||
+    !record.coreBlockIds.every((blockId) => typeof blockId === "string")
+  ) {
+    return undefined;
+  }
+
+  return {
+    index: record.index,
+    total: record.total,
+    coreBlockIds: record.coreBlockIds as string[],
+    contextBlockIds: Array.isArray(record.contextBlockIds)
+      ? record.contextBlockIds.filter((blockId): blockId is string => typeof blockId === "string")
+      : []
+  };
+}
+
+function parseCustomRequestPlanAction(value: unknown): EditorialReviewRequest["customRequestPlanAction"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const recommendationType = typeof record.recommendationType === "string"
+    ? record.recommendationType.trim()
+    : "";
+  if (
+    typeof record.blockId !== "string" ||
+    !CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES.includes(recommendationType as EditorialReviewRecommendationType) ||
+    typeof record.title !== "string" ||
+    typeof record.recommendation !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    blockId: record.blockId.trim(),
+    recommendationType: recommendationType as EditorialReviewRecommendationType,
+    title: record.title.trim(),
+    recommendation: record.recommendation.trim(),
+    priority: record.priority === "high" || record.priority === "low" ? record.priority : "medium",
+    index: typeof record.index === "number" ? record.index : undefined
   };
 }
 

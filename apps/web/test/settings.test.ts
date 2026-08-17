@@ -59,25 +59,19 @@ test("default editorial prompts forbid generic disclaimer injection for clarity 
   assert.match(DEFAULT_EXPERTISE_PROMPT, /не починай із похвали/i);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /Поділи весь документ на великі смислові зони без пропусків/i);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /Що зайве або дубльоване/);
-  assert.match(DEFAULT_CARDS_PROMPT, /не використовуй картки ясності для шаблонних медичних попереджень/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /зберігай scan-friendly подачу/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /шаблонних медичних дисклеймерів/i);
   assert.match(DEFAULT_CARDS_PROMPT, /починається з малої літери/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /починається з великої літери/i);
   assert.match(BULLET_LIST_PUNCTUATION_RULE, /крапкою з комою/i);
 });
 
-test("default cards prompt prefers deep callouts for dense explanatory fragments", () => {
+test("default cards prompt keeps a compact callout contract without prepare-time drafting rules", () => {
   assert.match(DEFAULT_CARDS_PROMPT, /deep/i);
   assert.match(DEFAULT_CARDS_PROMPT, /brief/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /Не обирай brief за замовчуванням/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /компактну, але завершену врізку/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /віддавай перевагу deep/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /якорі-підзаголовки/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /ключові думки/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /глобальна врізка/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /локальна врізка/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /у recommendation вже напиши цю нову користь/i);
-  assert.match(DEFAULT_CARDS_PROMPT, /prepare_callout/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /глобальну рамку/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /локальне винесення/i);
+  assert.doesNotMatch(DEFAULT_CARDS_PROMPT, /prepare_callout/i);
+  assert.doesNotMatch(DEFAULT_CARDS_PROMPT, /якорі-підзаголовки/i);
 });
 
 test("visual style preset helpers expose all supported presets and fallback safely", () => {
@@ -113,7 +107,7 @@ test("model presets expose compact labels with smartness and price metadata", ()
     "GPT-5.6 Luna (low) [💡 6/10 | $]"
   ]);
   assert.equal(geminiLabels.length, 2);
-  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.6 Flash /);
+  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.7 Flash /);
   assert.match(geminiLabels[1] ?? "", /^Gemini 3\.5 Flash-Lite /);
   assert.ok(geminiLabels.every((label) => !/preview/i.test(label)));
 });
@@ -150,8 +144,9 @@ test("legacy model ids remap to current presets", () => {
   assert.equal(normalizeModelId("openai", "gpt-5.4"), "gpt-5.6-luna");
   assert.equal(normalizeModelId("openai", "gpt-5.4-mini"), "gpt-5.6-luna-low");
   assert.equal(normalizeModelId("openai", "gpt-5.5"), "gpt-5.6-sol");
-  assert.equal(normalizeModelId("gemini", "gemini-3.1-pro-preview"), "gemini-3.6-flash");
-  assert.equal(normalizeModelId("gemini", "gemini-3.5-flash"), "gemini-3.6-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.1-pro-preview"), "gemini-3.7-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.5-flash"), "gemini-3.7-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.6-flash"), "gemini-3.7-flash");
   assert.equal(normalizeModelId("gemini", "gemini-3.1-flash-lite-preview"), "gemini-3.5-flash-lite");
 });
 
@@ -283,7 +278,7 @@ test("one-time Luna migration overwrites prior model then later changes persist"
       JSON.stringify({
         ...DEFAULT_EDITOR_SETTINGS,
         provider: "gemini",
-        modelId: "gemini-3.6-flash",
+        modelId: "gemini-3.7-flash",
         apiKey: "gemini-key",
         apiKeys: {
           gemini: "gemini-key",
@@ -304,13 +299,13 @@ test("one-time Luna migration overwrites prior model then later changes persist"
     writeEditorSettings({
       ...migrated,
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-key"
     });
 
     const restored = readEditorSettings("uk");
     assert.equal(restored.provider, "gemini");
-    assert.equal(restored.modelId, "gemini-3.6-flash");
+    assert.equal(restored.modelId, "gemini-3.7-flash");
     assert.equal(restored.apiKey, "gemini-key");
   } finally {
     Object.defineProperty(globalThis, "window", {

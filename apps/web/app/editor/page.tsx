@@ -46,6 +46,7 @@ import {
   createPersistedActiveReviewRun,
   isRunCompatibleWithEditor,
   isRunTerminal,
+  isReviewRunPollLeasedByOther,
   releaseReviewRunPollLease,
   tryAcquireReviewRunPollLease,
   withReviewRunStartLock
@@ -60,6 +61,12 @@ import {
   reviewChunkProgressPercent,
   sliceDocumentForFragmentRetry
 } from "../../lib/editor/review-run-progress";
+import {
+  isActiveStepReviewRunning,
+  resolveReviewRunStartIntent,
+  sanitizeExposedErrorMessage,
+  shouldShowReviewRunChrome
+} from "../../lib/editor/review-run-recovery";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { buildImportFeedback } from "../../lib/editor/import-feedback";
 import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
@@ -126,6 +133,7 @@ import {
   type EditorialReviewItem,
   type EditorialReviewFailedChunk,
   type EditorialReviewChunkScope,
+  type CustomRequestPlanAction,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type RejectedReviewIdea,
@@ -431,6 +439,7 @@ export default function EditorPage() {
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [isPatchRequestInFlight, setIsPatchRequestInFlight] = useState(false);
   const [isReviewRequestInFlight, setIsReviewRequestInFlight] = useState(false);
+  const [reviewFlightStepId, setReviewFlightStepId] = useState<EditorialReviewStepId | null>(null);
   const [activeReviewRun, setActiveReviewRun] = useState<PersistedActiveReviewRun | null>(null);
   const [failedReviewChunks, setFailedReviewChunks] = useState<EditorialReviewFailedChunk[]>([]);
   const [reviewLeaseRetryNonce, setReviewLeaseRetryNonce] = useState(0);
@@ -489,6 +498,7 @@ export default function EditorPage() {
   const reviewPollTabIdRef = useRef(createPatchId("review-tab"));
   const consumedReviewRunIdsRef = useRef(new Set<string>());
   const fragmentRetryInFlightRef = useRef(false);
+  const customRequestPlanActionsRef = useRef<CustomRequestPlanAction[] | null>(null);
   const pendingFragmentRetryRef = useRef<EditorialReviewFailedChunk | null>(null);
   const reviewLeaseRetryTimeoutRef = useRef<number | null>(null);
   const pendingReviewRunCleanupRef = useRef<{
@@ -687,6 +697,10 @@ export default function EditorPage() {
   useEffect(() => {
     function handleActiveReviewRunStorage(event: StorageEvent) {
       if (event.key !== getEditorDraftStorageKey(locale)) {
+        return;
+      }
+
+      if (activeReviewJobRunRef.current) {
         return;
       }
 
@@ -2341,6 +2355,7 @@ export default function EditorPage() {
       runMode?: EditorialStepRunMode;
       revision?: ManuscriptRevisionState;
       reviewChunk?: EditorialReviewChunkScope;
+      customRequestPlanAction?: NonNullable<EditorialReviewRequest["customRequestPlanAction"]>;
     }
   ) {
     const requiresDiagnosticsContext =
@@ -2352,13 +2367,41 @@ export default function EditorPage() {
     }
 
     const persistedRun = readEditorDraftState(locale)?.activeReviewRun;
+    const startIntent = resolveReviewRunStartIntent({
+      requestedStepId: stepId,
+      existingStepId: persistedRun?.run.stepId,
+      existingStale: persistedRun?.stale,
+      existingTerminal: persistedRun ? isRunTerminal(persistedRun.run) : true,
+      thisTabOwnsPoll: Boolean(activeReviewJobRunRef.current),
+      otherTabOwnsPoll: persistedRun
+        ? isReviewRunPollLeasedByOther({
+            runId: persistedRun.run.runId,
+            ownerId: reviewPollTabIdRef.current
+          })
+        : false
+    });
 
-    if (persistedRun && !persistedRun.stale && !isRunTerminal(persistedRun.run)) {
+    if (startIntent === "resume" && persistedRun) {
       setActiveReviewRun(persistedRun);
-      setActiveWorkflowStep(persistedRun.run.stepId);
+      setReviewFlightStepId(persistedRun.run.stepId);
       setIsReviewRequestInFlight(true);
       setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
+      void resumePersistedReviewRun(persistedRun);
       return;
+    }
+
+    if (startIntent === "block_other_step" && persistedRun) {
+      setFeedback({
+        tone: "error",
+        message: editorCopy.reviewFeedback.reviewRunOtherStepActive(
+          getWorkflowStepLabel(locale, persistedRun.run.stepId)
+        )
+      });
+      return;
+    }
+
+    if (startIntent === "replace_zombie" && persistedRun) {
+      buryActiveReviewRun(persistedRun.run.runId, locale);
     }
 
     if (stepId === "final_editing" && !stepFeedback.final_editing?.trim()) {
@@ -2368,10 +2411,11 @@ export default function EditorPage() {
 
     const reviewRunToken = createPatchId("review-job-run");
     activeReviewJobRunRef.current = reviewRunToken;
+    setReviewFlightStepId(stepId);
     setIsReviewRequestInFlight(true);
     setFeedback(null);
     const runMode: EditorialStepRunMode =
-      stepId === "final_editing"
+      stepId === "final_editing" && !options?.customRequestPlanAction
         ? "replace"
         : options?.runMode ?? (stepRunModeByStep[stepId] ?? "replace");
     const currentStepFeedback = stepFeedback[stepId]?.trim();
@@ -2428,7 +2472,8 @@ export default function EditorPage() {
             runMode,
             stepFeedback: currentStepFeedback || undefined,
             rejectedIdeas: rejectedReviewIdeas,
-            reviewChunk: options?.reviewChunk
+            reviewChunk: options?.reviewChunk,
+            customRequestPlanAction: options?.customRequestPlanAction
           }
         : {
             document: reviewDocument,
@@ -2457,14 +2502,19 @@ export default function EditorPage() {
                 },
             expertise: stepId === "diagnostics" ? undefined : reviewExpertise ?? undefined,
             rejectedIdeas: rejectedReviewIdeas,
-            reviewChunk: options?.reviewChunk
+            reviewChunk: options?.reviewChunk,
+            customRequestPlanAction: options?.customRequestPlanAction
           };
 
       const startOutcome = await withReviewRunStartLock(locale, async () => {
         const existing = readEditorDraftState(locale)?.activeReviewRun;
 
         if (existing && !existing.stale && !isRunTerminal(existing.run)) {
-          return { kind: "existing" as const, record: existing };
+          if (existing.run.stepId === stepId) {
+            return { kind: "existing" as const, record: existing };
+          }
+
+          buryActiveReviewRun(existing.run.runId, locale);
         }
 
         const response = await fetch("/api/edit/review", {
@@ -2485,6 +2535,9 @@ export default function EditorPage() {
 
         if (candidate.kind === "run") {
           if (runMode === "replace") {
+            if (stepId === "final_editing") {
+              customRequestPlanActionsRef.current = null;
+            }
             setReviewItems((current) => clearReviewItemsForReplaceRun(current, stepId));
             setActiveReviewItemId((current) => {
               const currentItem = currentReviewItemsRef.current.find((item) => item.id === current);
@@ -2519,9 +2572,10 @@ export default function EditorPage() {
       if (startOutcome.kind === "existing") {
         activeReviewJobRunRef.current = null;
         setActiveReviewRun(startOutcome.record);
-        setActiveWorkflowStep(startOutcome.record.run.stepId);
+        setReviewFlightStepId(startOutcome.record.run.stepId);
         setIsReviewRequestInFlight(true);
         setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
+        void resumePersistedReviewRun(startOutcome.record);
         return;
       }
 
@@ -2541,7 +2595,7 @@ export default function EditorPage() {
           initialPayload.capability,
           reviewRunToken,
           locale,
-          (run, capability, items) => {
+          (run, capability, items, planActions) => {
             const existing = readEditorDraftState(locale)?.activeReviewRun;
             updateActiveReviewRun(
               createPersistedActiveReviewRun(
@@ -2552,6 +2606,9 @@ export default function EditorPage() {
               ),
               locale
             );
+            if (planActions && planActions.length > 0) {
+              customRequestPlanActionsRef.current = planActions;
+            }
             if (items?.length) {
               applyPartialReviewItems(items, run.stepId);
             }
@@ -2590,11 +2647,15 @@ export default function EditorPage() {
 
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : editorCopy.reviewFeedback.reviewRunFailed
+        message: sanitizeExposedErrorMessage(
+          error instanceof Error ? error.message : "",
+          editorCopy.reviewFeedback.reviewRunResultInvalid
+        )
       });
     } finally {
       if (activeReviewJobRunRef.current === reviewRunToken) {
         activeReviewJobRunRef.current = null;
+        setReviewFlightStepId(null);
         setIsReviewRequestInFlight(false);
       }
     }
@@ -2652,7 +2713,7 @@ export default function EditorPage() {
 
     const reviewRunToken = createPatchId("review-resume");
     activeReviewJobRunRef.current = reviewRunToken;
-    setActiveWorkflowStep(record.run.stepId);
+    setReviewFlightStepId(record.run.stepId);
     setIsReviewRequestInFlight(true);
     setFeedback({ tone: "info", message: editorCopy.reviewFeedback.reviewRunResuming });
 
@@ -2662,7 +2723,7 @@ export default function EditorPage() {
         record.capability,
         reviewRunToken,
         locale,
-        (run, capability, items) => {
+        (run, capability, items, planActions) => {
           updateActiveReviewRun(
             createPersistedActiveReviewRun(
               retainReviewRunProgress(run, record.run),
@@ -2672,6 +2733,9 @@ export default function EditorPage() {
             ),
             locale
           );
+          if (planActions && planActions.length > 0) {
+            customRequestPlanActionsRef.current = planActions;
+          }
           if (items?.length) {
             applyPartialReviewItems(items, run.stepId);
           }
@@ -2693,13 +2757,17 @@ export default function EditorPage() {
         clearTerminalReviewRunError(error, locale);
         setFeedback({
           tone: "error",
-          message: error instanceof Error ? error.message : editorCopy.reviewFeedback.reviewRunFailed
+          message: sanitizeExposedErrorMessage(
+            error instanceof Error ? error.message : "",
+            editorCopy.reviewFeedback.reviewRunResultInvalid
+          )
         });
       }
     } finally {
       releaseReviewRunPollLease(record.run.runId, ownerId);
       if (activeReviewJobRunRef.current === reviewRunToken) {
         activeReviewJobRunRef.current = null;
+        setReviewFlightStepId(null);
         setIsReviewRequestInFlight(false);
       }
     }
@@ -2725,7 +2793,21 @@ export default function EditorPage() {
       return;
     }
 
-    if (!sliceDocumentForFragmentRetry(currentDocumentRef.current, failedChunk)) {
+    if (activeReviewRun && activeReviewRun.run.stepId !== stepId) {
+      return;
+    }
+
+    const planAction = stepId === "final_editing"
+      ? customRequestPlanActionsRef.current?.[failedChunk.index]
+        ?? stepRunHistory.final_editing[0]?.planActions?.[failedChunk.index]
+      : undefined;
+
+    if (stepId === "final_editing") {
+      if (!planAction) {
+        setFeedback({ tone: "error", message: editorCopy.reviewFeedback.retryFragmentUnavailable });
+        return;
+      }
+    } else if (!sliceDocumentForFragmentRetry(currentDocumentRef.current, failedChunk)) {
       setFeedback({ tone: "error", message: editorCopy.reviewFeedback.retryFragmentUnavailable });
       return;
     }
@@ -2745,12 +2827,21 @@ export default function EditorPage() {
             blockFingerprints: {}
           }
         : undefined,
-      reviewChunk: {
-        index: failedChunk.index,
-        total: progress?.totalChunks ?? 1,
-        coreBlockIds: failedChunk.coreBlockIds,
-        contextBlockIds: []
-      }
+      ...(planAction
+        ? {
+            customRequestPlanAction: {
+              ...planAction,
+              index: failedChunk.index
+            }
+          }
+        : {
+            reviewChunk: {
+              index: failedChunk.index,
+              total: progress?.totalChunks ?? 1,
+              coreBlockIds: failedChunk.coreBlockIds,
+              contextBlockIds: []
+            }
+          })
     });
   }
 
@@ -2839,8 +2930,16 @@ export default function EditorPage() {
     }
 
     const nextFeedback = buildReviewFeedbackMessage(payload, true, locale, sectionItemCount);
+    const planOnlyFinalEditing =
+      payload.stepId === "final_editing" &&
+      (payload.plan?.actions.length ?? 0) > 0 &&
+      payload.items.length === 0;
     const isRecommendationStepRun =
-      !payload.error && payload.stepId !== "diagnostics" && payload.stepId !== "fact_check" && payload.stepId !== "emphasis";
+      !payload.error &&
+      !planOnlyFinalEditing &&
+      payload.stepId !== "diagnostics" &&
+      payload.stepId !== "fact_check" &&
+      payload.stepId !== "emphasis";
 
     if (isRecommendationStepRun) {
       setShowRecommendationStatusStrip(true);
@@ -2859,8 +2958,24 @@ export default function EditorPage() {
         ? factCheckLinkedItems.map((item) => item.id)
         : payload.stepId !== "diagnostics"
           ? payload.items.map((item) => item.id)
-          : undefined
+          : undefined,
+      planActionCount: payload.plan?.actions.length && payload.plan.actions.length > 1
+        ? payload.plan.actions.length
+        : payload.runMode === "preserve"
+          ? (stepRunHistory[payload.stepId]?.[0]?.planActionCount ?? payload.plan?.actions.length)
+          : payload.plan?.actions.length,
+      planActions: payload.plan?.actions && payload.plan.actions.length > 1
+        ? payload.plan.actions
+        : payload.runMode === "preserve"
+          ? (customRequestPlanActionsRef.current
+            ?? stepRunHistory[payload.stepId]?.[0]?.planActions
+            ?? payload.plan?.actions)
+          : payload.plan?.actions
     };
+
+    if (payload.plan?.actions && payload.plan.actions.length > 1) {
+      customRequestPlanActionsRef.current = payload.plan.actions;
+    }
 
     setStepRunHistory((current) => {
       const currentStepRuns = current[payload.stepId] ?? [];
@@ -2904,14 +3019,30 @@ export default function EditorPage() {
     }
   }
 
+  function buryActiveReviewRun(runId: string, expectedLocale: AppLocale) {
+    consumedReviewRunIdsRef.current.add(runId);
+    if (activeLocaleRef.current !== expectedLocale) {
+      return;
+    }
+
+    setActiveReviewRun((current) => (current?.run.runId === runId ? null : current));
+    const persisted = readEditorDraftState(expectedLocale)?.activeReviewRun;
+    if (!persisted || persisted.run.runId === runId) {
+      writeEditorActiveReviewRun(null, expectedLocale);
+    }
+    setFailedReviewChunks((current) => (persisted?.run.runId === runId || !persisted ? [] : current));
+  }
+
   function clearTerminalReviewRunError(error: unknown, expectedLocale: AppLocale) {
+    if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+      return;
+    }
+
     if (!(error instanceof EditorialReviewRunTerminalError) || !error.run || !isRunTerminal(error.run)) {
       return;
     }
 
-    consumedReviewRunIdsRef.current.add(error.run.runId);
-    setActiveReviewRun(null);
-    writeEditorActiveReviewRun(null, expectedLocale);
+    buryActiveReviewRun(error.run.runId, expectedLocale);
   }
 
   async function pollEditorialReviewRun(
@@ -2922,7 +3053,8 @@ export default function EditorPage() {
     onSnapshot?: (
       run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"],
       capability: string,
-      items?: EditorialReviewItem[]
+      items?: EditorialReviewItem[],
+      planActions?: CustomRequestPlanAction[]
     ) => void,
     pollOwnerId = reviewPollTabIdRef.current
   ): Promise<{ result: EditorialReviewResponse; run: Extract<EditorialReviewRunApiResponse, { kind: "result" }>["run"] }> {
@@ -2969,9 +3101,9 @@ export default function EditorPage() {
 
       if (payload.kind === "error") {
         if (payload.items?.length && payload.run) {
-          onSnapshot?.(payload.run, capability, payload.items);
+          onSnapshot?.(payload.run, capability, payload.items, payload.plan?.actions);
         } else if (payload.run) {
-          onSnapshot?.(payload.run, capability);
+          onSnapshot?.(payload.run, capability, undefined, payload.plan?.actions);
         }
         throw new EditorialReviewRunTerminalError(payload.error.message, payload.run);
       }
@@ -2981,7 +3113,7 @@ export default function EditorPage() {
       }
 
       if (payload.kind === "result") {
-        onSnapshot?.(payload.run, capability);
+        onSnapshot?.(payload.run, capability, undefined, payload.result.plan?.actions);
         return { result: payload.result, run: payload.run };
       }
 
@@ -2991,7 +3123,7 @@ export default function EditorPage() {
 
       currentRun = payload.run;
       capability = payload.capability;
-      onSnapshot?.(currentRun, capability, payload.items);
+      onSnapshot?.(currentRun, capability, payload.items, payload.plan?.actions);
     }
   }
 
@@ -4340,18 +4472,24 @@ export default function EditorPage() {
   const spellcheckDocumentBlockIds = useMemo(() => document.blocks.map((block) => block.id), [document.blocks]);
   const canRunSpellcheck = getSpellcheckableBlocks(document, revision, spellcheckDocumentBlockIds).length > 0;
   const hasSpellcheckRun = Boolean(spellcheckMeta || spellcheckSummary || spellcheckResults.length > 0);
+  const isCurrentStepReviewRunning = isActiveStepReviewRunning({
+    viewingStepId: activeWorkflowStep,
+    runStepId: activeReviewRun?.run.stepId,
+    startingStepId: reviewFlightStepId,
+    inFlight: isReviewRequestInFlight
+  });
   const spellcheckProblemParagraphCount = useMemo(
     () => spellcheckResults.filter((result) => result.issues.length > 0).length,
     [spellcheckResults]
   );
-  const emphasisStatusTone = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
+  const emphasisStatusTone = isCurrentStepReviewRunning && activeWorkflowStep === "emphasis"
     ? "active"
     : emphasisStepItems.length === 0
       ? "idle"
       : emphasisStepItems.some((item) => item.status !== "applied" && item.status !== "dismissed")
         ? "warning"
         : "success";
-  const emphasisStatusLabel = isReviewRequestInFlight && activeWorkflowStep === "emphasis"
+  const emphasisStatusLabel = isCurrentStepReviewRunning && activeWorkflowStep === "emphasis"
     ? editorCopy.status.inProgress
     : emphasisStepItems.length === 0
       ? editorCopy.status.notRun
@@ -4384,14 +4522,15 @@ export default function EditorPage() {
     && activeWorkflowStep !== "spellcheck"
     && activeWorkflowStep !== "emphasis";
   const usesPrototypeShell = true;
-  const showChunkProgressChrome =
-    failedReviewChunks.length > 0
-    || (
-      isReviewRequestInFlight
-      && activeWorkflowStep !== "diagnostics"
-      && activeWorkflowStep !== "fact_check"
-      && activeWorkflowStep !== "spellcheck"
-    );
+  const visibleFailedReviewChunks =
+    activeReviewRun?.run.stepId === activeWorkflowStep ? failedReviewChunks : [];
+  const showChunkProgressChrome = shouldShowReviewRunChrome({
+    viewingStepId: activeWorkflowStep,
+    runStepId: activeReviewRun?.run.stepId,
+    startingStepId: reviewFlightStepId,
+    inFlight: isCurrentStepReviewRunning,
+    failedChunkCount: visibleFailedReviewChunks.length
+  });
   const hasGlobalReviewInstructions = Boolean(reviewComposer.additionalInstructions.trim());
   const shouldSuppressRecommendationFeedback =
     feedback?.tone === "info"
@@ -4431,6 +4570,12 @@ export default function EditorPage() {
     reviewExpertise,
     stepFeedback: activeStepFeedbackValue,
     isReviewRequestInFlight,
+    otherStepRunLabel:
+      isReviewRequestInFlight &&
+      activeReviewRun &&
+      activeReviewRun.run.stepId !== activeWorkflowStep
+        ? getWorkflowStepLabel(locale, activeReviewRun.run.stepId)
+        : undefined,
     isSpellcheckRequestInFlight,
     disabledReasons: editorCopy.disabledReasons
   });
@@ -4450,7 +4595,7 @@ export default function EditorPage() {
     activeWorkflowStep === "diagnostics"
       ? getStepWorkspaceStatus("diagnostics", {
           canRun: canRequestReview,
-          isInFlight: isReviewRequestInFlight,
+          isInFlight: isCurrentStepReviewRunning,
           hasExistingResult: Boolean(reviewExpertise),
           activeMessage: editorCopy.stepWorkspace.diagnostics.active,
           idleMessage: editorCopy.stepWorkspace.diagnostics.idle,
@@ -4461,7 +4606,7 @@ export default function EditorPage() {
         ? getStepWorkspaceStatus("fact_check", {
             canRun: canRunDownstreamStep,
             hasPrerequisite: Boolean(reviewExpertise),
-            isInFlight: isReviewRequestInFlight,
+            isInFlight: isCurrentStepReviewRunning,
             hasExistingResult: activeStepRunCount > 0 || factCheckRows.length > 0,
             zeroResult: activeStepRunCount > 0 && factCheckRows.length === 0 && activeStepItems.length === 0,
             activeMessage: editorCopy.stepWorkspace.factCheck.active,
@@ -4487,7 +4632,7 @@ export default function EditorPage() {
             ? getStepWorkspaceStatus("emphasis", {
                 canRun: canRequestReview,
                 hasPrerequisite: true,
-                isInFlight: isReviewRequestInFlight,
+                isInFlight: isCurrentStepReviewRunning,
                 hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
                 zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
                 activeMessage: editorCopy.stepWorkspace.emphasis.active,
@@ -4500,19 +4645,25 @@ export default function EditorPage() {
             ? getStepWorkspaceStatus("final_editing", {
                 canRun: activeStepCanRun,
                 hasPrerequisite: true,
-                isInFlight: isReviewRequestInFlight,
+                isInFlight: isCurrentStepReviewRunning,
                 hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
-                zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
+                zeroResult:
+                  activeStepRunCount > 0 &&
+                  activeStepItems.length === 0 &&
+                  (stepRunHistory.final_editing[0]?.planActionCount ?? 0) === 0,
                 activeMessage: editorCopy.stepWorkspace.finalEditing.active,
                 idleMessage: editorCopy.stepWorkspace.finalEditing.idle,
                 waitingMessage: editorCopy.stepWorkspace.finalEditing.waiting,
-                successMessage: editorCopy.stepWorkspace.finalEditing.success,
+                successMessage:
+                  activeStepItems.length === 0 && (stepRunHistory.final_editing[0]?.planActionCount ?? 0) > 0
+                    ? editorCopy.stepWorkspace.finalEditing.planReady
+                    : editorCopy.stepWorkspace.finalEditing.success,
                 zeroResultMessage: editorCopy.stepWorkspace.finalEditing.zeroResult
               }, locale)
           : getStepWorkspaceStatus(activeWorkflowStep, {
               canRun: canRunDownstreamStep,
               hasPrerequisite: Boolean(reviewExpertise),
-              isInFlight: isReviewRequestInFlight,
+              isInFlight: isCurrentStepReviewRunning,
               hasExistingResult: activeStepRunCount > 0 || activeStepItems.length > 0,
               zeroResult: activeStepRunCount > 0 && activeStepItems.length === 0,
               activeMessage: editorCopy.stepWorkspace.recommendations.active,
@@ -4701,7 +4852,7 @@ export default function EditorPage() {
             placeholder={editorCopy.stepPlaceholders.customPromptFocus}
             value={stepFeedback.final_editing}
             onChange={(event) => updateStepFeedbackValue("final_editing", event.target.value)}
-            disabled={isReviewRequestInFlight}
+            disabled={isCurrentStepReviewRunning}
           />
         </div>
       </section>
@@ -5129,9 +5280,9 @@ export default function EditorPage() {
                 );
               })}
             </section>
-          ) : activeStepRunCount > 0 && !isReviewRequestInFlight ? (
+          ) : activeStepRunCount > 0 && !isCurrentStepReviewRunning ? (
             <p className="step-review-empty-copy">{sc.noEmphasis}</p>
-          ) : !isReviewRequestInFlight ? (
+          ) : !isCurrentStepReviewRunning ? (
             <p className="step-review-empty-copy">{sc.runEmphasisHint}</p>
           ) : null}
         </div>
@@ -5224,7 +5375,7 @@ export default function EditorPage() {
               />
             );
           })}
-          {visibleActiveStepItems.length === 0 && !isReviewRequestInFlight ? (
+          {visibleActiveStepItems.length === 0 && !isCurrentStepReviewRunning ? (
             <p className="step-review-empty-copy step-review-prototype-empty-copy">
               {activeStepCardStats.actionable === 0 && (activeStepCardStats.applied > 0 || activeStepCardStats.dismissed > 0)
                 ? editorCopy.structureOutline.allStepCardsDone
@@ -5242,7 +5393,7 @@ export default function EditorPage() {
       className={`step-review-head-action-button ${activeStepPrimaryAction.emphasis === "primary" ? "step-review-head-action-button-primary" : ""}`.trim()}
       size="sm"
       onClick={handleRunActiveStep}
-      loading={activeWorkflowStep === "spellcheck" ? isSpellcheckRequestInFlight : isReviewRequestInFlight}
+      loading={activeWorkflowStep === "spellcheck" ? isSpellcheckRequestInFlight : isCurrentStepReviewRunning}
       loadingLabel={activeStepPrimaryAction.loadingLabel}
       disabled={!activeStepCanRun}
       aria-label={activeStepPrimaryAction.ariaLabel}
@@ -5517,10 +5668,19 @@ export default function EditorPage() {
                               aria-valuemin={0}
                               aria-valuemax={100}
                               aria-valuenow={reviewChunkProgressPercent(activeReviewRun.run.progress)}
-                              aria-label={editorCopy.reviewFeedback.reviewRunProgress(
+                              aria-label={
+                                activeReviewRun.run.progress.phase === "planning"
+                                  ? editorCopy.reviewFeedback.reviewRunPlanningProgress
+                                  : activeReviewRun.run.progress.phase === "generating"
+                                    ? editorCopy.reviewFeedback.reviewRunGeneratingProgress(
+                                      activeReviewRun.run.progress.completedChunks,
+                                      activeReviewRun.run.progress.totalChunks
+                                    )
+                                  : editorCopy.reviewFeedback.reviewRunProgress(
                                 activeReviewRun.run.progress.completedChunks,
                                 activeReviewRun.run.progress.totalChunks
-                              )}
+                              )
+                              }
                             >
                               <div
                                 className="step-review-chunk-progress-fill"
@@ -5528,7 +5688,14 @@ export default function EditorPage() {
                               />
                             </div>
                             <p className="step-review-chunk-progress-copy">
-                              {editorCopy.reviewFeedback.reviewRunProgress(
+                              {activeReviewRun.run.progress.phase === "planning"
+                                ? editorCopy.reviewFeedback.reviewRunPlanningProgress
+                                : activeReviewRun.run.progress.phase === "generating"
+                                  ? editorCopy.reviewFeedback.reviewRunGeneratingProgress(
+                                    activeReviewRun.run.progress.completedChunks,
+                                    activeReviewRun.run.progress.totalChunks
+                                  )
+                                : editorCopy.reviewFeedback.reviewRunProgress(
                                 activeReviewRun.run.progress.completedChunks,
                                 activeReviewRun.run.progress.totalChunks,
                                 activeReviewRun.run.progress.attempt,
@@ -5536,7 +5703,7 @@ export default function EditorPage() {
                               )}
                             </p>
                           </>
-                        ) : isReviewRequestInFlight ? (
+                        ) : isCurrentStepReviewRunning ? (
                           <>
                             <div
                               className="step-review-chunk-progress-track"
@@ -5552,9 +5719,9 @@ export default function EditorPage() {
                             </p>
                           </>
                         ) : null}
-                        {failedReviewChunks.length > 0 ? (
+                        {visibleFailedReviewChunks.length > 0 ? (
                           <div className="step-review-chunk-progress-holes">
-                            {failedReviewChunks.map((chunk) => (
+                                {visibleFailedReviewChunks.map((chunk) => (
                               <button
                                 key={`${chunk.index}:${chunk.coreBlockIds.join("|")}`}
                                 type="button"
@@ -5589,7 +5756,7 @@ export default function EditorPage() {
                       size="sm"
                       className="step-review-prototype-run-button"
                       onClick={handleRunActiveStep}
-                      loading={activeWorkflowStep === "spellcheck" ? isSpellcheckRequestInFlight : isReviewRequestInFlight}
+                      loading={activeWorkflowStep === "spellcheck" ? isSpellcheckRequestInFlight : isCurrentStepReviewRunning}
                       loadingLabel={activeStepRunButtonLoadingLabel}
                       disabled={!activeStepCanRun}
                       disabledReason={activeStepRunDisabledReason}
@@ -5914,11 +6081,11 @@ export default function EditorPage() {
                           );
                         })}
                       </div>
-                    ) : activeStepRunCount > 0 && !isReviewRequestInFlight ? (
+                    ) : activeStepRunCount > 0 && !isCurrentStepReviewRunning ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
                         <p className="step-review-empty-copy">{sc.noEmphasis}</p>
                       </div>
-                    ) : !isReviewRequestInFlight ? (
+                    ) : !isCurrentStepReviewRunning ? (
                       <div className="step-review-empty-state step-review-spellcheck-empty">
                         <p className="step-review-empty-copy">{sc.runEmphasisHint}</p>
                       </div>
@@ -6928,6 +7095,14 @@ function buildReviewFeedbackMessage(
     };
   }
 
+  const planActionCount = payload.plan?.actions.length ?? 0;
+  if (payload.stepId === "final_editing" && planActionCount > 0 && payload.items.length === 0) {
+    return {
+      tone: "info",
+      message: reviewFeedback.customRequestPlanReady(planActionCount)
+    };
+  }
+
   if (payload.items.length === 0) {
     return {
       tone: "info",
@@ -7289,11 +7464,16 @@ function getActiveStepRunDisabledReason(input: {
   reviewExpertise: string | null;
   stepFeedback?: string;
   isReviewRequestInFlight: boolean;
+  otherStepRunLabel?: string;
   isSpellcheckRequestInFlight: boolean;
   disabledReasons: import("../../lib/i18n/editor-messages").EditorMessages["disabledReasons"];
 }): string | undefined {
   if (input.canRun) {
     return undefined;
+  }
+
+  if (input.isReviewRequestInFlight && input.otherStepRunLabel) {
+    return input.disabledReasons.waitOtherStepRun(input.otherStepRunLabel);
   }
 
   if (input.stepId === "diagnostics" || input.stepId === "emphasis" || input.stepId === "final_editing") {

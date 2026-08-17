@@ -12,7 +12,7 @@ const identity: EditorialReviewRunIdentity = {
   stepId: "emphasis",
   locale: "uk",
   provider: "gemini",
-  modelId: "gemini-3.6-flash",
+  modelId: "gemini-3.7-flash",
   runMode: "replace",
   createdAt: "2026-08-04T12:00:00.000Z"
 };

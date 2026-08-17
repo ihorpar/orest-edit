@@ -1,19 +1,25 @@
 import { FatalError, RetryableError, getStepMetadata, getWorkflowMetadata, getWritable } from "workflow";
 import type {
+  CustomRequestPlan,
   EditorialReviewFailedChunk,
   EditorialReviewItem,
   EditorialReviewRequest,
   EditorialReviewResponse,
   EditorialReviewRunProgress
 } from "../editor/review-contract.ts";
+import {
+  REVIEW_PLAN_NAMESPACE
+} from "./custom-request-plan.ts";
 import { planReviewChunks, type ReviewChunkPlan } from "./review-chunk-planner.ts";
 import {
   CHUNKED_REVIEW_MAX_RETRIES,
+  REVIEW_CHUNK_CONCURRENCY,
   REVIEW_PARTIAL_ITEMS_NAMESPACE,
   alignReviewItemsToSnapshot,
   classifyReviewChunkFailure,
   filterCoreReviewChunkItems,
   isChunkedRecommendationStep,
+  isCustomRequestPlanStep,
   sumChunkSourceChars
 } from "./review-chunk-runtime.ts";
 import {
@@ -76,7 +82,6 @@ async function executeReviewChunkStep(input: {
     failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
     attempt: metadata.attempt
   };
-  await writeReviewProgress(progressBase);
   logEditorialReviewEvent("chunk_started", {
     workflowStepId: metadata.stepId,
     runId: workflowRunId,
@@ -158,18 +163,6 @@ async function executeReviewChunkStep(input: {
       throw new FatalError(failure);
     }
 
-    const failedChunks = [
-      ...input.failedChunks,
-      {
-        index: input.chunk.index,
-        coreBlockIds: input.chunk.coreBlockIds,
-        message: response.error
-      }
-    ];
-    await writeReviewProgress({
-      ...progressBase,
-      failedChunks
-    });
     logEditorialReviewEvent("chunk_failed", {
       workflowStepId: metadata.stepId,
       runId: workflowRunId,
@@ -196,14 +189,6 @@ async function executeReviewChunkStep(input: {
     await writeReviewPartialItems(coreItems);
   }
 
-  await writeReviewProgress({
-    completedChunks: input.completedChunks + 1,
-    totalChunks: input.totalChunks,
-    completedSourceChars: input.completedSourceChars + input.chunk.sourceChars,
-    totalSourceChars: input.totalSourceChars,
-    failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
-    attempt: metadata.attempt
-  });
   logEditorialReviewEvent("chunk_completed", {
     workflowStepId: metadata.stepId,
     runId: workflowRunId,
@@ -221,6 +206,169 @@ async function executeReviewChunkStep(input: {
 }
 
 (executeReviewChunkStep as typeof executeReviewChunkStep & { maxRetries?: number }).maxRetries = CHUNKED_REVIEW_MAX_RETRIES;
+
+async function executeCustomRequestPlanStep(input: EditorialReviewWorkflowInput): Promise<EditorialReviewResponse> {
+  "use step";
+
+  const metadata = getStepMetadata();
+  const workflowRunId = getWorkflowMetadata().workflowRunId;
+  const startedAt = Date.now();
+
+  await writeReviewProgress({
+    phase: "planning",
+    completedChunks: 0,
+    totalChunks: 1
+  });
+
+  const response = await generateEditorialReview({
+    ...input.request,
+    customRequestPlanOnly: true,
+    customRequestPlanAction: undefined,
+    providerRequestKey: metadata.stepId
+  });
+
+  if (response.plan && response.plan.actions.length > 0 && !response.error) {
+    await writeReviewPlan(response.plan);
+  }
+
+  await writeReviewProgress({
+    phase: "planning",
+    completedChunks: 1,
+    totalChunks: 1
+  });
+
+  logEditorialReviewEvent(response.error ? "step_failed" : "step_completed", {
+    workflowStepId: metadata.stepId,
+    runId: workflowRunId,
+    requestId: response.diagnostics.requestId,
+    step: response.stepId,
+    provider: input.request.provider,
+    model: input.request.modelId,
+    attempt: metadata.attempt,
+    durationMs: Date.now() - startedAt,
+    providerStatus: response.diagnostics.providerError?.status,
+    providerRequestId: response.diagnostics.providerError?.requestId,
+    returnedItems: response.items.length,
+    plannedActions: response.plan?.actions.length ?? 0
+  }, response.error ? "error" : "info");
+
+  return response;
+}
+
+async function executeCustomRequestGenerateActionStep(input: {
+  request: EditorialReviewRequest;
+  action: CustomRequestPlan["actions"][number];
+  actionIndex: number;
+  totalActions: number;
+  completedActions: number;
+  failedChunks: EditorialReviewFailedChunk[];
+}): Promise<EditorialReviewResponse> {
+  "use step";
+
+  const metadata = getStepMetadata();
+  const workflowRunId = getWorkflowMetadata().workflowRunId;
+  const startedAt = Date.now();
+
+  await writeReviewProgress({
+    phase: "generating",
+    completedChunks: input.completedActions,
+    totalChunks: input.totalActions,
+    failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
+    attempt: metadata.attempt
+  });
+
+  const response = await generateEditorialReview({
+    ...input.request,
+    customRequestPlanOnly: false,
+    customRequestPlanAction: { ...input.action, index: input.actionIndex },
+    providerRequestKey: metadata.stepId
+  });
+
+  if (response.error) {
+    const providerError = response.diagnostics.providerError;
+    const failure = encodeWorkflowProviderFailure(response.error, providerError);
+    const classification = classifyReviewChunkFailure({
+      error: response.error,
+      providerError,
+      attempt: metadata.attempt,
+      maxRetries: CHUNKED_REVIEW_MAX_RETRIES
+    });
+
+    if (classification === "retry") {
+      const retryAfterMs = providerError?.retryAfterMs ?? deterministicBackoffMs(input.actionIndex, metadata.attempt);
+      await writeReviewProgress({
+        phase: "generating",
+        completedChunks: input.completedActions,
+        totalChunks: input.totalActions,
+        failedChunks: input.failedChunks.length > 0 ? input.failedChunks : undefined,
+        attempt: metadata.attempt,
+        retryAt: new Date(Date.now() + retryAfterMs).toISOString()
+      });
+      throw new RetryableError(failure, { retryAfter: retryAfterMs });
+    }
+
+    if (classification === "fatal") {
+      throw new FatalError(failure);
+    }
+  }
+
+  if (!response.error && response.items.length > 0) {
+    await writeReviewPartialItems(response.items);
+  }
+
+  logEditorialReviewEvent(response.error ? "chunk_failed" : "chunk_completed", {
+    workflowStepId: metadata.stepId,
+    runId: workflowRunId,
+    requestId: response.diagnostics.requestId,
+    step: response.stepId,
+    provider: input.request.provider,
+    model: input.request.modelId,
+    chunkIndex: input.actionIndex,
+    totalChunks: input.totalActions,
+    attempt: metadata.attempt,
+    durationMs: Date.now() - startedAt,
+    returnedItems: response.items.length,
+    hole: Boolean(response.error)
+  }, response.error ? "error" : "info");
+
+  return response;
+}
+
+(executeCustomRequestGenerateActionStep as typeof executeCustomRequestGenerateActionStep & { maxRetries?: number }).maxRetries = CHUNKED_REVIEW_MAX_RETRIES;
+
+async function mergeCustomRequestGenerateStep(input: {
+  request: EditorialReviewRequest;
+  plan: CustomRequestPlan;
+  responses: EditorialReviewResponse[];
+}): Promise<EditorialReviewResponse> {
+  "use step";
+
+  const items = input.responses.flatMap((response) => response.items);
+  const failedChunks = input.responses.flatMap((response, index) => {
+    if (response.error || response.items.length === 0) {
+      return [{
+        index,
+        coreBlockIds: [input.plan.actions[index]?.blockId].filter(Boolean) as string[],
+        message: response.error ?? "Empty card"
+      }];
+    }
+
+    return response.diagnostics.failedChunks ?? [];
+  });
+  const firstSuccess = input.responses.find((response) => !response.error) ?? input.responses[0];
+
+  return {
+    ...firstSuccess,
+    items,
+    plan: input.plan,
+    error: items.length === 0 && failedChunks.length > 0 ? failedChunks[0]?.message : undefined,
+    diagnostics: {
+      ...firstSuccess.diagnostics,
+      returnedItemCount: items.length,
+      failedChunks: failedChunks.length > 0 ? failedChunks : undefined
+    }
+  };
+}
 
 async function mergeReviewChunksStep(input: {
   request: EditorialReviewRequest;
@@ -259,7 +407,73 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
     let response: EditorialReviewResponse;
     const stepId = input.request.stepId;
 
-    if (isChunkedRecommendationStep(stepId)) {
+    if (isCustomRequestPlanStep(stepId)) {
+      if (input.request.customRequestPlanAction) {
+        response = await executeCustomRequestGenerateActionStep({
+          request: input.request,
+          action: input.request.customRequestPlanAction,
+          actionIndex: input.request.customRequestPlanAction.index ?? 0,
+          totalActions: 1,
+          completedActions: 0,
+          failedChunks: []
+        });
+      } else {
+        const planResponse = await executeCustomRequestPlanStep(input);
+        if (planResponse.error || !planResponse.plan || planResponse.plan.actions.length === 0) {
+          response = planResponse;
+        } else {
+          const actions = planResponse.plan.actions;
+          const responses: EditorialReviewResponse[] = [];
+          const failedChunks: EditorialReviewFailedChunk[] = [];
+          let completedActions = 0;
+
+          await writeReviewProgress({
+            phase: "generating",
+            completedChunks: 0,
+            totalChunks: actions.length
+          });
+
+          for (let start = 0; start < actions.length; start += REVIEW_CHUNK_CONCURRENCY) {
+            const wave = actions.slice(start, start + REVIEW_CHUNK_CONCURRENCY);
+            const waveResponses = await Promise.all(wave.map((action, offset) =>
+              executeCustomRequestGenerateActionStep({
+                request: input.request,
+                action,
+                actionIndex: start + offset,
+                totalActions: actions.length,
+                completedActions,
+                failedChunks: [...failedChunks]
+              })
+            ));
+
+            for (const [offset, actionResponse] of waveResponses.entries()) {
+              responses.push(actionResponse);
+              if (actionResponse.error || actionResponse.items.length === 0) {
+                failedChunks.push({
+                  index: start + offset,
+                  coreBlockIds: [wave[offset].blockId],
+                  message: actionResponse.error ?? "Empty card"
+                });
+              }
+              completedActions += 1;
+            }
+
+            await writeReviewProgress({
+              phase: "generating",
+              completedChunks: completedActions,
+              totalChunks: actions.length,
+              failedChunks: failedChunks.length > 0 ? failedChunks : undefined
+            });
+          }
+
+          response = await mergeCustomRequestGenerateStep({
+            request: input.request,
+            plan: planResponse.plan,
+            responses
+          });
+        }
+      }
+    } else if (isChunkedRecommendationStep(stepId)) {
       const plannedChunks = planReviewChunks(input.request.document.blocks);
       const scopedRetry = input.request.reviewChunk;
       const chunks = scopedRetry
@@ -276,8 +490,16 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
         const totalChunks = plannedChunks.length;
         const totalSourceChars = sumChunkSourceChars(plannedChunks, totalChunks);
 
-        for (const chunk of chunks) {
-          const chunkResponse = await executeReviewChunkStep({
+        await writeReviewProgress({
+          completedChunks: 0,
+          totalChunks,
+          completedSourceChars: 0,
+          totalSourceChars
+        });
+
+        for (let start = 0; start < chunks.length; start += REVIEW_CHUNK_CONCURRENCY) {
+          const wave = chunks.slice(start, start + REVIEW_CHUNK_CONCURRENCY);
+          const waveResponses = await Promise.all(wave.map((chunk) => executeReviewChunkStep({
             request: input.request,
             chunk,
             totalChunks,
@@ -285,19 +507,31 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
             completedChunks,
             completedSourceChars,
             failedChunks: [...failedChunks]
-          });
-          responses.push(chunkResponse);
+          })));
 
-          if (chunkResponse.error) {
-            failedChunks.push({
-              index: chunk.index,
-              coreBlockIds: chunk.coreBlockIds,
-              message: chunkResponse.error
-            });
-          } else {
-            completedChunks += 1;
-            completedSourceChars += chunk.sourceChars;
+          for (const [offset, chunk] of wave.entries()) {
+            const chunkResponse = waveResponses[offset];
+            responses.push(chunkResponse);
+
+            if (chunkResponse.error) {
+              failedChunks.push({
+                index: chunk.index,
+                coreBlockIds: chunk.coreBlockIds,
+                message: chunkResponse.error
+              });
+            } else {
+              completedChunks += 1;
+              completedSourceChars += chunk.sourceChars;
+            }
           }
+
+          await writeReviewProgress({
+            completedChunks,
+            totalChunks,
+            completedSourceChars,
+            totalSourceChars,
+            failedChunks: failedChunks.length > 0 ? failedChunks : undefined
+          });
         }
 
         response = await mergeReviewChunksStep({ request: input.request, chunks, responses });
@@ -396,6 +630,16 @@ async function writeReviewPartialItems(items: EditorialReviewItem[]): Promise<vo
 
   try {
     await writer.write(items);
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+async function writeReviewPlan(plan: CustomRequestPlan): Promise<void> {
+  const writer = getWritable<CustomRequestPlan>({ namespace: REVIEW_PLAN_NAMESPACE }).getWriter();
+
+  try {
+    await writer.write(plan);
   } finally {
     writer.releaseLock();
   }

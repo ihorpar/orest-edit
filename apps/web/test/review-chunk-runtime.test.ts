@@ -17,6 +17,7 @@ import {
   consumeReadableBatches,
   filterCoreReviewChunkItems,
   latestReviewProgress,
+  mapInWaves,
   reviewRunPollAfterMs,
   summarizeReviewChunkRun
 } from "../lib/server/review-chunk-runtime.ts";
@@ -177,6 +178,26 @@ test("reviewRunPollAfterMs slows chunked running polls and keeps pending snappy"
   assert.equal(reviewRunPollAfterMs("running", "clarity"), 3000);
   assert.equal(reviewRunPollAfterMs("running", "diagnostics"), 2000);
   assert.equal(reviewRunPollAfterMs("completed", "clarity"), 0);
+});
+
+test("mapInWaves runs at most the requested concurrency", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const order: number[] = [];
+
+  const results = await mapInWaves([1, 2, 3, 4], 3, async (value) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    order.push(value);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight -= 1;
+    return value * 10;
+  });
+
+  assert.deepEqual(results, [10, 20, 30, 40]);
+  assert.equal(maxInFlight, 3);
+  assert.deepEqual(order.slice(0, 3).sort((left, right) => left - right), [1, 2, 3]);
+  assert.equal(order[3], 4);
 });
 
 function createTenChunkFixture(): { request: EditorialReviewRequest; chunks: ReviewChunkPlan[] } {

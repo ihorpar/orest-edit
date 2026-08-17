@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveManuscriptRevisionState } from "../lib/editor/manuscript-structure.ts";
 import { generateEditorialReview } from "../lib/server/review-service.ts";
-import { planEmphasisChunks } from "../lib/server/emphasis-chunk-planner.ts";
+import { planEmphasisChunks, planReviewChunks } from "../lib/server/emphasis-chunk-planner.ts";
 import { getReviewStepSpec } from "../lib/i18n/server-prompts/review.ts";
 import type { EditorialReviewRequest } from "../lib/editor/review-contract.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
@@ -76,7 +76,7 @@ test("generateEditorialReview preserves grounded Gemini HTTP failure details", a
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       stepId: "fact_check",
       apiKey: "test-key"
     }),
@@ -170,8 +170,9 @@ test("generateEditorialReview uses editable workflow step prompt overrides", asy
   assert.match(requestBody, /Користувацький промпт ясності/);
 });
 
-test("generateEditorialReview treats final_editing as custom prompt cards with visual support", async () => {
+test("generateEditorialReview builds a custom-request plan without executable cards", async () => {
   let requestBody = "";
+  let callCount = 0;
 
   const response = await generateEditorialReview(
     createRequest({
@@ -182,24 +183,61 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
     }),
     {
       fetchImpl: async (_input, init) => {
-        requestBody = String(init?.body ?? "");
+        callCount += 1;
+        requestBody += String(init?.body ?? "");
+
+        if (callCount === 1) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                actions: [
+                  {
+                    blockId: "p1",
+                    recommendationType: "visual",
+                    title: "Додати візуал",
+                    recommendation: "Підготувати інфографіку з головними кроками механізму.",
+                    priority: "high"
+                  },
+                  {
+                    blockId: "p1",
+                    recommendationType: "callout",
+                    title: "Врізка",
+                    recommendation: "Коротка врізка для читача.",
+                    priority: "medium"
+                  }
+                ]
+              })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
 
         return new Response(
           JSON.stringify({
             output_text: JSON.stringify({
               items: [
                 {
-                  title: "Додати візуал",
-                  reason: "Фрагмент пояснює механізм, який легше сприйняти як схему.",
-                  recommendation: "Підготувати інфографіку з головними кроками механізму.",
-                  recommendationType: "visual",
-                  suggestedAction: "prepare_visual",
-                  priority: "high",
+                  title: "Картка",
+                  reason: "Потрібна локальна дія.",
+                  recommendation: "Зробити локальну правку.",
+                  recommendationType: callCount === 2 ? "visual" : "callout",
+                  priority: "medium",
+                  blockId: "p1",
                   blockStart: 1,
                   blockEnd: 1,
                   excerpt: "Фрагмент",
                   insertionHint: "after",
-                  visualIntent: "infographic"
+                  suggestedAction: callCount === 2 ? "prepare_visual" : "prepare_callout",
+                  anchorBlockId: "p1",
+                  headingLevel: null,
+                  headingTitle: null,
+                  calloutKind: callCount === 2 ? null : "mechanism",
+                  calloutDepth: callCount === 2 ? null : "brief",
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: callCount === 2 ? "infographic" : null
                 }
               ]
             })
@@ -213,9 +251,12 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
 
   assert.equal(response.stepId, "final_editing");
   assert.equal(response.runMode, "replace");
-  assert.equal(response.items[0]?.recommendationType, "visual");
-  assert.equal(JSON.parse(requestBody).temperature, undefined);
-  assert.match(requestBody, /Крок workflow: Власний запит/);
+  assert.equal(response.plan?.actions.length, 2);
+  assert.equal(response.items.length, 2);
+  assert.deepEqual(
+    response.items.map((item) => item.recommendationType).sort(),
+    ["callout", "visual"]
+  );
   assert.match(requestBody, /Власний запит редактора для цього запуску/);
   assert.match(requestBody, /Додай візуал і врізку/);
   assert.doesNotMatch(requestBody, /Фідбек користувача для кроку/);
@@ -223,6 +264,7 @@ test("generateEditorialReview treats final_editing as custom prompt cards with v
 
 test("generateEditorialReview forces replace and skips diagnostics for final_editing", async () => {
   let requestBody = "";
+  let callCount = 0;
 
   const response = await generateEditorialReview(
     createRequest({
@@ -239,7 +281,27 @@ test("generateEditorialReview forces replace and skips diagnostics for final_edi
     }),
     {
       fetchImpl: async (_input, init) => {
-        requestBody = String(init?.body ?? "");
+        callCount += 1;
+        requestBody += String(init?.body ?? "");
+
+        if (callCount === 1) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                actions: [
+                  {
+                    blockId: "p1",
+                    recommendationType: "list",
+                    title: "Список кроків",
+                    recommendation: "Перетворити ключові кроки на список.",
+                    priority: "medium"
+                  }
+                ]
+              })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
 
         return new Response(
           JSON.stringify({
@@ -250,11 +312,23 @@ test("generateEditorialReview forces replace and skips diagnostics for final_edi
                   reason: "Фрагмент легше сканувати як список.",
                   recommendation: "Перетворити ключові кроки на список.",
                   recommendationType: "list",
-                  suggestedAction: "restructure_as_list",
+                  suggestedAction: "rewrite_text",
                   priority: "medium",
                   blockStart: 1,
                   blockEnd: 1,
-                  excerpt: "Фрагмент"
+                  blockId: "p1",
+                  excerpt: "Фрагмент",
+                  insertionHint: "replace",
+                  anchorBlockId: "p1",
+                  headingLevel: null,
+                  headingTitle: null,
+                  calloutKind: null,
+                  calloutDepth: null,
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
                 }
               ]
             })
@@ -267,6 +341,7 @@ test("generateEditorialReview forces replace and skips diagnostics for final_edi
   );
 
   assert.equal(response.runMode, "replace");
+  assert.equal(response.items[0]?.recommendationType, "list");
   assert.doesNotMatch(requestBody, /Контекст діагностики/);
   assert.doesNotMatch(requestBody, /Фідбек користувача до діагностики/);
   assert.doesNotMatch(requestBody, /Макродіагноз/);
@@ -514,13 +589,12 @@ test("generateEditorialReview prompt encourages deep callouts for dense explanat
     }
   );
 
-  assert.match(requestBody, /Не обирай brief за замовчуванням/i);
-  assert.match(requestBody, /компактну, але завершену врізку/i);
-  assert.match(requestBody, /віддавай перевагу deep/i);
-  assert.match(requestBody, /активним використанням \*\*жирного\*\*/i);
-  assert.match(requestBody, /якорі-підзаголовки/i);
-  assert.match(requestBody, /ключові думки/i);
-  assert.match(requestBody, /не використовуй #, ## або HTML-заголовки/i);
+  assert.match(requestBody, /для щільного пояснювального тексту — deep/i);
+  assert.match(requestBody, /calloutKind і calloutDepth/i);
+  assert.match(requestBody, /глобальна рамка/i);
+  assert.match(requestBody, /локальне винесення/i);
+  assert.doesNotMatch(requestBody, /якорі-підзаголовки/i);
+  assert.doesNotMatch(requestBody, /не використовуй #, ## або HTML-заголовки/i);
 });
 
 test("generateEditorialReview serializes structural blocks in step prompts", async () => {
@@ -856,6 +930,7 @@ test("generateEditorialReview retries transient chunked emphasis fetch failures"
   const chunks = planEmphasisChunks(document.blocks);
   let requestCount = 0;
   let sleepCalls = 0;
+  const failedChunkIndexes = new Set<number>();
 
   const response = await generateEditorialReview(
     createRequest({
@@ -865,15 +940,18 @@ test("generateEditorialReview retries transient chunked emphasis fetch failures"
       apiKey: "test-key"
     }),
     {
-      fetchImpl: async () => {
+      fetchImpl: async (_input, init) => {
+        const body = String(init?.body ?? "");
+        const chunkMatch = body.match(/Чанк (\d+)\//);
+        const chunkIndex = Number(chunkMatch?.[1] ?? "1") - 1;
         requestCount += 1;
 
-        if (requestCount === 2) {
+        if (chunkIndex === 1 && !failedChunkIndexes.has(1)) {
+          failedChunkIndexes.add(1);
           throw new TypeError("Failed to fetch");
         }
 
-        const successfulChunkIndex = requestCount === 1 ? 0 : requestCount - 2;
-        const blockId = chunks[successfulChunkIndex].coreBlockIds[0];
+        const blockId = chunks[chunkIndex].coreBlockIds[0];
         return new Response(
           JSON.stringify({
             output_text: JSON.stringify({
@@ -1243,7 +1321,7 @@ test("generateEditorialReview sends grounded Gemini fact-check request via heade
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1329,7 +1407,7 @@ test("generateEditorialReview preserves parsed row sources when grounded mapping
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1412,7 +1490,7 @@ test("generateEditorialReview drops grounded sources outside trusted domain allo
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1502,7 +1580,7 @@ test("generateEditorialReview replaces unsupported explanations when suspicious 
   const response = await generateEditorialReview(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-test-key",
       stepId: "fact_check"
     }),
@@ -1713,10 +1791,9 @@ test("generateEditorialReview injects clarity-specific anti-disclaimer guardrail
   assert.equal(response.usedFallback, false);
   assert.ok(requestBody);
   assert.match(String(requestBody?.instructions ?? ""), /не пропонуй шаблонних застережень про консультацію з лікарем/i);
-  assert.match(String(requestBody?.instructions ?? ""), /для кроку «ясність» пропонуй лише мовні й локально-структурні правки/i);
   assert.match(String(requestBody?.instructions ?? ""), /для «ясність» не пропонуй підзаголовки, врізки, таблиці або зміни макроструктури/i);
   assert.match(String(requestBody?.instructions ?? ""), /одна картка має охоплювати лише один суцільний діапазон абзаців без розривів/i);
-  assert.match(String(requestBody?.instructions ?? ""), /subsection.*одна картка означає рівно одну дію/i);
+  assert.doesNotMatch(String(requestBody?.instructions ?? ""), /subsection.*одна картка означає рівно одну дію/i);
   assert.match(String(requestBody?.instructions ?? ""), /якщо одна проблема є в несуміжних місцях/i);
   assert.match(String(requestBody?.instructions ?? ""), /пунктуація списків:/i);
   assert.match(String(requestBody?.instructions ?? ""), /починається з малої літери/i);
@@ -1854,13 +1931,70 @@ test("generateEditorialReview filters recommendation types by focused step allow
     createRequest({ apiKey: "test-key", stepId: "visuals" }),
     { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
   );
+  let finalEditingCalls = 0;
   const finalEditingResponse = await generateEditorialReview(
     createRequest({
       apiKey: "test-key",
       stepId: "final_editing",
       stepFeedback: "Зроби все корисне для читача."
     }),
-    { fetchImpl, now: () => "2026-03-10T12:00:00.000Z" }
+    {
+      fetchImpl: async () => {
+        finalEditingCalls += 1;
+        if (finalEditingCalls === 1) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                actions: [
+                  { blockId: "p1", recommendationType: "rewrite", title: "Rewrite", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "simplify", title: "Simplify", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "expand", title: "Expand", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "list", title: "List", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "subsection", title: "Subsection", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "callout", title: "Callout", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "visual", title: "Visual", recommendation: "Seed", priority: "medium" }
+                ]
+              })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Картка",
+                  reason: "Seed",
+                  recommendation: "Seed",
+                  recommendationType: "rewrite",
+                  suggestedAction: "rewrite_text",
+                  priority: "medium",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  blockId: "p1",
+                  excerpt: "Фрагмент",
+                  insertionHint: "replace",
+                  anchorBlockId: "p1",
+                  headingLevel: null,
+                  headingTitle: null,
+                  calloutKind: null,
+                  calloutDepth: null,
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
   );
 
   assert.deepEqual(
@@ -1904,9 +2038,10 @@ test("generateEditorialReview filters recommendation types by focused step allow
   assert.equal(visualsResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, 6);
 
   assert.deepEqual(
-    finalEditingResponse.items.map((item) => item.recommendationType).sort(),
+    finalEditingResponse.plan?.actions.map((item) => item.recommendationType).sort(),
     ["callout", "expand", "list", "rewrite", "simplify", "subsection", "visual"]
   );
+  assert.equal(finalEditingResponse.items.length, 7);
   assert.equal(finalEditingResponse.diagnostics.filteredItemCountsByType, undefined);
   assert.equal(finalEditingResponse.diagnostics.droppedItemCountsByReason?.filtered_by_step_type, undefined);
 
@@ -1989,23 +2124,19 @@ test("generateEditorialReview injects structure, formatting, and interest scope 
   const formattingInstructions = String(requestBodies[1]?.instructions ?? "");
   const interestInstructions = String(requestBodies[2]?.instructions ?? "");
 
-  assert.match(structureInstructions, /для «структура» дозволений лише recommendationtype='subsection'/i);
+  assert.match(structureInstructions, /recommendationType='subsection'/i);
   assert.match(structureInstructions, /headinglevel=2 для нового смислового розділу/i);
   assert.match(structureInstructions, /одна картка = один конкретний підзаголовок/i);
-  assert.match(formattingInstructions, /для «форматування» дозволені лише recommendationtype='list' та 'callout'/i);
+  assert.match(formattingInstructions, /списки та врізки/i);
   assert.doesNotMatch(formattingInstructions, /list\/subsection\/callout/i);
-  assert.match(formattingInstructions, /не пропонуй subsection\/підзаголовки/i);
-  assert.match(formattingInstructions, /не пропонуй мовне переписування абзаців як окремий тип правки/i);
-  assert.match(interestInstructions, /для «інтерес» дозволені лише recommendationtype='callout' та 'expand'/i);
+  assert.match(formattingInstructions, /Не пропонуй підзаголовки — вони належать кроку «Структура»/);
   assert.match(interestInstructions, /не пропонуй візуали/i);
   assert.match(interestInstructions, /не роби мовне переписування заради ясності/i);
-  assert.match(formattingInstructions, /глобальна врізка/i);
-  assert.match(formattingInstructions, /локальна врізка/i);
-  assert.match(formattingInstructions, /у recommendation вже напиши цю нову користь/i);
-  assert.match(formattingInstructions, /весь цей фрагмент розділу/i);
-  assert.match(interestInstructions, /глобальна врізка/i);
-  assert.match(interestInstructions, /не зводь усі callout до переказу якоря/i);
-  assert.doesNotMatch(structureInstructions, /весь цей фрагмент розділу/i);
+  assert.match(formattingInstructions, /глобальна рамка/i);
+  assert.match(formattingInstructions, /локальне винесення/i);
+  assert.match(interestInstructions, /глобальна рамка/i);
+  assert.doesNotMatch(formattingInstructions, /якорі-підзаголовки/i);
+  assert.doesNotMatch(structureInstructions, /calloutKind/);
 });
 
 function clarityCardPayload(blockId: string) {
@@ -2175,3 +2306,234 @@ test("generateEditorialReview tells chunked clarity to skip context-only blocks"
   assert.match(requestBody, /основних blockId: p1/);
   assert.match(requestBody, /не повертай для них картки: h1/);
 });
+
+test("generateEditorialReview runs at most three recommendation chunks at once", async () => {
+  const filler = "абзац для паралельного розбору ".repeat(450);
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [1, 2, 3, 4].flatMap((index) => [
+      { id: `h${index}`, type: "heading" as const, level: 2 as const, content: [{ text: `Розділ ${index}` }] },
+      { id: `p${index}`, type: "paragraph" as const, content: [{ text: `${filler} ${index}` }] }
+    ])
+  };
+  const chunks = planReviewChunks(document.blocks);
+  assert.ok(chunks.length >= 4, `expected at least 4 chunks, got ${chunks.length}`);
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let started = 0;
+
+  await generateEditorialReview(
+    createRequest({
+      document,
+      revision: deriveManuscriptRevisionState(document),
+      stepId: "clarity",
+      apiKey: "test-key"
+    }),
+    {
+      fetchImpl: async () => {
+        started += 1;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        inFlight -= 1;
+        return new Response(
+          JSON.stringify({ output_text: JSON.stringify({ items: [] }) }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-08-17T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(started, chunks.length);
+  assert.equal(maxInFlight, 3);
+});
+
+test("generateEditorialReview fails loud when custom-request plan has no valid actions", async () => {
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      apiKey: "test-key",
+      stepFeedback: "запропонуй 10 врізок до цього тексту."
+    }),
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              actions: [
+                {
+                  blockId: "missing-block",
+                  recommendationType: "callout",
+                  title: "Врізка",
+                  recommendation: "Невалідний якір.",
+                  priority: "high"
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+      now: () => "2026-08-17T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.items.length, 0);
+  assert.equal(response.plan?.actions.length, 0);
+  assert.match(String(response.error), /план дій|action plan/i);
+});
+
+test("generateEditorialReview plan prompt aims near whole-chapter volume without fragment count guidance", async () => {
+  let requestBody = "";
+  let callCount = 0;
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      apiKey: "test-key",
+      stepFeedback: "запропонуй 10 врізок до цього тексту. Вони можуть бути короткими — обсягом 500 знаків."
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        callCount += 1;
+        if (callCount === 1) {
+          requestBody = String(init?.body ?? "");
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                actions: [
+                  {
+                    blockId: "p1",
+                    recommendationType: "callout",
+                    title: "Врізка",
+                    recommendation: "Локальна врізка.",
+                    priority: "medium"
+                  }
+                ]
+              })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Врізка",
+                  reason: "Seed",
+                  recommendation: "Локальна врізка.",
+                  recommendationType: "callout",
+                  suggestedAction: "prepare_callout",
+                  priority: "medium",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  blockId: "p1",
+                  excerpt: "Фрагмент",
+                  insertionHint: "after",
+                  anchorBlockId: "p1",
+                  headingLevel: null,
+                  headingTitle: null,
+                  calloutKind: "mechanism",
+                  calloutDepth: "brief",
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-08-17T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /Жорстка стеля: не більше 20/);
+  assert.match(requestBody, /якщо запит називає цільову кількість/i);
+  assert.doesNotMatch(requestBody, /не виконуй їх у одному фрагменті/i);
+  assert.doesNotMatch(requestBody, /зазвичай 0-2/i);
+  assert.doesNotMatch(requestBody, /Квота редактора на весь розділ: 10/);
+});
+
+test("generateEditorialReview generates planned custom-request cards with at most three concurrent calls", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let callCount = 0;
+
+  const response = await generateEditorialReview(
+    createRequest({
+      stepId: "final_editing",
+      apiKey: "test-key",
+      stepFeedback: "зроби чотири локальні правки"
+    }),
+    {
+      fetchImpl: async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          return new Response(
+            JSON.stringify({
+              output_text: JSON.stringify({
+                actions: [
+                  { blockId: "p1", recommendationType: "rewrite", title: "A", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "simplify", title: "B", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "expand", title: "C", recommendation: "Seed", priority: "medium" },
+                  { blockId: "p1", recommendationType: "list", title: "D", recommendation: "Seed", priority: "medium" }
+                ]
+              })
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        inFlight -= 1;
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                {
+                  title: "Картка",
+                  reason: "Seed",
+                  recommendation: "Seed",
+                  recommendationType: "rewrite",
+                  suggestedAction: "rewrite_text",
+                  priority: "medium",
+                  blockStart: 1,
+                  blockEnd: 1,
+                  blockId: "p1",
+                  excerpt: "Фрагмент",
+                  insertionHint: "replace",
+                  anchorBlockId: "p1",
+                  headingLevel: null,
+                  headingTitle: null,
+                  calloutKind: null,
+                  calloutDepth: null,
+                  calloutTitle: null,
+                  calloutPreviewText: null,
+                  calloutSummary: null,
+                  calloutPrompt: null,
+                  visualIntent: null
+                }
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-08-17T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(response.plan?.actions.length, 4);
+  assert.equal(response.items.length, 4);
+  assert.equal(maxInFlight, 3);
+});
+

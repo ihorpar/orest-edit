@@ -119,10 +119,11 @@ const editorUk = {
       zeroResult: "Етап завершено без нових акцентів."
     },
     finalEditing: {
-      active: "Готуємо картки за власним запитом.",
+      active: "Плануємо дії за власним запитом…",
       idle: "Опишіть власний запит, щоб отримати локальні картки.",
       waiting: "Напишіть власний запит для цього етапу.",
       success: "Рекомендації готові. Можна переглядати та застосовувати картки.",
+      planReady: "План дій готовий. Картки з’являться після генерації.",
       zeroResult: "Етап завершено без нових карток."
     },
     recommendations: {
@@ -274,6 +275,7 @@ const editorUk = {
   },
   disabledReasons: {
     waitCurrentRun: "Дочекайтеся завершення поточного запуску.",
+    waitOtherStepRun: (stepLabel: string) => `Дочекайтеся завершення кроку «${stepLabel}».`,
     addManuscriptText: "Додайте текст рукопису, щоб запустити етап.",
     waitSpellcheck: "Дочекайтеся завершення перевірки правопису.",
     addTextBlocks: "Додайте текстові абзаци або заголовки, щоб запустити етап.",
@@ -513,6 +515,8 @@ const editorUk = {
     goToLabel: (label: string) => `Перейти до ${label}`,
     paragraphAfterEdit: (index: number) => `Абзац ${index} після правки`,
     dismiss: "Відхилити",
+    showMore: "Більше…",
+    showLess: "Менше",
     statusAccepted: "погоджено",
     statusDismissed: "відхилено",
     statusReady: "готово",
@@ -532,6 +536,8 @@ const editorUk = {
         : `Підготовлено ${count} рядків факт-чеку.`,
     factCheckClean: "Факт-чек не виявив окремих спірних тверджень.",
     noStrongRecommendations: "ШІ не знайшов сильних локальних рекомендацій.",
+    customRequestPlanReady: (count: number) =>
+      `План готовий: ${count} ді${count === 1 ? "я" : count < 5 ? "ї" : "й"}. Картки з’являться після генерації.`,
     stepCardsPrepared: (stepLabel: string, count: number) =>
       `У кроці «${stepLabel}» підготовлено ${count} карток з рекомендаціями.`,
     cardsPrepared: (count: number) => `Підготовлено ${count} карток з рекомендаціями для цього кроку.`,
@@ -543,6 +549,8 @@ const editorUk = {
     reviewJobInvalid: "Сервер повернув некоректний стан перевірки.",
     reviewJobReadFailed: "Не вдалося прочитати стан перевірки.",
     reviewJobFailed: "Перевірка завершилася з помилкою. Запустіть крок ще раз.",
+    reviewRunResultInvalid: "Запуск завершився без коректної відповіді. Запустіть крок ще раз.",
+    reviewRunOtherStepActive: (stepLabel: string) => `Зараз виконується крок «${stepLabel}». Дочекайтеся завершення або відкрийте той крок.`,
     reviewRunFailed: "Не вдалося запустити перевірку.",
     reviewRunResuming: "Відновлюємо незавершену перевірку…",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
@@ -550,6 +558,9 @@ const editorUk = {
         ? `Повторна спроба ${attempt ?? 1} · Розібрано початок розділу · ${completed} з ${total} фрагментів`
         : `Розібрано початок розділу · ${completed} з ${total} фрагментів`,
     reviewRunProgressPending: "Розбираємо розділ…",
+    reviewRunPlanningProgress: "Плануємо дії за власним запитом…",
+    reviewRunGeneratingProgress: (completed: number, total: number) =>
+      `Генеруємо картки · ${completed} з ${total}`,
     reviewRunStale: "Перевірку завершено для попередньої версії рукопису. Результат збережено, але не застосовано.",
     retryFragment: "Повторити цей фрагмент",
     retryFragmentUnavailable: "Цей фрагмент уже не знайдено в рукописі."

@@ -85,6 +85,10 @@ export interface EditorialStepRunSnapshot {
   expertise?: string | null;
   factCheckRows?: EditorialFactCheckRow[];
   itemIds?: string[];
+  /** Custom-request plan size when cards are not generated yet (M1 plan-only). */
+  planActionCount?: number;
+  /** Planned actions retained for per-action generate retry. */
+  planActions?: CustomRequestPlanAction[];
 }
 
 export type EditorialStepRunHistory = Record<EditorialReviewStepId, EditorialStepRunSnapshot[]>;
@@ -156,6 +160,10 @@ export interface EditorialReviewRequest {
   reviewChunk?: EditorialReviewChunkScope;
   /** @deprecated Use reviewChunk. Kept so existing emphasis call sites stay valid. */
   emphasisChunk?: EditorialReviewChunkScope;
+  /** Single planned custom-request action for generate or per-action retry (skips re-plan). */
+  customRequestPlanAction?: CustomRequestPlanAction & { index?: number };
+  /** When true, final_editing stops after the chapter plan (durable plan step). */
+  customRequestPlanOnly?: boolean;
   /** Stable server-internal identity reused when a durable provider step retries. */
   providerRequestKey?: string;
 }
@@ -248,12 +256,42 @@ export interface EditorialReviewResponse {
   stepRunId: string;
   runMode: EditorialStepRunMode;
   items: EditorialReviewItem[];
+  /** Chapter-level custom-request plan (final_editing). Empty items until generate runs. */
+  plan?: CustomRequestPlan;
   factCheckRows?: EditorialFactCheckRow[];
   expertise?: string;
   providerUsed: string;
   usedFallback: boolean;
   error?: string;
   diagnostics: EditorialReviewDiagnostics;
+}
+
+/** Allowed recommendation types for `final_editing` plan → generate. */
+export const CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES: EditorialReviewRecommendationType[] = [
+  "rewrite",
+  "simplify",
+  "expand",
+  "list",
+  "subsection",
+  "callout",
+  "visual"
+];
+
+/** Hard ceiling for planned actions on one custom-request run (no regex count parsing). */
+export const CUSTOM_REQUEST_PLAN_MAX_ACTIONS = 20;
+
+export interface CustomRequestPlanAction {
+  blockId: string;
+  recommendationType: EditorialReviewRecommendationType;
+  title: string;
+  recommendation: string;
+  priority: EditorialReviewPriority;
+}
+
+export interface CustomRequestPlan {
+  actions: CustomRequestPlanAction[];
+  documentRevisionId?: string;
+  stepRunId?: string;
 }
 
 export type EditorialReviewRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -269,6 +307,8 @@ export interface EditorialReviewRunIdentity {
   createdAt: string;
 }
 
+export type EditorialReviewRunPhase = "planning" | "generating";
+
 export interface EditorialReviewRunProgress {
   completedChunks: number;
   totalChunks: number;
@@ -277,6 +317,8 @@ export interface EditorialReviewRunProgress {
   failedChunks?: EditorialReviewFailedChunk[];
   attempt?: number;
   retryAt?: string;
+  /** Custom-request plan→generate phases; other steps omit this. */
+  phase?: EditorialReviewRunPhase;
 }
 
 export interface EditorialReviewFailedChunk {
@@ -315,6 +357,7 @@ export type EditorialReviewRunApiResponse =
       run: EditorialReviewRunSnapshot;
       capability: string;
       items?: EditorialReviewItem[];
+      plan?: CustomRequestPlan;
     }
   | {
       kind: "result";
@@ -326,6 +369,7 @@ export type EditorialReviewRunApiResponse =
       error: EditorialReviewRunError;
       run?: EditorialReviewRunSnapshot;
       items?: EditorialReviewItem[];
+      plan?: CustomRequestPlan;
     };
 
 export function isEditorialReviewRunApiResponse(value: unknown): value is EditorialReviewRunApiResponse {
@@ -344,7 +388,8 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
       typeof (error as Record<string, unknown>).message === "string" &&
       typeof (error as Record<string, unknown>).retryable === "boolean" &&
       (record.run === undefined || isEditorialReviewRunSnapshot(record.run)) &&
-      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape)))
+      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape))) &&
+      (record.plan === undefined || isCustomRequestPlanShape(record.plan))
     );
   }
 
@@ -355,11 +400,12 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
   if (record.kind === "run") {
     return typeof record.capability === "string" &&
       record.capability.length > 0 &&
-      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape)));
+      (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape))) &&
+      (record.plan === undefined || isCustomRequestPlanShape(record.plan));
   }
 
   if (record.kind === "result") {
-    return record.run.status === "completed" && isEditorialReviewResponseShape(record.result);
+    return record.run.status === "completed" && isEditorialReviewResponse(record.result);
   }
 
   return false;
@@ -391,7 +437,33 @@ function isEditorialReviewRunProgressShape(value: unknown): boolean {
       Array.isArray(progress.failedChunks) && progress.failedChunks.every(isEditorialReviewFailedChunkShape)
     )) &&
     (progress.attempt === undefined || typeof progress.attempt === "number") &&
-    (progress.retryAt === undefined || typeof progress.retryAt === "string");
+    (progress.retryAt === undefined || typeof progress.retryAt === "string") &&
+    (progress.phase === undefined || progress.phase === "planning" || progress.phase === "generating");
+}
+
+function isCustomRequestPlanActionShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const action = value as Record<string, unknown>;
+  return typeof action.blockId === "string" &&
+    typeof action.title === "string" &&
+    typeof action.recommendation === "string" &&
+    CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES.includes(action.recommendationType as EditorialReviewRecommendationType) &&
+    (action.priority === "high" || action.priority === "medium" || action.priority === "low");
+}
+
+export function isCustomRequestPlanShape(value: unknown): value is CustomRequestPlan {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const plan = value as Record<string, unknown>;
+  return Array.isArray(plan.actions) &&
+    plan.actions.every(isCustomRequestPlanActionShape) &&
+    (plan.documentRevisionId === undefined || typeof plan.documentRevisionId === "string") &&
+    (plan.stepRunId === undefined || typeof plan.stepRunId === "string");
 }
 
 export function isEditorialReviewRunSnapshot(value: unknown): value is EditorialReviewRunSnapshot {
@@ -419,7 +491,7 @@ export function isEditorialReviewRunSnapshot(value: unknown): value is Editorial
   );
 }
 
-function isEditorialReviewResponseShape(value: unknown): value is EditorialReviewResponse {
+export function isEditorialReviewResponse(value: unknown): value is EditorialReviewResponse {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -433,6 +505,7 @@ function isEditorialReviewResponseShape(value: unknown): value is EditorialRevie
     typeof result.stepRunId === "string" &&
     (result.runMode === "replace" || result.runMode === "preserve") &&
     Array.isArray(items) && items.every(isEditorialReviewItemShape) &&
+    (result.plan === undefined || isCustomRequestPlanShape(result.plan)) &&
     (factCheckRows === undefined || (Array.isArray(factCheckRows) && factCheckRows.every(isEditorialFactCheckRowShape))) &&
     (result.expertise === undefined || typeof result.expertise === "string") &&
     typeof result.providerUsed === "string" &&
@@ -1027,6 +1100,126 @@ export function resolveReviewImageAssetUrl(asset: GeneratedReviewImageAsset): st
   }
 
   return asset.source.url.trim() || null;
+}
+
+export function normalizeCustomRequestPlan(input: {
+  raw: unknown;
+  document: EditorDocument;
+  maxActions?: number;
+  documentRevisionId?: string;
+  stepRunId?: string;
+}): {
+  plan: CustomRequestPlan;
+  droppedUnknownBlockIds: number;
+  droppedInvalid: number;
+  droppedOverCeiling: number;
+} {
+  const maxActions = Math.max(1, input.maxActions ?? CUSTOM_REQUEST_PLAN_MAX_ACTIONS);
+  const knownBlockIds = new Set(input.document.blocks.map((block) => block.id));
+  const rawActions = extractCustomRequestPlanActions(input.raw);
+  const actions: CustomRequestPlanAction[] = [];
+  const seen = new Set<string>();
+  let droppedUnknownBlockIds = 0;
+  let droppedInvalid = 0;
+  let droppedOverCeiling = 0;
+
+  for (const entry of rawActions) {
+    if (!entry || typeof entry !== "object") {
+      droppedInvalid += 1;
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const blockId = typeof record.blockId === "string" ? record.blockId.trim() : "";
+    const recommendationType = normalizeCustomRequestPlanRecommendationType(record.recommendationType);
+    const title = truncatePlanSeed(record.title, 120);
+    const recommendation = truncatePlanSeed(record.recommendation, 400);
+    const priority = normalizePlanPriority(record.priority);
+
+    if (!blockId || !recommendationType || !title || !recommendation) {
+      droppedInvalid += 1;
+      continue;
+    }
+
+    if (!knownBlockIds.has(blockId)) {
+      droppedUnknownBlockIds += 1;
+      continue;
+    }
+
+    const dedupeKey = `${recommendationType}:${blockId}`;
+    if (seen.has(dedupeKey)) {
+      droppedInvalid += 1;
+      continue;
+    }
+
+    if (actions.length >= maxActions) {
+      droppedOverCeiling += 1;
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    actions.push({
+      blockId,
+      recommendationType,
+      title,
+      recommendation,
+      priority
+    });
+  }
+
+  return {
+    plan: {
+      actions,
+      documentRevisionId: input.documentRevisionId,
+      stepRunId: input.stepRunId
+    },
+    droppedUnknownBlockIds,
+    droppedInvalid,
+    droppedOverCeiling
+  };
+}
+
+function extractCustomRequestPlanActions(raw: unknown): unknown[] {
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+
+  const record = raw as Record<string, unknown>;
+  if (Array.isArray(record.actions)) {
+    return record.actions;
+  }
+
+  return [];
+}
+
+function normalizeCustomRequestPlanRecommendationType(value: unknown): EditorialReviewRecommendationType | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES.includes(normalized as EditorialReviewRecommendationType)) {
+    return normalized as EditorialReviewRecommendationType;
+  }
+
+  if (normalized in LEGACY_RECOMMENDATION_TYPE_MAP) {
+    const mapped = LEGACY_RECOMMENDATION_TYPE_MAP[normalized];
+    return CUSTOM_REQUEST_PLAN_RECOMMENDATION_TYPES.includes(mapped) ? mapped : null;
+  }
+
+  return null;
+}
+
+function normalizePlanPriority(value: unknown): EditorialReviewPriority {
+  return value === "high" || value === "low" ? value : "medium";
+}
+
+function truncatePlanSeed(value: unknown, maxLength: number): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
 export function normalizeEditorialReviewItems(input: {

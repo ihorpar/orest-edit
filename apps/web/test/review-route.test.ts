@@ -22,7 +22,7 @@ function createRequestBody(overrides: Partial<EditorialReviewRequest> = {}): Edi
     document,
     revision: deriveManuscriptRevisionState(document),
     provider: "gemini",
-    modelId: "gemini-3.6-flash",
+    modelId: "gemini-3.7-flash",
     changeLevel: 3,
     additionalInstructions: "",
     runMode: "replace",

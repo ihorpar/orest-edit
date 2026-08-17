@@ -7,6 +7,7 @@ test("getApiErrors returns English validation messages", () => {
 
   assert.equal(errors.invalidRequestBody, "Invalid request body.");
   assert.equal(errors.jobIdRequired, "jobId is required.");
+  assert.equal(errors.reviewResultInvalid, "The review run finished without a valid result. Run the step again.");
   assert.match(errors.invalidSelectionRange, /Invalid selection\.range/i);
 });
 

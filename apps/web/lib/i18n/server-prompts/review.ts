@@ -79,7 +79,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     stepFocusPrefix: (guidance: string) => `Окремий фокус кроку: ${guidance}`,
     analysisMode: "Режим роботи: повний редакторський діагноз без карток дій.",
     cardsMode:
-      "Режим роботи: повний редакторський прохід у межах цього етапу. Поверни всі сильні локальні рекомендації, які справді допоможуть редактору.",
+      "Поверни сильні локальні рекомендації саме для цього кроку.",
     analysisMarkdownFormat:
       "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN».",
     diagnosticsMacroMode:
@@ -105,18 +105,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Для recommendationType='subsection' одна картка означає рівно одну дію: вставити один новий підзаголовок (H2 або H3) перед одним місцем. Не описуй у межах однієї subsection-картки два або більше майбутніх підзаголовків. Для subsection обов'язково вкажи headingLevel: 2 або 3 і headingTitle — готовий короткий текст підзаголовка для вставки в рукопис.",
     recommendationCardsSplitFragments:
       "Якщо одна проблема є в несуміжних місцях (наприклад 2, 10, 15-17), повертай кілька карток: по одній на кожен окремий суцільний фрагмент.",
-    recommendationCardsCalloutKindDepth:
-      "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента.",
-    recommendationCardsCalloutBriefDeep:
-      "calloutDepth='brief' означає компактну, але завершену врізку: заголовок плюс кілька коротких абзаців або пунктів, не одне речення-переказ. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах з внутрішньою структурою.",
-    recommendationCardsCalloutPreferDeep:
-      "Не обирай brief за замовчуванням. Якщо фрагмент щільний, пояснювальний, вводить механізм, причинно-наслідковий ланцюг, практичні наслідки або потребує розгортання контексту, віддавай перевагу deep.",
-    recommendationCardsDeepCalloutStructure:
-      "Для deep-callout вимагай структуровану подачу: не суцільне полотно, а 3-6 абзаців із активним використанням **жирного**. Перед частиною абзаців мають з'являтися короткі **якорі-підзаголовки** з 1-3 слів окремим рядком, а всередині тексту - **ключові думки**. Якщо є природне перерахування причин, кроків, наслідків або прикладів, передбач один короткий список.",
-    recommendationCardsDeepCalloutNoHtmlHeadings:
-      "Для deep-callout не використовуй #, ## або HTML-заголовки. Підзаголовки мають бути оформлені тільки як короткі жирні рядки на кшталт **Чому це важливо**.",
     recommendationCardsCalloutJobs:
-      "Для callout дивись на весь цей фрагмент розділу і пропонуй обидва типи карток. Глобальна врізка: у цьому тексті ще немає корисної рамки для читача (як читати результат, чого текст не доводить, побут, міф/правда, критерії) — у recommendation вже напиши цю нову користь конкретно, не «додай врізку про тему»; якір лише місце вставки. Локальна врізка: щільний фрагмент краще живе як врізка — у recommendation явно скажи винести/перекомпонувати саме цей фрагмент, без вимоги нових фактів. Не зводь усі callout до переказу якоря. Не вигадуй непідкріплені медтвердження (дослідження, дози, відсотки, бренди, діагнози), якщо цього немає в тексті й редактор цього не просив.",
+      "Для callout обов'язково вкажи calloutKind і calloutDepth (brief або deep; для щільного пояснювального тексту — deep). Пропонуй обидва типи: глобальна рамка (новизна вже в recommendation, якір лише місце вставки) і локальне винесення щільного фрагмента. Не вигадуй медтвердження, яких немає в тексті й редактор не просив.",
     clarityScope:
       "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій.",
     clarityNoStructure:
@@ -155,6 +145,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Це не квота і не максимум. Якщо корисних локальних дій більше, поверни більше карток; якщо сильних дій менше, не добирай слабкі або дубльовані ідеї.",
     cardDensityPreferStrongCards:
       "Краще дати редактору трохи більше сильних карток, ніж промовчати про корисні правки, бо частину карток редактор відхилить.",
+    recommendationCardsChapterWideRequest: (chunkIndex: number, totalChunks: number) =>
+      `Запит редактора стосується всього розділу, а не лише цього фрагмента (${chunkIndex + 1} з ${totalChunks}). Будь-які абсолютні кількості в запиті (наприклад «10 врізок») — це ціль на весь документ; не виконуй їх у одному фрагменті. Повертай лише сильні локальні картки саме для цього фрагмента; зазвичай 0-2, рідко більше, якщо місць справді багато.`,
     emphasisCoverageTarget: (minItems: number, maxItems: number, eligibleBlocks: number) =>
       `М'який орієнтир для цього документа: приблизно ${minItems}-${maxItems} акцентів на ${eligibleBlocks} змістовних абзаців/заголовків. Це не жорстка квота, але слід покривати значну частину змістовного тексту, а не повертати лише поодинокі акценти. Краще повернути доречний короткий акцент для кожного сильного абзацу, ніж залишити добрі тези без виділення.`,
     blockLinePrefix: (index: number, label: string, blockId: string, text: string) =>
@@ -169,6 +161,26 @@ const REVIEW_PROMPT_SCAFFOLD = {
     finalEditingCustomPromptPrefix: "Власний запит редактора для цього запуску:",
     finalEditingExecuteAsCards:
       "Виконай саме власний запит редактора, але не редагуй документ напряму. Поверни результат як локальні recommendation-картки (rewrite, simplify, expand, list, subsection, callout, visual). Не генеруй акценти/emphasis — для цього є окремий крок «Акценти».",
+    customRequestPlanRole:
+      "Ти плануєш локальні редакторські дії для всього розділу за власним запитом. Не пиши повні тексти карток, тіла врізок чи image prompts.",
+    customRequestPlanJsonFormat: (types: string) =>
+      `Формат відповіді: JSON {"actions":[{"blockId":"...","recommendationType":"${types.split(", ").join("|")}","title":"...","recommendation":"...","priority":"high|medium|low"}]} без markdown і без інших ключів.`,
+    customRequestPlanAnchorRule:
+      "Кожна action має blockId рівно з OUTLINE або SAMPLES (квадратні дужки). Якір — місце локальної дії в рукописі.",
+    customRequestPlanSeedRule:
+      "title і recommendation — короткі seeds (1 рядок / 1-2 речення), достатні щоб пізніше згенерувати картку. Не повертай calloutPrompt, calloutPreviewText, visual prompt або повний replacement.",
+    customRequestPlanVolumeRule: (maxActions: number) =>
+      `Обсяг: якщо запит називає цільову кількість на весь розділ — орієнтуйся близько до неї, але не парси числа окремим алгоритмом поза змістом запиту. Якщо кількості немає — поверни лише стільки сильних дій, скільки справді потрібно. Жорстка стеля: не більше ${maxActions} actions.`,
+    customRequestPlanNoCardsRule:
+      "Не повертай items[] recommendation-карток. Лише actions[]. Не вигадуй blockId, яких немає в документі.",
+    customRequestPlanDocumentPrefix: "Огляд розділу для планування (outline + зразки, не повний текст):",
+    customRequestGenerateRole:
+      "Ти генеруєш рівно одну локальну recommendation-картку за запланованою дією. Не плануй інші дії.",
+    customRequestGenerateJsonFormat:
+      'Формат відповіді: JSON {"items":[{"blockId":"...","title":"...","reason":"...","recommendation":"...","recommendationType":"rewrite|simplify|expand|list|subsection|callout|visual","priority":"high|medium|low","excerpt":"...","insertionHint":"replace|before|after","headingLevel":2|3|null,"headingTitle":null,"calloutKind":null,"calloutDepth":null,"visualIntent":null}]} без markdown.',
+    customRequestGenerateSeedRule:
+      "Дотримуйся recommendationType і blockId із запланованої дії. Можеш уточнити title/reason/recommendation, але не змінюй якір і тип.",
+    customRequestGenerateOneCardRule: "Поверни рівно один item. Не повертай порожній items[].",
     diagnosticsRubric:
       "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови.",
     diagnosticsHeadings:
@@ -215,7 +227,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     stepFocusPrefix: (guidance: string) => `Step-specific focus: ${guidance}`,
     analysisMode: "Work mode: full editorial diagnosis without action cards.",
     cardsMode:
-      "Work mode: full editorial pass within this step. Return every strong local recommendation that will genuinely help the editor.",
+      "Return strong local recommendations for this step only.",
     analysisMarkdownFormat:
       'Response format: Markdown in English, with paragraph references in the form "para. NNN".',
     diagnosticsMacroMode:
@@ -241,18 +253,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "For recommendationType='subsection', one card means exactly one action: insert one new subhead (H2 or H3) before one location. Do not describe two or more future subheads within one subsection card. For subsection, always set headingLevel: 2 or 3 and headingTitle — the ready short subhead text to insert into the manuscript.",
     recommendationCardsSplitFragments:
       "If one problem appears in non-adjacent places (for example 2, 10, 15-17), return multiple cards: one per separate contiguous fragment.",
-    recommendationCardsCalloutKindDepth:
-      "For recommendationType='callout', you must choose calloutKind and calloutDepth. calloutDepth may be 'brief' or 'deep'; choose the profile that best fits the article context and fragment.",
-    recommendationCardsCalloutBriefDeep:
-      "calloutDepth='brief' means a compact but complete callout: title plus several short paragraphs or points, not a one-sentence paraphrase. calloutDepth='deep' means a deep dive in 3-6 detailed paragraphs with internal structure.",
-    recommendationCardsCalloutPreferDeep:
-      "Do not default to brief. If the fragment is dense, explanatory, introduces a mechanism, cause-effect chain, practical consequences, or needs more context, prefer deep.",
-    recommendationCardsDeepCalloutStructure:
-      "For deep callouts, require structured delivery: not a solid slab, but 3-6 paragraphs with active use of **bold**. Before some paragraphs, add short **anchor subheads** of 1-3 words on their own line, and inside the text highlight **key ideas**. If there is a natural list of causes, steps, effects, or examples, include one short list.",
-    recommendationCardsDeepCalloutNoHtmlHeadings:
-      'For deep callouts, do not use #, ##, or HTML headings. Subheads must be formatted only as short bold lines such as **Why this matters**.',
     recommendationCardsCalloutJobs:
-      "For callout, look at this whole section fragment and propose both card jobs. Global callout: this text still lacks a useful reader frame (how to read a result, what the text does not prove, everyday use, myth/truth, criteria) — put that new value concretely in recommendation, not 'add a callout about the topic'; the anchor is only the insert point. Local callout: a dense fragment is better as a callout — say in recommendation to lift/restructure that fragment, without requiring new facts. Do not reduce every callout to paraphrasing the anchor. Do not invent ungrounded medical claims (studies, doses, percentages, brands, diagnoses) unless they are in the text or the editor asked for them.",
+      "For callout, set calloutKind and calloutDepth (brief or deep; prefer deep for dense explanatory text). Propose both jobs: a global frame (put the new value in recommendation; the anchor is only the insert point) and a local lift of a dense fragment. Do not invent medical claims that are not in the text unless the editor asked for them.",
     clarityScope:
       'For the "Clarity" step, propose only language and local-structural edits: simplification, tightening, local softening of certainty, explaining terms in simpler words, and fixing calques and awkward constructions.',
     clarityNoStructure:
@@ -291,6 +293,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "This is not a quota or maximum. If there are more useful local actions, return more cards; if there are fewer strong actions, do not pad with weak or duplicate ideas.",
     cardDensityPreferStrongCards:
       "It is better to give the editor a few more strong cards than to stay silent about useful edits, because the editor will reject some cards anyway.",
+    recommendationCardsChapterWideRequest: (chunkIndex: number, totalChunks: number) =>
+      `The editor request is for the whole chapter, not only this fragment (${chunkIndex + 1} of ${totalChunks}). Any absolute quantities in the request (for example "10 callouts") are a whole-document target; do not fulfill them in one fragment. Return only strong local cards for this fragment; usually 0-2, rarely more if there are truly many places.`,
     emphasisCoverageTarget: (minItems: number, maxItems: number, eligibleBlocks: number) =>
       `Soft guidance for this document: roughly ${minItems}-${maxItems} accents for ${eligibleBlocks} substantive paragraphs/headings. This is not a hard quota, but you should cover a substantial share of substantive text rather than returning only isolated accents. It is better to return a fitting short accent for each strong paragraph than to leave good theses unhighlighted.`,
     blockLinePrefix: (index: number, label: string, blockId: string, text: string) =>
@@ -305,6 +309,26 @@ const REVIEW_PROMPT_SCAFFOLD = {
     finalEditingCustomPromptPrefix: "Editor custom request for this run:",
     finalEditingExecuteAsCards:
       "Execute the editor's own request, but do not edit the document directly. Return local recommendation cards (rewrite, simplify, expand, list, subsection, callout, visual). Do not generate emphasis accents — that belongs to the separate Emphasis step.",
+    customRequestPlanRole:
+      "You plan local editorial actions for the whole chapter from the custom request. Do not write full card bodies, callout bodies, or image prompts.",
+    customRequestPlanJsonFormat: (types: string) =>
+      `Response format: JSON {"actions":[{"blockId":"...","recommendationType":"${types.split(", ").join("|")}","title":"...","recommendation":"...","priority":"high|medium|low"}]} with no markdown and no other keys.`,
+    customRequestPlanAnchorRule:
+      "Each action must use a blockId exactly from OUTLINE or SAMPLES (square brackets). The anchor is the local action site in the manuscript.",
+    customRequestPlanSeedRule:
+      "title and recommendation are short seeds (1 line / 1-2 sentences), enough to generate a card later. Do not return calloutPrompt, calloutPreviewText, visual prompts, or a full replacement.",
+    customRequestPlanVolumeRule: (maxActions: number) =>
+      `Volume: if the request names a whole-chapter target count, aim near it, but do not extract numbers with a separate algorithm outside the request meaning. If there is no count, return only as many strong actions as truly needed. Hard ceiling: at most ${maxActions} actions.`,
+    customRequestPlanNoCardsRule:
+      "Do not return recommendation-card items[]. Only actions[]. Do not invent blockIds that are not in the document.",
+    customRequestPlanDocumentPrefix: "Chapter overview for planning (outline + samples, not full text):",
+    customRequestGenerateRole:
+      "You generate exactly one local recommendation card from a planned action. Do not plan other actions.",
+    customRequestGenerateJsonFormat:
+      'Response format: JSON {"items":[{"blockId":"...","title":"...","reason":"...","recommendation":"...","recommendationType":"rewrite|simplify|expand|list|subsection|callout|visual","priority":"high|medium|low","excerpt":"...","insertionHint":"replace|before|after","headingLevel":2|3|null,"headingTitle":null,"calloutKind":null,"calloutDepth":null,"visualIntent":null}]} with no markdown.',
+    customRequestGenerateSeedRule:
+      "Keep the planned recommendationType and blockId. You may refine title/reason/recommendation, but do not change the anchor or type.",
+    customRequestGenerateOneCardRule: "Return exactly one item. Do not return an empty items[].",
     diagnosticsRubric:
       "Run a strict macro-diagnosis using this rubric: main structural diagnosis, section map, key structural problems, where subsections are needed, what is redundant or duplicated, exemplar paragraphs, and priority rebuild plan.",
     diagnosticsHeadings:
@@ -353,6 +377,7 @@ const REVIEW_SERVICE_ERRORS = {
     emptyDocument: "Документ порожній. Немає що аналізувати.",
     missingApiKey: (providerName: string) => `Немає API key для ${providerName} у формі або .env.`,
     missingCustomPrompt: "Напишіть власний запит для цього етапу.",
+    emptyCustomRequestPlan: "Не вдалося побудувати план дій за власним запитом. Уточніть запит і запустіть етап ще раз.",
     providerTimeout: (providerName: string, seconds: number) => `${providerName} перевищив таймаут ${seconds}с.`,
     providerUnavailable: (providerName: string) => `${providerName} недоступний.`,
     unknownProviderError: "Невідома помилка провайдера.",
@@ -364,6 +389,7 @@ const REVIEW_SERVICE_ERRORS = {
     emptyDocument: "The document is empty. There is nothing to analyze.",
     missingApiKey: (providerName: string) => `No API key for ${providerName} in the form or .env.`,
     missingCustomPrompt: "Write a custom request for this step.",
+    emptyCustomRequestPlan: "Could not build an action plan from the custom request. Clarify the request and run the step again.",
     providerTimeout: (providerName: string, seconds: number) => `${providerName} exceeded the ${seconds}s timeout.`,
     providerUnavailable: (providerName: string) => `${providerName} is unavailable.`,
     unknownProviderError: "Unknown provider error.",

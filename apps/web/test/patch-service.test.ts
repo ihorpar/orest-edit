@@ -342,7 +342,7 @@ test("generatePatchResponse turns fetch failures into a user-facing provider ava
   const response = await generatePatchResponse(
     createRequest({
       provider: "gemini",
-      modelId: "gemini-3.6-flash",
+      modelId: "gemini-3.7-flash",
       apiKey: "gemini-test-key"
     }),
     {

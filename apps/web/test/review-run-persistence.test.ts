@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createPersistedActiveReviewRun,
   isRunCompatibleWithEditor,
+  isReviewRunPollLeasedByOther,
   releaseReviewRunPollLease,
   tryAcquireReviewRunPollLease,
   withReviewRunStartLock
@@ -135,4 +136,18 @@ test("review starts use one exclusive same-origin Web Lock", async () => {
 
   assert.deepEqual(events, ["first:start", "first:end", "second:start", "second:end"]);
   assert.equal(lockNames[0], lockNames[1]);
+});
+
+test("isReviewRunPollLeasedByOther detects an active foreign poll lease", () => {
+  installWindow();
+
+  const runId = "wrun-foreign";
+  const ownerId = "tab-a";
+  const foreignOwnerId = "tab-b";
+  const now = Date.now();
+
+  assert.equal(isReviewRunPollLeasedByOther({ runId, ownerId, now }), false);
+  assert.equal(tryAcquireReviewRunPollLease({ runId, ownerId, now, ttlMs: 6_000 }), true);
+  assert.equal(isReviewRunPollLeasedByOther({ runId, ownerId: foreignOwnerId, now }), true);
+  assert.equal(isReviewRunPollLeasedByOther({ runId, ownerId, now }), false);
 });

@@ -4,6 +4,34 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-17
 
+### Custom request uses plan then generate
+Date: 2026-08-17
+Decision: `final_editing` / `Власний запит` builds one chapter-level action plan (anchors + types + short seeds) from outline + section samples, then generates one recommendation card per planned action in waves of 3. No regex count parsing. Hard ceiling 20 actions. Other recommendation steps keep 16k character-budget waves. Failed generates retry that action only (preserve), not a full re-plan.
+Reason: copying the custom request into every 16k fragment multiplied absolute quantities (e.g. “10 callouts” × fragment count). Soft per-fragment caps could not produce a stable chapter total.
+Rollback: temporarily route `final_editing` through `isChunkedRecommendationStep` again and remove the plan/generate branch in `editorial-review-workflow.ts`.
+
+### Chunked custom requests are chapter-scoped, not count-parsed
+Date: 2026-08-17
+Status: Superseded by “Custom request uses plan then generate” (2026-08-17). Kept for history: fragment prompts previously told the model not to fulfill absolute chapter counts in one fragment and used softer density (about 1–2 cards per fragment).
+Decision: when a recommendation step runs as multiple fragments, each fragment prompt states that the editor request is for the whole chapter. Absolute quantities in free text are not parsed by regex. The model is told not to fulfill a document-wide count inside one fragment and to return only local cards for that fragment (usually 0-2). Exact chapter totals, if needed later, should be an explicit UI field, not NLP over the prompt.
+
+Reason: copying “10 врізок” verbatim into 8 fragments produced ~80 cards. Regex quota splitting failed on misspellings and false positives (“пункт 10”, “топ 5”).
+
+### Recommendation fragments run three-wide
+Decision: recommendation-card steps execute planned 16k chunks in document-order waves of 3 (`REVIEW_CHUNK_CONCURRENCY`). Cards still stream as each fragment finishes and are merged in manuscript order. Progress updates after each wave. Holes, fragment retry, and 401/403 fatal abort stay unchanged. Diagnostics and fact-check stay one-shot.
+
+Reason: sequential 8–10 provider calls made even Luna feel slow on ~140k chapters. Waves of 3 cut wall-clock toward the slowest call in the wave without unbounded RPM.
+
+### Focused review prompts drop the shared cards catalog
+Decision: allowlisted recommendation steps (`structure`, `clarity`, `interest`, `visuals`, `formatting`, `emphasis`) no longer inject `cardsPrompt`. Callout body-structure / prepare rules stay in proposal generation. Review card generation for callout steps keeps a short kind/depth + global/local job line. `Власний запит` still receives a shortened mixed-type catalog.
+
+Reason: the shared catalog listed every type and deep-callout drafting instructions on every fragment, including Clarity and Structure.
+
+### Review Start never switches the visible step
+Decision: `Запустити` on step X starts or resumes only step X. A live run for another step blocks the new start with an explicit wait message and does not change the drawer. A non-terminal run that this tab is not polling is treated as a zombie: it is buried locally and the requested step starts. Progress, fragment retries, and the run-button loading state are scoped to the run's `stepId`. Poll/read failures always bury the persisted run, even when the error envelope has no `run`. Completed workflow `returnValue` is accepted only if it matches the review response contract; otherwise the client gets a localized fail-loud error, never a raw `TypeError`.
+
+Reason: a failed Custom Request left a zombie pending run. Starting Accents resumed that run and switched the UI to Custom Request, while `Cannot read properties of undefined (reading 'requestId')` leaked from an unguarded `result.diagnostics` access.
+
 ### Word export uses paragraph marks for inline newlines
 Decision: remaining `\n` inside paragraph, heading, callout, caption, table-cell, and list-item inline text exports as additional Word paragraphs (`<w:p>` / ¶), not as manual line breaks (`<w:br/>` / ↵). Rewrite/simplify/expand still replace exactly the selected manuscript block count; extra lines stay inside that block in the editor. Callout internal paragraphs stay in `callout.body[][]`. Shift+Enter remains in the editor and becomes a Word paragraph on export.
 
@@ -23,10 +51,20 @@ Reason: editors asked for a structured list as a change of shape, not a rewrite.
 
 Supersedes the stricter “list must never exceed selected block count” ceiling from the inline review execution plan when the extra block is specifically the intro paragraph.
 
+### Gemini editorial preset upgraded to 3.7 Flash
+Decision: the Gemini dropdown preset and backend API id for the high-thinking editorial model are now `gemini-3.7-flash` (label “Gemini 3.7 Flash”). Saved `gemini-3.6-flash` selections and legacy Pro/3.5-flash remaps normalize to `gemini-3.7-flash` via `normalizeModelId`.
+
+Reason: Google’s 3.7 Flash replaces 3.6 as the current fast editorial tier; keeping the old id in presets would send stale API model names.
+
+### Compact review cards keep actions visible
+Decision: expanding a compact recommendation card reveals a four-line preview of the recommendation plus the action row. Longer copy stays behind a grey `Більше…` control; the full text then scrolls inside the description, not by stretching the card until buttons disappear. Chevron still collapses the whole card.
+
+Reason: a 220px `max-height` on the whole expanded body clipped `Підготувати` / `Відхилити` when recommendation copy grew after the callout-job prompt change.
+
 ## 2026-08-12
 
 ### Large recommendation runs are character-budget chunks with prefix reveal
-Decision: recommendation-card steps (`clarity` first, then `structure`, `interest`, `visuals`, `formatting`, `final_editing`, and incremental reveal for `emphasis`) pack the manuscript into sequential durable chunks with a hard 16,000 source-character cap and any number of blocks, preferring H2/H3 boundaries. Completed chunks expose cards immediately. Progress is character-weighted and uses copy of the form `Розібрано початок розділу · N з M фрагментів`. In-flight chrome is blue/neutral; the finished prefix fill is teal (`#0f766e`), not manuscript apply-highlight green. Parallel chunk execution is out of scope. The 400-block safety cap supersedes the 2026-08-04 80-block emphasis packing limit.
+Decision: recommendation-card steps (`clarity` first, then `structure`, `interest`, `visuals`, `formatting`, `final_editing`, and incremental reveal for `emphasis`) pack the manuscript into 16,000-source-character chunks with a 400-block safety cap, preferring H2/H3 boundaries. Completed chunks expose cards immediately. Progress is character-weighted and uses copy of the form `Розібрано початок розділу · N з M фрагментів`. In-flight chrome is blue/neutral; the finished prefix fill is teal (`#0f766e`), not manuscript apply-highlight green. Chunks run in document-order waves of 3 (2026-08-17). The 400-block safety cap supersedes the 2026-08-04 80-block emphasis packing limit.
 
 Reason: a ~140k-symbol Clarity run currently dies on the 280s provider abort (`This operation was aborted`). `Акценти` already proved 12-16k packing on the 142k fixture, but hiding cards until the end recreates a long black-box wait. Sequential document order makes “first 25% of the chapter” honest.
 
@@ -707,7 +745,7 @@ Decision (updated 2026-08-12): recovered in-flight runs stay compatible when loc
 Reason: persistence must not trade infrastructure failures for stale or duplicate editorial changes. The 2026-08-12 apply-while-running rule superseded whole-run revision matching. The browser capability still prevents another authenticated browser session from reading a guessed or leaked run ID.
 
 ### Emphasis uses section-aware durable chunks
-Decision (updated 2026-08-12): recommendation-card steps including `Акценти` target 12,000-16,000 source characters with a 400-block safety cap, use at most one context-only boundary block on each side, and execute chunks sequentially as independently retryable Workflow steps. Only core-block output is merged, in global document order. See 2026-08-12 character-budget chunks.
+Decision (updated 2026-08-17): recommendation-card steps including `Акценти` target 12,000-16,000 source characters with a 400-block safety cap, use at most one context-only boundary block on each side, and execute chunks in document-order waves of 3 as independently retryable Workflow steps. Only core-block output is merged, in global document order. See 2026-08-17 three-wide fragments.
 
 Reason: the old 18-block/two-overlap scheme produced 41 sequential provider calls for the representative 142,870-character manuscript. The new fixture produces about 10, reducing overload risk, repeated prompt cost, and boundary duplication while keeping deterministic coverage.
 

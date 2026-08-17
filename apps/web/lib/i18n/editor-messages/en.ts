@@ -119,10 +119,11 @@ const editorEn = {
       zeroResult: "Step finished with no new emphasis."
     },
     finalEditing: {
-      active: "Preparing cards from your custom request.",
+      active: "Planning actions from your custom request…",
       idle: "Describe your custom request to get local cards.",
       waiting: "Write a custom request for this step.",
       success: "Recommendations ready. Review and apply cards.",
+      planReady: "Action plan ready. Cards will appear after generation.",
       zeroResult: "Step finished with no new cards."
     },
     recommendations: {
@@ -271,6 +272,7 @@ const editorEn = {
   },
   disabledReasons: {
     waitCurrentRun: "Wait for the current run to finish.",
+    waitOtherStepRun: (stepLabel: string) => `Wait for the "${stepLabel}" step to finish.`,
     addManuscriptText: "Add manuscript text to run this step.",
     waitSpellcheck: "Wait for spelling check to finish.",
     addTextBlocks: "Add text paragraphs or headings to run this step.",
@@ -510,6 +512,8 @@ const editorEn = {
     goToLabel: (label: string) => `Go to ${label}`,
     paragraphAfterEdit: (index: number) => `Paragraph ${index} after edit`,
     dismiss: "Dismiss",
+    showMore: "More…",
+    showLess: "Less",
     statusAccepted: "accepted",
     statusDismissed: "dismissed",
     statusReady: "ready",
@@ -529,6 +533,8 @@ const editorEn = {
         : `Prepared ${count} fact-check row(s).`,
     factCheckClean: "Fact-check found no disputed claims.",
     noStrongRecommendations: "AI found no strong local recommendations.",
+    customRequestPlanReady: (count: number) =>
+      `Plan ready: ${count} action${count === 1 ? "" : "s"}. Cards will appear after generation.`,
     stepCardsPrepared: (stepLabel: string, count: number) =>
       `Step "${stepLabel}": prepared ${count} recommendation card(s).`,
     cardsPrepared: (count: number) => `Prepared ${count} recommendation card(s) for this step.`,
@@ -540,6 +546,8 @@ const editorEn = {
     reviewJobInvalid: "Server returned an invalid review run state.",
     reviewJobReadFailed: "Could not read review run state.",
     reviewJobFailed: "Review run failed. Run the step again.",
+    reviewRunResultInvalid: "The review run finished without a valid result. Run the step again.",
+    reviewRunOtherStepActive: (stepLabel: string) => `The "${stepLabel}" step is still running. Wait for it to finish or open that step.`,
     reviewRunFailed: "Could not start review.",
     reviewRunResuming: "Resuming the unfinished review…",
     reviewRunProgress: (completed: number, total: number, attempt?: number, retrying?: boolean) =>
@@ -547,6 +555,9 @@ const editorEn = {
         ? `Retry ${attempt ?? 1} · Parsed the start of the chapter · ${completed} of ${total} fragments`
         : `Parsed the start of the chapter · ${completed} of ${total} fragments`,
     reviewRunProgressPending: "Parsing the chapter…",
+    reviewRunPlanningProgress: "Planning actions from your custom request…",
+    reviewRunGeneratingProgress: (completed: number, total: number) =>
+      `Generating cards · ${completed} of ${total}`,
     reviewRunStale: "The review completed for an older manuscript revision. Its result was kept but not applied.",
     retryFragment: "Retry this fragment",
     retryFragmentUnavailable: "This fragment is no longer in the manuscript."
