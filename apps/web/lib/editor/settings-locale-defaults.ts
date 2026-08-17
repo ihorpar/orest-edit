@@ -21,7 +21,7 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
   expertisePrompt:
     "Work in macro-diagnostics mode for a long section. First map the structure and reader journey, then cite specific paragraphs as evidence of systemic problems. Write natural English markdown. Start with '## Main structural diagnosis'. Be direct, specific, and editorial rather than reassuring.",
   cardsPrompt:
-    "Generate concrete local editorial recommendation cards in English from the diagnostics context. Keep one card focused on one contiguous paragraph range. Use stable internal enums for recommendationType, suggestedAction, insertionHint, calloutKind, calloutDepth, and visualIntent. Prefer deep callouts for dense explanatory fragments and avoid generic medical disclaimer language.",
+    "Generate concrete local editorial recommendation cards in English from the diagnostics context. Keep one card focused on one contiguous paragraph range. For callouts, propose both global frames not yet in this text (put the new value in recommendation) and local lifts of dense fragments. Use stable internal enums for recommendationType, suggestedAction, insertionHint, calloutKind, calloutDepth, and visualIntent. Prefer deep callouts for dense explanatory fragments and avoid generic medical disclaimer language.",
   reviewLevelGuide:
     "Level 1: light cleanup. Level 2: modest tightening. Level 3: strong local editing. Level 4: deep restructuring of weak areas. Level 5: radical local redesign when it clearly improves readability.",
   workflowStepPrompts: {
@@ -34,18 +34,18 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
     clarity:
       "Focus on clarity, simpler phrasing, cleaner syntax, and removing overloaded scientific wording while preserving accuracy.",
     interest:
-      "Focus on reader interest and practical relevance through callouts and local expansions. Do not propose visuals or language rewrites.",
+      "Focus on reader interest: both global callouts with a frame this text still lacks, and local callouts that lift a dense fragment into a box, plus expansions. Do not propose visuals or language rewrites.",
     visuals:
       "Focus only on useful visuals. Recommend infographics or illustrations only where they materially improve understanding.",
     formatting:
-      "Focus on lists and callouts for scan-friendly restructuring. Do not propose subheads — those belong to Structure.",
+      "Focus on lists and callouts. Callouts may restructure a fragment or add a reader frame this text still lacks. Do not propose subheads — those belong to Structure.",
     emphasis:
       "Focus only on inline emphasis. Suggest short bold accents for the key idea inside a paragraph without rewriting the paragraph.",
     final_editing:
       "Execute the editor's own request, but return the result only as local executable recommendation cards (rewrites, lists, subheads, callouts, or visuals). Do not generate emphasis accents."
   },
   calloutPromptTemplate:
-    "Create one English callout draft for a science-pop or medical-pop manuscript. Callout kind: {{calloutKindLabel}}. Depth: {{calloutDepthLabel}}. Use only the fragment and recommendation below. Return plain text content that can be inserted into the manuscript without extra framing.",
+    "Create a callout draft for an English science-pop or medical-pop manuscript. Callout kind: {{calloutKindLabel}}. Depth: {{calloutDepthLabel}}. Execute the card recommendation. The fragment is the insert point or local source, not text to paraphrase if the card already carries a new reader frame. Two modes, set by the recommendation: (1) turn this fragment into a callout — restructure its content; (2) add a callout beside it — write the value from recommendation that is not already in this paragraph. Do not invent ungrounded medical claims (studies, doses, percentages, brands, diagnoses) unless the editor explicitly asks for that extra content. A one-sentence paraphrase of a dense fragment is a failure. Return JSON {\"title\":\"...\",\"body\":\"...\"} only. Context: {{fragment}}. Recommendation: {{recommendation}}.",
   imagePromptTemplate:
     "Write one ready-to-send English image-generation prompt. Use only these inputs: visualIntent={{visualIntent}}, visualStyleGuide={{visualStyleGuide}}, fragment={{fragment}}, recommendation={{recommendation}}. Return one plain-text prompt only. If the image needs labels, write them in English."
 };

@@ -20,7 +20,7 @@ import {
   convertInchesToTwip
 } from "docx";
 import type { Block, EditorDocument, InlineNode } from "./document-model";
-import { getInlineText } from "./document-model";
+import { createInlineText, getInlineText, splitInlineNodesByNewlines } from "./document-model";
 import { createEditorAssetToken, resolveEditorAssetUrl } from "./asset-store";
 import type { AppLocale } from "../i18n/product-locale";
 import { getProductLocaleConfig } from "../i18n/product-locale";
@@ -232,21 +232,15 @@ async function renderBlocksToDocx(blocks: Block[], context: RenderContext): Prom
 async function renderBlock(block: Block, context: RenderContext): Promise<Array<Paragraph | Table>> {
   switch (block.type) {
     case "paragraph":
-      return [new Paragraph({ children: renderInlineNodes(block.content) })];
+      return paragraphsFromInline(block.content);
     case "heading":
-      return [
-        new Paragraph({
-          heading: block.level === 1 ? HeadingLevel.HEADING_1 : block.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3,
-          style: block.level === 1 ? "HeadingOne" : block.level === 2 ? "HeadingTwo" : "HeadingThree",
-          children: renderInlineNodes(block.content)
-        })
-      ];
+      return renderHeadingBlock(block);
     case "bullet_list":
       return block.items.map(
         (item) =>
           new Paragraph({
             bullet: { level: 0 },
-            children: renderInlineNodes(item)
+            children: renderInlineNodesWithSoftBreaks(item)
           })
       );
     case "ordered_list":
@@ -254,7 +248,7 @@ async function renderBlock(block: Block, context: RenderContext): Promise<Array<
         (item) =>
           new Paragraph({
             numbering: { reference: "ordered-list", level: 0 },
-            children: renderInlineNodes(item)
+            children: renderInlineNodesWithSoftBreaks(item)
           })
       );
     case "image":
@@ -279,40 +273,84 @@ async function renderBlock(block: Block, context: RenderContext): Promise<Array<
   }
 }
 
+function renderHeadingBlock(block: Extract<Block, { type: "heading" }>): Paragraph[] {
+  const headingLevel = block.level === 1 ? HeadingLevel.HEADING_1 : block.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3;
+  const style = block.level === 1 ? "HeadingOne" : block.level === 2 ? "HeadingTwo" : "HeadingThree";
+  const [first, ...rest] = inlineSegmentsForExport(block.content);
+
+  return [
+    new Paragraph({
+      heading: headingLevel,
+      style,
+      children: renderInlineNodes(first)
+    }),
+    ...rest.map((segment) => new Paragraph({ children: renderInlineNodes(segment) }))
+  ];
+}
+
+function paragraphsFromInline(
+  nodes: InlineNode[],
+  options: Omit<ConstructorParameters<typeof Paragraph>[0], "children"> = {}
+): Paragraph[] {
+  return inlineSegmentsForExport(nodes).map(
+    (segment) =>
+      new Paragraph({
+        ...options,
+        children: renderInlineNodes(segment)
+      })
+  );
+}
+
+function inlineSegmentsForExport(nodes: InlineNode[]): InlineNode[][] {
+  const segments = splitInlineNodesByNewlines(nodes);
+  return segments.length > 0 ? segments : [[createInlineText("")]];
+}
+
 function renderInlineNodes(nodes: InlineNode[]): ParagraphChild[] {
+  return renderInlineNodeRuns(nodes, false);
+}
+
+function renderInlineNodesWithSoftBreaks(nodes: InlineNode[]): ParagraphChild[] {
+  return renderInlineNodeRuns(nodes, true);
+}
+
+function renderInlineNodeRuns(nodes: InlineNode[], softBreaks: boolean): ParagraphChild[] {
   const children: ParagraphChild[] = [];
 
   for (const node of nodes) {
-    const segments = node.text.split("\n");
+    if (!node.text) {
+      continue;
+    }
 
-    for (const [segmentIndex, segment] of segments.entries()) {
-      if (segmentIndex > 0) {
+    const parts = softBreaks ? node.text.split("\n") : [node.text];
+
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index];
+
+      if (part) {
+        const run = new TextRun({
+          text: part,
+          bold: node.bold,
+          italics: node.italic,
+          color: node.link ? "1D4ED8" : undefined,
+          underline: node.link ? {} : undefined
+        });
+
+        if (!node.link) {
+          children.push(run);
+        } else {
+          children.push(
+            new ExternalHyperlink({
+              link: node.link,
+              children: [run]
+            })
+          );
+        }
+      }
+
+      if (softBreaks && index < parts.length - 1) {
         children.push(new TextRun({ break: 1 }));
       }
-
-      if (!segment) {
-        continue;
-      }
-
-      const run = new TextRun({
-        text: segment,
-        bold: node.bold,
-        italics: node.italic,
-        color: node.link ? "1D4ED8" : undefined,
-        underline: node.link ? {} : undefined
-      });
-
-      if (!node.link) {
-        children.push(run);
-        continue;
-      }
-
-      children.push(
-        new ExternalHyperlink({
-          link: node.link,
-          children: [run]
-        })
-      );
     }
   }
 
@@ -347,9 +385,8 @@ async function renderImageBlock(block: Extract<Block, { type: "image" }>, contex
 
   if (block.caption && getInlineText(block.caption).trim()) {
     paragraphs.push(
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        children: renderInlineNodes(block.caption)
+      ...paragraphsFromInline(block.caption, {
+        alignment: AlignmentType.CENTER
       })
     );
   }
@@ -358,7 +395,7 @@ async function renderImageBlock(block: Extract<Block, { type: "image" }>, contex
 }
 
 function renderCalloutBlock(block: Extract<Block, { type: "callout" }>): Paragraph[] {
-  const paragraphs = [
+  const titleParagraphs = [
     new Paragraph({
       style: "CalloutTitle",
       shading: {
@@ -372,30 +409,27 @@ function renderCalloutBlock(block: Extract<Block, { type: "callout" }>): Paragra
           size: 12
         }
       },
-      children: renderInlineNodes(block.title)
+      children: renderInlineNodesWithSoftBreaks(block.title)
     })
   ];
 
-  for (const paragraph of block.body) {
-    paragraphs.push(
-      new Paragraph({
-        border: {
-          left: {
-            color: "0F172A",
-            style: BorderStyle.SINGLE,
-            size: 12
-          }
-        },
-        shading: {
-          type: ShadingType.CLEAR,
-          fill: "F8FAFC"
-        },
-        children: renderInlineNodes(paragraph)
-      })
-    );
-  }
+  const bodyParagraphs = block.body.flatMap((paragraph) =>
+    paragraphsFromInline(paragraph, {
+      border: {
+        left: {
+          color: "0F172A",
+          style: BorderStyle.SINGLE,
+          size: 12
+        }
+      },
+      shading: {
+        type: ShadingType.CLEAR,
+        fill: "F8FAFC"
+      }
+    })
+  );
 
-  return paragraphs;
+  return [...titleParagraphs, ...bodyParagraphs];
 }
 
 function renderTableBlock(block: Extract<Block, { type: "table" }>): Table {
@@ -418,7 +452,7 @@ function renderTableBlock(block: Extract<Block, { type: "table" }>): Table {
                         fill: "E2E8F0"
                       }
                     : undefined,
-                children: [new Paragraph({ children: renderInlineNodes(cell) })]
+                children: paragraphsFromInline(cell)
               })
           )
         })

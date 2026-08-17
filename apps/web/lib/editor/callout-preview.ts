@@ -81,6 +81,13 @@ function splitStructuredCalloutBody(text: string): string[] {
       continue;
     }
 
+    if (currentParagraphLines.length > 0) {
+      const previous = currentParagraphLines[currentParagraphLines.length - 1] ?? "";
+      if (shouldStartNewCalloutParagraph(previous, line)) {
+        flushParagraph();
+      }
+    }
+
     currentParagraphLines.push(line);
   }
 
@@ -105,6 +112,46 @@ function isStandaloneCalloutSectionHeading(line: string, nextNonEmptyLine: strin
   }
 
   return isCalloutSectionHeadingText(line);
+}
+
+function shouldStartNewCalloutParagraph(previous: string, next: string): boolean {
+  if (isWrappedContinuation(previous, next)) {
+    return false;
+  }
+
+  return isFinishedProseLine(previous) && looksLikeNewParagraphStart(next);
+}
+
+function isFinishedProseLine(line: string): boolean {
+  const withoutBoldMarkers = line.replace(/\*\*/g, "").trim();
+  if (!withoutBoldMarkers || isCalloutListLine(withoutBoldMarkers) || isCalloutSectionHeadingText(line)) {
+    return false;
+  }
+
+  if (!/^\p{Lu}/u.test(withoutBoldMarkers)) {
+    return false;
+  }
+
+  return /[.!?…]\s*$/u.test(withoutBoldMarkers);
+}
+
+function looksLikeNewParagraphStart(line: string): boolean {
+  const withoutBoldMarkers = line.replace(/\*\*/g, "").trim();
+  if (!withoutBoldMarkers || isCalloutListLine(withoutBoldMarkers)) {
+    return false;
+  }
+
+  return /^\p{Lu}/u.test(withoutBoldMarkers);
+}
+
+function isWrappedContinuation(previous: string, next: string): boolean {
+  const previousPlain = previous.replace(/\*\*/g, "").trim();
+  const nextPlain = next.replace(/\*\*/g, "").trim();
+  if (/[.!?…]\s*$/u.test(previousPlain)) {
+    return false;
+  }
+
+  return /^\p{Ll}/u.test(nextPlain);
 }
 
 function emphasizeCalloutSectionHeading(line: string): string {

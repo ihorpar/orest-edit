@@ -30,9 +30,11 @@ import {
   hasSelectedBlocks,
   insertBlocksAfter,
   mergeTextBlockIntoPrevious,
+  mergeCalloutBodyParagraphIntoPrevious,
   normalizeBlockSelection,
   normalizeInlineNodes,
   removeBlocksByIds,
+  splitCalloutBodyAtOffset,
   type DividerBlock
 } from "../../lib/editor/document-model";
 import { isCalloutSectionHeadingText } from "../../lib/editor/callout-preview";
@@ -871,6 +873,52 @@ export function BlockEditorSurface({
     return false;
   }
 
+  function handleCalloutBodyEnter(block: CalloutBlock, paragraphIndex: number, context: RichTextContext) {
+    const result = splitCalloutBodyAtOffset(block, paragraphIndex, context.caretOffset);
+
+    if (!result) {
+      return;
+    }
+
+    commit({
+      version: 2,
+      blocks: document.blocks.map((entry) => (entry.id === block.id ? result.block : entry))
+    });
+    setPendingFocus(makeEditableKey(block.id, `callout-body-${result.nextParagraphIndex}`), "start");
+    onFocusedBlockChange(block.id);
+    onSelectionChange({ blockIds: [], anchorBlockId: null, focusBlockId: null });
+  }
+
+  function handleCalloutBodyBackspace(block: CalloutBlock, paragraphIndex: number, context: RichTextContext): boolean {
+    if (context.caretOffset > 0 || paragraphIndex === 0) {
+      return false;
+    }
+
+    if (isInlineContentEmpty(context.content)) {
+      const nextBody = block.body.filter((_, index) => index !== paragraphIndex);
+
+      if (nextBody.length === block.body.length) {
+        return false;
+      }
+
+      replaceBlock(block.id, { ...block, body: nextBody });
+      setPendingFocus(makeEditableKey(block.id, `callout-body-${paragraphIndex - 1}`), "end");
+      onFocusedBlockChange(block.id);
+      return true;
+    }
+
+    const result = mergeCalloutBodyParagraphIntoPrevious(block, paragraphIndex);
+
+    if (!result) {
+      return false;
+    }
+
+    replaceBlock(block.id, result.block);
+    setPendingFocusOffset(makeEditableKey(block.id, `callout-body-${result.focusParagraphIndex}`), result.focusOffset);
+    onFocusedBlockChange(block.id);
+    return true;
+  }
+
   function handleListItemEnter(block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) {
     const currentText = getInlineText(context.content);
 
@@ -1478,6 +1526,8 @@ export function BlockEditorSurface({
                   onSoftBreak={insertLineBreak}
                   onListItemEnter={handleListItemEnter}
                   onListItemBackspace={handleListItemBackspace}
+                  onCalloutBodyEnter={handleCalloutBodyEnter}
+                  onCalloutBodyBackspace={handleCalloutBodyBackspace}
                   onBlockChange={(nextBlock) => replaceBlock(block.id, nextBlock)}
                   onAddTableRow={addTableRow}
                   onRemoveTableRow={removeTableRow}
@@ -1744,6 +1794,8 @@ function BlockRenderer({
   onSoftBreak,
   onListItemEnter,
   onListItemBackspace,
+  onCalloutBodyEnter,
+  onCalloutBodyBackspace,
   onBlockChange,
   onAddTableRow,
   onRemoveTableRow,
@@ -1763,6 +1815,8 @@ function BlockRenderer({
   onSoftBreak: (context: RichTextContext) => void;
   onListItemEnter: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => void;
   onListItemBackspace: (block: BulletListBlock | OrderedListBlock, itemIndex: number, context: RichTextContext) => boolean;
+  onCalloutBodyEnter: (block: CalloutBlock, paragraphIndex: number, context: RichTextContext) => void;
+  onCalloutBodyBackspace: (block: CalloutBlock, paragraphIndex: number, context: RichTextContext) => boolean;
   onBlockChange: (block: Block) => void;
   onAddTableRow: (block: TableBlock) => void;
   onRemoveTableRow: (block: TableBlock) => void;
@@ -1815,6 +1869,8 @@ function BlockRenderer({
         registerEditable={registerEditable}
         onEditFocus={onEditFocus}
         onBlockChange={onBlockChange}
+        onBodyEnter={onCalloutBodyEnter}
+        onBodyBackspace={onCalloutBodyBackspace}
         onSoftBreak={onSoftBreak}
       />
     );
@@ -1962,6 +2018,8 @@ function EditableCalloutBlock({
   registerEditable,
   onEditFocus,
   onBlockChange,
+  onBodyEnter,
+  onBodyBackspace,
   onSoftBreak
 }: {
   block: CalloutBlock;
@@ -1971,6 +2029,8 @@ function EditableCalloutBlock({
   registerEditable: (key: string, element: HTMLElement | null) => void;
   onEditFocus: (blockId: string, editableKey: string) => void;
   onBlockChange: (block: CalloutBlock) => void;
+  onBodyEnter: (block: CalloutBlock, paragraphIndex: number, context: RichTextContext) => void;
+  onBodyBackspace: (block: CalloutBlock, paragraphIndex: number, context: RichTextContext) => boolean;
   onSoftBreak: (context: RichTextContext) => void;
 }) {
   const be = useProductCopy().editor.blockEditor;
@@ -2059,6 +2119,8 @@ function EditableCalloutBlock({
             nextBody[index] = content;
             onBlockChange({ ...block, body: nextBody });
           }}
+          onEnter={(context) => onBodyEnter(block, index, context)}
+          onBackspace={(context) => onBodyBackspace(block, index, context)}
           onSoftBreak={onSoftBreak}
           onEmphasisSuggestionClick={(itemId, rect) => onEmphasisSuggestionClick?.(block.id, itemId, rect)}
         />

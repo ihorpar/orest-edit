@@ -1208,6 +1208,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutPreferDeep : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutStructure : null,
     step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsDeepCalloutNoHtmlHeadings : null,
+    step.outputKind === "recommendation_cards" && step.id !== "emphasis" ? scaffold.recommendationCardsCalloutJobs : null,
     step.id === "clarity" ? scaffold.clarityScope : null,
     step.id === "clarity" ? scaffold.clarityNoStructure : null,
     step.id === "clarity" ? scaffold.clarityNoDisclaimers : null,

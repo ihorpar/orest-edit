@@ -256,6 +256,121 @@ export function replaceTextInDocument(
   };
 }
 
+export function splitInlineNodesByNewlines(nodes: InlineNode[]): InlineNode[][] {
+  const segments: InlineNode[][] = [[]];
+
+  for (const node of nodes) {
+    const parts = (node.text ?? "").split("\n");
+
+    for (const [index, part] of parts.entries()) {
+      if (index > 0) {
+        segments.push([]);
+      }
+
+      if (!part) {
+        continue;
+      }
+
+      segments[segments.length - 1]!.push({
+        text: part,
+        bold: node.bold,
+        italic: node.italic,
+        link: node.link
+      });
+    }
+  }
+
+  return segments
+    .map((segment) => normalizeInlineNodes(segment))
+    .filter((segment) => getInlineText(segment).trim().length > 0);
+}
+
+export function splitInlineNodesAtOffset(nodes: InlineNode[], offset: number): [InlineNode[], InlineNode[]] {
+  const left: InlineNode[] = [];
+  const right: InlineNode[] = [];
+  let consumed = 0;
+
+  for (const node of nodes) {
+    const text = node.text ?? "";
+    const start = consumed;
+    const end = start + text.length;
+
+    if (offset <= start) {
+      right.push({ ...node });
+    } else if (offset >= end) {
+      left.push({ ...node });
+    } else {
+      const splitPoint = offset - start;
+      const leftText = text.slice(0, splitPoint);
+      const rightText = text.slice(splitPoint);
+
+      if (leftText) {
+        left.push({ ...node, text: leftText });
+      }
+
+      if (rightText) {
+        right.push({ ...node, text: rightText });
+      }
+    }
+
+    consumed = end;
+  }
+
+  return [normalizeInlineNodes(left), normalizeInlineNodes(right)];
+}
+
+export function splitCalloutBodyAtOffset(
+  block: CalloutBlock,
+  paragraphIndex: number,
+  offset: number
+): { block: CalloutBlock; nextParagraphIndex: number } | null {
+  const paragraph = block.body[paragraphIndex];
+
+  if (!paragraph) {
+    return null;
+  }
+
+  const [left, right] = splitInlineNodesAtOffset(paragraph, offset);
+  const nextBody = [...block.body.slice(0, paragraphIndex), left, right, ...block.body.slice(paragraphIndex + 1)];
+
+  return {
+    block: {
+      ...block,
+      body: nextBody
+    },
+    nextParagraphIndex: paragraphIndex + 1
+  };
+}
+
+export function mergeCalloutBodyParagraphIntoPrevious(
+  block: CalloutBlock,
+  paragraphIndex: number
+): { block: CalloutBlock; focusParagraphIndex: number; focusOffset: number } | null {
+  if (paragraphIndex <= 0 || paragraphIndex >= block.body.length) {
+    return null;
+  }
+
+  const previous = block.body[paragraphIndex - 1];
+  const current = block.body[paragraphIndex];
+
+  if (!previous || current === undefined) {
+    return null;
+  }
+
+  const focusOffset = getInlineText(previous).length;
+  const merged = normalizeInlineNodes([...cloneInlineNodes(previous), ...cloneInlineNodes(current)]);
+  const nextBody = [...block.body.slice(0, paragraphIndex - 1), merged, ...block.body.slice(paragraphIndex + 1)];
+
+  return {
+    block: {
+      ...block,
+      body: nextBody
+    },
+    focusParagraphIndex: paragraphIndex - 1,
+    focusOffset
+  };
+}
+
 export function normalizeInlineNodes(nodes: InlineNode[]): InlineNode[] {
   const normalized: InlineNode[] = [];
 

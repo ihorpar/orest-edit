@@ -1,9 +1,9 @@
 # CURRENT_STATE
 
-Date: 2026-08-12
+Date: 2026-08-17
 Status: Active handoff
 
-Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md` (M1–M5 complete). No new active ExecPlan until the next phase is written. Do not treat `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md` or `.plans/durable-review-workflow.md` as the current build checklist.
+Latest completed implementation plan: `docs/plans/EXECPLAN_WORD_PARAGRAPH_BREAKS.md` (M1–M3 complete). Previous completed plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`. Do not treat `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md` or `.plans/durable-review-workflow.md` as the current build checklist.
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
@@ -34,7 +34,8 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - Manual editing happens inside blocks with inline `bold` and `italic` formatting; the old link affordance was removed from the manuscript toolbar because this book-editor flow does not use inline hyperlinks
 - `Backspace` at the start of a paragraph/heading now merges that text block into the previous text block and places the caret at the join point; when no compatible previous text block exists, the old empty-block fallback still applies
 - `Enter` inside paragraph-like editing creates a new block
-- Text rewrites may now preserve explicit internal line breaks (`\n`) inside a single paragraph/heading block, so verse-like or short-line formatting can stay inside one block when the editor asks for it
+- Text rewrites may still keep explicit internal line breaks (`\n`) inside a single paragraph/heading block (rewrite/simplify/expand stay 1:1); DOCX export turns those lines into real Word paragraphs (`<w:p>` / ¶), not Shift+Enter (`<w:br/>` / ↵)
+- Callout insert splits finished prose and short section labels into `callout.body[]` parts; Enter inside a callout body creates another body part instead of a manuscript block
 - Paragraph numbering is visible and tracks block IDs
 - Manuscript mutations now keep an in-session undo/redo stack, exposed in the manuscript formatting toolbar and through standard keyboard shortcuts (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`, `Ctrl+Y`)
 - Accepted AI replaces and direct spellcheck applies now write compact compare snapshots (`Було` / `Стало`) into draft state and expose them through the toolbar `Історія змін` action
@@ -76,7 +77,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - Per-step `preserve/replace` run mode, feedback memory, and run history are now persisted in browser draft state (`orest-editor-draft-v3`)
 - Whole-text review taxonomy is normalized to `rewrite`, `simplify`, `expand`, `list`, `subsection`, `callout`, and `visual`
 - Legacy provider output for `visualize`, `illustration`, and old callout kinds is coerced into the current review contract
-- Callouts now carry two orthogonal attributes: `calloutKind` (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) and `calloutDepth` (`brief`, `deep`). `brief` keeps the existing short-card behavior, while `deep` asks for a 3-6 paragraph deep dive that may mix prose and lists when natural.
+- Callouts now carry two orthogonal attributes: `calloutKind` (`mechanism`, `analogy`, `everyday_application`, `myths_vs_truth`, `top_list`) and `calloutDepth` (`brief`, `deep`). Review-card generation (Interest / Formatting / Custom request) looks at the section chunk and proposes both **global** callouts (new reader frame not in this text — novelty lives in `recommendation`) and **local** callouts (lift/restructure a dense fragment). Prepare executes the card; the fragment is insert locus or local source, not something to paraphrase when the card already carries the frame. Ungrounded medical claims are forbidden; explanatory unpacking and reader scaffolding are allowed. `brief` is compact-but-complete. `deep` asks for a 3-6 paragraph dive. The card recommendation sets the shape and outranks kind/depth defaults.
 - The editor right rail shows review cards and request history
 - Review cards now show dynamic Ukrainian paragraph ranges (`Абз. 0NN[-0NN]`) derived from current block order rather than raw block IDs
 - Compact recommendation cards now truncate recommendation copy to two lines by default and allow per-card expand/collapse for full text
@@ -128,7 +129,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - A local spellcheck backend now exists for manual Ukrainian fragment checks via `POST /api/edit/spellcheck`; the contract is provider-agnostic and maps one selected text range inside one block to rebased issue offsets
 - The floating local-action panel now includes a `Правопис` trigger that opens a dedicated `Правопис` step in the right review rail; the step itself launches document-wide spellcheck from a prominent header CTA, and text blocks are batched into a few LanguageTool requests instead of one request per block
 - Spellcheck result cards now follow the compact review-card language from `Структура`/`Ясність`: the green status strip is suppressed in spellcheck, the cards are flat rather than nested, whole-card clicks focus the target paragraph, and the chevron controls expand/collapse
-- DOCX export now preserves in-paragraph soft line breaks from `Shift+Enter` instead of flattening them out during `.docx` handoff
+- DOCX export maps in-block `\n` (including Shift+Enter) to additional Word paragraphs so paragraph spacing applies; it no longer emits `<w:br/>` as the default for those lines
 - `Shift+Enter` now inserts a soft line break on the first keypress even when the caret is at the end of the last line in a paragraph-like block
 - Local spellcheck send actions now show an in-button spinner state, and repeated local spellcheck runs merge by block ID so untouched earlier underlines remain visible while only the newly checked blocks are refreshed
 - Spellcheck popover `X` now counts as `Залишити як є`, and the popover also offers `Додати у словник`; accepted words are stored in IndexedDB and matching issues are auto-filtered from the current run and future runs
@@ -143,7 +144,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - The `Підзаголовок` intent in the floating `Правка` footer now creates a review-backed subsection proposal that inserts one H3 heading for the selected paragraph range instead of using the old table intent
 - When a local spellcheck run completes, the right drawer now auto-switches to the dedicated `Правопис` step so the result list is visible immediately
 - Replace-type review proposals now edit/apply block-by-block instead of flattening the full replacement range into one repeated textarea string
-- Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range)
+- Replace-type review preparation now enforces block-count constraints by recommendation type (`rewrite/simplify/expand` exact count, `list` capped by selected range except a one-block intro hat plus list)
 - List-type review normalization now coerces paragraph-only provider responses into `bullet_list` blocks to avoid list no-op applies
 - AI-generated replace/callout/subsection text now supports controlled editorial emphasis via `**...**` markers in proposal transport; those markers are parsed into real inline `bold` nodes on apply, while unsupported markdown is still stripped
 - `rewrite` and `simplify` proposal prompts now actively ask the model to use `**bold**` for key ideas and for short local heading/label lines, while still forbidding markdown headings (`#`, `##`) and HTML.
@@ -162,7 +163,8 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - Replace-source highlighting in manuscript remains red but no longer uses strikethrough decoration
 - After apply/insert actions, the editor auto-scrolls to the first changed block and highlights all affected blocks in green for 30 seconds
 - Manuscript-generating AI actions (`rewrite`, `simplify`, `expand`, `list`, `subsection`, and local patch rewrites) now allow controlled `**bold**` instead of blanket markdown bans: prompts ask the model to bold key ideas and short label-lines while still rejecting headings, HTML, and decorative markdown. Bold density is explicit: every meaningful paragraph or list item should get at least one short emphasis, with 2-3 for longer or multi-thesis passages.
-- Replace-type proposal generation (`rewrite`, `simplify`, `expand`, `list`) now runs through a dedicated lightweight proposal-content contract in `review-action-service` instead of reusing the generic nested patch-diff generator; LLMs return plain replacement content (`replacements[]` or `items[]`) and the server reconstructs final block-first `text_diff`
+- Replace-type proposal generation (`rewrite`, `simplify`, `expand`, `list`) now runs through a dedicated lightweight proposal-content contract in `review-action-service` instead of reusing the generic nested patch-diff generator; LLMs return plain replacement content (`replacements[]` or `intro` + `items[]`) and the server reconstructs final block-first `text_diff`
+- Structured-list execution is a reformat, not a summary: the prompt keeps source wording and citations, requires an intro hat before the bullets, and the server recovers a colon lead-in or a framing first sentence when the model omits `intro` (a short paraphrased prefix in an item is not enough to drop the hat)
 - Gemini `rewrite`/`simplify`/`expand` proposal generation now uses a lightweight `replacements[] + reason` schema with local block reconstruction instead of the older nested Gemini `newBlocks` contract, which avoids timeout-prone local replace requests on Flash Lite
 - Local patch requests from the floating composer now surface their first `replace_blocks` result directly in the manuscript inline diff lane instead of only updating hidden patch state, and fallback list rewrites collapse list blocks into a visible paragraph draft instead of returning a no-op list clone
 - Gemini local patch generation for floating-composer `Переписати` now also uses a lightweight `replacements[] + reason + type` structured-output contract with server-side block reconstruction instead of asking Gemini to emit nested `newBlocks` rich-text AST directly
@@ -191,7 +193,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_R
 - Review-action request handling now normalizes and trims prompt-heavy inputs server-side (including non-replace document compaction to anchor-related blocks) to avoid oversized proposal-generation contexts
 - Step run feedback for recommendation steps now reports card count for the specific step section (post-merge in preserve/replace mode), not a potentially ambiguous global count
 - Image prompt assembly now supports `{{visualStyleGuide}}` and always injects style guidance, including fallback injection when placeholder is removed from template
-- `top_list` callout prompt contracts now require source-bound multi-line `Назва: пояснення` entries and include two-shot examples directly in the template
+- `top_list` callout prompt contracts require multi-line frame points and include two-shot examples; points follow the editor recommendation (names, criteria, questions, or steps) rather than only extracting an existing enumeration
 - Callout parsing/sanitization is now kind-aware for `top_list`, preserving multi-line readability and normalizing entries into actionable `Назва: пояснення` lines
 - Callout parsing/sanitization is now also kind-aware for `myths_vs_truth`, splitting inline `Міф:` / `Правда:` runs into separate draft lines; subsection draft leads now preserve paragraph breaks through preview and insert
 - Image-prompt normalization now strips editorial wrappers (`Опис сцени`, `Пояснення visualIntent`, etc.) before downstream generation

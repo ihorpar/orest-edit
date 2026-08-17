@@ -464,7 +464,7 @@ const editorUk = {
       analogy: "аналогія",
       everyday_application: "практичне застосування",
       myths_vs_truth: "міфи та правда",
-      top_list: "топ-список",
+      top_list: "пункти",
       infographic: "інфографіка",
       illustration: "ілюстрація",
       diagram: "схема",

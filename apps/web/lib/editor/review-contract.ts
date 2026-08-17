@@ -724,7 +724,7 @@ const CALLOUT_KIND_LABELS: Record<EditorialCalloutKind, string> = {
   analogy: "аналогія",
   everyday_application: "у побуті",
   myths_vs_truth: "міфи й правда",
-  top_list: "список"
+  top_list: "пункти"
 };
 const CALLOUT_KIND_TITLE_LABELS_EN: Record<EditorialCalloutKind, string> = {
   mechanism: "How it works",
@@ -745,25 +745,25 @@ const CALLOUT_KIND_DESCRIPTIONS: Record<EditorialCalloutKind, string> = {
   analogy: "Подати ідею через зрозумілу аналогію та явно не видавати її за буквальний факт.",
   everyday_application: "Показати, як явище проявляється в повсякденному житті читача.",
   myths_vs_truth: "Подати короткі пари «Міф / Правда» лише для тверджень, що прямо випливають із фрагмента.",
-  top_list: "Зібрати 3-5 коротких пунктів лише тоді, коли матеріал природно підтримує дискретний перелік."
+  top_list: "Зібрати окремі пункти-рамки (назви, критерії, запитання або кроки), навіть якщо абзац ще не є готовим переліком."
 };
 const CALLOUT_KIND_DESCRIPTIONS_EN: Record<EditorialCalloutKind, string> = {
   mechanism: "Explain the cause-and-effect mechanism in simple steps without a lecture tone.",
   analogy: "Present the idea through a clear analogy and explicitly do not present it as a literal fact.",
   everyday_application: "Show how the phenomenon appears in the reader's everyday life.",
   myths_vs_truth: "Present short Myth/Truth pairs only for claims that directly follow from the fragment.",
-  top_list: "Collect 3-5 short points only when the material naturally supports a discrete list."
+  top_list: "Collect separate frame points (names, criteria, questions, or steps), even if the paragraph is not already a list."
 };
 const CALLOUT_DEPTH_LABELS: Record<EditorialCalloutDepth, string> = {
   brief: "Стисло",
   deep: "Докладно"
 };
 const CALLOUT_DEPTH_DESCRIPTIONS: Record<EditorialCalloutDepth, string> = {
-  brief: "Коротка врізка у поточному стилі.",
+  brief: "Компактна рамка з кількох коротких абзаців або пунктів, не одне речення-переказ.",
   deep: "Глибокий розбір у 3-6 докладних абзацах; може поєднувати текст і списки."
 };
 const CALLOUT_DEPTH_DESCRIPTIONS_EN: Record<EditorialCalloutDepth, string> = {
-  brief: "A short callout in the current style.",
+  brief: "A compact frame of several short paragraphs or points, not a one-sentence paraphrase.",
   deep: "An in-depth breakdown in 3-6 detailed paragraphs; may combine text and lists."
 };
 const VISUAL_INTENT_LABELS: Record<EditorialVisualIntent, string> = {
@@ -932,10 +932,10 @@ export function getCalloutKindGuardrail(kind: EditorialCalloutKind, locale: AppL
     }
 
     if (kind === "top_list") {
-      return "Present 3-5 points in a multi-line Name: explanation format; stay within the fragment facts and do not invent new sources.";
+      return "Present separate frame points in a multi-line Name: explanation format. Follow the editor recommendation for shape. Stay grounded in the fragment: no invented studies, doses, or products.";
     }
 
-    return "Stay within the fragment without invented facts or diagnoses.";
+    return "Two modes: restructure this fragment into a callout when asked, or add value not already in this paragraph. Do not invent ungrounded medical claims.";
   }
 
   if (kind === "analogy") {
@@ -947,10 +947,10 @@ export function getCalloutKindGuardrail(kind: EditorialCalloutKind, locale: AppL
   }
 
   if (kind === "top_list") {
-    return "Подавай 3-5 пунктів у multi-line форматі «Назва: пояснення»; працюй лише з фактами фрагмента і не вигадуй нові джерела.";
+    return "Подавай окремі пункти-рамки у multi-line форматі «Назва: пояснення». Форма пунктів підпорядковується рекомендації редактора. Без вигаданих досліджень, доз чи продуктів.";
   }
 
-  return "Залишайся в межах фрагмента без вигаданих фактів чи діагнозів.";
+  return "Два режими: перекомпонувати цей фрагмент у врізку, якщо так просять, або додати корисне, якого немає саме в цьому абзаці. Не вигадуй непідкріплені медтвердження.";
 }
 
 export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutKind | null {
@@ -963,7 +963,16 @@ export function parseEditorialCalloutKindLabel(value: string): EditorialCalloutK
       myths_vs_truth: "myths-vs-truth",
       top_list: "list"
     } satisfies Record<EditorialCalloutKind, string>).find(([, label]) => label === normalized);
-  return (entry?.[0] as EditorialCalloutKind | undefined) ?? null;
+
+  if (entry?.[0]) {
+    return entry[0] as EditorialCalloutKind;
+  }
+
+  if (normalized === "пункти" || normalized === "список" || normalized === "top-list") {
+    return "top_list";
+  }
+
+  return null;
 }
 
 export function getSuggestedActionForRecommendationType(type: EditorialReviewRecommendationType): EditorialReviewSuggestedAction {

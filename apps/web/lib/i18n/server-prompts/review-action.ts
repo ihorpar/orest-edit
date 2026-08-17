@@ -60,12 +60,16 @@ const REVIEW_ACTION_ERRORS = {
 const REPLACE_PROMPT_SCAFFOLD = {
   uk: {
     listTransform: (blockCount: number) =>
-      `Перетвори ${blockCount} вибраних блоків на короткий, читабельний список без нових фактів.`,
+      `Перекомпонуй ${blockCount} вибраних блоків у структурований список: шапка (intro) плюс пункти. Це зміна форми, а не спрощення і не переказ.`,
     listJsonOnly:
-      "Поверни лише JSON без іншого markdown, окрім дозволеного **жирного** у items.",
-    listSchema: 'Схема: {"items":["..."]}.',
+      "Поверни лише JSON без іншого markdown, окрім дозволеного **жирного** у intro та items.",
+    listSchema: 'Схема: {"intro":"...","items":["..."]}.',
+    listIntroRule:
+      "intro — обов'язкова шапка перед списком: візьми вступне речення, lead-in перед двокрапкою або фразу, яка пояснює, що саме перелічується. Збережи оригінальне формулювання, зокрема двокрапку в кінці, якщо вона є в джерелі. Порожній intro дозволений лише якщо джерело вже є голим паралельним переліком без жодної вступної фрази.",
     listItemsRules:
-      "items: 2-7 коротких пунктів plain text без маркерів; активно використовуй **жирний** для коротких назв або ключових думок у пунктах; сервер сам збере bullet list.",
+      "items: по одному пункту на кожну окрему одиницю переліку з джерела; без маркерів; стільки пунктів, скільки потрібно, щоб покрити весь перелік (мінімум 2). Активно використовуй **жирний** для коротких назв або ключових думок у пунктах; сервер сам збере bullet list.",
+    listPreserveDetails:
+      "Не скорочуй, не узагальнюй і не викидай уточнення, прикладки, причини, наслідки, цитати на кшталт [147] і службові слова на кшталт «поживних речовин». Пункт має зберігати той самий зміст, що фрагмент у джерелі, лише винесений в окремий рядок. Нових фактів не додавай.",
     listBoldAccent:
       "У кожному змістовному пункті має бути 1 короткий **жирний** акцент на назві, причині, наслідку або ключовому терміні; у довгому пункті можна 2 акценти.",
     listNoMarkdownHeadings:
@@ -120,11 +124,15 @@ const REPLACE_PROMPT_SCAFFOLD = {
   },
   en: {
     listTransform: (blockCount: number) =>
-      `Turn ${blockCount} selected blocks into a short, readable list without new facts.`,
-    listJsonOnly: "Return JSON only without other markdown, except allowed **bold** in items.",
-    listSchema: 'Schema: {"items":["..."]}.',
+      `Recompose ${blockCount} selected blocks into a structured list: a lead-in hat (intro) plus points. This is a change of shape, not a summary or paraphrase-down.`,
+    listJsonOnly: "Return JSON only without other markdown, except allowed **bold** in intro and items.",
+    listSchema: 'Schema: {"intro":"...","items":["..."]}.',
+    listIntroRule:
+      "intro is the required hat before the list: take the framing sentence, the lead-in before a colon, or the phrase that says what is being enumerated. Keep the original wording, including a trailing colon if the source has one. Empty intro is allowed only when the source is already a bare parallel series with no framing sentence.",
     listItemsRules:
-      "items: 2-7 short plain-text points without markers; actively use **bold** for short names or key ideas in points; the server will assemble the bullet list.",
+      "items: one point per distinct enumerated unit from the source; no markers; as many points as needed to cover the whole enumeration (minimum 2). Actively use **bold** for short names or key ideas in points; the server will assemble the bullet list.",
+    listPreserveDetails:
+      "Do not shorten, summarize, or drop qualifications, appositions, causes, effects, citation markers such as [147], or supporting words such as “nutrients”. Each point must keep the same meaning as that fragment in the source, only moved onto its own line. Do not add new facts.",
     listBoldAccent:
       "Each substantive point must have 1 short **bold** accent on a name, cause, effect, or key term; a long point may have 2 accents.",
     listNoMarkdownHeadings:
@@ -247,7 +255,9 @@ export function buildReplaceProviderPrompt(locale: AppLocale, request: ReviewAct
       scaffold.listTransform(blockCount),
       scaffold.listJsonOnly,
       scaffold.listSchema,
+      scaffold.listIntroRule,
       scaffold.listItemsRules,
+      scaffold.listPreserveDetails,
       scaffold.listBoldAccent,
       scaffold.listNoMarkdownHeadings,
       scaffold.recommendationIntent,
@@ -294,8 +304,8 @@ export type InfographicLayout = "comparison" | "process" | "timeline" | "cause_e
 
 const CALLOUT_DEPTH_PROMPT_GUIDANCE: Record<EditorialCalloutDepth, Record<AppLocale, string>> = {
   brief: {
-    uk: "Профіль brief / стисло: створи коротку врізку в поточному стилі.",
-    en: "Profile brief / concise: create a short callout in the current style."
+    uk: "Профіль brief / стисло: компактна, але завершена врізка (заголовок + кілька коротких абзаців або пунктів). Одне речення-переказ щільного фрагмента — провал.",
+    en: "Profile brief / concise: a compact but complete callout (title plus several short paragraphs or points). A one-sentence paraphrase of a dense fragment is a failure."
   },
   deep: {
     uk: "Профіль deep / докладно: зроби глибокий розбір питання у 3-6 докладних абзацах. Активно використовуй **жирний** як інструмент структури: став короткі **якорі-підзаголовки** з 1-3 слів над окремими абзацами та виділяй **ключові думки** всередині тексту. Це не має бути суцільне полотно; якщо матеріал містить перелік кроків, причин, наслідків або прикладів, оформи одну частину як короткий список.",
@@ -313,19 +323,22 @@ const CALLOUT_PROVIDER_SCAFFOLD = {
     calloutKindDescriptionLine: (description: string) => `Що означає цей тип: ${description}`,
     calloutKindGuardrailLine: (guardrail: string) => `Додаткове правило для типу: ${guardrail}`,
     topListBodyFormat:
-      "Для top_list: body має містити 3-5 рядків; кожен рядок у форматі «Назва (1-2 слова): пояснення (1 речення)».",
+      "Для top_list: body має бути multi-line рамкою з окремих пунктів. Форма пунктів (назви, критерії, запитання, кроки) підпорядковується рекомендації редактора. Не вимагай, щоб фрагмент уже був готовим переліком.",
     topListMultilineStructure:
-      "Зберігай multi-line структуру: один пункт = один рядок, не склеюй усе в один абзац.",
+      "Зберігай multi-line структуру: один пункт = один рядок, не склеюй усе в один абзац і не зводь body до одного речення-переказу.",
     fragmentLine: (excerpt: string) => `Фрагмент: ${excerpt}`,
     recommendationLine: (recommendation: string) => `Рекомендація: ${recommendation}`,
     additionalInstructionLine: (instruction: string) => `Додаткова вказівка редактора: ${instruction}`,
     jsonResponseFormat:
       "Формат відповіді: поверни лише JSON-об'єкт без іншого markdown, окрім дозволеного **жирного** і простих списків у body.",
+    addReaderFrame:
+      "Виконай recommendation картки, не переказуй якір замість неї. Якщо картка просить винести/перекомпонувати цей фрагмент — фрагмент є джерелом. Якщо картка вже несе нову рамку для читача — напиши саме її; фрагмент лише місце вставки. Не вигадуй непідкріплені медтвердження (дослідження, дози, відсотки, бренди, діагнози). Рекомендація задає форму і має пріоритет над типом/глибиною.",
     jsonSchema: 'Схема JSON: {"title":"...","body":"..."}.',
     titleRule: "title: короткий заголовок врізки (1 рядок, plain text).",
     bodyRuleDeep:
-      "body: глибокий розбір у 3-6 докладних абзацах; не роби його суцільним полотном. Для deep активно використовуй **жирний**: став короткі **якорі-підзаголовки** з 1-3 слів окремим рядком перед частиною абзаців і виділяй **ключові думки** всередині тексту.",
-    bodyRuleBrief: "body: короткий основний текст врізки для block editor.",
+      "body: глибокий розбір у 3-6 докладних абзацах; не роби його суцільним полотном. Розділяй абзаци порожнім рядком. Для deep активно використовуй **жирний**: став короткі **якорі-підзаголовки** з 1-3 слів окремим рядком перед частиною абзаців і виділяй **ключові думки** всередині тексту.",
+    bodyRuleBrief:
+      "body: компактна завершена врізка з кількох коротких абзаців або пунктів, а не одне речення-переказ щільного фрагмента.",
     boldAccentRuleDeep:
       "У кожному змістовному абзаці body має бути принаймні 1 короткий **жирний** акцент; у довгих абзацах або абзацах із кількома тезами зроби 2-3 акценти.",
     boldAccentRuleBrief: "Якщо body містить більше одного речення, виділи 1 коротку ключову думку через **жирний**.",
@@ -345,19 +358,22 @@ const CALLOUT_PROVIDER_SCAFFOLD = {
     calloutKindDescriptionLine: (description: string) => `What this type means: ${description}`,
     calloutKindGuardrailLine: (guardrail: string) => `Additional rule for this type: ${guardrail}`,
     topListBodyFormat:
-      'For top_list: body must contain 3-5 lines; each line in the format "Name (1-2 words): explanation (1 sentence)".',
+      "For top_list: body must be a multi-line reader frame of separate points. Point shape (names, criteria, questions, steps) follows the editor recommendation. Do not require the fragment to already be a list.",
     topListMultilineStructure:
-      "Preserve multi-line structure: one point = one line; do not merge everything into one paragraph.",
+      "Preserve multi-line structure: one point = one line; do not merge everything into one paragraph or collapse body into a one-sentence paraphrase.",
     fragmentLine: (excerpt: string) => `Fragment: ${excerpt}`,
     recommendationLine: (recommendation: string) => `Recommendation: ${recommendation}`,
     additionalInstructionLine: (instruction: string) => `Additional editor instruction: ${instruction}`,
     jsonResponseFormat:
       "Response format: return only a JSON object without other markdown, except allowed **bold** and simple lists in body.",
+    addReaderFrame:
+      "Execute the card recommendation; do not paraphrase the anchor instead of it. If the card asks to lift/restructure this fragment, the fragment is the source. If the card already carries a new reader frame, write that frame; the fragment is only the insert point. Do not invent ungrounded medical claims (studies, doses, percentages, brands, diagnoses). The recommendation sets the shape and outranks kind/depth defaults.",
     jsonSchema: 'JSON schema: {"title":"...","body":"..."}.',
     titleRule: "title: short callout heading (1 line, plain text).",
     bodyRuleDeep:
-      "body: a deep dive in 3-6 detailed paragraphs; do not make it a solid slab. For deep, actively use **bold**: place short **anchor subheads** of 1-3 words on their own line before some paragraphs and highlight **key ideas** inside the text.",
-    bodyRuleBrief: "body: short main callout text for the block editor.",
+      "body: a deep dive in 3-6 detailed paragraphs; do not make it a solid slab. Separate paragraphs with a blank line. For deep, actively use **bold**: place short **anchor subheads** of 1-3 words on their own line before some paragraphs and highlight **key ideas** inside the text.",
+    bodyRuleBrief:
+      "body: a compact complete callout of several short paragraphs or points, not a one-sentence paraphrase of a dense fragment.",
     boldAccentRuleDeep:
       "Each substantive body paragraph must have at least 1 short **bold** accent; in long paragraphs or paragraphs with several theses, use 2-3 accents.",
     boldAccentRuleBrief:
@@ -680,6 +696,7 @@ export function buildCalloutProviderPrompt(locale: AppLocale, params: CalloutPro
     templateContainsPlaceholder(calloutPromptTemplate, "fragment") ? null : scaffold.fragmentLine(excerpt),
     templateContainsPlaceholder(calloutPromptTemplate, "recommendation") ? null : scaffold.recommendationLine(recommendation),
     editorialInstruction?.trim() ? scaffold.additionalInstructionLine(editorialInstruction.trim()) : null,
+    scaffold.addReaderFrame,
     scaffold.jsonResponseFormat,
     scaffold.jsonSchema,
     scaffold.titleRule,

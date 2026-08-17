@@ -37,10 +37,14 @@ test("DEFAULT_CALLOUT_PROMPT_TEMPLATE documents every supported callout kind exp
 
 test("DEFAULT_CALLOUT_PROMPT_TEMPLATE hardens top_list schema with two-shot examples", () => {
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /calloutKind=top_list/i);
-  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Назва \(1-2 слова\): пояснення \(1 речення\)/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Коротка назва: пояснення/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /2-shot приклади/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Добре:/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Погано:/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /читацьку рамку|цьому абзаці/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Перекомпонувати цей фрагмент/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /непідкріплені медтвердження/i);
+  assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /Одне речення-переказ/i);
 });
 
 test("DEFAULT_IMAGE_PROMPT_TEMPLATE documents visualStyleGuide placeholder", () => {
@@ -69,6 +73,10 @@ test("default cards prompt prefers deep callouts for dense explanatory fragments
   assert.match(DEFAULT_CARDS_PROMPT, /віддавай перевагу deep/i);
   assert.match(DEFAULT_CARDS_PROMPT, /якорі-підзаголовки/i);
   assert.match(DEFAULT_CARDS_PROMPT, /ключові думки/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /глобальна врізка/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /локальна врізка/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /у recommendation вже напиши цю нову користь/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /prepare_callout/i);
 });
 
 test("visual style preset helpers expose all supported presets and fallback safely", () => {

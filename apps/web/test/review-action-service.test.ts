@@ -824,6 +824,75 @@ test("generateReviewAction preserves bold anchors and bullet lines in deep callo
   );
 });
 
+test("generateReviewAction keeps blank lines in labeled callout drafts", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Фрагмент про епігенетичний вік." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      apiKey: "test-key",
+      item: {
+        id: "review-callout-labels-1",
+        reviewSessionId: "review-session-2",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Додати застереження",
+        reason: "Потрібна рамка обережності.",
+        recommendation: "Додай врізку із застереженням.",
+        recommendationType: "callout",
+        suggestedAction: "prepare_callout",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "Фрагмент про епігенетичний вік.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "after",
+          anchorBlockId: "p1"
+        },
+        calloutKind: "mechanism",
+        calloutDepth: "deep",
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: [
+              "заголовок: Важливе застереження",
+              "",
+              "Для більшості описаних методів епігенетичний вік лишається оцінкою.",
+              "",
+              "Результати досліджень на гризунах не можна прямо переносити на людей."
+            ].join("\n")
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  assert.equal(response.proposal.kind, "callout_prompt");
+  assert.equal(response.proposal.calloutDraft?.title, "Важливе застереження");
+  assert.equal(
+    response.proposal.calloutDraft?.previewText,
+    [
+      "Для більшості описаних методів епігенетичний вік лишається оцінкою.",
+      "",
+      "Результати досліджень на гризунах не можна прямо переносити на людей."
+    ].join("\n")
+  );
+});
+
 test("generateReviewAction normalizes top_list callout body into actionable multi-line entries", async () => {
   const document: EditorDocument = {
     version: 2,
@@ -1408,7 +1477,8 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.equal(response.usedFallback, false);
   assert.equal(response.providerUsed, "openai:list_replace");
   assert.equal(response.proposal.textDiff?.newBlocks[0]?.type, "bullet_list");
-  assert.deepEqual(requestBody?.text?.format?.schema?.required, ["items"]);
+  assert.deepEqual(requestBody?.text?.format?.schema?.required, ["intro", "items"]);
+  assert.equal(requestBody?.text?.format?.schema?.properties?.intro?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.items?.items?.type, "string");
   assert.equal(requestBody?.text?.format?.schema?.properties?.operations, undefined);
   assert.equal("temperature" in (requestBody ?? {}), false);
@@ -1416,6 +1486,219 @@ test("generateReviewAction sends lightweight OpenAI list schema instead of neste
   assert.match(String(requestBody?.input ?? ""), /ключових думок/i);
   assert.match(String(requestBody?.input ?? ""), /кожному змістовному пункті/i);
   assert.match(String(requestBody?.input ?? ""), /Не виділяй жирним цілий пункт/i);
+  assert.match(String(requestBody?.input ?? ""), /шапка/i);
+  assert.match(String(requestBody?.input ?? ""), /Не скорочуй/i);
+});
+
+test("generateReviewAction keeps a list intro hat even when one paragraph is selected", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [
+          {
+            text: "У підсумку модель отримує набір CpG-ділянок і вагу кожної з них. Щоб визначити вік, вимірюють метилювання, множать на вагу і підсумовують результати [28]."
+          }
+        ]
+      }
+    ]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-intro-1",
+        reviewSessionId: "review-session-list-intro",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на структурований список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: "У підсумку модель отримує набір CpG-ділянок.",
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              intro: "У підсумку модель отримує набір CpG-ділянок і вагу кожної з них.",
+              items: [
+                "вимірюють рівень метилювання у визначених CpG-ділянках;",
+                "множать кожне значення на відповідну вагу;",
+                "підсумовують результати для обчислення епігенетичного віку [28]."
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  const blocks = response.proposal.textDiff?.newBlocks ?? [];
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0]?.type, "paragraph");
+  assert.match(blocks[0]?.type === "paragraph" ? blocks[0].content.map((node) => node.text).join("") : "", /У підсумку модель отримує набір CpG-ділянок/i);
+  assert.equal(blocks[1]?.type, "bullet_list");
+  assert.equal(blocks[1]?.type === "bullet_list" ? blocks[1].items.length : 0, 3);
+});
+
+test("generateReviewAction recovers a colon lead-in as the list hat when intro is omitted", async () => {
+  const source =
+    "На біологічний вік можуть впливати звичні складники повсякденного життя: ранкове світло [147]; рухова активність [66, 148]; надходження з їжею поживних речовин — донорів метильних груп [44, 149] і поліфенолів [106, 107].";
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: source }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-colon-intro-1",
+        reviewSessionId: "review-session-list-colon",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на структурований список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: source,
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                "Ранкове світло [147].",
+                "Рухова активність [66, 148].",
+                "Надходження з їжею донорів метильних груп [44, 149] і поліфенолів [106, 107]."
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  const blocks = response.proposal.textDiff?.newBlocks ?? [];
+  assert.equal(blocks[0]?.type, "paragraph");
+  assert.match(
+    blocks[0]?.type === "paragraph" ? blocks[0].content.map((node) => node.text).join("") : "",
+    /На біологічний вік можуть впливати звичні складники повсякденного життя:/i
+  );
+  assert.equal(blocks[1]?.type, "bullet_list");
+});
+
+test("generateReviewAction recovers a framing sentence as the list hat when items only paraphrase it", async () => {
+  const source =
+    "У підсумку модель отримує набір CpG-ділянок і вагу кожної з них. Щоб визначити вік, вимірюють метилювання, множать на вагу і підсумовують результати [28].";
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: source }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  const response = await generateReviewAction(
+    {
+      document,
+      currentRevision: revision,
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      apiKey: "test-key",
+      item: {
+        id: "review-list-hat-paraphrase-1",
+        reviewSessionId: "review-session-list-hat-paraphrase",
+        documentRevisionId: revision.documentRevisionId,
+        changeLevel: 3,
+        title: "Зробити список",
+        reason: "Список читатиметься краще.",
+        recommendation: "Перетвори це на структурований список.",
+        recommendationType: "list",
+        suggestedAction: "rewrite_text",
+        priority: "medium",
+        anchor: {
+          blockIds: ["p1"],
+          generationBlockRange: { start: 0, end: 0 },
+          excerpt: source,
+          fingerprint: computeAnchorFingerprint(document, ["p1"])
+        },
+        insertionPoint: {
+          mode: "replace",
+          anchorBlockId: "p1"
+        },
+        status: "pending"
+      }
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: [
+                "У підсумку модель отримує набір CpG-ділянок",
+                "вимірюють метилювання;",
+                "множать на вагу;",
+                "підсумовують результати [28]."
+              ]
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    }
+  );
+
+  const blocks = response.proposal.textDiff?.newBlocks ?? [];
+  assert.equal(blocks[0]?.type, "paragraph");
+  assert.match(
+    blocks[0]?.type === "paragraph" ? blocks[0].content.map((node) => node.text).join("") : "",
+    /У підсумку модель отримує набір CpG-ділянок і вагу кожної з них/i
+  );
+  assert.equal(blocks[1]?.type, "bullet_list");
+  const items =
+    blocks[1]?.type === "bullet_list" ? blocks[1].items.map((item) => item.map((node) => node.text).join("")) : [];
+  assert.equal(items.length, 3);
+  assert.doesNotMatch(items.join(" "), /У підсумку модель отримує набір CpG-ділянок і вагу кожної з них/i);
 });
 
 test("generateReviewAction preserves terminal punctuation in structured list items", async () => {

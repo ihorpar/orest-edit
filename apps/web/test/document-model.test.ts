@@ -11,6 +11,9 @@ import {
   sanitizeEditorDocumentText,
   sanitizeEditorText,
   sliceDocumentForBlockRange,
+  splitCalloutBodyAtOffset,
+  mergeCalloutBodyParagraphIntoPrevious,
+  splitInlineNodesByNewlines,
   type EditorDocument
 } from "../lib/editor/document-model.ts";
 
@@ -32,6 +35,62 @@ test("normalizeInlineNodes sanitizes text and preserves marks", () => {
     { text: "Антропогенні чинники", bold: true, italic: undefined, link: undefined },
     { text: "\nдіють", bold: undefined, italic: true, link: undefined }
   ]);
+});
+
+test("splitInlineNodesByNewlines splits across mixed marks and skips empty segments", () => {
+  const segments = splitInlineNodesByNewlines([
+    { text: "Важливе застереження\n", bold: true },
+    { text: "Для більшості описаних методів.\n\nРезультати досліджень на гризунах." }
+  ]);
+
+  assert.deepEqual(
+    segments.map((segment) => segment.map((node) => ({ text: node.text, ...(node.bold ? { bold: true as const } : {}) }))),
+    [
+      [{ text: "Важливе застереження", bold: true }],
+      [{ text: "Для більшості описаних методів." }],
+      [{ text: "Результати досліджень на гризунах." }]
+    ]
+  );
+});
+
+test("splitCalloutBodyAtOffset inserts a new body paragraph without changing the callout id", () => {
+  const result = splitCalloutBodyAtOffset(
+    {
+      id: "c-1",
+      type: "callout",
+      kind: "mechanism",
+      title: [{ text: "Важливе застереження" }],
+      body: [[{ text: "Перше речення.Друге речення." }]]
+    },
+    0,
+    "Перше речення.".length
+  );
+
+  assert.ok(result);
+  assert.equal(result.block.id, "c-1");
+  assert.equal(result.nextParagraphIndex, 1);
+  assert.equal(result.block.body.length, 2);
+  assert.equal(result.block.body[0]?.[0]?.text, "Перше речення.");
+  assert.equal(result.block.body[1]?.[0]?.text, "Друге речення.");
+});
+
+test("mergeCalloutBodyParagraphIntoPrevious joins adjacent body paragraphs", () => {
+  const result = mergeCalloutBodyParagraphIntoPrevious(
+    {
+      id: "c-1",
+      type: "callout",
+      kind: "mechanism",
+      title: [{ text: "Важливе застереження" }],
+      body: [[{ text: "Перше речення." }], [{ text: "Друге речення." }]]
+    },
+    1
+  );
+
+  assert.ok(result);
+  assert.equal(result.block.body.length, 1);
+  assert.equal(result.block.body[0]?.[0]?.text, "Перше речення.Друге речення.");
+  assert.equal(result.focusParagraphIndex, 0);
+  assert.equal(result.focusOffset, "Перше речення.".length);
 });
 
 test("sanitizeEditorDocumentText repairs all text-bearing block surfaces without changing ids", () => {

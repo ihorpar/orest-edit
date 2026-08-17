@@ -47,10 +47,10 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     clarity:
       "Фокус: пояснити складне просто, прибрати перевантажені формулювання, кальки й зайву категоричність, зберегти точність без академічної перевантаженості та без шаблонних застережень.",
     interest:
-      "Фокус: інтерес і застосовність через врізки та локальні розгортання (callout, expand). Не пропонуй візуали чи мовне переписування або спрощення.",
+      "Фокус: інтерес і застосовність. Пропонуй і глобальні врізки (нова рамка, якої ще немає в цьому тексті), і локальні (винести щільний фрагмент у врізку), плюс expand. Не пропонуй візуали чи мовне переписування або спрощення.",
     visuals: "Фокус: де і який візуал дає найбільшу користь. Схема вважається підтипом інфографіки.",
     formatting:
-      "Фокус: лише списки та врізки (list, callout) для швидкого сканування. Не пропонуй підзаголовки — вони належать кроку «Структура».",
+      "Фокус: списки та врізки для сканування. Врізки можуть бути локальні (перекомпонувати фрагмент) або глобальні (додати рамку, якої в цьому тексті ще немає). Не пропонуй підзаголовки — вони належать кроку «Структура».",
     emphasis:
       "Фокус: точково виділити жирним головну тезу або ключову фразу в абзаці без переписування змісту й без візуального шуму.",
     final_editing:
@@ -62,10 +62,10 @@ const CARD_GUIDANCE: Record<AppLocale, Partial<Record<EditorialReviewStepId, str
     clarity:
       "Focus: explain complex material simply, remove overloaded wording, calques, and excess certainty while preserving accuracy without academic heaviness or boilerplate disclaimers.",
     interest:
-      "Focus: reader interest and applicability via callouts and local expansions (callout, expand). Do not propose visuals or language rewrite/simplify.",
+      "Focus: reader interest and applicability. Propose both global callouts (a reader frame not yet in this text) and local ones (lift a dense fragment into a callout), plus expand. Do not propose visuals or language rewrite/simplify.",
     visuals: "Focus: where and which visual adds the most value. A diagram counts as an infographic subtype.",
     formatting:
-      'Focus: lists and callouts only (list, callout) for scan-friendly reading. Do not propose subheads — those belong to the "Structure" step.',
+      'Focus: lists and callouts for scanning. Callouts may be local (restructure a fragment) or global (add a frame this text still lacks). Do not propose subheads — those belong to the "Structure" step.',
     emphasis:
       "Focus: selectively bold the main thesis or key phrase in a paragraph without rewriting content or adding visual noise.",
     final_editing:
@@ -115,6 +115,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Для deep-callout вимагай структуровану подачу: не суцільне полотно, а 3-6 абзаців із активним використанням **жирного**. Перед частиною абзаців мають з'являтися короткі **якорі-підзаголовки** з 1-3 слів окремим рядком, а всередині тексту - **ключові думки**. Якщо є природне перерахування причин, кроків, наслідків або прикладів, передбач один короткий список.",
     recommendationCardsDeepCalloutNoHtmlHeadings:
       "Для deep-callout не використовуй #, ## або HTML-заголовки. Підзаголовки мають бути оформлені тільки як короткі жирні рядки на кшталт **Чому це важливо**.",
+    recommendationCardsCalloutJobs:
+      "Для callout дивись на весь цей фрагмент розділу і пропонуй обидва типи карток. Глобальна врізка: у цьому тексті ще немає корисної рамки для читача (як читати результат, чого текст не доводить, побут, міф/правда, критерії) — у recommendation вже напиши цю нову користь конкретно, не «додай врізку про тему»; якір лише місце вставки. Локальна врізка: щільний фрагмент краще живе як врізка — у recommendation явно скажи винести/перекомпонувати саме цей фрагмент, без вимоги нових фактів. Не зводь усі callout до переказу якоря. Не вигадуй непідкріплені медтвердження (дослідження, дози, відсотки, бренди, діагнози), якщо цього немає в тексті й редактор цього не просив.",
     clarityScope:
       "Для кроку «Ясність» пропонуй лише мовні й локально-структурні правки: спрощення, ущільнення, локальне пом'якшення категоричності, пояснення термінів простішими словами, виправлення кальок і незграбних конструкцій.",
     clarityNoStructure:
@@ -132,7 +134,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     interestFocus:
       "Для «Інтерес» дозволені лише recommendationType='callout' та 'expand'. Не пропонуй visual, rewrite, simplify, list або subsection.",
     interestNoVisualRewrite:
-      "Не пропонуй візуали (вони належать кроку «Візуали») і не роби мовне переписування заради ясності (це крок «Ясність»). Фокус: практичні приклади, застосовність і врізки, що підсилюють інтерес.",
+      "Не пропонуй візуали (вони належать кроку «Візуали») і не роби мовне переписування заради ясності (це крок «Ясність»). Фокус: практичні приклади, застосовність і врізки — як нові для цього тексту, так і винесення вже сказаного в зручну форму.",
     emphasisNoRewrite:
       "Для кроку «Акценти» не переписуй текст і не генеруй редакторських пояснень. Повертай лише точні підрядки, які варто виділити жирним.",
     emphasisBlockIdExact:
@@ -249,6 +251,8 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "For deep callouts, require structured delivery: not a solid slab, but 3-6 paragraphs with active use of **bold**. Before some paragraphs, add short **anchor subheads** of 1-3 words on their own line, and inside the text highlight **key ideas**. If there is a natural list of causes, steps, effects, or examples, include one short list.",
     recommendationCardsDeepCalloutNoHtmlHeadings:
       'For deep callouts, do not use #, ##, or HTML headings. Subheads must be formatted only as short bold lines such as **Why this matters**.',
+    recommendationCardsCalloutJobs:
+      "For callout, look at this whole section fragment and propose both card jobs. Global callout: this text still lacks a useful reader frame (how to read a result, what the text does not prove, everyday use, myth/truth, criteria) — put that new value concretely in recommendation, not 'add a callout about the topic'; the anchor is only the insert point. Local callout: a dense fragment is better as a callout — say in recommendation to lift/restructure that fragment, without requiring new facts. Do not reduce every callout to paraphrasing the anchor. Do not invent ungrounded medical claims (studies, doses, percentages, brands, diagnoses) unless they are in the text or the editor asked for them.",
     clarityScope:
       'For the "Clarity" step, propose only language and local-structural edits: simplification, tightening, local softening of certainty, explaining terms in simpler words, and fixing calques and awkward constructions.',
     clarityNoStructure:
@@ -266,7 +270,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     interestFocus:
       'For "Interest", only recommendationType=\'callout\' and \'expand\' are allowed. Do not propose visual, rewrite, simplify, list, or subsection.',
     interestNoVisualRewrite:
-      'Do not propose visuals (they belong to the "Visuals" step) and do not do language rewrites for clarity (that is the "Clarity" step). Focus on practical examples, applicability, and callouts that strengthen interest.',
+      'Do not propose visuals (they belong to the "Visuals" step) and do not do language rewrites for clarity (that is the "Clarity" step). Focus: practical examples, applicability, and callouts — both new-to-this-text frames and lifting what is already said into a scannable box.',
     emphasisNoRewrite:
       'For the "Emphasis" step, do not rewrite text or generate editorial explanations. Return only exact substrings that should be bolded.',
     emphasisBlockIdExact:

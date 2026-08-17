@@ -2,6 +2,27 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-08-17
+
+### Word export uses paragraph marks for inline newlines
+Decision: remaining `\n` inside paragraph, heading, callout, caption, table-cell, and list-item inline text exports as additional Word paragraphs (`<w:p>` / ¶), not as manual line breaks (`<w:br/>` / ↵). Rewrite/simplify/expand still replace exactly the selected manuscript block count; extra lines stay inside that block in the editor. Callout internal paragraphs stay in `callout.body[][]`. Shift+Enter remains in the editor and becomes a Word paragraph on export.
+
+Reason: book editors need Word paragraph spacing after AI inserts and rewrites. Splitting those lines into extra manuscript blocks would move `Абз. N` labels, review anchors, and fingerprints. Soft breaks are not a core science-pop workflow.
+
+### Callout jobs are decided at card generation, not at prepare
+Decision: typical use is a right-rail workflow step (Interest, Formatting, Custom request) with no paragraph selection. Review generation sees the section chunk and must propose both **global** callouts (a reader frame not already in this text — put that novelty concretely in `recommendation`; the anchor is only the insert point) and **local** callouts (lift/restructure a dense fragment; say so in `recommendation`). Prepare/draft later only sees the anchor fragment plus the card and must **execute the card**, not re-compare “missing from this paragraph” vs “missing from the book,” and not paraphrase the excerpt when the card already carries the new frame. Forbidden novelty remains ungrounded medical claims: studies, doses, percentages, brands/products, diagnoses, or treatment-cause conclusions that the text does not support and the editor did not ask for. Structured `list` execution is unchanged.
+
+Reason: a dual-mode contract only in prepare failed when cards were vague (“add a callout about the mechanism”): prepare then restated the anchor. The payload of novelty has to live in `recommendation` while the model still has the chunk.
+
+Supersedes the 2026-08-17 “Callouts add value relative to this paragraph, with two modes” as the primary contract. Prepare still follows the card’s two jobs (lift vs insert-beside).
+
+### Structured lists keep a source hat and do not summarize
+Decision: `list` execution returns `{"intro","items"}`. `intro` is the manuscript lead-in or framing sentence (the “шапка”) rendered as a paragraph before the bullet list. List items recompose the existing enumeration without shortening, dropping qualifications, or omitting citation markers. A list replacement may exceed the selected block count by one when that extra block is the intro hat. If the model omits `intro`, the server recovers a colon lead-in or a framing first sentence. A first sentence is treated as a hat unless it is already essentially one of the list items; a short paraphrased prefix in an item is not enough to drop the hat.
+
+Reason: editors asked for a structured list as a change of shape, not a rewrite. The previous `items`-only contract and “short 2–7 points” prompt dropped the framing sentence and compressed details. A 40-character overlap check still dropped hats when the model stuffed a summary of the lead into item 1.
+
+Supersedes the stricter “list must never exceed selected block count” ceiling from the inline review execution plan when the extra block is specifically the intro paragraph.
+
 ## 2026-08-12
 
 ### Large recommendation runs are character-budget chunks with prefix reveal

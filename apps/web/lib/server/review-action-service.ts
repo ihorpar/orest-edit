@@ -95,23 +95,25 @@ const openAiListReplaceSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
+    intro: { type: "string" },
     items: {
       type: "array",
       items: { type: "string" }
     }
   },
-  required: ["items"]
+  required: ["intro", "items"]
 } as const;
 
 const geminiListReplaceSchema = {
   type: "OBJECT",
   properties: {
+    intro: { type: "STRING" },
     items: {
       type: "ARRAY",
       items: { type: "STRING" }
     }
   },
-  required: ["items"]
+  required: ["intro", "items"]
 } as const;
 
 function readOpenAiResponseText(payload: OpenAiResponsePayload): string {
@@ -846,16 +848,19 @@ function constrainReplaceProposalOperation(
   }
 
   let nextNewBlocks = operation.newBlocks.slice();
+  let maxCount = targetCount;
 
   if (recommendationType === "list") {
-    if (nextNewBlocks.length > targetCount) {
-      nextNewBlocks = foldOverflowBlocks(nextNewBlocks, targetCount);
+    maxCount = listReplacementBlockCeiling(nextNewBlocks, targetCount);
+    if (nextNewBlocks.length > maxCount) {
+      nextNewBlocks = foldOverflowBlocks(nextNewBlocks, maxCount);
+      maxCount = listReplacementBlockCeiling(nextNewBlocks, targetCount);
     }
   } else {
     nextNewBlocks = normalizeBlocksToExactCount(nextNewBlocks, operation.oldBlocks, targetCount);
   }
 
-  if (nextNewBlocks.length === 0 || nextNewBlocks.length > targetCount) {
+  if (nextNewBlocks.length === 0 || nextNewBlocks.length > maxCount) {
     return null;
   }
 
@@ -895,8 +900,24 @@ function normalizeReviewTextDiffOperation(
   };
 }
 
+function isListBlock(block: Block): boolean {
+  return block.type === "bullet_list" || block.type === "ordered_list";
+}
+
+function hasListIntroHat(blocks: Block[]): boolean {
+  return (
+    blocks.length >= 2 &&
+    (blocks[0]?.type === "paragraph" || blocks[0]?.type === "heading") &&
+    blocks.slice(1).some((block) => isListBlock(block))
+  );
+}
+
+function listReplacementBlockCeiling(newBlocks: Block[], targetCount: number): number {
+  return hasListIntroHat(newBlocks) ? Math.max(targetCount, 2) : targetCount;
+}
+
 function ensureListRecommendationStructure(newBlocks: Block[], oldBlocks: Block[]): Block[] {
-  if (newBlocks.some((block) => block.type === "bullet_list" || block.type === "ordered_list")) {
+  if (newBlocks.some((block) => isListBlock(block))) {
     return newBlocks;
   }
 
@@ -907,15 +928,8 @@ function ensureListRecommendationStructure(newBlocks: Block[], oldBlocks: Block[
     return newBlocks;
   }
 
-  const firstId = newBlocks[0]?.id ?? oldBlocks[0]?.id ?? createPatchId("block");
-
-  return [
-    {
-      id: firstId,
-      type: "bullet_list",
-      items: items.map((item) => [createInlineText(item)])
-    }
-  ];
+  const sourceText = oldBlocks.map((block) => getBlockText(block)).join("\n\n").trim();
+  return assembleListReplacementBlocks(deriveListIntro("", sourceText, items), items, oldBlocks);
 }
 
 function normalizeBlocksToExactCount(newBlocks: Block[], oldBlocks: Block[], targetCount: number): Block[] {
@@ -1277,7 +1291,141 @@ function parseListReplaceBlocks(record: Record<string, unknown> | null, oldBlock
     return null;
   }
 
-  return [buildBulletListBlock(items, oldBlocks[0]?.id)];
+  const providedIntro = typeof record.intro === "string" ? sanitizeReplacementText(record.intro) : "";
+  const sourceText = oldBlocks.map((block) => getBlockText(block)).join("\n\n").trim();
+  const intro = deriveListIntro(providedIntro, sourceText, items);
+  return assembleListReplacementBlocks(intro, items, oldBlocks);
+}
+
+function assembleListReplacementBlocks(intro: string, items: string[], oldBlocks: Block[]): Block[] {
+  const nextItems = peelIntroFromListItems(intro, items);
+  const listBlock = buildBulletListBlock(nextItems, intro ? oldBlocks[1]?.id : oldBlocks[0]?.id);
+
+  if (!intro) {
+    return [listBlock];
+  }
+
+  return [buildListIntroBlock(intro, oldBlocks[0]), listBlock];
+}
+
+function buildListIntroBlock(text: string, template?: Block): Block {
+  if (template?.type === "paragraph") {
+    return cloneBlockWithText(template, text);
+  }
+
+  return {
+    id: template?.id ?? createPatchId("block"),
+    type: "paragraph",
+    content: parseBoldMarkdownToInlineNodes(text)
+  };
+}
+
+function deriveListIntro(providedIntro: string, sourceText: string, items: string[]): string {
+  if (providedIntro) {
+    return providedIntro;
+  }
+
+  const colonLead = matchColonListLead(sourceText);
+  if (colonLead) {
+    return colonLead;
+  }
+
+  const sentences = splitSourceSentences(sourceText);
+  if (sentences.length < 2 || items.length < 2) {
+    return "";
+  }
+
+  const first = sentences[0] ?? "";
+  if (!first || isFirstSentenceAlreadyAListItem(first, items)) {
+    return "";
+  }
+
+  return first;
+}
+
+function matchColonListLead(sourceText: string): string {
+  const match = sourceText.trim().match(/^([\s\S]{12,240}?:)\s+\S/);
+  return match?.[1]?.trim() ?? "";
+}
+
+function splitSourceSentences(sourceText: string): string[] {
+  return sourceText
+    .replace(/\r\n?/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function isFirstSentenceAlreadyAListItem(firstSentence: string, items: string[]): boolean {
+  const needle = normalizeListOverlap(firstSentence);
+  if (!needle) {
+    return false;
+  }
+
+  return items.some((item) => {
+    const hay = normalizeListOverlap(item);
+    if (!hay) {
+      return false;
+    }
+
+    if (hay === needle) {
+      return true;
+    }
+
+    const shorter = hay.length < needle.length ? hay : needle;
+    const longer = hay.length < needle.length ? needle : hay;
+    if (shorter.length < 24) {
+      return false;
+    }
+
+    return longer.startsWith(shorter) && shorter.length / longer.length >= 0.85;
+  });
+}
+
+function peelIntroFromListItems(intro: string, items: string[]): string[] {
+  if (!intro || items.length === 0) {
+    return items;
+  }
+
+  const first = items[0] ?? "";
+  const introCore = intro.replace(/[:：]\s*$/, "").trim();
+  const normalizedFirst = first.trim();
+  const introNorm = normalizeListOverlap(introCore);
+  const firstNorm = normalizeListOverlap(normalizedFirst);
+
+  const firstOverlapsIntro =
+    normalizedFirst.startsWith(intro) ||
+    (introCore.length > 0 && normalizedFirst.startsWith(introCore)) ||
+    (introNorm.length > 0 && firstNorm.startsWith(introNorm));
+
+  if (firstOverlapsIntro) {
+    const sliced = normalizedFirst.startsWith(intro)
+      ? normalizedFirst.slice(intro.length)
+      : normalizedFirst.includes(":")
+        ? normalizedFirst.slice(normalizedFirst.indexOf(":") + 1)
+        : "";
+    const peeled = sliced.replace(/^[\s—–-]+/, "").trim();
+    return peeled ? [sanitizeListItemText(peeled), ...items.slice(1)] : items.slice(1);
+  }
+
+  if (
+    introNorm &&
+    firstNorm &&
+    (introNorm.startsWith(firstNorm) || firstNorm.startsWith(introNorm)) &&
+    Math.min(firstNorm.length, introNorm.length) / Math.max(firstNorm.length, introNorm.length) >= 0.5
+  ) {
+    return items.slice(1);
+  }
+
+  return items;
+}
+
+function normalizeListOverlap(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parseLegacyReplaceBlocks(record: Record<string, unknown> | null, oldBlocks: Block[]): Block[] | null {
@@ -1317,7 +1465,12 @@ function buildTextBlocksFromPlainText(rawOutput: string, oldBlocks: Block[]): Bl
 
 function buildListBlocksFromPlainText(rawOutput: string, oldBlocks: Block[]): Block[] {
   const items = splitListItemsForBlock(rawOutput);
-  return items.length > 0 ? [buildBulletListBlock(items, oldBlocks[0]?.id)] : [];
+  if (items.length === 0) {
+    return [];
+  }
+
+  const sourceText = oldBlocks.map((block) => getBlockText(block)).join("\n\n").trim();
+  return assembleListReplacementBlocks(deriveListIntro("", sourceText, items), items, oldBlocks);
 }
 
 function normalizeTextReplacementBlocks(replacements: string[], oldBlocks: Block[]): Block[] {
@@ -1769,14 +1922,16 @@ function pickString(record: Record<string, unknown>, keys: string[]): string | n
 }
 
 function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: string } {
-  const lines = plain.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = plain.split("\n").map((line) => line.trimEnd());
 
   let title: string | undefined;
   const bodyLines: string[] = [];
 
   for (const line of lines) {
+    const trimmed = line.trim();
+
     if (!title) {
-      const titleMatch = /^(?:заголовок|title)\s*[:\-]\s*(.+)$/i.exec(line);
+      const titleMatch = /^(?:заголовок|title)\s*[:\-]\s*(.+)$/i.exec(trimmed);
 
       if (titleMatch?.[1]) {
         title = titleMatch[1].trim();
@@ -1784,14 +1939,16 @@ function parseCalloutDraftFromLabels(plain: string): { title?: string; body?: st
       }
     }
 
-    if (!/^(?:текст|body|чернетка)\s*[:\-]\s*$/i.test(line)) {
-      bodyLines.push(line);
+    if (!/^(?:текст|body|чернетка)\s*[:\-]\s*$/i.test(trimmed)) {
+      bodyLines.push(trimmed);
     }
   }
 
+  const body = bodyLines.join("\n").replace(/^\n+|\n+$/g, "");
+
   return {
     title,
-    body: bodyLines.length > 0 ? bodyLines.join("\n") : undefined
+    body: body ? body : undefined
   };
 }
 
@@ -2042,10 +2199,16 @@ function normalizeTopListDescription(value: string): string {
 }
 
 function getRequestExcerpt(request: ReviewActionRequest): string {
-  return (
-    request.item.anchor.excerpt ||
-    request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n")
-  );
+  const fromBlocks = request.item.anchor.blockIds
+    .map((blockId) => {
+      const block = request.document.blocks.find((entry) => entry.id === blockId);
+      return block ? getBlockText(block) : "";
+    })
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  return fromBlocks || request.item.anchor.excerpt || "";
 }
 
 

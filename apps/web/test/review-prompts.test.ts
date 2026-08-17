@@ -185,6 +185,8 @@ test("English callout provider prompt excludes Cyrillic scaffolding", () => {
   assert.doesNotMatch(prompt, CYRILLIC_PATTERN);
   assert.match(prompt, /Callout type:/i);
   assert.match(prompt, /JSON schema/i);
+  assert.match(prompt, /Execute the card recommendation/i);
+  assert.match(prompt, /ungrounded medical claims/i);
 });
 
 test("buildFactCheckActionInstruction en returns English guidance", () => {

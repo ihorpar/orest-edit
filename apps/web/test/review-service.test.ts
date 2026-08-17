@@ -1998,6 +1998,11 @@ test("generateEditorialReview injects structure, formatting, and interest scope 
   assert.match(interestInstructions, /для «інтерес» дозволені лише recommendationtype='callout' та 'expand'/i);
   assert.match(interestInstructions, /не пропонуй візуали/i);
   assert.match(interestInstructions, /не роби мовне переписування заради ясності/i);
+  assert.match(formattingInstructions, /глобальна врізка/i);
+  assert.match(formattingInstructions, /локальна врізка/i);
+  assert.match(formattingInstructions, /у recommendation вже напиши цю нову користь/i);
+  assert.match(interestInstructions, /глобальна врізка/i);
+  assert.match(interestInstructions, /не зводь усі callout до переказу якоря/i);
 });
 
 function clarityCardPayload(blockId: string) {
