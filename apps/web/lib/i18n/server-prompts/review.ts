@@ -108,7 +108,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     recommendationCardsCalloutKindDepth:
       "Для recommendationType='callout' обов'язково обери calloutKind і calloutDepth. calloutDepth може бути 'brief' або 'deep'; обирай профіль, який найкраще підходить до контексту статті та фрагмента.",
     recommendationCardsCalloutBriefDeep:
-      "calloutDepth='brief' означає коротку врізку для швидкого пояснення в 1-2 коротких абзацах. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах з внутрішньою структурою.",
+      "calloutDepth='brief' означає компактну, але завершену врізку: заголовок плюс кілька коротких абзаців або пунктів, не одне речення-переказ. calloutDepth='deep' означає глибокий розбір питання у 3-6 докладних абзацах з внутрішньою структурою.",
     recommendationCardsCalloutPreferDeep:
       "Не обирай brief за замовчуванням. Якщо фрагмент щільний, пояснювальний, вводить механізм, причинно-наслідковий ланцюг, практичні наслідки або потребує розгортання контексту, віддавай перевагу deep.",
     recommendationCardsDeepCalloutStructure:
@@ -244,7 +244,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     recommendationCardsCalloutKindDepth:
       "For recommendationType='callout', you must choose calloutKind and calloutDepth. calloutDepth may be 'brief' or 'deep'; choose the profile that best fits the article context and fragment.",
     recommendationCardsCalloutBriefDeep:
-      "calloutDepth='brief' means a short callout for a quick explanation in 1-2 short paragraphs. calloutDepth='deep' means a deep dive in 3-6 detailed paragraphs with internal structure.",
+      "calloutDepth='brief' means a compact but complete callout: title plus several short paragraphs or points, not a one-sentence paraphrase. calloutDepth='deep' means a deep dive in 3-6 detailed paragraphs with internal structure.",
     recommendationCardsCalloutPreferDeep:
       "Do not default to brief. If the fragment is dense, explanatory, introduces a mechanism, cause-effect chain, practical consequences, or needs more context, prefer deep.",
     recommendationCardsDeepCalloutStructure:

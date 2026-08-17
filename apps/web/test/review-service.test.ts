@@ -515,6 +515,7 @@ test("generateEditorialReview prompt encourages deep callouts for dense explanat
   );
 
   assert.match(requestBody, /Не обирай brief за замовчуванням/i);
+  assert.match(requestBody, /компактну, але завершену врізку/i);
   assert.match(requestBody, /віддавай перевагу deep/i);
   assert.match(requestBody, /активним використанням \*\*жирного\*\*/i);
   assert.match(requestBody, /якорі-підзаголовки/i);
@@ -2001,8 +2002,10 @@ test("generateEditorialReview injects structure, formatting, and interest scope 
   assert.match(formattingInstructions, /глобальна врізка/i);
   assert.match(formattingInstructions, /локальна врізка/i);
   assert.match(formattingInstructions, /у recommendation вже напиши цю нову користь/i);
+  assert.match(formattingInstructions, /весь цей фрагмент розділу/i);
   assert.match(interestInstructions, /глобальна врізка/i);
   assert.match(interestInstructions, /не зводь усі callout до переказу якоря/i);
+  assert.doesNotMatch(structureInstructions, /весь цей фрагмент розділу/i);
 });
 
 function clarityCardPayload(blockId: string) {

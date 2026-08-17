@@ -70,6 +70,7 @@ test("default cards prompt prefers deep callouts for dense explanatory fragments
   assert.match(DEFAULT_CARDS_PROMPT, /deep/i);
   assert.match(DEFAULT_CARDS_PROMPT, /brief/i);
   assert.match(DEFAULT_CARDS_PROMPT, /Не обирай brief за замовчуванням/i);
+  assert.match(DEFAULT_CARDS_PROMPT, /компактну, але завершену врізку/i);
   assert.match(DEFAULT_CARDS_PROMPT, /віддавай перевагу deep/i);
   assert.match(DEFAULT_CARDS_PROMPT, /якорі-підзаголовки/i);
   assert.match(DEFAULT_CARDS_PROMPT, /ключові думки/i);
