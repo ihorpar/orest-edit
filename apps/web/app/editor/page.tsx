@@ -3093,7 +3093,18 @@ export default function EditorPage() {
           "x-review-run-capability": capability
         }
       });
-      const payload: unknown = await response.json();
+      const responseText = await response.text();
+      let payload: unknown;
+
+      try {
+        payload = JSON.parse(responseText) as unknown;
+      } catch {
+        throw new Error(
+          responseText.trim().startsWith("An error occurred with your deployment")
+            ? editorCopy.reviewFeedback.reviewJobPlatformTimeout
+            : editorCopy.reviewFeedback.reviewJobInvalid
+        );
+      }
 
       if (!isEditorialReviewRunApiResponse(payload)) {
         throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);

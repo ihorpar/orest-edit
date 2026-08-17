@@ -213,6 +213,10 @@ export function alignReviewItemsToSnapshot(
   });
 }
 
+export type WorkflowReadableStreamLike<T> = ReadableStream<T> & {
+  getTailIndex?: () => Promise<number>;
+};
+
 export async function consumeReadableBatches<T>(
   reader: ReadableStreamDefaultReader<T>
 ): Promise<T[]> {
@@ -236,6 +240,48 @@ export async function consumeReadableBatches<T>(
   }
 
   return batches;
+}
+
+export async function consumeAvailableReadableBatches<T>(
+  stream: WorkflowReadableStreamLike<T>
+): Promise<T[]> {
+  const tailIndex = stream.getTailIndex ? await stream.getTailIndex() : -1;
+  const reader = stream.getReader();
+  const batches: T[] = [];
+
+  try {
+    if (tailIndex < 0) {
+      return batches;
+    }
+
+    for (let index = 0; index <= tailIndex; index += 1) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (value !== undefined) {
+        batches.push(value);
+      }
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+
+  return batches;
+}
+
+export async function consumeWorkflowReadableBatches<T>(
+  stream: WorkflowReadableStreamLike<T>,
+  options: { waitForClose: boolean }
+): Promise<T[]> {
+  if (options.waitForClose) {
+    return consumeReadableBatches(stream.getReader());
+  }
+
+  return consumeAvailableReadableBatches(stream);
 }
 
 export function accumulateReviewPartialItemBatches(batches: EditorialReviewItem[][]): EditorialReviewItem[] {

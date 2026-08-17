@@ -44,14 +44,14 @@ test("getStepWorkspaceStatus distinguishes waiting, active, success, and zero-re
       hasPrerequisite: false,
       isInFlight: false,
       hasExistingResult: false,
-      waitingMessage: "Спочатку запустіть діагностику.",
+      waitingMessage: "Додайте текст рукопису, щоб запустити факт-чек.",
       idleMessage: "Запустіть факт-чек.",
       activeMessage: "Перевіряємо твердження."
     }),
     {
       tone: "warning",
       label: "Очікує",
-      message: "Спочатку запустіть діагностику."
+      message: "Додайте текст рукопису, щоб запустити факт-чек."
     }
   );
 

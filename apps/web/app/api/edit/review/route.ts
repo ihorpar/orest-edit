@@ -27,7 +27,7 @@ import { planReviewChunks } from "../../../../lib/server/review-chunk-planner";
 import {
   accumulateReviewPartialItemBatches,
   buildReviewChunkProgress,
-  consumeReadableBatches,
+  consumeWorkflowReadableBatches,
   isChunkedRecommendationStep,
   isCustomRequestPlanStep,
   latestReviewProgress,
@@ -97,9 +97,10 @@ export async function GET(request: Request) {
     }
 
     const status = await run.status;
-    const snapshot = await buildRunSnapshot(identity, run, status);
-    const partialItems = await readReviewPartialItems(run);
-    const plan = await readReviewPlan(run);
+    const isTerminalRun = status === "completed" || status === "failed" || status === "cancelled";
+    const snapshot = await buildRunSnapshot(identity, run, status, isTerminalRun);
+    const partialItems = await readReviewPartialItems(run, isTerminalRun);
+    const plan = await readReviewPlan(run, isTerminalRun);
 
     try {
       if (status === "completed") {
@@ -366,7 +367,8 @@ function buildRunIdentity(
 async function buildRunSnapshot(
   identity: EditorialReviewRunIdentity,
   run: Run<EditorialReviewResponse>,
-  status: EditorialReviewRunSnapshot["status"]
+  status: EditorialReviewRunSnapshot["status"],
+  isTerminalRun = status === "completed" || status === "failed" || status === "cancelled"
 ): Promise<EditorialReviewRunSnapshot> {
   const updatedAt =
     (status === "completed" || status === "failed" || status === "cancelled"
@@ -378,7 +380,7 @@ async function buildRunSnapshot(
     status,
     updatedAt: updatedAt.toISOString(),
     pollAfterMs: reviewRunPollAfterMs(status, identity.stepId),
-    progress: await readReviewProgress(run)
+    progress: await readReviewProgress(run, isTerminalRun)
   };
 }
 
@@ -441,19 +443,25 @@ function seedChunkProgress(request: EditorialReviewRequest): EditorialReviewRunP
   });
 }
 
-async function readReviewProgress(run: Run<EditorialReviewResponse>): Promise<EditorialReviewRunProgress | undefined> {
-  const reader = run.getReadable<EditorialReviewRunProgress>({
+async function readReviewProgress(
+  run: Run<EditorialReviewResponse>,
+  isTerminalRun: boolean
+): Promise<EditorialReviewRunProgress | undefined> {
+  const stream = run.getReadable<EditorialReviewRunProgress>({
     namespace: "review-progress"
-  }).getReader();
-  const batches = await consumeReadableBatches(reader);
+  });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
   return latestReviewProgress(batches);
 }
 
-async function readReviewPlan(run: Run<EditorialReviewResponse>): Promise<CustomRequestPlan | undefined> {
-  const reader = run.getReadable<CustomRequestPlan>({
+async function readReviewPlan(
+  run: Run<EditorialReviewResponse>,
+  isTerminalRun: boolean
+): Promise<CustomRequestPlan | undefined> {
+  const stream = run.getReadable<CustomRequestPlan>({
     namespace: REVIEW_PLAN_NAMESPACE
-  }).getReader();
-  const batches = await consumeReadableBatches(reader);
+  });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
   for (let index = batches.length - 1; index >= 0; index -= 1) {
     const batch = batches[index];
     if (batch && typeof batch === "object" && Array.isArray((batch as CustomRequestPlan).actions)) {
@@ -464,12 +472,13 @@ async function readReviewPlan(run: Run<EditorialReviewResponse>): Promise<Custom
 }
 
 async function readReviewPartialItems(
-  run: Run<EditorialReviewResponse>
+  run: Run<EditorialReviewResponse>,
+  isTerminalRun: boolean
 ): Promise<EditorialReviewItem[] | undefined> {
-  const reader = run.getReadable<EditorialReviewItem[]>({
+  const stream = run.getReadable<EditorialReviewItem[]>({
     namespace: REVIEW_PARTIAL_ITEMS_NAMESPACE
-  }).getReader();
-  const batches = await consumeReadableBatches(reader);
+  });
+  const batches = await consumeWorkflowReadableBatches(stream, { waitForClose: isTerminalRun });
   const items = accumulateReviewPartialItemBatches(
     batches.filter((batch): batch is EditorialReviewItem[] => Array.isArray(batch) && batch.length > 0)
   );

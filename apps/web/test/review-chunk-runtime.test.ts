@@ -15,6 +15,7 @@ import {
   buildRunningReviewApiResponse,
   classifyReviewChunkFailure,
   consumeReadableBatches,
+  consumeAvailableReadableBatches,
   filterCoreReviewChunkItems,
   latestReviewProgress,
   mapInWaves,
@@ -127,6 +128,20 @@ test("alignReviewItemsToSnapshot rewrites chunk-local revision and indexes onto 
 
   assert.equal(aligned[0]?.documentRevisionId, request.revision.documentRevisionId);
   assert.deepEqual(aligned[0]?.anchor.generationBlockRange, { start: 3, end: 3 });
+});
+
+test("consumeAvailableReadableBatches reads existing chunks without waiting for close", async () => {
+  const stream = new ReadableStream<string>({
+    start(controller) {
+      controller.enqueue("a");
+      controller.enqueue("b");
+    }
+  }) as ReadableStream<string> & { getTailIndex: () => Promise<number> };
+
+  stream.getTailIndex = async () => 1;
+
+  const batches = await consumeAvailableReadableBatches(stream);
+  assert.deepEqual(batches, ["a", "b"]);
 });
 
 test("consumeReadableBatches concatenates GET prefix item batches including after a hole", async () => {

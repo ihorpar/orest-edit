@@ -545,6 +545,7 @@ const editorEn = {
     reviewJobWrongLocale: "Review run was created for another app language. Run the step again.",
     reviewJobInvalid: "Server returned an invalid review run state.",
     reviewJobReadFailed: "Could not read review run state.",
+    reviewJobPlatformTimeout: "The review run exceeded the server time limit. Try a smaller custom request or retry.",
     reviewJobFailed: "Review run failed. Run the step again.",
     reviewRunResultInvalid: "The review run finished without a valid result. Run the step again.",
     reviewRunOtherStepActive: (stepLabel: string) => `The "${stepLabel}" step is still running. Wait for it to finish or open that step.`,
