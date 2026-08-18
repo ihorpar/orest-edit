@@ -101,6 +101,38 @@ export function toTerminalFailedRunSnapshot(
 }
 
 export const REVIEW_POLL_FETCH_TIMEOUT_MS = 12_000;
+export const REVIEW_POLL_FETCH_TIMEOUT_MAX_MS = 45_000;
+export const REVIEW_POLL_FETCH_TIMEOUT_CHARS_PER_STEP = 40_000;
+export const REVIEW_POLL_FETCH_TIMEOUT_STEP_MS = 4_000;
+export const REVIEW_POLL_FETCH_MAX_RETRIES = 4;
+
+export function resolveReviewPollFetchTimeoutMs(sourceChars: number): number {
+  const extraSteps = Math.floor(Math.max(0, sourceChars) / REVIEW_POLL_FETCH_TIMEOUT_CHARS_PER_STEP);
+  return Math.min(
+    REVIEW_POLL_FETCH_TIMEOUT_MAX_MS,
+    REVIEW_POLL_FETCH_TIMEOUT_MS + extraSteps * REVIEW_POLL_FETCH_TIMEOUT_STEP_MS
+  );
+}
+
+export function isTransientReviewPollFetchError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (error.name === "AbortError") {
+    return true;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("failed to fetch")
+    || message.includes("network")
+    || message.includes("load failed")
+    || message.includes("networkerror");
+}
 
 export function isReviewPollPlatformFailureText(text: string): boolean {
   const trimmed = text.trim();

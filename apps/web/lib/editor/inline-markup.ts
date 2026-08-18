@@ -30,16 +30,28 @@ export function parseBoldMarkdownToInlineNodes(text: string): InlineNode[] {
   return normalizeInlineNodes(nodes.length > 0 ? nodes : [createInlineText("")]);
 }
 
+function serializeInlineNodeToPromptMarkup(node: InlineNode): string {
+  const text = node.text ?? "";
+
+  if (!text) {
+    return "";
+  }
+
+  if (node.bold && node.italic) {
+    return `***${text}***`;
+  }
+
+  if (node.bold) {
+    return `**${text}**`;
+  }
+
+  if (node.italic) {
+    return `*${text}*`;
+  }
+
+  return text;
+}
+
 export function serializeInlineNodesToBoldMarkdown(nodes: InlineNode[] | undefined): string {
-  return (nodes ?? [])
-    .map((node) => {
-      const text = node.text ?? "";
-
-      if (!text) {
-        return "";
-      }
-
-      return node.bold ? `**${text}**` : text;
-    })
-    .join("");
+  return (nodes ?? []).map((node) => serializeInlineNodeToPromptMarkup(node)).join("");
 }

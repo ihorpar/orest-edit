@@ -86,6 +86,7 @@ const editorUk = {
     aiEdit: "ШІ правка",
     insertCallout: "Вставка врізки",
     insertSubheading: "Вставка підзаголовка",
+    insertAllSubheadings: "Вставка всіх підзаголовків",
     insertVisual: "Вставка візуалу",
     insertImage: "Вставка зображення"
   },
@@ -173,6 +174,8 @@ const editorUk = {
     recommendationPrepareFailed: "Не вдалося підготувати рекомендацію.",
     calloutInserted: "Врізку вставлено.",
     subheadingInserted: "Підзаголовок вставлено.",
+    subheadingsBulkInserted: (count: number) =>
+      `Вставлено ${count} підзаголовк${count === 1 ? "" : count < 5 ? "и" : "ів"}.`,
     visualGenerated: "Візуал згенеровано.",
     visualGenerateFailed: "Не вдалося згенерувати візуал.",
     visualInserted: "Візуал вставлено.",
@@ -245,6 +248,7 @@ const editorUk = {
     untitled: "Без назви",
     noSubheadings: "Рукопис без підзаголовків",
     openingNoSubheading: "Початок без підзаголовка",
+    insertAll: "Вставити всі",
     headingLevelBadge: (level: 2 | 3) => `H${level}`,
     actions: {
       openDraft: "відкрити чернетку",
@@ -550,7 +554,6 @@ const editorUk = {
     cardsPrepared: (count: number) => `Підготовлено ${count} карток з рекомендаціями для цього кроку.`,
     emphasisPrepared: (count: number) => `Підготовлено ${count} акцентів для inline-погодження.`,
     noEmphasisFound: "ШІ не знайшов доречних акцентів.",
-    recommendationsReady: "Підготовлено рекомендації для поточного етапу",
     reviewFetchFailed: "Не вдалося отримати результат перевірки.",
     reviewJobWrongLocale: "Перевірку було створено для іншої мови застосунку. Запустіть крок ще раз.",
     reviewJobInvalid: "Сервер повернув некоректний стан перевірки.",

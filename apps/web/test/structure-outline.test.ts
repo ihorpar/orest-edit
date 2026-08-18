@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import type { EditorialReviewItem } from "../lib/editor/review-contract.ts";
-import { buildStructureOutlineTree, listSubsectionManuscriptPreviewItems } from "../lib/editor/structure-outline.ts";
+import { buildStructureOutlineTree, listSubsectionManuscriptPreviewItems, applyAllStructureSubheadings } from "../lib/editor/structure-outline.ts";
 
 function createDocument(): EditorDocument {
   return {
@@ -172,4 +172,42 @@ test("listSubsectionManuscriptPreviewItems keeps ready and preparing, drops appl
 
   const visible = listSubsectionManuscriptPreviewItems(items).map((item) => item.id);
   assert.deepEqual(visible, ["ready", "preparing"]);
+});
+
+test("applyAllStructureSubheadings inserts H2 before H3 at the same anchor in document order", () => {
+  const document = createDocument();
+  const items = [
+    createSubsectionItem({
+      id: "later-h3",
+      insertionPoint: { mode: "before", anchorBlockId: "p32" },
+      headingLevel: 3,
+      subsectionDraft: { title: "Пізніший H3", headingLevel: 3, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "early-h2",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      headingLevel: 2,
+      subsectionDraft: { title: "Ранній H2", headingLevel: 2, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "early-h3",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      headingLevel: 3,
+      subsectionDraft: { title: "Ранній H3", headingLevel: 3, prompt: "" }
+    })
+  ];
+
+  const result = applyAllStructureSubheadings(document, items);
+  assert.deepEqual(result.appliedItemIds, ["early-h2", "early-h3", "later-h3"]);
+  assert.equal(result.insertedBlockIds.length, 3);
+
+  const ids = result.document.blocks.map((block) => block.id);
+  const p18 = ids.indexOf("p18");
+  const p32 = ids.indexOf("p32");
+  assert.equal(result.document.blocks[p18 - 2]?.type, "heading");
+  assert.equal((result.document.blocks[p18 - 2] as { level: number }).level, 2);
+  assert.equal(result.document.blocks[p18 - 1]?.type, "heading");
+  assert.equal((result.document.blocks[p18 - 1] as { level: number }).level, 3);
+  assert.equal(result.document.blocks[p32 - 1]?.type, "heading");
+  assert.equal((result.document.blocks[p32 - 1] as { level: number }).level, 3);
 });

@@ -64,7 +64,9 @@ import {
 import {
   isActiveStepReviewRunning,
   interpretReviewRunPollBody,
-  REVIEW_POLL_FETCH_TIMEOUT_MS,
+  isTransientReviewPollFetchError,
+  REVIEW_POLL_FETCH_MAX_RETRIES,
+  resolveReviewPollFetchTimeoutMs,
   resolveReviewRunStartIntent,
   sanitizeExposedErrorMessage,
   shouldAbandonReviewRunAfterPollError,
@@ -85,7 +87,7 @@ import {
   resolveReviewItemSelection,
   type ManuscriptRevisionState
 } from "../../lib/editor/manuscript-structure";
-import { buildStructureOutlineTree } from "../../lib/editor/structure-outline";
+import { buildStructureOutlineTree, applyAllStructureSubheadings, listSubsectionManuscriptPreviewItems } from "../../lib/editor/structure-outline";
 import { buildManualReviewItem, upsertManualReviewItem } from "../../lib/editor/manual-review-items";
 import {
   createCompareHistoryEntry,
@@ -482,7 +484,6 @@ export default function EditorPage() {
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
   const [dismissUndoState, setDismissUndoState] = useState<DismissUndoState | null>(null);
   const [showCompletedCards, setShowCompletedCards] = useState(false);
-  const [showRecommendationStatusStrip, setShowRecommendationStatusStrip] = useState(false);
   const [stepSettingsOpen, setStepSettingsOpen] = useState(false);
   const [activeTopActionMenu, setActiveTopActionMenu] = useState<TopActionMenuId>(null);
   const [isImportInFlight, setIsImportInFlight] = useState(false);
@@ -1753,7 +1754,6 @@ export default function EditorPage() {
   function selectWorkflowStep(stepId: WorkflowStepId) {
     setActiveWorkflowStep(stepId);
     setShowCompletedCards(false);
-    setShowRecommendationStatusStrip(false);
     setFeedback(null);
     setPendingDestructiveAction(null);
   }
@@ -2991,10 +2991,6 @@ export default function EditorPage() {
       payload.stepId !== "fact_check" &&
       payload.stepId !== "emphasis";
 
-    if (isRecommendationStepRun) {
-      setShowRecommendationStatusStrip(true);
-    }
-
     const runSnapshot = {
       id: payload.stepRunId,
       stepId: payload.stepId,
@@ -3180,54 +3176,79 @@ export default function EditorPage() {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
       }
 
-      const controller = new AbortController();
-      reviewPollAbortRef.current = controller;
-      const timeoutId = window.setTimeout(() => controller.abort(), REVIEW_POLL_FETCH_TIMEOUT_MS);
+      const pollFetchTimeoutMs = resolveReviewPollFetchTimeoutMs(
+        getDocumentTextStats(currentDocumentRef.current).charactersWithSpaces
+      );
       let payload: unknown;
       let response: Response;
+      let lastPollFetchError: unknown = null;
 
-      try {
-        response = await fetch(
-          `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
-          {
-            method: "GET",
-            credentials: "same-origin",
-            signal: controller.signal,
-            headers: {
-              "Cache-Control": "no-store",
-              "x-review-run-capability": capability
+      for (let pollAttempt = 1; pollAttempt <= REVIEW_POLL_FETCH_MAX_RETRIES; pollAttempt += 1) {
+        const controller = new AbortController();
+        reviewPollAbortRef.current = controller;
+        const timeoutId = window.setTimeout(() => controller.abort(), pollFetchTimeoutMs);
+
+        try {
+          response = await fetch(
+            `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
+            {
+              method: "GET",
+              credentials: "same-origin",
+              signal: controller.signal,
+              headers: {
+                "Cache-Control": "no-store",
+                "x-review-run-capability": capability
+              }
             }
+          );
+          const responseText = await response.text();
+          if (activeReviewJobRunRef.current !== reviewRunToken) {
+            throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
           }
-        );
-        const responseText = await response.text();
-        if (activeReviewJobRunRef.current !== reviewRunToken) {
-          throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
-        }
 
-        const parsed = interpretReviewRunPollBody(responseText, {
-          invalid: editorCopy.reviewFeedback.reviewJobInvalid,
-          platformTimeout: editorCopy.reviewFeedback.reviewJobPlatformTimeout
-        });
-        if (!parsed.ok) {
-          throw new Error(parsed.message);
-        }
-        payload = parsed.payload;
-      } catch (error) {
-        if (activeReviewJobRunRef.current !== reviewRunToken) {
-          throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
-        }
-        if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+          const parsed = interpretReviewRunPollBody(responseText, {
+            invalid: editorCopy.reviewFeedback.reviewJobInvalid,
+            platformTimeout: editorCopy.reviewFeedback.reviewJobPlatformTimeout
+          });
+          if (!parsed.ok) {
+            throw new Error(parsed.message);
+          }
+          payload = parsed.payload;
+          lastPollFetchError = null;
+          break;
+        } catch (error) {
+          if (activeReviewJobRunRef.current !== reviewRunToken) {
+            throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+          }
+          if (error instanceof Error && error.message === REVIEW_JOB_SUPERSEDED_ERROR) {
+            throw error;
+          }
+
+          lastPollFetchError = error;
+
+          if (isTransientReviewPollFetchError(error) && pollAttempt < REVIEW_POLL_FETCH_MAX_RETRIES) {
+            continue;
+          }
+
+          if ((error instanceof DOMException || error instanceof Error) && error.name === "AbortError") {
+            throw new Error(editorCopy.reviewFeedback.reviewJobPollTimeout);
+          }
+
           throw error;
+        } finally {
+          window.clearTimeout(timeoutId);
+          if (reviewPollAbortRef.current === controller) {
+            reviewPollAbortRef.current = null;
+          }
         }
-        if ((error instanceof DOMException || error instanceof Error) && error.name === "AbortError") {
+      }
+
+      if (lastPollFetchError) {
+        if ((lastPollFetchError instanceof DOMException || lastPollFetchError instanceof Error) && lastPollFetchError.name === "AbortError") {
           throw new Error(editorCopy.reviewFeedback.reviewJobPollTimeout);
         }
-        throw error;
-      } finally {
-        window.clearTimeout(timeoutId);
-        if (reviewPollAbortRef.current === controller) {
-          reviewPollAbortRef.current = null;
-        }
+
+        throw lastPollFetchError;
       }
 
       if (!isEditorialReviewRunApiResponse(payload)) {
@@ -3263,14 +3284,6 @@ export default function EditorPage() {
   }
 
   function focusReviewItem(item: EditorialReviewItem) {
-    if (
-      item.stepId !== "diagnostics"
-      && item.stepId !== "fact_check"
-      && item.stepId !== "emphasis"
-    ) {
-      setShowRecommendationStatusStrip(false);
-    }
-
     const nextSelection = resolveReviewItemSelection(document, revision, item);
     // User requested to not select the paragraph to avoid triggering the local patch toolbar
     setSelection(EMPTY_BLOCK_SELECTION);
@@ -3369,7 +3382,6 @@ export default function EditorPage() {
   }
 
   function focusStructureOutlineExisting(blockId: string) {
-    setShowRecommendationStatusStrip(false);
     setSelection(EMPTY_BLOCK_SELECTION);
     setFocusedBlockId(blockId);
     setActiveReviewItemId(null);
@@ -3604,14 +3616,6 @@ export default function EditorPage() {
   ): Promise<boolean> {
     const requestLocale = locale;
     const requestLocaleEpoch = localeEpochRef.current;
-
-    if (
-      item.stepId !== "diagnostics"
-      && item.stepId !== "fact_check"
-      && item.stepId !== "emphasis"
-    ) {
-      setShowRecommendationStatusStrip(false);
-    }
 
     if (item.stepId === "emphasis") {
       focusReviewItem(item);
@@ -3870,6 +3874,41 @@ export default function EditorPage() {
     setActiveProposal((current) => (current?.reviewItemId === item.id ? null : current));
     setActiveReviewItemId((current) => (current === item.id ? null : current));
     setFeedback({ tone: "info", message: fb.subheadingInserted });
+  }
+
+  function applyAllStructureSubheadingsAction() {
+    const structureItems = activeStepItems.length > 0
+      ? activeStepItems
+      : reviewItems.filter((item) => item.stepId === "structure" || item.recommendationType === "subsection");
+    const result = applyAllStructureSubheadings(document, structureItems);
+
+    if (result.appliedItemIds.length === 0) {
+      setFeedback({ tone: "info", message: st.noStructureActions });
+      return;
+    }
+
+    const appliedIds = new Set(result.appliedItemIds);
+    commitDocument(result.document, {
+      history: {
+        kind: "insert_block",
+        label: hl.insertAllSubheadings,
+        blockIds: result.insertedBlockIds
+      }
+    });
+    focusAndHighlightChangedBlocks(result.insertedBlockIds);
+    setReviewItems((current) =>
+      current.map((entry) =>
+        appliedIds.has(entry.id)
+          ? { ...entry, status: "applied", activeProposalId: undefined }
+          : entry
+      )
+    );
+    setActiveProposal((current) => (current && appliedIds.has(current.reviewItemId) ? null : current));
+    setActiveReviewItemId((current) => (current && appliedIds.has(current) ? null : current));
+    setFeedback({
+      tone: "info",
+      message: fb.subheadingsBulkInserted(result.appliedItemIds.length)
+    });
   }
 
   function updateActiveCalloutKind(item: EditorialReviewItem, kind: EditorialCalloutKind) {
@@ -4671,7 +4710,7 @@ export default function EditorPage() {
     feedback?.tone === "info"
     && (
       isReviewRunProgressFeedback(feedback.message, editorCopy.reviewFeedback)
-      || (isRecommendationStep && (showRecommendationStatusStrip || isReviewRequestInFlight))
+      || (isRecommendationStep && isReviewRequestInFlight)
       || showChunkProgressChrome
     );
   const feedbackPresentation = presentRequestFeedback(
@@ -4807,17 +4846,8 @@ export default function EditorPage() {
               successMessage: editorCopy.stepWorkspace.recommendations.success,
               zeroResultMessage: editorCopy.stepWorkspace.recommendations.zeroResult
             }, locale);
-  const shouldShowPrototypeStatusStrip =
-    activeWorkflowStep !== "spellcheck" &&
-    activeWorkflowStep !== "diagnostics" &&
-    (
-      activeWorkflowStep === "fact_check"
-      || showRecommendationStatusStrip
-    );
-  const prototypeStatusMessage =
-    isRecommendationStep
-      ? editorCopy.reviewFeedback.recommendationsReady
-      : activeStepWorkspaceStatus.message;
+  const shouldShowPrototypeStatusStrip = activeWorkflowStep === "fact_check";
+  const prototypeStatusMessage = activeStepWorkspaceStatus.message;
   const prototypeStatusCount =
     activeWorkflowStep === "diagnostics"
       ? (reviewExpertise ? 1 : 0)
@@ -4832,8 +4862,6 @@ export default function EditorPage() {
   }, [activeWorkflowStep]);
 
   function handleRunActiveStep() {
-    setShowRecommendationStatusStrip(false);
-
     if (activeWorkflowStep === "spellcheck") {
       void requestSpellcheck(spellcheckDocumentBlockIds);
       return;
@@ -5434,6 +5462,9 @@ export default function EditorPage() {
             : structureOutlineModel.proposedCount === 0
               ? st.noStructureActions
               : null;
+      const readyStructureCount = listSubsectionManuscriptPreviewItems(activeStepItems)
+        .filter((item) => Boolean(item.subsectionDraft?.title?.trim()))
+        .length;
 
       return (
         <div className="step-review-prototype-content step-review-prototype-content-structure">
@@ -5443,22 +5474,27 @@ export default function EditorPage() {
               <span>{cs.accepted(activeStepCardStats.applied)}</span>
               <span>{cs.dismissed(activeStepCardStats.dismissed)}</span>
             </div>
-            <button
-              type="button"
-              className="step-review-prototype-utility-toggle"
-              onClick={() => setShowCompletedCards((current) => !current)}
-            >
-              {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
-            </button>
+            <div className="step-review-prototype-utility-actions">
+              {readyStructureCount > 0 ? (
+                <button
+                  type="button"
+                  className="step-review-prototype-utility-toggle"
+                  onClick={applyAllStructureSubheadingsAction}
+                >
+                  {st.insertAll}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="step-review-prototype-utility-toggle"
+                onClick={() => setShowCompletedCards((current) => !current)}
+              >
+                {showCompletedCards ? editorCopy.cards.hideCompleted : editorCopy.cards.showCompleted}
+              </button>
+            </div>
           </div>
 
           <section className="step-review-structure-outline" aria-label={st.sectionOutline}>
-            <div className="step-review-structure-outline-head step-review-structure-section-head-stack">
-              <div>
-                <h3>{st.sectionOutline}</h3>
-                <p className="step-review-structure-section-copy">{workflowStepSummaries.structure}</p>
-              </div>
-            </div>
             <StructureOutlineTree
               model={structureOutlineModel}
               activeReviewItemId={activeReviewItemId}

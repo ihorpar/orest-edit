@@ -218,7 +218,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     emphasisBlockIdRequired:
       "У кожному item обов'язково поверни blockId саме того рядка, де міститься emphasisText. Не використовуй сусідній blockId навіть якщо абзаци тематично схожі.",
     emphasisOneItemPerParagraph:
-      "Для кроку «Акценти» створюй не більше одного item на абзац. У emphasisText повертай точний підрядок із документа без перефразування, без нового змісту і без уже наявного жирного виділення.",
+      "Для кроку «Акценти» створюй не більше одного item на абзац. У emphasisText повертай точний підрядок із документа без перефразування, без нового змісту і без уже наявного жирного чи курсивного виділення (**...** або *...*).",
     emphasisCoveragePrefix: "Орієнтир покриття:",
     emphasisOccurrenceHint:
       "Якщо той самий exact substring трапляється в абзаці кілька разів, додай occurrence: 1, 2, 3... щоб позначити потрібний збіг.",
@@ -378,7 +378,7 @@ const REVIEW_PROMPT_SCAFFOLD = {
     emphasisBlockIdRequired:
       "In each item, you must return the blockId of the row that contains emphasisText. Do not use a neighboring blockId even if paragraphs are thematically similar.",
     emphasisOneItemPerParagraph:
-      'For the "Emphasis" step, create at most one item per paragraph. In emphasisText, return the exact substring from the document without rephrasing, without new content, and without already-bold text.',
+      'For the "Emphasis" step, create at most one item per paragraph. In emphasisText, return the exact substring from the document without rephrasing, without new content, and without already-bold or already-italic text (**...** or *...*).',
     emphasisCoveragePrefix: "Coverage guidance:",
     emphasisOccurrenceHint:
       "If the same exact substring appears multiple times in a paragraph, add occurrence: 1, 2, 3... to mark the needed match.",

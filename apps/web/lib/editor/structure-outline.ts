@@ -1,5 +1,6 @@
 import type { EditorDocument } from "./document-model";
-import { getBlockText } from "./document-model";
+import { createBlockId, getBlockText } from "./document-model";
+import { parseBoldMarkdownToInlineNodes } from "./inline-markup";
 import type { EditorialHeadingLevel, EditorialReviewItem } from "./review-contract";
 
 export type StructureOutlineKind = "existing" | "proposed";
@@ -219,4 +220,97 @@ export function listSubsectionManuscriptPreviewItems(items: EditorialReviewItem[
 
     return Boolean(item.subsectionDraft?.title?.trim());
   });
+}
+
+export type ApplyStructureSubheadingsResult = {
+  document: EditorDocument;
+  appliedItemIds: string[];
+  insertedBlockIds: string[];
+};
+
+/**
+ * Insert all ready Structure subheads in one pass, preserving document order.
+ * Multiple proposals for the same anchor keep H2 before H3.
+ */
+export function applyAllStructureSubheadings(
+  document: EditorDocument,
+  items: EditorialReviewItem[]
+): ApplyStructureSubheadingsResult {
+  const actionable = listSubsectionManuscriptPreviewItems(items).filter((item) =>
+    Boolean(item.subsectionDraft?.title?.trim())
+  );
+
+  if (actionable.length === 0) {
+    return { document, appliedItemIds: [], insertedBlockIds: [] };
+  }
+
+  const blockIndexById = new Map<string, number>();
+  document.blocks.forEach((block, index) => {
+    blockIndexById.set(block.id, index);
+  });
+
+  const sorted = [...actionable].sort((left, right) => {
+    const leftIndex = blockIndexById.get(left.insertionPoint?.anchorBlockId ?? "") ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = blockIndexById.get(right.insertionPoint?.anchorBlockId ?? "") ?? Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+    const leftLevel = resolveProposedLevel(left);
+    const rightLevel = resolveProposedLevel(right);
+    if (leftLevel !== rightLevel) {
+      return leftLevel - rightLevel;
+    }
+    return left.id.localeCompare(right.id);
+  });
+
+  const byAnchor = new Map<string, EditorialReviewItem[]>();
+  const orphanItems: EditorialReviewItem[] = [];
+
+  for (const item of sorted) {
+    const anchorId = item.insertionPoint?.anchorBlockId?.trim() || "";
+    if (!anchorId || !blockIndexById.has(anchorId)) {
+      orphanItems.push(item);
+      continue;
+    }
+    const bucket = byAnchor.get(anchorId) ?? [];
+    bucket.push(item);
+    byAnchor.set(anchorId, bucket);
+  }
+
+  const nextBlocks: EditorDocument["blocks"] = [];
+  const appliedItemIds: string[] = [];
+  const insertedBlockIds: string[] = [];
+
+  function appendHeading(item: EditorialReviewItem) {
+    const title = item.subsectionDraft!.title.trim();
+    const heading = {
+      id: createBlockId("heading"),
+      type: "heading" as const,
+      level: (item.subsectionDraft!.headingLevel ?? item.headingLevel ?? 3) as 2 | 3,
+      content: parseBoldMarkdownToInlineNodes(title)
+    };
+    nextBlocks.push(heading);
+    insertedBlockIds.push(heading.id);
+    appliedItemIds.push(item.id);
+  }
+
+  for (const item of orphanItems) {
+    appendHeading(item);
+  }
+
+  for (const block of document.blocks) {
+    const pending = byAnchor.get(block.id);
+    if (pending) {
+      for (const item of pending) {
+        appendHeading(item);
+      }
+    }
+    nextBlocks.push(block);
+  }
+
+  return {
+    document: { ...document, blocks: nextBlocks },
+    appliedItemIds,
+    insertedBlockIds
+  };
 }

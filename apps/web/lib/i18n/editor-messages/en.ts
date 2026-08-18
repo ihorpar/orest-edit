@@ -86,6 +86,7 @@ const editorEn = {
     aiEdit: "AI edit",
     insertCallout: "Insert callout",
     insertSubheading: "Insert subheading",
+    insertAllSubheadings: "Insert all subheadings",
     insertVisual: "Insert visual",
     insertImage: "Insert image"
   },
@@ -173,6 +174,8 @@ const editorEn = {
     recommendationPrepareFailed: "Could not prepare recommendation.",
     calloutInserted: "Callout inserted.",
     subheadingInserted: "Subheading inserted.",
+    subheadingsBulkInserted: (count: number) =>
+      `Inserted ${count} subheading${count === 1 ? "" : "s"}.`,
     visualGenerated: "Visual generated.",
     visualGenerateFailed: "Could not generate visual.",
     visualInserted: "Visual inserted.",
@@ -242,6 +245,7 @@ const editorEn = {
     untitled: "Untitled",
     noSubheadings: "Manuscript without subheadings",
     openingNoSubheading: "Opening without subheading",
+    insertAll: "Insert all",
     headingLevelBadge: (level: 2 | 3) => `H${level}`,
     actions: {
       openDraft: "open draft",
@@ -547,7 +551,6 @@ const editorEn = {
     cardsPrepared: (count: number) => `Prepared ${count} recommendation card(s) for this step.`,
     emphasisPrepared: (count: number) => `Prepared ${count} emphasis mark(s) for inline review.`,
     noEmphasisFound: "AI found no suitable emphasis.",
-    recommendationsReady: "Recommendations prepared for this step",
     reviewFetchFailed: "Could not fetch review.",
     reviewJobWrongLocale: "Review run was created for another app language. Run the step again.",
     reviewJobInvalid: "Server returned an invalid review run state.",

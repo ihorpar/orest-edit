@@ -758,6 +758,59 @@ test("generateEditorialReview includes existing bold markers in emphasis prompt"
   assert.match(requestBody, /blockId/);
 });
 
+test("generateEditorialReview includes existing italic markers in emphasis prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph",
+        content: [
+          { text: "Шкіра " },
+          { text: "часто першою показує", italic: true },
+          { text: ", як організм реагує на стрес." }
+        ]
+      },
+      {
+        id: "h1",
+        type: "heading",
+        level: 2,
+        content: [{ text: "Розділ про стрес" }]
+      }
+    ]
+  };
+  let requestBody = "";
+
+  await generateEditorialReview(
+    {
+      ...createRequest({
+        document,
+        revision: deriveManuscriptRevisionState(document),
+        stepId: "emphasis",
+        apiKey: "test-key"
+      })
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              items: []
+            })
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /\*часто першою показує\*/);
+  assert.match(requestBody, /## Розділ про стрес/);
+});
+
 test("generateEditorialReview injects automatic emphasis coverage guidance", async () => {
   let requestBody = "";
 

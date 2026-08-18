@@ -6,6 +6,8 @@ import {
   interpretReviewRunPollBody,
   isActiveStepReviewRunning,
   isReviewPollPlatformFailureText,
+  isTransientReviewPollFetchError,
+  resolveReviewPollFetchTimeoutMs,
   resolveReviewRunStartIntent,
   sanitizeExposedErrorMessage,
   shouldAbandonReviewRunAfterPollError,
@@ -235,4 +237,16 @@ test("shouldAbandonReviewRunAfterPollError keeps a superseded poll alive", () =>
     true
   );
   assert.equal(shouldAbandonReviewRunAfterPollError("not-an-error", "review_job_superseded"), true);
+});
+
+test("resolveReviewPollFetchTimeoutMs scales with manuscript length", () => {
+  assert.equal(resolveReviewPollFetchTimeoutMs(8_000), 12_000);
+  assert.equal(resolveReviewPollFetchTimeoutMs(80_000), 20_000);
+  assert.equal(resolveReviewPollFetchTimeoutMs(400_000), 45_000);
+});
+
+test("isTransientReviewPollFetchError treats abort and network failures as retryable", () => {
+  assert.equal(isTransientReviewPollFetchError(new DOMException("Aborted", "AbortError")), true);
+  assert.equal(isTransientReviewPollFetchError(new Error("Failed to fetch")), true);
+  assert.equal(isTransientReviewPollFetchError(new Error("Unexpected token 'A'")), false);
 });

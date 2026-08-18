@@ -23,3 +23,17 @@ test("serializeInlineNodesToBoldMarkdown restores **markers** from bold inline n
     "Тут є **акцент** у фразі."
   );
 });
+
+test("serializeInlineNodesToBoldMarkdown restores *markers* from italic inline nodes", () => {
+  assert.equal(
+    serializeInlineNodesToBoldMarkdown([{ text: "Тут є " }, { text: "курсив", italic: true }, { text: " у фразі." }]),
+    "Тут є *курсив* у фразі."
+  );
+});
+
+test("serializeInlineNodesToBoldMarkdown restores combined bold and italic markers", () => {
+  assert.equal(
+    serializeInlineNodesToBoldMarkdown([{ text: "важливо", bold: true, italic: true }]),
+    "***важливо***"
+  );
+});
