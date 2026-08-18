@@ -5525,11 +5525,12 @@ export default function EditorPage() {
   function renderStopReviewButton(className: string) {
     return (
       <Button
-        variant="secondary"
+        variant="primary"
         size="sm"
-        className={className}
+        className={`${className} is-running`.trim()}
         onClick={stopActiveReviewRun}
         aria-label={editorCopy.reviewFeedback.stopReview}
+        aria-busy="true"
       >
         <span className="button-content">
           <Square size={14} aria-hidden="true" />
@@ -5540,7 +5541,9 @@ export default function EditorPage() {
   }
 
   const runStepButton = isCurrentStepReviewRunning && activeWorkflowStep !== "spellcheck"
-    ? renderStopReviewButton(`step-review-head-action-button ${activeStepPrimaryAction.emphasis === "primary" ? "step-review-head-action-button-primary" : ""}`.trim())
+    ? renderStopReviewButton(
+        `step-review-head-action-button step-review-head-action-button-primary`.trim()
+      )
     : (
     <Button
       variant={activeStepPrimaryAction.emphasis === "primary" ? "primary" : "secondary"}

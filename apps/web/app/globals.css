@@ -17,6 +17,8 @@
   .button-spinner,
   .loading-inline-dots span,
   .step-review-prototype-run-button[data-loading="true"]::before,
+  .step-review-prototype-run-button.is-running::before,
+  .step-review-head-action-button-primary.is-running::before,
   .floating-panel-loading::before,
   .floating-loading-orb::before,
   .floating-loading-orb-core,

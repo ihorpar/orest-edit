@@ -1267,14 +1267,16 @@
   z-index: 0;
 }
 
-.step-review-prototype-run-button[data-loading="true"] {
+.step-review-prototype-run-button[data-loading="true"],
+.step-review-prototype-run-button.is-running {
   opacity: 1 !important;
   cursor: progress !important;
   background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 46%, #1e40af 100%) !important;
   box-shadow: 0 12px 28px rgba(37, 99, 235, 0.2) !important;
 }
 
-.step-review-prototype-run-button[data-loading="true"]::before {
+.step-review-prototype-run-button[data-loading="true"]::before,
+.step-review-prototype-run-button.is-running::before {
   transform: translateX(0);
   opacity: 1;
   background: linear-gradient(
@@ -1291,13 +1293,13 @@
   animation: step-review-loading-sheen 1.65s ease-in-out infinite;
 }
 
-.step-review-prototype-run-button:hover:not(:disabled),
-.step-review-prototype-run-button:focus-visible {
+.step-review-prototype-run-button:hover:not(:disabled):not(.is-running):not([data-loading="true"]),
+.step-review-prototype-run-button:focus-visible:not(.is-running):not([data-loading="true"]) {
   background: #111827 !important;
 }
 
-.step-review-prototype-run-button:hover:not(:disabled)::before,
-.step-review-prototype-run-button:focus-visible:not(:disabled)::before {
+.step-review-prototype-run-button:hover:not(:disabled):not(.is-running):not([data-loading="true"])::before,
+.step-review-prototype-run-button:focus-visible:not(.is-running):not([data-loading="true"])::before {
   transform: translateX(0);
 }
 
