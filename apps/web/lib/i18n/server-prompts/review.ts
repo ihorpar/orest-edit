@@ -168,14 +168,14 @@ const REVIEW_PROMPT_SCAFFOLD = {
     customRequestPlanJsonFormat: (types: string) =>
       `Формат відповіді: JSON {"actions":[{"blockId":"...","recommendationType":"${types.split(", ").join("|")}","title":"...","recommendation":"...","priority":"high|medium|low"}]} без markdown і без інших ключів.`,
     customRequestPlanAnchorRule:
-      "Кожна action має blockId рівно з OUTLINE або SAMPLES (квадратні дужки). Якір — місце локальної дії в рукописі.",
+      "Кожна action має blockId рівно з повного тексту розділу нижче (квадратні дужки). Якір — місце локальної дії в рукописі.",
     customRequestPlanSeedRule:
       "title і recommendation — короткі seeds (1 рядок / 1-2 речення), достатні щоб пізніше згенерувати картку. Не повертай calloutPrompt, calloutPreviewText, visual prompt або повний replacement.",
     customRequestPlanVolumeRule: (maxActions: number) =>
       `Обсяг: якщо запит називає цільову кількість на весь розділ — орієнтуйся близько до неї, але не парси числа окремим алгоритмом поза змістом запиту. Якщо кількості немає — поверни лише стільки сильних дій, скільки справді потрібно. Жорстка стеля: не більше ${maxActions} actions.`,
     customRequestPlanNoCardsRule:
       "Не повертай items[] recommendation-карток. Лише actions[]. Не вигадуй blockId, яких немає в документі.",
-    customRequestPlanDocumentPrefix: "Огляд розділу для планування (outline + зразки, не повний текст):",
+    customRequestPlanDocumentPrefix: "Повний текст розділу для планування (кожний блок з абз. міткою і [blockId]):",
     customRequestGenerateRole:
       "Ти генеруєш рівно одну локальну recommendation-картку за запланованою дією. Не плануй інші дії.",
     customRequestGenerateAllRole:
@@ -328,14 +328,14 @@ const REVIEW_PROMPT_SCAFFOLD = {
     customRequestPlanJsonFormat: (types: string) =>
       `Response format: JSON {"actions":[{"blockId":"...","recommendationType":"${types.split(", ").join("|")}","title":"...","recommendation":"...","priority":"high|medium|low"}]} with no markdown and no other keys.`,
     customRequestPlanAnchorRule:
-      "Each action must use a blockId exactly from OUTLINE or SAMPLES (square brackets). The anchor is the local action site in the manuscript.",
+      "Each action must use a blockId exactly from the full chapter text below (square brackets). The anchor is the local action site in the manuscript.",
     customRequestPlanSeedRule:
       "title and recommendation are short seeds (1 line / 1-2 sentences), enough to generate a card later. Do not return calloutPrompt, calloutPreviewText, visual prompts, or a full replacement.",
     customRequestPlanVolumeRule: (maxActions: number) =>
       `Volume: if the request names a whole-chapter target count, aim near it, but do not extract numbers with a separate algorithm outside the request meaning. If there is no count, return only as many strong actions as truly needed. Hard ceiling: at most ${maxActions} actions.`,
     customRequestPlanNoCardsRule:
       "Do not return recommendation-card items[]. Only actions[]. Do not invent blockIds that are not in the document.",
-    customRequestPlanDocumentPrefix: "Chapter overview for planning (outline + samples, not full text):",
+    customRequestPlanDocumentPrefix: "Full chapter text for planning (every block with paragraph label and [blockId]):",
     customRequestGenerateRole:
       "You generate exactly one local recommendation card from a planned action. Do not plan other actions.",
     customRequestGenerateAllRole:

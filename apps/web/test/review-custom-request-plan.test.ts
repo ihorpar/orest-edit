@@ -8,7 +8,6 @@ import {
 } from "../lib/editor/review-contract.ts";
 import {
   CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS,
-  CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS,
   buildCustomRequestGenerateAllSystemPrompt,
   buildCustomRequestGenerateAllUserPrompt,
   buildCustomRequestPlanSystemPrompt,
@@ -124,18 +123,19 @@ test("normalizeCustomRequestPlan enforces the hard action ceiling without regex 
   assert.equal(result.droppedOverCeiling, 8);
 });
 
-test("packCustomRequestPlanDocument prefers outline plus section samples under the char budget", () => {
+test("packCustomRequestPlanDocument includes every block with ids, not outline samples", () => {
   const document = createMultiSectionDocument();
   const pack = packCustomRequestPlanDocument(document);
 
-  assert.match(pack.outlineText, /H2 \[h0\] Розділ 1/);
-  assert.match(pack.outlineText, /H2 \[h2\] Розділ 3/);
-  assert.ok(pack.sampleLineCount > 0);
-  assert.ok(pack.packedText.length <= CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS + 32);
-  assert.doesNotMatch(pack.packedText, /Змістовний абзац 1\.1 з поясненням механізму для читача науково-популярного тексту\. Змістовний абзац 1\.1 з поясненням механізму для читача науково-популярного тексту\. Змістовний абзац 1\.1 з поясненням механізму для читача науково-популярного тексту\./);
-  assert.match(pack.packedText, /OUTLINE/);
-  assert.match(pack.packedText, /SAMPLES/);
-  assert.match(pack.samplesText, /\[s0p0\]/);
+  assert.match(pack.outlineText, /H2 \[h0\] ## Розділ 1/);
+  assert.match(pack.outlineText, /H2 \[h2\] ## Розділ 3/);
+  assert.equal(pack.sampleLineCount, document.blocks.length);
+  assert.equal(pack.truncated, false);
+  assert.match(pack.packedText, /\[s0p0\].*Змістовний абзац 1\.1/);
+  assert.match(pack.packedText, /\[s0p4\]/);
+  assert.match(pack.packedText, /\[s2p4\]/);
+  assert.doesNotMatch(pack.packedText, /\bOUTLINE\b/);
+  assert.doesNotMatch(pack.packedText, /\bSAMPLES\b/);
 });
 
 test("parseCustomRequestPlanPayload tolerates malformed brace-extracted JSON", () => {
@@ -156,7 +156,7 @@ test("parseCustomRequestPlanPayload tolerates malformed brace-extracted JSON", (
   );
 });
 
-test("custom request plan prompts use packed overview and custom request, not full card JSON", () => {
+test("custom request plan prompts use full chapter text and custom request, not full card JSON", () => {
   const document = createMultiSectionDocument();
   const request: EditorialReviewRequest = {
     document,
@@ -178,7 +178,10 @@ test("custom request plan prompts use packed overview and custom request, not fu
   assert.match(system, /не більше 20/);
   assert.doesNotMatch(system, /recommendationCardsJsonFormat|items\[\{"blockId"/);
   assert.match(user, /запропонуй 10 врізок/);
-  assert.match(user, /OUTLINE/);
+  assert.match(user, /Повний текст розділу/);
+  assert.match(user, /\[s0p0\]/);
+  assert.match(user, /\[s2p4\]/);
+  assert.doesNotMatch(user, /\bOUTLINE\b|\bSAMPLES\b/);
   assert.doesNotMatch(user, /Контекст діагностики/);
 });
 

@@ -4,6 +4,14 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-18
 
+### Custom-request plan sees the full manuscript
+Date: 2026-08-18
+Decision: the `final_editing` plan provider call receives the full chapter as numbered `абз. NNN [blockId] …` lines (same id surface as other review steps). Outline+samples packing under a 24k budget is removed for planning. Generate still uses local slices around planned anchors.
+
+Reason: sparse samples left the planner without enough real anchors, so “5 врізок” often became 2–3 valid actions (or zero after id filtering). Editors expect the planner to see the whole chapter.
+
+Rollback: restore outline + per-H2 sample packing and the OUTLINE/SAMPLES prompt wording.
+
 ### Review poll item deltas use an afterItem cursor
 Date: 2026-08-18
 Decision: GET `/api/edit/review?runId=…&afterItem=N` returns only streamed cards after index `N` on `kind: "run"` (and error envelopes that carry partials). Responses include `itemCursor` / `itemCount` equal to the full accumulated prefix length; the browser advances `afterItem` from that cursor and stores it on the persisted active run for resume. Completed `kind: "result"` still returns the full result once.

@@ -1,5 +1,5 @@
 import type { Block, EditorDocument } from "../editor/document-model.ts";
-import { getBlockText } from "../editor/document-model.ts";
+import { blockToPromptText, getBlockText } from "../editor/document-model.ts";
 import { formatParagraphLabel } from "../editor/manuscript-structure.ts";
 import {
   CUSTOM_REQUEST_PLAN_MAX_ACTIONS,
@@ -14,19 +14,9 @@ import { getReviewPromptScaffold } from "../i18n/server-prompts/review.ts";
 import { sliceDocumentForFragmentRetry } from "../editor/review-run-progress.ts";
 
 /**
- * Packing rule for the chapter-level custom-request plan call:
- * 1. Always include every heading as an outline line: `H{level} [blockId] text`.
- * 2. Split the manuscript into sections at H2 boundaries (content before the first H2 is its own section).
- * 3. From each section, take up to CUSTOM_REQUEST_PLAN_SAMPLES_PER_SECTION sample content blocks
- *    (paragraph / list / callout / table), preferring first, middle, and last meaningful blocks.
- * 4. Truncate each sample to CUSTOM_REQUEST_PLAN_SAMPLE_CHARS and format as `абз. NNN [blockId] text`.
- * 5. If outline + samples exceed CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS, drop sample lines from the
- *    end of the document first; never drop the outline. Prefer outline + section samples over the
- *    full ~140k body.
+ * Plan call sends the full manuscript (every block with абз. label + [blockId]).
+ * Generate still packs local slices around planned anchors under a char budget.
  */
-export const CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS = 24_000;
-export const CUSTOM_REQUEST_PLAN_SAMPLE_CHARS = 160;
-export const CUSTOM_REQUEST_PLAN_SAMPLES_PER_SECTION = 3;
 export const CUSTOM_REQUEST_GENERATE_PACK_BUDGET_CHARS = 36_000;
 
 export const REVIEW_PLAN_NAMESPACE = "review-plan";
@@ -238,65 +228,28 @@ export function mergePlanActionsIntoProviderItems(
 
 export function packCustomRequestPlanDocument(document: EditorDocument): CustomRequestPlanPack {
   const outlineLines: string[] = [];
-  const sampleCandidates: Array<{ sectionOrder: number; line: string }> = [];
+  const bodyLines: string[] = [];
 
   for (const [index, block] of document.blocks.entries()) {
+    const text = blockToPromptText(block).replace(/\s+/g, " ").trim();
+    const line = `${index + 1}. абз. ${formatParagraphLabel(index)} [${block.id}] ${text}`;
+    bodyLines.push(line);
+
     if (block.type === "heading") {
-      const text = getBlockText(block).replace(/\s+/g, " ").trim();
       outlineLines.push(`H${block.level} [${block.id}] ${text}`);
     }
   }
 
-  const sections = splitBlocksIntoH2Sections(document.blocks);
-  for (const [sectionOrder, section] of sections.entries()) {
-    const meaningful = section
-      .map((entry) => entry)
-      .filter((entry) => isSampleableBlock(entry.block) && getBlockText(entry.block).trim().length >= 24);
-
-    if (meaningful.length === 0) {
-      continue;
-    }
-
-    const picks = pickSectionSampleIndexes(meaningful.length, CUSTOM_REQUEST_PLAN_SAMPLES_PER_SECTION);
-    for (const pick of picks) {
-      const entry = meaningful[pick];
-      const text = truncateSample(getBlockText(entry.block), CUSTOM_REQUEST_PLAN_SAMPLE_CHARS);
-      sampleCandidates.push({
-        sectionOrder,
-        line: `абз. ${formatParagraphLabel(entry.index)} [${entry.block.id}] ${text}`
-      });
-    }
-  }
-
   const outlineText = outlineLines.join("\n");
-  const budgetForSamples = Math.max(0, CUSTOM_REQUEST_PLAN_PACK_BUDGET_CHARS - outlineText.length - 64);
-  const keptSamples: string[] = [];
-  let used = 0;
-  let truncated = false;
-
-  for (const candidate of sampleCandidates) {
-    const nextCost = candidate.line.length + (keptSamples.length > 0 ? 1 : 0);
-    if (used + nextCost > budgetForSamples) {
-      truncated = true;
-      break;
-    }
-    keptSamples.push(candidate.line);
-    used += nextCost;
-  }
-
-  const samplesText = keptSamples.join("\n");
-  const packedText = [
-    outlineText ? `OUTLINE\n${outlineText}` : "OUTLINE\n(none)",
-    samplesText ? `SAMPLES\n${samplesText}` : "SAMPLES\n(none)"
-  ].join("\n\n");
+  const samplesText = bodyLines.join("\n");
 
   return {
     outlineText,
     samplesText,
-    packedText,
+    packedText: samplesText,
     outlineLineCount: outlineLines.length,
-    sampleLineCount: keptSamples.length,
-    truncated
+    sampleLineCount: bodyLines.length,
+    truncated: false
   };
 }
 
@@ -410,55 +363,3 @@ export const geminiCustomRequestPlanSchema = {
   },
   required: ["actions"]
 } as const;
-
-function splitBlocksIntoH2Sections(blocks: Block[]): Array<Array<{ index: number; block: Block }>> {
-  const sections: Array<Array<{ index: number; block: Block }>> = [];
-  let current: Array<{ index: number; block: Block }> = [];
-
-  for (const [index, block] of blocks.entries()) {
-    if (block.type === "heading" && block.level <= 2 && current.length > 0) {
-      sections.push(current);
-      current = [];
-    }
-    current.push({ index, block });
-  }
-
-  if (current.length > 0) {
-    sections.push(current);
-  }
-
-  return sections;
-}
-
-function isSampleableBlock(block: Block): boolean {
-  return block.type === "paragraph" ||
-    block.type === "bullet_list" ||
-    block.type === "ordered_list" ||
-    block.type === "callout" ||
-    block.type === "table";
-}
-
-function pickSectionSampleIndexes(length: number, maxSamples: number): number[] {
-  if (length <= maxSamples) {
-    return Array.from({ length }, (_, index) => index);
-  }
-
-  if (maxSamples === 1) {
-    return [0];
-  }
-
-  if (maxSamples === 2) {
-    return [0, length - 1];
-  }
-
-  return [0, Math.floor((length - 1) / 2), length - 1];
-}
-
-function truncateSample(text: string, maxChars: number): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-}
