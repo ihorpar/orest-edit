@@ -270,6 +270,13 @@ const editorEn = {
     customPrompt: "Custom request",
     stepSettings: "Step settings"
   },
+  diagnosticsMode: {
+    label: "Depth",
+    concise: "Essentials",
+    extended: "Extended",
+    conciseHint: "Short verdict and plan without a section map.",
+    extendedHint: "Same core plus a short outline of large zones."
+  },
   disabledReasons: {
     waitCurrentRun: "Wait for the current run to finish.",
     waitOtherStepRun: (stepLabel: string) => `Wait for the "${stepLabel}" step to finish.`,

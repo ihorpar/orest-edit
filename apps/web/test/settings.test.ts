@@ -22,7 +22,8 @@ import {
   normalizeVisualStylePreset,
   resolveModelProfile,
   writeEditorSettings,
-  readEditorSettings
+  readEditorSettings,
+  sanitizeEditorSettings
 } from "../lib/editor/settings.ts";
 import { validateSettingsModel } from "../lib/server/settings-validation.ts";
 import { getEditorSettingsStorageKey } from "../lib/i18n/product-locale.ts";
@@ -55,10 +56,11 @@ test("default editorial prompts forbid generic disclaimer injection for clarity 
   assert.match(DEFAULT_BASE_PROMPT, /не додавай шаблонних медичних застережень/i);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /Пунктуація списків:/i);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /Працюй у режимі макродіагностики великого розділу/);
-  assert.match(DEFAULT_EXPERTISE_PROMPT, /Починай відповідь відразу з заголовка «## Головний діагноз розділу»/);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /Починай відповідь відразу з «## Головний діагноз розділу»/);
   assert.match(DEFAULT_EXPERTISE_PROMPT, /не починай із похвали/i);
-  assert.match(DEFAULT_EXPERTISE_PROMPT, /Поділи весь документ на великі смислові зони без пропусків/i);
-  assert.match(DEFAULT_EXPERTISE_PROMPT, /Що зайве або дубльоване/);
+  assert.match(DEFAULT_EXPERTISE_PROMPT, /режим глибини діагностики/i);
+  assert.doesNotMatch(DEFAULT_EXPERTISE_PROMPT, /Показові абзаци/);
+  assert.doesNotMatch(DEFAULT_EXPERTISE_PROMPT, /Карта розділу/);
   assert.match(DEFAULT_CARDS_PROMPT, /шаблонних медичних дисклеймерів/i);
   assert.match(DEFAULT_CARDS_PROMPT, /починається з малої літери/i);
   assert.match(DEFAULT_CALLOUT_PROMPT_TEMPLATE, /починається з великої літери/i);
@@ -253,6 +255,16 @@ test("writeEditorSettings preserves provider-specific API keys when switching pr
       value: originalWindow
     });
   }
+});
+
+test("sanitizeEditorSettings replaces legacy 7-section expertise templates with the slim default", () => {
+  const sanitized = sanitizeEditorSettings({
+    ...DEFAULT_EDITOR_SETTINGS,
+    expertisePrompt: `${DEFAULT_EXPERTISE_PROMPT}\n\n## Карта розділу\n...\n## Показові абзаци\nРозбери 8-15 найпоказовіших абзаців.`
+  });
+
+  assert.equal(sanitized.expertisePrompt, DEFAULT_EXPERTISE_PROMPT);
+  assert.doesNotMatch(sanitized.expertisePrompt, /Показові абзаци/);
 });
 
 test("one-time Luna migration overwrites prior model then later changes persist", () => {

@@ -70,8 +70,8 @@ function insertOrdered(list: StructureOutlineNode[], node: StructureOutlineNode)
 
 /**
  * Build a nested H2/H3 outline: existing manuscript headings plus Structure proposals
- * inserted before their anchor blocks. Existing headings keep their parents; proposals
- * attach under the nearest preceding existing H2 (or root for proposed H2 / orphans).
+ * inserted before their anchor blocks. Proposed H2 sit at root (same indent as existing H2);
+ * proposed H3 nest under the nearest preceding H2 (existing or proposed).
  */
 export function buildStructureOutlineTree(input: {
   document: EditorDocument;
@@ -151,6 +151,12 @@ export function buildStructureOutlineTree(input: {
     if (leftIndex !== rightIndex) {
       return leftIndex - rightIndex;
     }
+    // Place proposed H2 before H3 at the same anchor so H3 can nest under that H2.
+    const leftLevel = resolveProposedLevel(left);
+    const rightLevel = resolveProposedLevel(right);
+    if (leftLevel !== rightLevel) {
+      return leftLevel - rightLevel;
+    }
     return left.id.localeCompare(right.id);
   });
 
@@ -168,9 +174,15 @@ export function buildStructureOutlineTree(input: {
       orderIndex
     });
 
+    if (level === 2) {
+      insertOrdered(roots, node);
+      insertOrdered(h2Nodes, node);
+      continue;
+    }
+
     let parent: StructureOutlineNode | null = null;
     for (const h2 of h2Nodes) {
-      if (h2.orderIndex < orderIndex) {
+      if (h2.orderIndex <= orderIndex) {
         parent = h2;
       }
     }

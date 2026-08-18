@@ -273,6 +273,13 @@ const editorUk = {
     customPrompt: "Власний запит",
     stepSettings: "Налаштування етапу"
   },
+  diagnosticsMode: {
+    label: "Глибина",
+    concise: "По суті",
+    extended: "Розширена",
+    conciseHint: "Короткий вердикт і план без карти розділу.",
+    extendedHint: "Той самий каркас плюс короткий outline великих зон."
+  },
   disabledReasons: {
     waitCurrentRun: "Дочекайтеся завершення поточного запуску.",
     waitOtherStepRun: (stepLabel: string) => `Дочекайтеся завершення кроку «${stepLabel}».`,

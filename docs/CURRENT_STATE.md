@@ -3,7 +3,7 @@
 Date: 2026-08-17
 Status: Active handoff
 
-Latest completed implementation plan: `docs/plans/EXECPLAN_CUSTOM_REQUEST_PLAN_GENERATE.md`. Previous completed plan: `docs/plans/EXECPLAN_PARALLEL_REVIEW_CHUNKS.md`. Do not treat `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`, `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md`, or `.plans/durable-review-workflow.md` as the current build checklist.
+Latest completed implementation plan: `docs/plans/EXECPLAN_DIAGNOSTICS_DEPTH_MODES.md`. Previous completed plan: `docs/plans/EXECPLAN_CUSTOM_REQUEST_PLAN_GENERATE.md`. Do not treat `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`, `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md`, or `.plans/durable-review-workflow.md` as the current build checklist.
 
 ## What exists now
 - A web-only Next.js app under `apps/web`
@@ -14,6 +14,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_CUSTOM_REQUEST_PLAN_G
 - Structure drawer shows a bare outline tree (not action cards): existing H2/H3 are solid black branches/text; proposed inserts are blue dashed branches/text. Clicking a proposed node opens the manuscript ghost preview; clicking an existing heading scrolls to it
 - On the Structure step, all ready proposed subheads also appear as blue dashed ghost headings in the manuscript at their insert points; only the focused ghost shows Insert/Reject and an editable title
 - Manuscript subsection ghosts use a minimal display: blue heading text (+ small H2/H3 badge) and quiet Insert/Reject under every visible ghost — no dashed card, gradient, or blue highlight bar on the following paragraph. The focused ghost keeps an editable title.
+- Structure outline nests proposed H2 at root (same indent as existing H2) and proposed H3 under the nearest preceding H2, so blue proposals show the same hierarchy as black existing headings
 - Subsection proposal prompts receive the current H2/H3 outline, require `{"title","headingLevel"}`, and avoid copying existing headings; apply inserts `{ type: "heading", level: 2|3 }` before the anchor
 - Subsection normalization shifts insert anchors past a leading existing heading so new subheads land before prose, not as a fake replace of the old heading
 - A locale foundation now exists for a same-repo English edition: `apps/web/lib/i18n/product-locale.ts`, locale copy catalogs, and a `ProductLocaleProvider` wrap the app so runtime UI language can switch between Ukrainian and English
@@ -69,7 +70,8 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_CUSTOM_REQUEST_PLAN_G
 - Review diagnostics still report normalization and duplicate-rejection drops, plus per-type filter counts when a focused step drops off-bucket cards
 - `clarity` review prompts and downstream `rewrite`/`simplify` execution prompts now explicitly forbid generic consultation/self-diagnosis boilerplate and preserve short-list rhythm unless the editor asks for a safety framing
 - Diagnostics is now review-only (no direct card generation CTA); fact-check has its own explicit run action in step 2
-- Diagnostics now uses a macro-diagnostic prompt for long chapters: main structural diagnosis, full section map, systemic problems, missing subsection boundaries, redundant/extra material, representative paragraph evidence, and a prioritized restructuring plan
+- Diagnostics depth modes: header select next to Run — default **По суті** (`concise`: diagnosis, key problems with brief subhead hints, redundant/dupe, rebuild plan) and **Розширена** (`extended`: same plus short large-zone outline). No exemplar-paragraph gallery, no full per-paragraph map, no dedicated subsections section. Mode persists in the locale draft as `diagnosticsMode`
+- Diagnostics now uses a macro-diagnostic prompt for long chapters: shared expertise tone plus mode-aware scaffold headings rather than a single always-on 7-section template
 - Diagnostics markdown now renders GFM tables in the drawer; output text itself is shown verbatim, while stronger diagnostics structure is enforced at prompt time rather than by post-processing model text in the UI
 - Fact-check table data now comes from provider-native structured output (`rows[]`) instead of UI heuristics
 - Fact-check now behaves as a red-flag detector: provider prompts and server normalization suppress `ok`/reassurance rows, allow an empty `rows[]` result, and add a small local guard for suspicious medical numbers or measurement units

@@ -137,7 +137,7 @@ test("generateEditorialReview preserves grounded Gemini HTTP failure details", a
   });
 });
 
-test("generateEditorialReview injects strict diagnostics rubric into provider prompt", async () => {
+test("generateEditorialReview injects concise diagnostics rubric by default", async () => {
   let requestBody = "";
 
   const response = await generateEditorialReview(
@@ -151,7 +151,7 @@ test("generateEditorialReview injects strict diagnostics rubric into provider pr
 
         return new Response(
           JSON.stringify({
-            output_text: "### 1. Редакторський вердикт\nТестова діагностика."
+            output_text: "## Головний діагноз розділу\nТестова діагностика."
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
@@ -162,14 +162,50 @@ test("generateEditorialReview injects strict diagnostics rubric into provider pr
 
   assert.equal(response.usedFallback, false);
   assert.equal(response.stepId, "diagnostics");
-  assert.match(requestBody, /макродіагностики великого розділу/i);
-  assert.match(requestBody, /карта структури й читацького маршруту/i);
+  assert.match(requestBody, /стислої макродіагностики|concise macro-diagnostics/i);
   assert.match(requestBody, /Головний діагноз розділу/);
-  assert.match(requestBody, /Карта розділу/);
+  assert.match(requestBody, /Ключові структурні проблеми/);
   assert.match(requestBody, /Що зайве або дубльоване/);
-  assert.match(requestBody, /8-15 найпоказовіших абзаців/);
+  assert.match(requestBody, /Пріоритетний план перебудови/);
+  assert.doesNotMatch(requestBody, /Карта розділу/);
+  assert.doesNotMatch(requestBody, /карта структури й читацького маршруту/i);
+  assert.doesNotMatch(requestBody, /Короткий outline/);
+  assert.doesNotMatch(requestBody, /Показові абзаци|8-15 найпоказовіших/);
+  assert.doesNotMatch(requestBody, /Де потрібні підрозділи/);
   assert.match(requestBody, /Починай відповідь відразу з заголовка «## Головний діагноз розділу»/);
   assert.match(requestBody, /Не відкривай відповідь похвалою/i);
+});
+
+test("generateEditorialReview injects extended diagnostics outline rubric when requested", async () => {
+  let requestBody = "";
+
+  await generateEditorialReview(
+    createRequest({
+      stepId: "diagnostics",
+      apiKey: "test-key",
+      stepContext: { diagnosticsMode: "extended" }
+    }),
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: "## Головний діагноз розділу\nТестова діагностика."
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+      now: () => "2026-03-10T12:00:00.000Z"
+    }
+  );
+
+  assert.match(requestBody, /розширеної макродіагностики|extended macro-diagnostics/i);
+  assert.match(requestBody, /Короткий outline/);
+  assert.match(requestBody, /5–10 великих смислових зон/);
+  assert.doesNotMatch(requestBody, /Показові абзаци|8-15 найпоказовіших/);
+  assert.doesNotMatch(requestBody, /Де потрібні підрозділи/);
+  assert.doesNotMatch(requestBody, /карта структури й читацького маршруту/i);
 });
 
 test("generateEditorialReview uses editable workflow step prompt overrides", async () => {

@@ -45,9 +45,18 @@ export type EditorialReviewStepId =
   | "emphasis"
   | "final_editing";
 export type EditorialStepRunMode = "preserve" | "replace";
+export type DiagnosticsMode = "concise" | "extended";
 export type FactCheckStatus = "ok" | "questionable" | "unsupported";
 
 export const REJECTED_REVIEW_RECOMMENDATION_MAX_LENGTH = 300;
+
+export function isDiagnosticsMode(value: unknown): value is DiagnosticsMode {
+  return value === "concise" || value === "extended";
+}
+
+export function normalizeDiagnosticsMode(value: unknown, fallback: DiagnosticsMode = "concise"): DiagnosticsMode {
+  return isDiagnosticsMode(value) ? value : fallback;
+}
 /** Max length for visible card copy (`reason` / `recommendation`) after normalization. */
 export const REVIEW_ITEM_COPY_MAX_LENGTH = 1600;
 
@@ -68,6 +77,7 @@ export interface EditorialStepContext {
   diagnosticsExpertise?: string;
   diagnosticsFeedback?: string;
   currentStepFeedback?: string;
+  diagnosticsMode?: DiagnosticsMode;
 }
 
 export interface EditorialEmphasisTarget {

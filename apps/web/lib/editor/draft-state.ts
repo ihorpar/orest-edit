@@ -11,6 +11,7 @@ import type {
   EditorialStepFeedbackMap,
   EditorialStepRunHistory,
   EditorialStepRunModeMap,
+  DiagnosticsMode,
   GeneratedReviewImageAsset,
   RejectedReviewIdea,
   ReviewActionProposal,
@@ -20,7 +21,8 @@ import {
   createDefaultStepFeedbackMap,
   createDefaultStepRunModeMap,
   createEmptyStepRunHistory,
-  isEditorialReviewRunSnapshot
+  isEditorialReviewRunSnapshot,
+  normalizeDiagnosticsMode
 } from "./review-contract";
 import type { RequestFeedback, RequestFeedbackTone } from "./workflow-ui";
 import {
@@ -83,6 +85,7 @@ export interface PersistedEditorDraftState {
   stepRunHistory: EditorialStepRunHistory;
   stepFeedback: EditorialStepFeedbackMap;
   stepRunModeByStep: EditorialStepRunModeMap;
+  diagnosticsMode: DiagnosticsMode;
   history: PersistedHistoryItem[];
   appliedDiffs: PersistedAppliedDiffMarker[];
   compareHistory: CompareHistoryEntry[];
@@ -147,6 +150,10 @@ export function readEditorDraftState(locale: AppLocale = "uk"): PersistedEditorD
       stepRunHistory: coerceStepRunHistory(parsed.stepRunHistory, defaultRunHistory),
       stepFeedback: coerceStepFeedback(parsed.stepFeedback, defaultFeedback),
       stepRunModeByStep: coerceStepRunModes(parsed.stepRunModeByStep, defaultRunModes),
+      diagnosticsMode: normalizeDiagnosticsMode(
+        (parsed as { diagnosticsMode?: unknown }).diagnosticsMode,
+        "concise"
+      ),
       compareHistory: Array.isArray(parsed.compareHistory) ? parsed.compareHistory : [],
       activeReviewRun: coerceActiveReviewRun(parsed.activeReviewRun)
     };
@@ -203,6 +210,7 @@ export function clearLocaleBoundEditorDraftState(state: PersistedEditorDraftStat
     stepRunHistory: createEmptyStepRunHistory(),
     stepFeedback: createDefaultStepFeedbackMap(),
     stepRunModeByStep: createDefaultStepRunModeMap("replace"),
+    diagnosticsMode: "concise",
     history: [],
     appliedDiffs: [],
     compareHistory: [],

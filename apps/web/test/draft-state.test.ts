@@ -62,6 +62,7 @@ function buildDraft(document: EditorDocument): PersistedEditorDraftState {
     stepRunHistory: createEmptyStepRunHistory(),
     stepFeedback: createDefaultStepFeedbackMap(),
     stepRunModeByStep: createDefaultStepRunModeMap("replace"),
+    diagnosticsMode: "concise",
     history: [],
     appliedDiffs: [],
     compareHistory: [],
@@ -109,6 +110,20 @@ test("readEditorDraftState repairs hidden imported characters without dropping d
   assert.equal(paragraph?.type === "paragraph" ? paragraph.content[0]?.text : "", "у кумулятивному ефекті");
   assert.equal(draft.activeReviewItemId, "review-1");
   assert.equal(draft.compareHistory.length, 1);
+});
+
+test("readEditorDraftState coerces missing diagnosticsMode to concise", () => {
+  const localStorage = installWindow();
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p-1", type: "paragraph", content: [{ text: "Текст" }] }]
+  };
+  const { diagnosticsMode: _ignored, ...withoutMode } = buildDraft(document);
+
+  localStorage.setItem(EDITOR_DRAFT_STORAGE_KEY, JSON.stringify({ ...withoutMode, diagnosticsMode: "weird" }));
+
+  const draft = readEditorDraftState();
+  assert.equal(draft?.diagnosticsMode, "concise");
 });
 
 test("writeEditorDraftState persists sanitized document text", () => {

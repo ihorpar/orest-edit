@@ -73,16 +73,43 @@ test("buildStructureOutlineTree nests existing headings and inserts proposed bef
 
   assert.equal(tree.rootTitle, "Схильність і діатези");
   assert.equal(tree.proposedCount, 2);
-  assert.equal(tree.nodes.length, 2);
+  assert.equal(tree.nodes.length, 3);
   assert.equal(tree.nodes[0]?.title, "Що таке діатез");
   assert.equal(tree.nodes[0]?.children[0]?.title, "Спадковість і середовище");
   assert.equal(tree.nodes[0]?.children[1]?.kind, "proposed");
+  assert.equal(tree.nodes[0]?.children[1]?.level, 3);
   assert.equal(tree.nodes[0]?.children[1]?.title, "Три моделі предиспозицій");
   assert.equal(tree.nodes[1]?.title, "Алергічна предиспозиція");
-  assert.equal(tree.nodes[1]?.children[0]?.kind, "proposed");
-  assert.equal(tree.nodes[1]?.children[0]?.title, "Що справді оцінюють на практиці");
-  assert.equal(tree.nodes[1]?.children[0]?.level, 2);
-  assert.equal(tree.nodes[1]?.children[1]?.title, "Ранні періоди розвитку");
+  assert.equal(tree.nodes[1]?.children[0]?.title, "Ранні періоди розвитку");
+  assert.equal(tree.nodes[2]?.kind, "proposed");
+  assert.equal(tree.nodes[2]?.level, 2);
+  assert.equal(tree.nodes[2]?.title, "Що справді оцінюють на практиці");
+});
+
+test("buildStructureOutlineTree nests proposed H3 under proposed H2 at the same section", () => {
+  const document = createDocument();
+  const items = [
+    createSubsectionItem({
+      id: "prop-h2",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      headingLevel: 2,
+      subsectionDraft: { title: "Новий смисловий розділ", headingLevel: 2, prompt: "" }
+    }),
+    createSubsectionItem({
+      id: "prop-h3",
+      insertionPoint: { mode: "before", anchorBlockId: "p18" },
+      headingLevel: 3,
+      subsectionDraft: { title: "Уточнення всередині розділу", headingLevel: 3, prompt: "" }
+    })
+  ];
+
+  const tree = buildStructureOutlineTree({ document, items });
+  const proposedH2 = tree.nodes.find((node) => node.id === "prop-h2");
+  assert.ok(proposedH2);
+  assert.equal(proposedH2?.level, 2);
+  assert.equal(proposedH2?.kind, "proposed");
+  assert.equal(proposedH2?.children[0]?.id, "prop-h3");
+  assert.equal(proposedH2?.children[0]?.level, 3);
 });
 
 test("buildStructureOutlineTree skips applied proposals and hides dismissed unless showCompleted", () => {

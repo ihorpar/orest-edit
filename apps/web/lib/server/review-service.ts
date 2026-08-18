@@ -18,6 +18,7 @@ import {
   type EditorialReviewStepId,
   type EditorialStepRunMode,
   type FactCheckStatus,
+  normalizeDiagnosticsMode,
   resolveReviewChunkScope
 } from "../editor/review-contract.ts";
 import { blockToPromptText, getBlockText, type Block } from "../editor/document-model.ts";
@@ -1779,6 +1780,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
   const allowsCallout = stepAllowsRecommendationType(step, "callout");
   const allowsSubsection = stepAllowsRecommendationType(step, "subsection");
   const isCardPlanning = step.outputKind === "recommendation_cards" && step.id !== "emphasis";
+  const diagnosticsMode = normalizeDiagnosticsMode(request.stepContext?.diagnosticsMode, "concise");
 
   return [
     reviewBasePrompt(request, step, locale),
@@ -1793,7 +1795,7 @@ function buildStepSystemPrompt(request: EditorialReviewRequest, step: ReviewStep
     step.cardGuidance ? scaffold.stepFocusPrefix(step.cardGuidance) : null,
     cardDensityGuidance,
     step.outputKind === "analysis_markdown" ? scaffold.analysisMarkdownFormat : null,
-    step.id === "diagnostics" ? scaffold.diagnosticsMacroMode : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsMacroMode(diagnosticsMode) : null,
     step.id === "diagnostics" ? scaffold.diagnosticsNoMicroStyle : null,
     step.id === "diagnostics" ? scaffold.diagnosticsStartHeading : null,
     step.id === "diagnostics" ? scaffold.diagnosticsNoPraiseOpening : null,
@@ -1841,6 +1843,7 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
   const emphasisCoverageGuidance = step.id === "emphasis" ? buildEmphasisCoverageGuidance(request, locale) : null;
   const emphasisChunkScope = step.id === "emphasis" ? buildEmphasisChunkScopeGuidance(request, locale) : null;
   const rejectedIdeasPrompt = buildRejectedIdeasPrompt(request.rejectedIdeas, request.document.blocks, locale);
+  const diagnosticsMode = normalizeDiagnosticsMode(request.stepContext?.diagnosticsMode, "concise");
 
   return [
     diagnosticsExpertise && step.id !== "diagnostics" && step.id !== "final_editing"
@@ -1858,10 +1861,10 @@ function buildStepUserPrompt(request: EditorialReviewRequest, step: ReviewStepSp
       ? `${scaffold.finalEditingCustomPromptPrefix}\n${stepFeedback}`
       : null,
     step.id === "final_editing" ? scaffold.finalEditingExecuteAsCards : null,
-    step.id === "diagnostics" ? scaffold.diagnosticsRubric : null,
-    step.id === "diagnostics" ? scaffold.diagnosticsHeadings : null,
-    step.id === "diagnostics" ? scaffold.diagnosticsSectionMap : null,
-    step.id === "diagnostics" ? scaffold.diagnosticsExemplarParagraphs : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsRubric(diagnosticsMode) : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsHeadings(diagnosticsMode) : null,
+    step.id === "diagnostics" && diagnosticsMode === "extended" ? scaffold.diagnosticsOutlineGuidance : null,
+    step.id === "diagnostics" ? scaffold.diagnosticsProblemsGuidance : null,
     step.id === "fact_check" ? scaffold.factCheckFocus : null,
     step.id === "fact_check" ? scaffold.factCheckEvidenceStandards : null,
     step.id === "fact_check" ? scaffold.factCheckExplanationRules : null,

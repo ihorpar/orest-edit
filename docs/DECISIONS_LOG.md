@@ -4,6 +4,14 @@ This file keeps only durable, active product and architecture decisions. Tempora
 
 ## 2026-08-17
 
+### Diagnostics depth modes: По суті vs Розширена
+Date: 2026-08-17
+Decision: the Diagnostics step offers two depth modes selected via a compact dropdown next to Run: `concise` (UI «По суті», default) and `extended` (UI «Розширена»). Concise requires headings for main diagnosis, key structural problems (including brief subhead hints), redundant/duplicated material, and a priority rebuild plan. Extended adds a short outline of large zones after the diagnosis. Neither mode uses exemplar-paragraph galleries, a full per-paragraph section map, or a dedicated subsections section. Mode is persisted in the locale draft and sent as `stepContext.diagnosticsMode`. Shared `expertisePrompt` stays tone-only; required section structure comes from mode-aware server scaffold.
+
+Reason: the previous always-on 7-section macro rubric was longer than the product’s “short review” promise, and most of the output was unused once downstream chunked steps clipped diagnostics context to ~1200 characters.
+
+Rollback: restore static scaffold strings for map/exemplars/subsections and the embedded 7-section `DEFAULT_EXPERTISE_PROMPT` template; remove the header select and draft field.
+
 ### Custom request uses plan then one generate call
 Date: 2026-08-17
 Decision: `final_editing` / `Власний запит` builds one chapter-level action plan (anchors + types + short seeds) from outline + section samples, then generates all recommendation cards in **one** provider call (one durable workflow step) using local slices around planned anchors. No regex count parsing. Hard ceiling 20 actions. Other recommendation steps keep 16k character-budget waves of 3. A failed whole generate retries that generate step; a missing card can still be retried as a single `customRequestPlanAction` (preserve). GET review polls read already-written workflow stream chunks and do not wait for stream close.
@@ -679,13 +687,13 @@ Decision: when actionable `Акценти` suggestions exist, the active step he
 
 Reason: users expect a single-click accept-all path immediately after the feature produces accents, without hunting in the result list controls.
 
-### Diagnostics uses a strict editorial-risk rubric
-Decision: `Діагностика` remains review-only, but its default prompt now requires an editorial verdict, critical risks with severity/evidence/reader harm/local action, a dimension-by-dimension problem map, selective block analysis, and prioritized next workflow steps.
-
-Reason: the earlier diagnostics prompt asked for a detailed review but did not force depth. Editors need a sharper diagnostic layer that separates systemic problems from polish, names medical/scientific risk, and produces useful context for downstream workflow steps.
-
 ### Diagnostics is optimized for macro-structure before local critique
-Decision: the diagnostics prompt now runs in macro-diagnosis mode for long sections: first the main structural failure and a full map of the chapter, then systemic problems, missing subsection boundaries, redundant or removable material, representative paragraph evidence, and only then the restructuring plan.
+Decision: **Superseded 2026-08-17** by “Diagnostics depth modes: По суті vs Розширена”. Historically, diagnostics always ran a full macro pack: main structural failure, full chapter map, systemic problems, missing subsection boundaries, redundant material, representative paragraph evidence, then rebuild plan.
+
+Reason (historical): editors needed sharper structural diagnosis than a generic review essay.
+
+### Diagnostics uses a strict editorial-risk rubric
+Decision: **Partially superseded 2026-08-17** by diagnostics depth modes. Diagnostics remains review-only; depth and section set are now mode-selected rather than a single fixed long rubric with exemplar paragraphs.
 
 Reason: the previous stricter prompt still produced polished local criticism more readily than true chapter-level diagnosis. For long manuscripts, editors need composition analysis and structural operations (`скоротити`, `об'єднати`, `розбити`, `переставити`, `винести`, `видалити`) before micro-level wording critique.
 

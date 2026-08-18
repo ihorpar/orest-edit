@@ -19,14 +19,14 @@ export const ENGLISH_EDITOR_DEFAULTS: LocaleEditorDefaults = {
   reviewPrompt:
     "Generate concrete, local, executable editorial recommendations in English. Keep every recommendation tied to a contiguous paragraph range and prefer patch-first, diff-first changes over broad rewrites.",
   expertisePrompt:
-    "Work in macro-diagnostics mode for a long section. First map the structure and reader journey, then cite specific paragraphs as evidence of systemic problems. Write natural English markdown. Start with '## Main structural diagnosis'. Be direct, specific, and editorial rather than reassuring.",
+    "Work in macro-diagnostics mode for a long section as a strict book editor. Do not reassure the author or open with praise. Anchor critical notes to paragraph references (para. NNN). Focus on section architecture, reader route, duplication, sagging logic, and unnecessary side blocks—not micro-style nits. Write natural English markdown. Follow the required headings and rubric from this run's system instructions (diagnostics depth mode). Start immediately with '## Main structural diagnosis'. Do not invent facts, medical advice, disclaimers, JSON, or action cards.",
   cardsPrompt:
     "Generate concrete local editorial recommendation cards in English from the diagnostics context. Keep one card focused on one contiguous paragraph range. For callouts, propose both global frames not yet in this text (put the new value in recommendation) and local lifts of dense fragments. Use stable internal enums for recommendationType, suggestedAction, insertionHint, calloutKind, calloutDepth, and visualIntent. Prefer deep callouts for dense explanatory fragments and avoid generic medical disclaimer language.",
   reviewLevelGuide:
     "Level 1: light cleanup. Level 2: modest tightening. Level 3: strong local editing. Level 4: deep restructuring of weak areas. Level 5: radical local redesign when it clearly improves readability.",
   workflowStepPrompts: {
     diagnostics:
-      "Diagnose the chapter as a whole: structure, reader flow, weak transitions, redundancy, overloaded sections, and missing subheads. Output markdown only.",
+      "Diagnose the chapter as a whole: structure, reader flow, redundancy, and missing subheads. Output markdown only; depth mode controls section length.",
     fact_check:
       "Return only red-flag fact-check rows. Surface questionable or unsupported claims, weak numbers, or missing support. Do not return reassuring OK rows.",
     structure:

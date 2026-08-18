@@ -82,8 +82,10 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Поверни сильні локальні рекомендації саме для цього кроку.",
     analysisMarkdownFormat:
       "Формат відповіді: Markdown, українською мовою, з посиланнями на абзаци у вигляді «абз. NNN».",
-    diagnosticsMacroMode:
-      "Працюй у режимі макродіагностики великого розділу: спочатку карта структури й читацького маршруту, потім абзаци як докази системних проблем.",
+    diagnosticsMacroMode: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? "Працюй у режимі розширеної макродіагностики великого розділу: головний структурний діагноз, короткий outline великих зон, потім ключові проблеми з доказами «абз. NNN». Без повної карти кожного абзацу і без окремої галереї показових абзаців."
+        : "Працюй у режимі стислої макродіагностики великого розділу: головний структурний діагноз і ключові проблеми з доказами «абз. NNN». Без карти розділу, без окремої секції підрозділів і без галереї показових абзаців.",
     diagnosticsNoMicroStyle:
       "Для діагностики не підміняй структурний аналіз набором точкових стилістичних зауваг. Локальні фрази використовуй лише як докази макропроблем.",
     diagnosticsStartHeading:
@@ -187,14 +189,18 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Поверни рівно по одному item на кожну planned action, у тому ж порядку. Не повертай порожній items[] і не додавай зайвих карток.",
     customRequestGenerateActionsPrefix: "Заплановані дії (по одній картці на кожну, той самий порядок):",
     customRequestGenerateContextPrefix: "Локальний контекст навколо якорів плану (не повний розділ):",
-    diagnosticsRubric:
-      "Зроби сувору макродіагностику за рубрикою: головний діагноз розділу, карта розділу, ключові структурні проблеми, де потрібні підрозділи, що зайве або дубльоване, показові абзаци і пріоритетний план перебудови.",
-    diagnosticsHeadings:
-      "Використовуй саме такі markdown-заголовки другого рівня: «## Головний діагноз розділу», «## Карта розділу», «## Ключові структурні проблеми», «## Де потрібні підрозділи», «## Що зайве або дубльоване», «## Показові абзаци», «## Пріоритетний план перебудови».",
-    diagnosticsSectionMap:
-      "У блоці «Карта розділу» покрий увесь документ великими смисловими зонами без пропусків; кожен абзац має належати рівно одній зоні.",
-    diagnosticsExemplarParagraphs:
-      "У блоці «Показові абзаци» розбирай 8-15 найпоказовіших абзаців як докази великих проблем. Для кожного абзацу поясни, яку саме системну поломку він доводить.",
+    diagnosticsRubric: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? "Зроби сувору макродіагностику за рубрикою: головний діагноз, короткий outline великих зон, ключові структурні проблеми (зокрема де коротко варто додати підзаголовки), що зайве або дубльоване, і пріоритетний план перебудови. Без окремого блоку показових абзаців і без повної карти кожного абзацу."
+        : "Зроби стислу макродіагностику за рубрикою: головний діагноз розділу, ключові структурні проблеми (зокрема де коротко варто додати підзаголовки), що зайве або дубльоване, і пріоритетний план перебудови. Без карти розділу, без окремого блоку підрозділів і без показових абзаців.",
+    diagnosticsHeadings: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? "Використовуй саме такі markdown-заголовки другого рівня: «## Головний діагноз розділу», «## Короткий outline», «## Ключові структурні проблеми», «## Що зайве або дубльоване», «## Пріоритетний план перебудови»."
+        : "Використовуй саме такі markdown-заголовки другого рівня: «## Головний діагноз розділу», «## Ключові структурні проблеми», «## Що зайве або дубльоване», «## Пріоритетний план перебудови».",
+    diagnosticsOutlineGuidance:
+      "У блоці «Короткий outline» дай 5–10 великих смислових зон (не кожен абзац). Для зони: діапазон абз. NNN-NNN, функція, одна фраза що з нею робити.",
+    diagnosticsProblemsGuidance:
+      "У «Ключові структурні проблеми» назви 3–6 системних поломок. Для кожної — де проявляється (абз. NNN), шкода читачеві, перша редакторська дія. Якщо бракує підзаголовків — коротко вкажи місця тут, без окремої секції підрозділів.",
     factCheckFocus:
       "Не перевіряй і не перераховуй усе підряд. Твоя задача - знайти тільки твердження, які редактор має поставити під сумнів: застаріла або радянська медична рамка, слабка доказовість, надто категоричний причинно-наслідковий висновок, лікувальна або профілактична обіцянка, конкретні числа, відсотки, дозування, тривалість, ризики, лабораторні пороги або підозрілі одиниці вимірювання. Коректні або несуттєві твердження пропускай мовчки.",
     factCheckEvidenceStandards:
@@ -236,8 +242,10 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Return strong local recommendations for this step only.",
     analysisMarkdownFormat:
       'Response format: Markdown in English, with paragraph references in the form "para. NNN".',
-    diagnosticsMacroMode:
-      "Work in macro-diagnostics mode for a long section: first map structure and reader journey, then use paragraphs as evidence of systemic problems.",
+    diagnosticsMacroMode: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? "Work in extended macro-diagnostics mode for a long section: main structural diagnosis, a short outline of large zones, then key problems with para. NNN evidence. No full per-paragraph section map and no separate exemplar-paragraph gallery."
+        : "Work in concise macro-diagnostics mode for a long section: main structural diagnosis and key problems with para. NNN evidence. No section map, no dedicated subsections section, and no exemplar-paragraph gallery.",
     diagnosticsNoMicroStyle:
       "For diagnostics, do not replace structural analysis with a set of pointwise stylistic notes. Use local phrases only as evidence of macro problems.",
     diagnosticsStartHeading:
@@ -341,14 +349,18 @@ const REVIEW_PROMPT_SCAFFOLD = {
       "Return exactly one item per planned action, in the same order. Do not return an empty items[] and do not add extra cards.",
     customRequestGenerateActionsPrefix: "Planned actions (one card each, same order):",
     customRequestGenerateContextPrefix: "Local context around the planned anchors (not the full chapter):",
-    diagnosticsRubric:
-      "Run a strict macro-diagnosis using this rubric: main structural diagnosis, section map, key structural problems, where subsections are needed, what is redundant or duplicated, exemplar paragraphs, and priority rebuild plan.",
-    diagnosticsHeadings:
-      'Use exactly these level-2 markdown headings: "## Main structural diagnosis", "## Section map", "## Key structural problems", "## Where subsections are needed", "## What is redundant or duplicated", "## Exemplar paragraphs", "## Priority rebuild plan".',
-    diagnosticsSectionMap:
-      'In the "Section map" block, cover the whole document with large semantic zones without gaps; each paragraph must belong to exactly one zone.',
-    diagnosticsExemplarParagraphs:
-      'In the "Exemplar paragraphs" block, analyze 8-15 of the most telling paragraphs as evidence of major problems. For each paragraph, explain which systemic failure it proves.',
+    diagnosticsRubric: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? "Run a strict macro-diagnosis using this rubric: main structural diagnosis, a short outline of large zones, key structural problems (including brief notes on where subheads would help), what is redundant or duplicated, and a priority rebuild plan. Do not add a separate exemplar-paragraphs block or a full per-paragraph section map."
+        : "Run a concise macro-diagnosis using this rubric: main structural diagnosis, key structural problems (including brief notes on where subheads would help), what is redundant or duplicated, and a priority rebuild plan. No section map, no separate subsections block, and no exemplar paragraphs.",
+    diagnosticsHeadings: (mode: "concise" | "extended") =>
+      mode === "extended"
+        ? 'Use exactly these level-2 markdown headings: "## Main structural diagnosis", "## Short outline", "## Key structural problems", "## What is redundant or duplicated", "## Priority rebuild plan".'
+        : 'Use exactly these level-2 markdown headings: "## Main structural diagnosis", "## Key structural problems", "## What is redundant or duplicated", "## Priority rebuild plan".',
+    diagnosticsOutlineGuidance:
+      'In the "Short outline" block, give 5–10 large semantic zones (not every paragraph). For each zone: para. NNN-NNN range, function, and one phrase on what to do with it.',
+    diagnosticsProblemsGuidance:
+      'In "Key structural problems", name 3–6 systemic failures. For each — where it shows (para. NNN), reader harm, and the first editorial action. If subheads are missing, note those places briefly here, without a separate subsections section.',
     factCheckFocus:
       "Do not check or list everything. Your task is to find only claims the editor should question: outdated or Soviet-era medical framing, weak evidence, overly categorical cause-effect conclusions, treatment or prevention promises, specific numbers, percentages, dosages, durations, risks, lab thresholds, or suspicious units. Skip correct or insignificant claims silently.",
     factCheckEvidenceStandards:

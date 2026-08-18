@@ -125,6 +125,7 @@ import {
   type EditorialStepRunHistory,
   type EditorialStepRunMode,
   type EditorialStepRunModeMap,
+  type DiagnosticsMode,
   type VisualStylePreset,
   type EditorialVisualIntent,
   getEditorialCalloutKindTitle,
@@ -143,6 +144,7 @@ import {
   type RejectedReviewIdea,
   isEditorialReviewRunApiResponse,
   isReplaceReviewType,
+  normalizeDiagnosticsMode,
   normalizeRejectedReviewIdeas,
   type ReviewActionRequest,
   type ReviewActionProposal,
@@ -301,6 +303,7 @@ interface EditorSessionSnapshot {
   imageQuality: VisualImageQuality;
   stepFeedback: EditorialStepFeedbackMap;
   stepRunModeByStep: EditorialStepRunModeMap;
+  diagnosticsMode: DiagnosticsMode;
   stepRunHistory: EditorialStepRunHistory;
   factCheckRows: EditorialFactCheckRow[];
   showCompletedCards: boolean;
@@ -473,6 +476,7 @@ export default function EditorPage() {
   const [imageQuality, setImageQuality] = useState<VisualImageQuality>(defaultVisualImageQuality);
   const [stepFeedback, setStepFeedback] = useState<EditorialStepFeedbackMap>(() => createDefaultStepFeedbackMap());
   const [stepRunModeByStep, setStepRunModeByStep] = useState<EditorialStepRunModeMap>(() => createDefaultStepRunModeMap("replace"));
+  const [diagnosticsMode, setDiagnosticsMode] = useState<DiagnosticsMode>("concise");
   const [stepRunHistory, setStepRunHistory] = useState<EditorialStepRunHistory>(() => createEmptyStepRunHistory());
   const [factCheckRows, setFactCheckRows] = useState<EditorialFactCheckRow[]>([]);
   const [recentlyChangedBlockIds, setRecentlyChangedBlockIds] = useState<string[]>([]);
@@ -624,6 +628,7 @@ export default function EditorPage() {
       setStepRunHistory(draft.stepRunHistory ?? createEmptyStepRunHistory());
       setStepFeedback(draft.stepFeedback ?? createDefaultStepFeedbackMap());
       setStepRunModeByStep(draft.stepRunModeByStep ?? createDefaultStepRunModeMap("replace"));
+      setDiagnosticsMode(normalizeDiagnosticsMode(draft.diagnosticsMode, "concise"));
       setFeedback(
         draft.feedback && isReviewRunProgressFeedback(draft.feedback.message, editorCopy.reviewFeedback)
           ? null
@@ -655,6 +660,7 @@ export default function EditorPage() {
       setStepRunHistory(createEmptyStepRunHistory());
       setStepFeedback(createDefaultStepFeedbackMap());
       setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
+      setDiagnosticsMode("concise");
       setFeedback(null);
       setHistory([]);
       setMutationHistoryPast([]);
@@ -723,6 +729,7 @@ export default function EditorPage() {
         setStepRunHistory(nextDraft.stepRunHistory);
         setHistory(nextDraft.history);
         setFeedback(nextDraft.feedback);
+        setDiagnosticsMode(normalizeDiagnosticsMode(nextDraft.diagnosticsMode, "concise"));
       }
     }
 
@@ -1133,6 +1140,7 @@ export default function EditorPage() {
       stepRunHistory,
       stepFeedback,
       stepRunModeByStep,
+      diagnosticsMode,
       history,
       appliedDiffs: [],
       compareHistory,
@@ -1166,6 +1174,7 @@ export default function EditorPage() {
     stepRunHistory,
     stepFeedback,
     stepRunModeByStep,
+    diagnosticsMode,
     locale
   ]);
 
@@ -1510,6 +1519,7 @@ export default function EditorPage() {
       imageQuality,
       stepFeedback,
       stepRunModeByStep,
+      diagnosticsMode,
       stepRunHistory,
       factCheckRows,
       showCompletedCards,
@@ -1555,6 +1565,7 @@ export default function EditorPage() {
     setImageQuality(normalizeVisualImageQuality(snapshot.imageQuality, defaultVisualImageQuality));
     setStepFeedback(snapshot.stepFeedback);
     setStepRunModeByStep(snapshot.stepRunModeByStep);
+    setDiagnosticsMode(normalizeDiagnosticsMode(snapshot.diagnosticsMode, "concise"));
     setStepRunHistory(snapshot.stepRunHistory);
     setFactCheckRows(snapshot.factCheckRows);
     setShowCompletedCards(snapshot.showCompletedCards);
@@ -1611,6 +1622,7 @@ export default function EditorPage() {
     setManualVisualPrompt("");
     setStepFeedback(createDefaultStepFeedbackMap());
     setStepRunModeByStep(createDefaultStepRunModeMap("replace"));
+    setDiagnosticsMode("concise");
     setStepRunHistory(createEmptyStepRunHistory());
     setActiveWorkflowStep("diagnostics");
     setRecentlyChangedBlockIds([]);
@@ -2502,7 +2514,9 @@ export default function EditorPage() {
             stepFeedback: currentStepFeedback || undefined,
             stepContext:
               stepId === "diagnostics"
-                ? undefined
+                ? {
+                  diagnosticsMode
+                }
                 : {
                   diagnosticsExpertise: reviewExpertise ?? undefined,
                   diagnosticsFeedback: diagnosticsFeedback || undefined,
@@ -5878,6 +5892,27 @@ export default function EditorPage() {
                     ) : null}
                   </div>
                   <div className="step-review-prototype-head-actions">
+                    {activeWorkflowStep === "diagnostics" ? (
+                      <label className="step-review-prototype-diagnostics-mode" htmlFor="prototype-diagnostics-mode">
+                        <span className="step-review-prototype-diagnostics-mode-label">{editorCopy.diagnosticsMode.label}</span>
+                        <select
+                          id="prototype-diagnostics-mode"
+                          className="step-review-prototype-input step-review-prototype-diagnostics-mode-select"
+                          value={diagnosticsMode}
+                          title={
+                            diagnosticsMode === "extended"
+                              ? editorCopy.diagnosticsMode.extendedHint
+                              : editorCopy.diagnosticsMode.conciseHint
+                          }
+                          onChange={(event) => setDiagnosticsMode(normalizeDiagnosticsMode(event.target.value, "concise"))}
+                          disabled={isCurrentStepReviewRunning}
+                          aria-label={editorCopy.diagnosticsMode.label}
+                        >
+                          <option value="concise">{editorCopy.diagnosticsMode.concise}</option>
+                          <option value="extended">{editorCopy.diagnosticsMode.extended}</option>
+                        </select>
+                      </label>
+                    ) : null}
                     {activeWorkflowStep === "emphasis" && actionableEmphasisSuggestionCount > 0 ? (
                       <Button
                         variant="primary"

@@ -8,6 +8,7 @@ import {
   type EditorialReviewRunProgress,
   type EditorialReviewRunSnapshot,
   normalizeRejectedReviewIdeas,
+  isDiagnosticsMode,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
   type EditorialReviewItem,
@@ -685,7 +686,11 @@ function parseEditorialReviewRequest(
               typeof (record.stepContext as Record<string, unknown>).currentStepFeedback === "string" &&
                 (record.stepContext as Record<string, unknown>).currentStepFeedback?.toString().trim()
                 ? String((record.stepContext as Record<string, unknown>).currentStepFeedback).trim()
-                : undefined
+                : undefined,
+            diagnosticsMode: (() => {
+              const mode = (record.stepContext as Record<string, unknown>).diagnosticsMode;
+              return isDiagnosticsMode(mode) ? mode : undefined;
+            })()
           }
           : undefined,
       expertise: typeof record.expertise === "string" && record.expertise.trim() ? record.expertise.trim() : undefined,
