@@ -3180,7 +3180,6 @@ export default function EditorPage() {
         getDocumentTextStats(currentDocumentRef.current).charactersWithSpaces
       );
       let payload: unknown;
-      let response: Response;
       let lastPollFetchError: unknown = null;
 
       for (let pollAttempt = 1; pollAttempt <= REVIEW_POLL_FETCH_MAX_RETRIES; pollAttempt += 1) {
@@ -3193,7 +3192,7 @@ export default function EditorPage() {
         const timeoutId = window.setTimeout(() => controller.abort(), pollFetchTimeoutMs);
 
         try {
-          response = await fetch(
+          const response = await fetch(
             `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
             {
               method: "GET",
@@ -3275,10 +3274,6 @@ export default function EditorPage() {
       if (payload.kind === "result") {
         onSnapshot?.(payload.run, capability, undefined, payload.result.plan?.actions);
         return { result: payload.result, run: payload.run };
-      }
-
-      if (!response.ok) {
-        throw new Error(editorCopy.reviewFeedback.reviewJobReadFailed);
       }
 
       currentRun = payload.run;
