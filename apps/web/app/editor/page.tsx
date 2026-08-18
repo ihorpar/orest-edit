@@ -4600,6 +4600,15 @@ export default function EditorPage() {
       }),
     [activeStepItems, activeWorkflowStep, document, showCompletedCards, st.sectionOutline, st.untitled]
   );
+  const readyStructureCount = useMemo(
+    () =>
+      activeWorkflowStep === "structure"
+        ? listSubsectionManuscriptPreviewItems(activeStepItems).filter((item) =>
+            Boolean(item.subsectionDraft?.title?.trim())
+          ).length
+        : 0,
+    [activeStepItems, activeWorkflowStep]
+  );
   const activeStepRunCount = activeEditorialStepId ? stepRunHistory[activeEditorialStepId].length : 0;
   const spellcheckIssueResults = useMemo(
     () => spellcheckResults.filter((result) => result.error || result.issues.length > 0),
@@ -5461,10 +5470,6 @@ export default function EditorPage() {
             : structureOutlineModel.proposedCount === 0
               ? st.noStructureActions
               : null;
-      const readyStructureCount = listSubsectionManuscriptPreviewItems(activeStepItems)
-        .filter((item) => Boolean(item.subsectionDraft?.title?.trim()))
-        .length;
-
       return (
         <div className="step-review-prototype-content step-review-prototype-content-structure">
           <div className="step-review-prototype-meta-line step-review-prototype-meta-line-inline">
@@ -5474,15 +5479,6 @@ export default function EditorPage() {
               <span>{cs.dismissed(activeStepCardStats.dismissed)}</span>
             </div>
             <div className="step-review-prototype-utility-actions">
-              {readyStructureCount > 0 ? (
-                <button
-                  type="button"
-                  className="step-review-prototype-utility-toggle"
-                  onClick={applyAllStructureSubheadingsAction}
-                >
-                  {st.insertAll}
-                </button>
-              ) : null}
               <button
                 type="button"
                 className="step-review-prototype-utility-toggle"
@@ -5961,6 +5957,19 @@ export default function EditorPage() {
                       >
                         <span className="button-content">
                           <span>{editorCopy.stepActions.acceptAllEmphasis}</span>
+                        </span>
+                      </Button>
+                    ) : null}
+                    {activeWorkflowStep === "structure" && readyStructureCount > 0 ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="step-review-prototype-accept-all-button"
+                        onClick={applyAllStructureSubheadingsAction}
+                        aria-label={editorCopy.stepActions.insertAllSubheadings}
+                      >
+                        <span className="button-content">
+                          <span>{editorCopy.stepActions.insertAllSubheadings}</span>
                         </span>
                       </Button>
                     ) : null}

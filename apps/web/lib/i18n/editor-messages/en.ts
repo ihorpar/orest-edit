@@ -618,6 +618,7 @@ const editorEn = {
     runStep: "Run step",
     stepSettings: "Step settings",
     acceptAllEmphasis: "Accept all emphasis",
+    insertAllSubheadings: "Insert all subheadings",
     clearSpellcheckAnalysis: "Clear spelling review",
     dismissMessage: "Dismiss message",
     goToFactCheck: "Go to fact-check",

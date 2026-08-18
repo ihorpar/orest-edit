@@ -622,6 +622,7 @@ const editorUk = {
     runStep: "Запустити етап",
     stepSettings: "Налаштування етапу",
     acceptAllEmphasis: "Прийняти всі акценти",
+    insertAllSubheadings: "Вставити всі підзаголовки",
     clearSpellcheckAnalysis: "Очистити аналіз правопису",
     dismissMessage: "Сховати повідомлення",
     goToFactCheck: "До факт-чеку",
