@@ -34,6 +34,12 @@ Decision: allowlisted recommendation steps (`structure`, `clarity`, `interest`, 
 
 Reason: the shared catalog listed every type and deep-callout drafting instructions on every fragment, including Clarity and Structure.
 
+### Chunked review progress writes only from steps
+Date: 2026-08-17
+Decision: `getWritable().getWriter().write()` for review progress/partial items/plan runs only inside `"use step"` functions. The `"use workflow"` orchestrator for chunked steps (`clarity`, `structure`, and the other recommendation waves) calls `writeReviewProgressStep` instead of writing the stream itself.
+Reason: Vercel Workflow forbids stream I/O in the orchestrator. Clarity died in ~2s with `workflow_failed` / `Not supported in workflow functions` before any model call.
+Rollback: call `writeReviewProgress` directly from `editorialReviewWorkflow` again.
+
 ### Review polls never block and failed polls stay dead
 Date: 2026-08-17
 Decision: GET review polls never wait for workflow stream close. The browser aborts a hung GET after 12 seconds, buries the persisted run on poll/JSON/platform failure, and exposes `Зупинити` which DELETE-cancels the workflow without `Очистити`.

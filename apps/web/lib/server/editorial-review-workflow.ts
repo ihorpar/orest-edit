@@ -500,7 +500,7 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
         const totalChunks = plannedChunks.length;
         const totalSourceChars = sumChunkSourceChars(plannedChunks, totalChunks);
 
-        await writeReviewProgress({
+        await writeReviewProgressStep({
           completedChunks: 0,
           totalChunks,
           completedSourceChars: 0,
@@ -535,7 +535,7 @@ export async function editorialReviewWorkflow(input: EditorialReviewWorkflowInpu
             }
           }
 
-          await writeReviewProgress({
+          await writeReviewProgressStep({
             completedChunks,
             totalChunks,
             completedSourceChars,
@@ -623,6 +623,12 @@ function encodeWorkflowProviderFailure(
   }), "utf8").toString("base64url");
 
   return `${workflowProviderFailurePrefix}${payload}`;
+}
+
+async function writeReviewProgressStep(progress: EditorialReviewRunProgress): Promise<void> {
+  "use step";
+  // Stream I/O is illegal in `"use workflow"`; this step exists so the orchestrator can seed/update the bar.
+  await writeReviewProgress(progress);
 }
 
 async function writeReviewProgress(progress: EditorialReviewRunProgress): Promise<void> {
