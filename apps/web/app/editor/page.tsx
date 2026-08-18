@@ -3184,6 +3184,10 @@ export default function EditorPage() {
       let lastPollFetchError: unknown = null;
 
       for (let pollAttempt = 1; pollAttempt <= REVIEW_POLL_FETCH_MAX_RETRIES; pollAttempt += 1) {
+        if (activeReviewJobRunRef.current !== reviewRunToken) {
+          throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
+        }
+
         const controller = new AbortController();
         reviewPollAbortRef.current = controller;
         const timeoutId = window.setTimeout(() => controller.abort(), pollFetchTimeoutMs);

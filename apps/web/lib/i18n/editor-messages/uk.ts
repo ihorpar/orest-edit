@@ -175,7 +175,7 @@ const editorUk = {
     calloutInserted: "Врізку вставлено.",
     subheadingInserted: "Підзаголовок вставлено.",
     subheadingsBulkInserted: (count: number) =>
-      `Вставлено ${count} підзаголовк${count === 1 ? "" : count < 5 ? "и" : "ів"}.`,
+      `Вставлено ${count} ${count === 1 ? "підзаголовок" : count < 5 ? "підзаголовки" : "підзаголовків"}.`,
     visualGenerated: "Візуал згенеровано.",
     visualGenerateFailed: "Не вдалося згенерувати візуал.",
     visualInserted: "Візуал вставлено.",
