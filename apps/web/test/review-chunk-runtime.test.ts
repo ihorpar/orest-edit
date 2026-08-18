@@ -8,6 +8,7 @@ import type {
   EditorialReviewRunSnapshot
 } from "../lib/editor/review-contract.ts";
 import { isEditorialReviewRunApiResponse } from "../lib/editor/review-contract.ts";
+import { resolveReviewPollWaitMs } from "../lib/editor/review-poll-interval.ts";
 import type { EditorDocument } from "../lib/editor/document-model.ts";
 import type { ReviewChunkPlan } from "../lib/server/review-chunk-planner.ts";
 import {
@@ -188,11 +189,19 @@ test("latestReviewProgress keeps the last written chunk progress", () => {
   });
 });
 
-test("reviewRunPollAfterMs slows chunked running polls and keeps pending snappy", () => {
-  assert.equal(reviewRunPollAfterMs("pending", "clarity"), 900);
-  assert.equal(reviewRunPollAfterMs("running", "clarity"), 3000);
-  assert.equal(reviewRunPollAfterMs("running", "diagnostics"), 2000);
-  assert.equal(reviewRunPollAfterMs("completed", "clarity"), 0);
+test("reviewRunPollAfterMs scales with manuscript size and never polls faster than 1s while running", () => {
+  assert.equal(reviewRunPollAfterMs("pending", "clarity"), 1000);
+  assert.equal(reviewRunPollAfterMs("running", "clarity", 39_999), 1000);
+  assert.equal(reviewRunPollAfterMs("running", "clarity", 80_000), 2000);
+  assert.equal(reviewRunPollAfterMs("running", "diagnostics", 140_000), 2500);
+  assert.equal(reviewRunPollAfterMs("completed", "clarity", 140_000), 0);
+});
+
+test("resolveReviewPollWaitMs keeps a 1s floor and stretches for long chapters", () => {
+  assert.equal(resolveReviewPollWaitMs(300, 8_000), 1000);
+  assert.equal(resolveReviewPollWaitMs(900, 80_000), 2000);
+  assert.equal(resolveReviewPollWaitMs(3000, 8_000), 3000);
+  assert.equal(resolveReviewPollWaitMs(0, 160_000), 3000);
 });
 
 test("mapInWaves runs at most the requested concurrency", async () => {

@@ -15,6 +15,7 @@ import {
   type EditorialReviewStepId
 } from "../../../../lib/editor/review-contract";
 import type { ManuscriptRevisionState } from "../../../../lib/editor/manuscript-structure";
+import { getDocumentTextStats } from "../../../../lib/editor/document-model";
 import { normalizeModelId, normalizeProvider } from "../../../../lib/editor/settings";
 import { requireApiSession } from "../../../../lib/auth/server-route-auth";
 import { resolveClientProvidedApiKey } from "../../../../lib/server/client-api-key-policy";
@@ -336,6 +337,11 @@ export async function POST(request: Request) {
       if (!snapshot.progress) {
         snapshot.progress = seedChunkProgress(parsed.value);
       }
+      snapshot.pollAfterMs = reviewRunPollAfterMs(
+        snapshot.status,
+        identity.stepId,
+        snapshot.progress?.totalSourceChars ?? getDocumentTextStats(parsed.value.document).charactersWithSpaces
+      );
 
       logEditorialReviewEvent("run_started", {
         runId: run.runId,
@@ -427,19 +433,22 @@ function buildRunIdentity(
 async function buildRunSnapshot(
   identity: EditorialReviewRunIdentity,
   run: Run<EditorialReviewResponse>,
-  status: EditorialReviewRunSnapshot["status"]
+  status: EditorialReviewRunSnapshot["status"],
+  sourceCharsHint = 0
 ): Promise<EditorialReviewRunSnapshot> {
   const updatedAt =
     (status === "completed" || status === "failed" || status === "cancelled"
       ? await run.completedAt
       : await run.startedAt) ?? (await run.createdAt);
+  const progress = await readReviewProgress(run);
+  const sourceChars = progress?.totalSourceChars ?? sourceCharsHint;
 
   return {
     ...identity,
     status,
     updatedAt: updatedAt.toISOString(),
-    pollAfterMs: reviewRunPollAfterMs(status, identity.stepId),
-    progress: await readReviewProgress(run)
+    pollAfterMs: reviewRunPollAfterMs(status, identity.stepId, sourceChars),
+    progress
   };
 }
 

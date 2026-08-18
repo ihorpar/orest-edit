@@ -70,6 +70,7 @@ import {
   shouldAbandonReviewRunAfterPollError,
   shouldShowReviewRunChrome
 } from "../../lib/editor/review-run-recovery";
+import { resolveReviewPollWaitMs } from "../../lib/editor/review-poll-interval";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
 import { buildImportFeedback } from "../../lib/editor/import-feedback";
 import { linkifyExpertiseParagraphRefs, localizeExpertiseMarkdown } from "../../lib/editor/expertise-markdown";
@@ -3153,7 +3154,10 @@ export default function EditorPage() {
         throw new Error(REVIEW_JOB_SUPERSEDED_ERROR);
       }
 
-      const pollAfterMs = Math.max(300, currentRun.pollAfterMs || 1500);
+      const pollAfterMs = resolveReviewPollWaitMs(
+        currentRun.pollAfterMs,
+        getDocumentTextStats(currentDocumentRef.current).charactersWithSpaces
+      );
       await new Promise<void>((resolve) => {
         window.setTimeout(resolve, pollAfterMs);
       });

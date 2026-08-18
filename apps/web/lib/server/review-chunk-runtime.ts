@@ -8,6 +8,7 @@ import type {
   EditorialReviewRunSnapshot
 } from "../editor/review-contract.ts";
 import type { ReviewChunkPlan } from "./review-chunk-planner.ts";
+import { reviewPollIntervalForDocumentChars } from "../editor/review-poll-interval.ts";
 
 export const CHUNKED_REVIEW_MAX_RETRIES = 2;
 export const REVIEW_CHUNK_CONCURRENCY = 3;
@@ -50,17 +51,14 @@ export function isCustomRequestPlanStep(stepId: EditorialReviewRequest["stepId"]
 
 export function reviewRunPollAfterMs(
   status: EditorialReviewRunSnapshot["status"],
-  stepId: EditorialReviewRequest["stepId"]
+  _stepId: EditorialReviewRequest["stepId"],
+  sourceChars = 0
 ): number {
-  if (status === "pending") {
-    return 900;
+  if (status !== "pending" && status !== "running") {
+    return 0;
   }
 
-  if (status === "running") {
-    return isChunkedRecommendationStep(stepId) || isCustomRequestPlanStep(stepId) ? 3000 : 2000;
-  }
-
-  return 0;
+  return reviewPollIntervalForDocumentChars(sourceChars);
 }
 
 export function filterCoreReviewChunkItems(

@@ -34,6 +34,12 @@ Decision: allowlisted recommendation steps (`structure`, `clarity`, `interest`, 
 
 Reason: the shared catalog listed every type and deep-callout drafting instructions on every fragment, including Clarity and Structure.
 
+### Review poll interval scales with chapter length
+Date: 2026-08-17
+Decision: in-flight GET `/api/edit/review` waits at least 1 second between polls. The wait grows by 500ms per 40k source characters, capped at 3 seconds (~160k+). The client also applies this floor so an older `pollAfterMs: 900` cannot hammer the route.
+Reason: pending runs previously advertised 900ms (client floor 300ms), so Clarity produced a tight stack of GETs while the workflow was still starting.
+Rollback: restore `reviewRunPollAfterMs` pending=900 / running chunked=3000 and the client `Math.max(300, pollAfterMs || 1500)` wait.
+
 ### Chunked review progress writes only from steps
 Date: 2026-08-17
 Decision: `getWritable().getWriter().write()` for review progress/partial items/plan runs only inside `"use step"` functions. The `"use workflow"` orchestrator for chunked steps (`clarity`, `structure`, and the other recommendation waves) calls `writeReviewProgressStep` instead of writing the stream itself.
