@@ -2,6 +2,16 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-08-18
+
+### Review poll item deltas use an afterItem cursor
+Date: 2026-08-18
+Decision: GET `/api/edit/review?runId=…&afterItem=N` returns only streamed cards after index `N` on `kind: "run"` (and error envelopes that carry partials). Responses include `itemCursor` / `itemCount` equal to the full accumulated prefix length; the browser advances `afterItem` from that cursor and stores it on the persisted active run for resume. Completed `kind: "result"` still returns the full result once.
+
+Reason: Accents and other chunked steps stream every accumulated card on each poll. On long chapters the growing JSON exceeded the client poll abort (~25s), canceling mid-run after ~200 cards even though the workflow was healthy.
+
+Rollback: ignore `afterItem`, always return the full accumulated `items` array, and drop `itemCursor`/`itemCount` from the contract.
+
 ## 2026-08-17
 
 ### Diagnostics depth modes: По суті vs Розширена

@@ -300,6 +300,38 @@ export function accumulateReviewPartialItemBatches(batches: EditorialReviewItem[
   return merged;
 }
 
+export function parseReviewItemCursor(value: string | null | undefined): number {
+  if (value === null || value === undefined || value.trim() === "") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return Math.floor(parsed);
+}
+
+export function sliceReviewItemsAfterCursor(
+  items: EditorialReviewItem[] | undefined,
+  afterItem: number
+): {
+  items?: EditorialReviewItem[];
+  itemCursor: number;
+  itemCount: number;
+} {
+  const allItems = items ?? [];
+  const safeAfter = Math.max(0, Math.floor(afterItem));
+  const delta = allItems.slice(safeAfter);
+
+  return {
+    items: delta.length > 0 ? delta : undefined,
+    itemCursor: allItems.length,
+    itemCount: allItems.length
+  };
+}
+
 export function summarizeReviewChunkRun(
   request: EditorialReviewRequest,
   chunks: ReviewChunkPlan[],
@@ -332,13 +364,17 @@ export function buildRunningReviewApiResponse(input: {
   run: EditorialReviewRunSnapshot;
   capability: string;
   itemBatches: EditorialReviewItem[][];
+  afterItem?: number;
 }): Extract<EditorialReviewRunApiResponse, { kind: "run" }> {
-  const items = accumulateReviewPartialItemBatches(input.itemBatches);
+  const allItems = accumulateReviewPartialItemBatches(input.itemBatches);
+  const sliced = sliceReviewItemsAfterCursor(allItems, input.afterItem ?? 0);
 
   return {
     kind: "run",
     run: input.run,
     capability: input.capability,
-    items: items.length > 0 ? items : undefined
+    items: sliced.items,
+    itemCursor: sliced.itemCursor,
+    itemCount: sliced.itemCount
   };
 }

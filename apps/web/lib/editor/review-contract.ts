@@ -369,6 +369,10 @@ export type EditorialReviewRunApiResponse =
       run: EditorialReviewRunSnapshot;
       capability: string;
       items?: EditorialReviewItem[];
+      /** Stable count of accumulated streamed items; use as the next `afterItem` poll cursor. */
+      itemCursor?: number;
+      /** Same as `itemCursor`; total streamed items known to the server for this run. */
+      itemCount?: number;
       plan?: CustomRequestPlan;
     }
   | {
@@ -381,6 +385,8 @@ export type EditorialReviewRunApiResponse =
       error: EditorialReviewRunError;
       run?: EditorialReviewRunSnapshot;
       items?: EditorialReviewItem[];
+      itemCursor?: number;
+      itemCount?: number;
       plan?: CustomRequestPlan;
     };
 
@@ -401,6 +407,8 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
       typeof (error as Record<string, unknown>).retryable === "boolean" &&
       (record.run === undefined || isEditorialReviewRunSnapshot(record.run)) &&
       (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape))) &&
+      (record.itemCursor === undefined || typeof record.itemCursor === "number") &&
+      (record.itemCount === undefined || typeof record.itemCount === "number") &&
       (record.plan === undefined || isCustomRequestPlanShape(record.plan))
     );
   }
@@ -413,6 +421,8 @@ export function isEditorialReviewRunApiResponse(value: unknown): value is Editor
     return typeof record.capability === "string" &&
       record.capability.length > 0 &&
       (record.items === undefined || (Array.isArray(record.items) && record.items.every(isEditorialReviewItemShape))) &&
+      (record.itemCursor === undefined || typeof record.itemCursor === "number") &&
+      (record.itemCount === undefined || typeof record.itemCount === "number") &&
       (record.plan === undefined || isCustomRequestPlanShape(record.plan));
   }
 

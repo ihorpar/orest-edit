@@ -20,7 +20,9 @@ import {
   filterCoreReviewChunkItems,
   latestReviewProgress,
   mapInWaves,
+  parseReviewItemCursor,
   reviewRunPollAfterMs,
+  sliceReviewItemsAfterCursor,
   summarizeReviewChunkRun
 } from "../lib/server/review-chunk-runtime.ts";
 
@@ -61,6 +63,45 @@ test("summarizeReviewChunkRun after 2 of 10 chunks exposes prefix items and char
   assert.equal(isEditorialReviewRunApiResponse(envelope), true);
   assert.equal(envelope.kind, "run");
   assert.equal(envelope.items?.length, 2);
+  assert.equal(envelope.itemCursor, 2);
+  assert.equal(envelope.itemCount, 2);
+});
+
+test("parseReviewItemCursor and sliceReviewItemsAfterCursor return only unseen items", () => {
+  assert.equal(parseReviewItemCursor(null), 0);
+  assert.equal(parseReviewItemCursor("12"), 12);
+  assert.equal(parseReviewItemCursor("-3"), 0);
+  assert.equal(parseReviewItemCursor("1.9"), 1);
+
+  const items = [itemFor("p1", "simplify"), itemFor("p2", "rewrite"), itemFor("p3", "expand")];
+  assert.deepEqual(
+    sliceReviewItemsAfterCursor(items, 1).items?.map((item) => item.anchor.blockIds[0]),
+    ["p2", "p3"]
+  );
+  assert.equal(sliceReviewItemsAfterCursor(items, 1).itemCursor, 3);
+  assert.equal(sliceReviewItemsAfterCursor(items, 3).items, undefined);
+  assert.equal(sliceReviewItemsAfterCursor(items, 99).itemCount, 3);
+});
+
+test("buildRunningReviewApiResponse honors afterItem delta cursor", () => {
+  const { request, chunks } = createTenChunkFixture();
+  const summary = summarizeReviewChunkRun(request, chunks, [
+    successResponse([itemFor("p1", "simplify")]),
+    successResponse([itemFor("p2", "rewrite")]),
+    successResponse([itemFor("p3", "expand")])
+  ]);
+  const envelope = buildRunningReviewApiResponse({
+    run: runningSnapshot(summary.progress),
+    capability: "cap-test",
+    itemBatches: [summary.items],
+    afterItem: 1
+  });
+
+  assert.equal(envelope.kind, "run");
+  assert.deepEqual(envelope.items?.map((item) => item.anchor.blockIds[0]), ["p2", "p3"]);
+  assert.equal(envelope.itemCursor, 3);
+  assert.equal(envelope.itemCount, 3);
+  assert.equal(isEditorialReviewRunApiResponse(envelope), true);
 });
 
 test("summarizeReviewChunkRun keeps prefix items when chunk 3 is a hole and later chunks succeed", () => {
@@ -168,11 +209,14 @@ test("consumeReadableBatches concatenates GET prefix item batches including afte
 
   assert.equal(isEditorialReviewRunApiResponse(envelope), true);
   assert.deepEqual(envelope.items?.map((item) => item.anchor.blockIds[0]), ["p1", "p2"]);
+  assert.equal(envelope.itemCursor, 2);
   assert.equal(isEditorialReviewRunApiResponse({
     kind: "error",
     error: { code: "workflow_failed", message: "fatal after prefix", retryable: false },
     run: envelope.run,
-    items: envelope.items
+    items: envelope.items,
+    itemCursor: 2,
+    itemCount: 2
   }), true);
 });
 

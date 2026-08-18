@@ -170,7 +170,8 @@ test("draft persistence round-trips and locale reset clears the durable review r
       pollAfterMs: 1000,
       progress: { completedChunks: 2, totalChunks: 10, attempt: 1 }
     },
-    snapshotBlockIds: ["p-1"]
+    snapshotBlockIds: ["p-1"],
+    itemCursor: 17
   };
 
   writeEditorDraftState(draft, "uk");
@@ -178,6 +179,7 @@ test("draft persistence round-trips and locale reset clears the durable review r
 
   assert.equal(restored?.activeReviewRun?.run.runId, "wrun_test");
   assert.deepEqual(restored?.activeReviewRun?.snapshotBlockIds, ["p-1"]);
+  assert.equal(restored?.activeReviewRun?.itemCursor, 17);
   assert.deepEqual(restored?.activeReviewRun?.run.progress, { completedChunks: 2, totalChunks: 10, attempt: 1 });
   assert.equal(clearLocaleBoundEditorDraftState(restored!).activeReviewRun, null);
 });

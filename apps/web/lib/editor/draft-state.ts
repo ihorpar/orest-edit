@@ -68,6 +68,8 @@ export interface PersistedActiveReviewRun {
   updatedAt: string;
   stale: boolean;
   snapshotBlockIds?: string[];
+  /** Last acknowledged streamed-item cursor for delta GET polls (`afterItem`). */
+  itemCursor?: number;
 }
 
 export interface PersistedEditorDraftState {
@@ -277,6 +279,9 @@ function coerceActiveReviewRun(value: unknown): PersistedActiveReviewRun | null 
     stale: record.stale === true,
     snapshotBlockIds: Array.isArray(record.snapshotBlockIds)
       ? record.snapshotBlockIds.filter((blockId): blockId is string => typeof blockId === "string")
+      : undefined,
+    itemCursor: typeof record.itemCursor === "number" && Number.isFinite(record.itemCursor) && record.itemCursor >= 0
+      ? Math.floor(record.itemCursor)
       : undefined
   };
 }

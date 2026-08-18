@@ -33,8 +33,10 @@ import {
   isChunkedRecommendationStep,
   isCustomRequestPlanStep,
   latestReviewProgress,
+  parseReviewItemCursor,
   REVIEW_PARTIAL_ITEMS_NAMESPACE,
   reviewRunPollAfterMs,
+  sliceReviewItemsAfterCursor,
   sumChunkSourceChars
 } from "../../../../lib/server/review-chunk-runtime";
 import {
@@ -65,6 +67,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const runId = searchParams.get("runId")?.trim();
+  const afterItem = parseReviewItemCursor(searchParams.get("afterItem"));
   const capability = request.headers.get("x-review-run-capability")?.trim();
   const errors = getApiErrors(resolveQueryLocale(searchParams));
 
@@ -100,7 +103,8 @@ export async function GET(request: Request) {
 
     const status = await run.status;
     const snapshot = await buildRunSnapshot(identity, run, status);
-    const partialItems = await readReviewPartialItems(run);
+    const allPartialItems = await readReviewPartialItems(run);
+    const partialSlice = sliceReviewItemsAfterCursor(allPartialItems, afterItem);
     const plan = await readReviewPlan(run);
 
     try {
@@ -121,7 +125,7 @@ export async function GET(request: Request) {
             false,
             502,
             toTerminalFailedRunSnapshot(snapshot),
-            partialItems
+            partialSlice
           );
         }
 
@@ -149,7 +153,16 @@ export async function GET(request: Request) {
                 providerRequestId: result.diagnostics.providerError?.requestId,
                 retryAfterMs: result.diagnostics.providerError?.retryAfterMs
               },
-              items: result.items.length > 0 ? result.items : partialItems
+              ...(() => {
+                const errorSlice = (allPartialItems?.length ?? 0) > 0
+                  ? partialSlice
+                  : sliceReviewItemsAfterCursor(result.items, afterItem);
+                return {
+                  items: errorSlice.items,
+                  itemCursor: errorSlice.itemCursor,
+                  itemCount: errorSlice.itemCount
+                };
+              })()
             },
             noStore(502)
           );
@@ -192,7 +205,9 @@ export async function GET(request: Request) {
               providerRequestId: failure.provider?.requestId,
               retryAfterMs: failure.provider?.retryAfterMs
             },
-            items: partialItems
+            items: partialSlice.items,
+            itemCursor: partialSlice.itemCursor,
+            itemCount: partialSlice.itemCount
           },
           noStore(500)
         );
@@ -218,7 +233,9 @@ export async function GET(request: Request) {
           kind: "run",
           run: snapshot,
           capability,
-          items: partialItems,
+          items: partialSlice.items,
+          itemCursor: partialSlice.itemCursor,
+          itemCount: partialSlice.itemCount,
           ...(plan ? { plan } : {})
         },
         noStore(200)
@@ -230,7 +247,7 @@ export async function GET(request: Request) {
         true,
         503,
         toTerminalFailedRunSnapshot(snapshot),
-        partialItems
+        partialSlice
       );
     }
   } catch (error) {
@@ -558,14 +575,19 @@ function jsonRunError(
   retryable: boolean,
   status: number,
   run?: EditorialReviewRunSnapshot,
-  items?: EditorialReviewItem[]
+  itemSlice?: {
+    items?: EditorialReviewItem[];
+    itemCursor: number;
+    itemCount: number;
+  }
 ) {
   return NextResponse.json<EditorialReviewRunApiResponse>(
     {
       kind: "error",
       error: { code, message, retryable },
       ...(run ? { run } : {}),
-      ...(items && items.length > 0 ? { items } : {})
+      ...(itemSlice?.items && itemSlice.items.length > 0 ? { items: itemSlice.items } : {}),
+      ...(itemSlice ? { itemCursor: itemSlice.itemCursor, itemCount: itemSlice.itemCount } : {})
     },
     noStore(status)
   );

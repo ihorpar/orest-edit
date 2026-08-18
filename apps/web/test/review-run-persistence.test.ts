@@ -63,6 +63,11 @@ test("active review record retains only the durable run reference and capability
   assert.equal(record.run.runId, "wrun_test");
   assert.equal(record.capability, "signed-capability");
   assert.equal(record.stale, false);
+  assert.equal(record.itemCursor, undefined);
+  assert.equal(
+    createPersistedActiveReviewRun(run(), "signed-capability", false, ["p1"], 42).itemCursor,
+    42
+  );
   assert.equal(isRunCompatibleWithEditor({ record, locale: "uk", liveBlockIds: ["p1"] }), true);
   assert.equal(isRunCompatibleWithEditor({
     record: createPersistedActiveReviewRun(run({ documentRevisionId: "revision-2" }), "signed-capability"),

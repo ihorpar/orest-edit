@@ -2629,23 +2629,18 @@ export default function EditorPage() {
           initialPayload.capability,
           reviewRunToken,
           locale,
-          (run, capability, items, planActions) => {
+          (run, capability, items, planActions, itemCursor) => {
             const existing = readEditorDraftState(locale)?.activeReviewRun;
-            updateActiveReviewRun(
-              createPersistedActiveReviewRun(
-                retainReviewRunProgress(run, existing?.run),
-                capability,
-                false,
-                existing?.snapshotBlockIds
-              ),
-              locale
-            );
-            if (planActions && planActions.length > 0) {
-              customRequestPlanActionsRef.current = planActions;
-            }
-            if (items?.length) {
-              applyPartialReviewItems(items, run.stepId);
-            }
+            commitReviewPollSnapshot({
+              run,
+              capability,
+              items,
+              planActions,
+              itemCursor,
+              snapshotBlockIds: existing?.snapshotBlockIds,
+              previousRun: existing?.run,
+              expectedLocale: locale
+            });
           }
         );
         payload = completed.result;
@@ -2718,6 +2713,66 @@ export default function EditorPage() {
     }
   }
 
+  function commitReviewPollSnapshot(input: {
+    run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"];
+    capability: string;
+    items?: EditorialReviewItem[];
+    planActions?: CustomRequestPlanAction[];
+    itemCursor?: number;
+    snapshotBlockIds?: string[];
+    previousRun?: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"];
+    expectedLocale?: AppLocale;
+  }) {
+    const expectedLocale = input.expectedLocale ?? locale;
+
+    if (input.planActions && input.planActions.length > 0) {
+      customRequestPlanActionsRef.current = input.planActions;
+    }
+
+    let nextReviewItems: EditorialReviewItem[] | undefined;
+    if (input.items?.length) {
+      nextReviewItems = mergeIncomingReviewItems({
+        current: currentReviewItemsRef.current,
+        incoming: input.items,
+        document: currentDocumentRef.current,
+        revision: currentRevisionRef.current,
+        stepId: input.run.stepId
+      });
+      currentReviewItemsRef.current = nextReviewItems;
+      setReviewItems(nextReviewItems);
+    }
+
+    const record = createPersistedActiveReviewRun(
+      retainReviewRunProgress(input.run, input.previousRun),
+      input.capability,
+      false,
+      input.snapshotBlockIds,
+      input.itemCursor
+    );
+
+    if (activeLocaleRef.current !== expectedLocale) {
+      return;
+    }
+
+    setActiveReviewRun(record);
+
+    const draft = readEditorDraftState(expectedLocale);
+    if (draft) {
+      writeEditorDraftState({
+        ...draft,
+        ...(nextReviewItems ? { reviewItems: nextReviewItems } : {}),
+        activeReviewRun: record
+      }, expectedLocale);
+    } else {
+      writeEditorActiveReviewRun(record, expectedLocale);
+    }
+
+    const progress = record.run.progress;
+    if (!fragmentRetryInFlightRef.current && progress?.failedChunks !== undefined) {
+      setFailedReviewChunks(progress.failedChunks);
+    }
+  }
+
   async function resumePersistedReviewRun(record: PersistedActiveReviewRun) {
     if (activeReviewJobRunRef.current || consumedReviewRunIdsRef.current.has(record.run.runId)) {
       return;
@@ -2766,24 +2821,20 @@ export default function EditorPage() {
         record.capability,
         reviewRunToken,
         locale,
-        (run, capability, items, planActions) => {
-          updateActiveReviewRun(
-            createPersistedActiveReviewRun(
-              retainReviewRunProgress(run, record.run),
-              capability,
-              false,
-              record.snapshotBlockIds
-            ),
-            locale
-          );
-          if (planActions && planActions.length > 0) {
-            customRequestPlanActionsRef.current = planActions;
-          }
-          if (items?.length) {
-            applyPartialReviewItems(items, run.stepId);
-          }
+        (run, capability, items, planActions, itemCursor) => {
+          commitReviewPollSnapshot({
+            run,
+            capability,
+            items,
+            planActions,
+            itemCursor,
+            snapshotBlockIds: record.snapshotBlockIds,
+            previousRun: record.run,
+            expectedLocale: locale
+          });
         },
-        ownerId
+        ownerId,
+        record.itemCursor ?? 0
       );
       const terminalRecord = createPersistedActiveReviewRun(completed.run, record.capability, false, record.snapshotBlockIds);
       updateActiveReviewRun(terminalRecord, locale);
@@ -3144,12 +3195,15 @@ export default function EditorPage() {
       run: Extract<EditorialReviewRunApiResponse, { kind: "run" }>["run"],
       capability: string,
       items?: EditorialReviewItem[],
-      planActions?: CustomRequestPlanAction[]
+      planActions?: CustomRequestPlanAction[],
+      itemCursor?: number
     ) => void,
-    pollOwnerId = reviewPollTabIdRef.current
+    pollOwnerId = reviewPollTabIdRef.current,
+    initialItemCursor = 0
   ): Promise<{ result: EditorialReviewResponse; run: Extract<EditorialReviewRunApiResponse, { kind: "result" }>["run"] }> {
     let currentRun = initialRun;
     let capability = initialCapability;
+    let itemCursor = Math.max(0, Math.floor(initialItemCursor));
 
     while (true) {
       if (activeReviewJobRunRef.current !== reviewRunToken) {
@@ -3193,7 +3247,7 @@ export default function EditorPage() {
 
         try {
           const response = await fetch(
-            `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}`,
+            `/api/edit/review?runId=${encodeURIComponent(currentRun.runId)}&locale=${encodeURIComponent(expectedLocale)}&afterItem=${encodeURIComponent(String(itemCursor))}`,
             {
               method: "GET",
               credentials: "same-origin",
@@ -3258,11 +3312,19 @@ export default function EditorPage() {
         throw new Error(editorCopy.reviewFeedback.reviewJobInvalid);
       }
 
+      if (payload.kind === "run" || payload.kind === "error") {
+        if (typeof payload.itemCursor === "number" && payload.itemCursor >= itemCursor) {
+          itemCursor = payload.itemCursor;
+        } else if (payload.items?.length) {
+          itemCursor += payload.items.length;
+        }
+      }
+
       if (payload.kind === "error") {
         if (payload.items?.length && payload.run) {
-          onSnapshot?.(payload.run, capability, payload.items, payload.plan?.actions);
+          onSnapshot?.(payload.run, capability, payload.items, payload.plan?.actions, itemCursor);
         } else if (payload.run) {
-          onSnapshot?.(payload.run, capability, undefined, payload.plan?.actions);
+          onSnapshot?.(payload.run, capability, undefined, payload.plan?.actions, itemCursor);
         }
         throw new EditorialReviewRunTerminalError(payload.error.message, payload.run);
       }
@@ -3272,13 +3334,13 @@ export default function EditorPage() {
       }
 
       if (payload.kind === "result") {
-        onSnapshot?.(payload.run, capability, undefined, payload.result.plan?.actions);
+        onSnapshot?.(payload.run, capability, undefined, payload.result.plan?.actions, itemCursor);
         return { result: payload.result, run: payload.run };
       }
 
       currentRun = payload.run;
       capability = payload.capability;
-      onSnapshot?.(currentRun, capability, payload.items, payload.plan?.actions);
+      onSnapshot?.(currentRun, capability, payload.items, payload.plan?.actions, itemCursor);
     }
   }
 

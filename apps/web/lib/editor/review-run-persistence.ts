@@ -15,7 +15,8 @@ export function createPersistedActiveReviewRun(
   run: EditorialReviewRunSnapshot,
   capability: string,
   stale = false,
-  snapshotBlockIds?: string[]
+  snapshotBlockIds?: string[],
+  itemCursor?: number
 ): PersistedActiveReviewRun {
   return {
     version: 1,
@@ -23,7 +24,10 @@ export function createPersistedActiveReviewRun(
     capability,
     updatedAt: new Date().toISOString(),
     stale,
-    snapshotBlockIds
+    snapshotBlockIds,
+    ...(typeof itemCursor === "number" && Number.isFinite(itemCursor) && itemCursor >= 0
+      ? { itemCursor: Math.floor(itemCursor) }
+      : {})
   };
 }
 
