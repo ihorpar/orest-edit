@@ -32,6 +32,7 @@ import {
   type SettingsValidationResult
 } from "../../lib/editor/settings";
 import { getWorkflowStepLabel } from "../../lib/i18n/editor-messages";
+import { getProductCopy } from "../../lib/i18n/copy";
 import type { ProductCopy } from "../../lib/i18n/copy";
 
 interface ConnectionStatusSnapshot {
@@ -238,14 +239,20 @@ export default function SettingsPage() {
                     value={locale}
                     onChange={(event) => {
                       const nextLocale = event.target.value === "en" ? "en" : "uk";
+
+                      if (nextLocale === locale) {
+                        return;
+                      }
+
                       const confirmed = window.confirm(`${copy.settings.language.confirmTitle}\n\n${copy.settings.language.confirmBody}`);
 
                       if (!confirmed) {
+                        event.target.value = locale;
                         return;
                       }
 
                       setLocale(nextLocale);
-                      setSaveMessage(copy.settings.language.switched);
+                      setSaveMessage(getProductCopy(nextLocale).settings.language.switched);
                     }}
                   >
                     <option value="uk">{copy.settings.language.uk}</option>

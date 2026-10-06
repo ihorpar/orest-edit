@@ -7,7 +7,7 @@ import type {
 } from "./review-contract.ts";
 import {
   getEditorSettingsStorageKey,
-  getForceDefaultLunaMigrationStorageKey,
+  getForceDefaultGpt6MigrationStorageKey,
   getLegacyEditorSettingsStorageKey,
   getLegacyVisualStylePresetStorageKey,
   readActiveAppLocale,
@@ -24,7 +24,7 @@ export type ProviderId = "openai" | "gemini" | "anthropic";
 export type ModelIdValidationState = "valid" | "missing" | "invalid";
 export type SettingsConnectionState = "idle" | "checking" | "valid" | "missing_key" | "auth_error" | "model_error" | "network_error";
 export type SettingsKeySource = "api_key" | "env" | "missing";
-export type OpenAiReasoningEffort = "low" | "medium" | "high";
+export type OpenAiReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 export type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 export interface ProviderModelPreset {
@@ -33,7 +33,7 @@ export interface ProviderModelPreset {
   description: string;
   smartness?: number;
   priceTier?: 1 | 2 | 3 | 4;
-  /** API model id when the preset id is a profile alias (e.g. luna-low -> gpt-5.6-luna). */
+  /** API model id when the preset id is a profile alias (e.g. luna-low -> gpt-6-luna). */
   apiModelId?: string;
   openaiReasoningEffort?: OpenAiReasoningEffort;
   geminiThinkingLevel?: GeminiThinkingLevel;
@@ -78,10 +78,10 @@ export const CUSTOM_MODEL_OPTION = "__custom__";
 export const DEFAULT_VISUAL_STYLE_PRESET: VisualStylePreset = "calm_gradient";
 export const DEFAULT_VISUAL_IMAGE_QUALITY: VisualImageQuality = "fast";
 export const FORCED_DEFAULT_PROVIDER: ProviderId = "openai";
-export const FORCED_DEFAULT_MODEL_ID = "gpt-5.6-luna";
+export const FORCED_DEFAULT_MODEL_ID = "gpt-6-luna";
 
-export function getForcedDefaultLunaMigrationStorageKey(locale: AppLocale = readActiveAppLocale()): string {
-  return getForceDefaultLunaMigrationStorageKey(locale);
+export function getForcedDefaultGpt6MigrationStorageKey(locale: AppLocale = readActiveAppLocale()): string {
+  return getForceDefaultGpt6MigrationStorageKey(locale);
 }
 
 export interface VisualImageQualityProfile {
@@ -333,40 +333,40 @@ export const DEFAULT_IMAGE_PROMPT_TEMPLATE = `Склади один готови
 export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> = {
   openai: [
     {
-      id: "gpt-5.6-sol",
-      label: "GPT-5.6 Sol",
-      description: "Найсильніша модель, але результати можуть бути повільними.",
+      id: "gpt-6.1-sol",
+      label: "GPT-6.1 Sol",
+      description: "Найсильніша робоча модель для складних редакторських задач за помірною ціною.",
       smartness: 10,
-      priceTier: 4,
-      openaiReasoningEffort: "medium"
+      priceTier: 3,
+      openaiReasoningEffort: "high"
     },
     {
-      id: "gpt-5.6-luna",
-      label: "GPT-5.6 Luna",
+      id: "gpt-6-luna",
+      label: "GPT-6 Luna",
       description: "Оптимальний баланс швидкості, якості та вартості. Рекомендовано для більшості редакторських завдань.",
       smartness: 8,
       priceTier: 1,
       openaiReasoningEffort: "high"
     },
     {
-      id: "gpt-5.6-luna-low",
-      label: "GPT-5.6 Luna (low)",
+      id: "gpt-6-luna-low",
+      label: "GPT-6 Luna (low)",
       description: "Швидка та розумна модель. Рекомендується для швидкого аналізу",
       smartness: 6,
       priceTier: 1,
-      apiModelId: "gpt-5.6-luna",
+      apiModelId: "gpt-6-luna",
       openaiReasoningEffort: "low"
     }
   ],
   anthropic: [
     {
-      id: "claude-opus-4-6",
-      label: "Claude Opus 4.6",
+      id: "claude-opus-5-5",
+      label: "Claude Opus 5.5",
       description: "Найкращий варіант Anthropic для глибокого редакторського розбору і делікатного переписування щільних фрагментів."
     },
     {
-      id: "claude-sonnet-4-6",
-      label: "Claude Sonnet 4.6",
+      id: "claude-sonnet-5-5",
+      label: "Claude Sonnet 5.5",
       description: "Збалансований режим: якість близька до топової, але з кращою швидкістю і меншими витратами."
     },
     {
@@ -377,10 +377,10 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
   ],
   gemini: [
     {
-      id: "gemini-3.7-flash",
-      label: "Gemini 3.7 Flash",
+      id: "gemini-3.8-flash",
+      label: "Gemini 3.8 Flash",
       description: "Найрозумніша серед моделей Гугл. Добре працює з нюансами української науково-популярної мови.",
-      smartness: 8,
+      smartness: 9,
       priceTier: 2,
       geminiThinkingLevel: "high"
     },
@@ -389,34 +389,42 @@ export const PROVIDER_MODEL_PRESETS: Record<ProviderId, ProviderModelPreset[]> =
       label: "Gemini 3.5 Flash-Lite",
       description: "Швидка модель від Гугл.",
       smartness: 5,
-      priceTier: 2,
+      priceTier: 1,
       geminiThinkingLevel: "high"
     }
   ]
 };
 
 const DEFAULT_PROVIDER_MODEL_IDS: Record<ProviderId, string> = {
-  openai: "gpt-5.6-luna",
-  anthropic: "claude-opus-4-6",
+  openai: "gpt-6-luna",
+  anthropic: "claude-opus-5-5",
   gemini: "gemini-3.5-flash-lite"
 };
 
 /** Remap retired preset/API ids so saved settings and in-flight requests keep working. */
 const LEGACY_MODEL_ID_MAP: Record<ProviderId, Record<string, string>> = {
   openai: {
-    "gpt-5.5": "gpt-5.6-sol",
-    "gpt-5.4": "gpt-5.6-luna",
-    "gpt-5.4-mini": "gpt-5.6-luna-low"
+    "gpt-5.5": "gpt-6.1-sol",
+    "gpt-5.4": "gpt-6-luna",
+    "gpt-5.4-mini": "gpt-6-luna-low",
+    "gpt-5.6-sol": "gpt-6.1-sol",
+    "gpt-5.6-luna": "gpt-6-luna",
+    "gpt-5.6-luna-low": "gpt-6-luna-low",
+    "gpt-6-sol": "gpt-6.1-sol"
   },
   gemini: {
-    "gemini-3.6-flash": "gemini-3.7-flash",
-    "gemini-3.5-flash": "gemini-3.7-flash",
-    "gemini-3.1-pro": "gemini-3.7-flash",
-    "gemini-3.1-pro-preview": "gemini-3.7-flash",
+    "gemini-3.6-flash": "gemini-3.8-flash",
+    "gemini-3.7-flash": "gemini-3.8-flash",
+    "gemini-3.5-flash": "gemini-3.8-flash",
+    "gemini-3.1-pro": "gemini-3.8-flash",
+    "gemini-3.1-pro-preview": "gemini-3.8-flash",
     "gemini-3.1-flash-lite": "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite-preview": "gemini-3.5-flash-lite"
   },
-  anthropic: {}
+  anthropic: {
+    "claude-opus-4-6": "claude-opus-5-5",
+    "claude-sonnet-4-6": "claude-sonnet-5-5"
+  }
 };
 
 export function getProviderModelPresets(provider: ProviderId, locale: AppLocale = readActiveAppLocale()): ProviderModelPreset[] {
@@ -681,20 +689,44 @@ function sanitizeProviderApiKeys(candidate: unknown, fallbackProvider: ProviderI
   return apiKeys;
 }
 
-function hasForcedDefaultLunaMigration(locale: AppLocale): boolean {
+function hasForcedDefaultGpt6Migration(locale: AppLocale): boolean {
   if (typeof window === "undefined") {
     return true;
   }
 
-  return window.localStorage.getItem(getForcedDefaultLunaMigrationStorageKey(locale)) === "1";
+  return window.localStorage.getItem(getForceDefaultGpt6MigrationStorageKey(locale)) === "1";
 }
 
-function markForcedDefaultLunaMigration(locale: AppLocale): void {
+function markForcedDefaultGpt6Migration(locale: AppLocale): void {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(getForcedDefaultLunaMigrationStorageKey(locale), "1");
+  window.localStorage.setItem(getForceDefaultGpt6MigrationStorageKey(locale), "1");
+}
+
+function readRawStoredModelId(locale: AppLocale): { provider: ProviderId; modelId: string } | null {
+  try {
+    const raw =
+      window.localStorage.getItem(getEditorSettingsStorageKey(locale))
+      ?? (locale === "uk" ? window.localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY) : null);
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<EditorSettings>;
+    const provider = normalizeProvider(typeof parsed.provider === "string" ? parsed.provider : "");
+    const modelId = typeof parsed.modelId === "string" ? parsed.modelId.trim().replace(/\s+/g, "") : "";
+
+    if (!modelId) {
+      return null;
+    }
+
+    return { provider, modelId };
+  } catch {
+    return null;
+  }
 }
 
 function loadEditorSettingsFromStorage(locale: AppLocale): EditorSettings {
@@ -779,22 +811,37 @@ export function readEditorSettings(locale: AppLocale = readActiveAppLocale()): E
 
   const current = loadEditorSettingsFromStorage(locale);
 
-  if (hasForcedDefaultLunaMigration(locale)) {
+  if (hasForcedDefaultGpt6Migration(locale)) {
     return current;
   }
 
-  const openaiApiKey = current.apiKeys.openai ?? (current.provider === "openai" ? current.apiKey : "");
-  const forced = writeEditorSettings(
+  // One-time conditional migration: remap only retired model ids to their
+  // successors and preserve the editor's provider choice. Editors who already
+  // use current presets keep their settings untouched.
+  const raw = readRawStoredModelId(locale);
+
+  if (!raw) {
+    markForcedDefaultGpt6Migration(locale);
+    return current;
+  }
+
+  const retiredSuccessor = LEGACY_MODEL_ID_MAP[raw.provider]?.[raw.modelId] ?? null;
+
+  if (!retiredSuccessor) {
+    markForcedDefaultGpt6Migration(locale);
+    return current;
+  }
+
+  const migrated = writeEditorSettings(
     {
       ...current,
-      provider: FORCED_DEFAULT_PROVIDER,
-      modelId: FORCED_DEFAULT_MODEL_ID,
-      apiKey: openaiApiKey
+      provider: raw.provider,
+      modelId: retiredSuccessor
     },
     locale
   );
 
-  return forced;
+  return migrated;
 }
 
 export function writeEditorSettings(settings: EditorSettings, locale: AppLocale = readActiveAppLocale()): EditorSettings {
@@ -819,7 +866,7 @@ export function writeEditorSettings(settings: EditorSettings, locale: AppLocale 
 
   if (typeof window !== "undefined") {
     window.localStorage.setItem(getEditorSettingsStorageKey(locale), JSON.stringify(persisted));
-    markForcedDefaultLunaMigration(locale);
+    markForcedDefaultGpt6Migration(locale);
   }
 
   return persisted;

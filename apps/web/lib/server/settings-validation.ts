@@ -1,4 +1,4 @@
-import { getProviderEnvKey, resolveModelProfile, buildOpenAiRequestModelFields, withGeminiThinkingConfig, type ProviderId, type SettingsKeySource, type SettingsValidationResult } from "../editor/settings.ts";
+import { getProviderEnvKey, normalizeModelId, resolveModelProfile, buildOpenAiRequestModelFields, withGeminiThinkingConfig, type ProviderId, type SettingsKeySource, type SettingsValidationResult } from "../editor/settings.ts";
 import { readServerEnvValue } from "./env.ts";
 
 const openAiEndpoint = "https://api.openai.com/v1/responses";
@@ -152,6 +152,7 @@ async function pingGeminiModel(provider: ProviderId, modelId: string, apiKey: st
 }
 
 async function pingAnthropicModel(modelId: string, apiKey: string, fetchImpl: FetchLike) {
+  const normalizedModelId = normalizeModelId("anthropic", modelId);
   const response = await fetchWithTimeout(
     fetchImpl,
     anthropicEndpoint,
@@ -163,7 +164,7 @@ async function pingAnthropicModel(modelId: string, apiKey: string, fetchImpl: Fe
         "anthropic-version": anthropicVersion
       },
       body: JSON.stringify({
-        model: modelId,
+        model: normalizedModelId,
         max_tokens: 12,
         temperature: 0,
         messages: [

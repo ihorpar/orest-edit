@@ -2,6 +2,32 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-10-06
+
+### Provider presets moved to GPT-6.1 Sol / GPT-6 Luna, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5
+Date: 2026-10-06
+Decision: OpenAI presets are now `gpt-6.1-sol` (high reasoning), `gpt-6-luna` (high reasoning, app default), and `gpt-6-luna-low` (same API model with low reasoning). Gemini presets are `gemini-3.8-flash` (high thinking) and `gemini-3.5-flash-lite` (high thinking). Anthropic presets are `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-4-5`. `OpenAiReasoningEffort` also accepts `none`, `xhigh`, and `max` for manual ids. GPT-6 Astra is deliberately not a preset.
+
+Reason: GPT-6.1 Sol (2026-10-02) and GPT-6 Luna ($0.10/$0.50 per MTok) are cheaper and stronger than GPT-5.6 Sol/Luna; Gemini 3.8 Flash (GA 2026-09-28) is the current workhorse over 3.7 Flash while 3.5 Flash-Lite stays the stable cheap tier; Opus 5.5 and Sonnet 5.5 cost up to 30% less per task than the 4.6 generation and Haiku 5.5 has not shipped yet. Astra stays out to keep the three-preset structure and because its gated cyber tier is irrelevant to book editing. The widened `OpenAiReasoningEffort` union documents the effort levels GPT-6 accepts for forward compatibility; current presets send only `high`/`low` and custom ids send no `reasoning` field.
+
+Rollback: restore the previous preset tables in `apps/web/lib/editor/settings.ts` and `apps/web/lib/editor/settings-locale-defaults.ts`.
+
+### Retired model ids auto-remap with provider choice preserved
+Date: 2026-10-06
+Decision: `normalizeModelId` remaps retired ids to successors (`gpt-5.6-sol`→`gpt-6.1-sol`, `gpt-5.6-luna`→`gpt-6-luna`, `gpt-5.6-luna-low`→`gpt-6-luna-low`, `gemini-3.7-flash`→`gemini-3.8-flash`, `claude-opus-4-6`→`claude-opus-5-5`, `claude-sonnet-4-6`→`claude-sonnet-5-5`, plus older GPT-5.5/5.4 and Gemini Pro aliases). The one-time per-locale migration (`orest-force-default-gpt6-{uk|en}-v1`) persists the remap only for stored retired ids and never changes provider; current presets pass through untouched.
+
+Reason: saved settings and in-flight requests must keep working without stranding editors on dead model names, but repeating the old unconditional force-to-OpenAI migration would yank editors who deliberately chose Gemini or Anthropic.
+
+Rollback: restore the previous `LEGACY_MODEL_ID_MAP` and the unconditional Luna force-migration flag.
+
+### Dismissed language confirm resets the selector
+Date: 2026-10-06
+Decision: dismissing the app-language `window.confirm` in Settings resets the controlled select element back to the active locale (`event.target.value = locale`) and ignores no-op selections; the switched confirmation message renders in the newly selected locale.
+
+Reason: the controlled select kept the browser-changed value after a dismissed confirm without a state change, so the visible option disagreed with the stored locale and further changes stopped firing `onChange`, making the English switch look dead.
+
+Rollback: remove the reset line and the `nextLocale === locale` guard in `apps/web/app/settings/page.tsx`.
+
 ## 2026-08-18
 
 ### Custom-request plan sees the full manuscript

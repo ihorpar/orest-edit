@@ -93,9 +93,9 @@ export function getLegacyEditorSettingsStorageKey(): string {
   return "orest-editor-settings-v1";
 }
 
-/** One-time client migration: force OpenAI GPT-5.6 Luna (high) as the active model. */
-export function getForceDefaultLunaMigrationStorageKey(locale: AppLocale): string {
-  return `orest-force-default-luna-${getLocaleStorageSuffix(locale)}-v1`;
+/** One-time client migration: remap retired GPT-5.6 / Gemini 3.7 / Claude 4.6 ids to GPT-6 / Gemini 3.8 / Claude 5.5. */
+export function getForceDefaultGpt6MigrationStorageKey(locale: AppLocale): string {
+  return `orest-force-default-gpt6-${getLocaleStorageSuffix(locale)}-v1`;
 }
 
 export function getEditorDraftStorageKey(locale: AppLocale): string {

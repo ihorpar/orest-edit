@@ -11,7 +11,7 @@ import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_WORKFLOW_STEP_PROMPTS,
   getDefaultProviderModelId,
-  getForcedDefaultLunaMigrationStorageKey,
+  getForcedDefaultGpt6MigrationStorageKey,
   getModelPresetOptionLabel,
   getProviderModelPresets,
   getVisualImageQualityProfile,
@@ -87,15 +87,30 @@ test("visual style preset helpers expose all supported presets and fallback safe
 
 test("Gemini provider default stays flash-lite; app default is OpenAI Luna", () => {
   assert.equal(getDefaultProviderModelId("gemini"), "gemini-3.5-flash-lite");
-  assert.equal(getDefaultProviderModelId("openai"), "gpt-5.6-luna");
+  assert.equal(getDefaultProviderModelId("openai"), "gpt-6-luna");
+  assert.equal(getDefaultProviderModelId("anthropic"), "claude-opus-5-5");
   assert.equal(DEFAULT_EDITOR_SETTINGS.provider, "openai");
-  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gpt-5.6-luna");
+  assert.equal(DEFAULT_EDITOR_SETTINGS.modelId, "gpt-6-luna");
 });
 
-test("OpenAI model presets only expose current GPT-5.6 Sol and Luna options", () => {
+test("OpenAI model presets only expose current GPT-6.1 Sol and GPT-6 Luna options", () => {
   assert.deepEqual(
     getProviderModelPresets("openai").map((preset) => preset.id),
-    ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-luna-low"]
+    ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-luna-low"]
+  );
+});
+
+test("Anthropic presets track the Claude 5.5 generation", () => {
+  assert.deepEqual(
+    getProviderModelPresets("anthropic").map((preset) => preset.id),
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"]
+  );
+});
+
+test("Gemini presets track Gemini 3.8 Flash and 3.5 Flash-Lite", () => {
+  assert.deepEqual(
+    getProviderModelPresets("gemini").map((preset) => preset.id),
+    ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
   );
 });
 
@@ -104,12 +119,12 @@ test("model presets expose compact labels with smartness and price metadata", ()
   const geminiLabels = getProviderModelPresets("gemini").map((preset) => getModelPresetOptionLabel(preset));
 
   assert.deepEqual(openAiLabels, [
-    "GPT-5.6 Sol [💡 10/10 | $$$$]",
-    "GPT-5.6 Luna [💡 8/10 | $]",
-    "GPT-5.6 Luna (low) [💡 6/10 | $]"
+    "GPT-6.1 Sol [💡 10/10 | $$$]",
+    "GPT-6 Luna [💡 8/10 | $]",
+    "GPT-6 Luna (low) [💡 6/10 | $]"
   ]);
   assert.equal(geminiLabels.length, 2);
-  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.7 Flash /);
+  assert.match(geminiLabels[0] ?? "", /^Gemini 3\.8 Flash /);
   assert.match(geminiLabels[1] ?? "", /^Gemini 3\.5 Flash-Lite /);
   assert.ok(geminiLabels.every((label) => !/preview/i.test(label)));
 });
@@ -120,7 +135,7 @@ test("OpenAI settings validation sends reasoning effort and does not send temper
   const result = await validateSettingsModel(
     {
       provider: "openai",
-      modelId: "gpt-5.6-sol",
+      modelId: "gpt-6.1-sol",
       apiKey: "openai-key"
     },
     {
@@ -137,24 +152,57 @@ test("OpenAI settings validation sends reasoning effort and does not send temper
   );
 
   assert.equal(result.state, "valid");
-  assert.equal(requestBody?.model, "gpt-5.6-sol");
-  assert.deepEqual(requestBody?.reasoning, { effort: "medium" });
+  assert.equal(requestBody?.model, "gpt-6.1-sol");
+  assert.deepEqual(requestBody?.reasoning, { effort: "high" });
   assert.equal("temperature" in (requestBody ?? {}), false);
 });
 
-test("legacy model ids remap to current presets", () => {
-  assert.equal(normalizeModelId("openai", "gpt-5.4"), "gpt-5.6-luna");
-  assert.equal(normalizeModelId("openai", "gpt-5.4-mini"), "gpt-5.6-luna-low");
-  assert.equal(normalizeModelId("openai", "gpt-5.5"), "gpt-5.6-sol");
-  assert.equal(normalizeModelId("gemini", "gemini-3.1-pro-preview"), "gemini-3.7-flash");
-  assert.equal(normalizeModelId("gemini", "gemini-3.5-flash"), "gemini-3.7-flash");
-  assert.equal(normalizeModelId("gemini", "gemini-3.6-flash"), "gemini-3.7-flash");
-  assert.equal(normalizeModelId("gemini", "gemini-3.1-flash-lite-preview"), "gemini-3.5-flash-lite");
+test("Anthropic settings validation remaps retired ids before pinging", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+
+  const result = await validateSettingsModel(
+    {
+      provider: "anthropic",
+      modelId: "claude-opus-4-6",
+      apiKey: "anthropic-key"
+    },
+    {
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+        return new Response(JSON.stringify({ content: [{ text: "OK" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      },
+      now: () => "2026-10-06T12:00:00.000Z"
+    }
+  );
+
+  assert.equal(result.state, "valid");
+  assert.equal(requestBody?.model, "claude-opus-5-5");
 });
 
-test("luna-low preset resolves to gpt-5.6-luna with low reasoning", () => {
-  const profile = resolveModelProfile("openai", "gpt-5.6-luna-low");
-  assert.equal(profile.apiModelId, "gpt-5.6-luna");
+test("legacy model ids remap to current presets", () => {
+  assert.equal(normalizeModelId("openai", "gpt-5.4"), "gpt-6-luna");
+  assert.equal(normalizeModelId("openai", "gpt-5.4-mini"), "gpt-6-luna-low");
+  assert.equal(normalizeModelId("openai", "gpt-5.5"), "gpt-6.1-sol");
+  assert.equal(normalizeModelId("openai", "gpt-5.6-sol"), "gpt-6.1-sol");
+  assert.equal(normalizeModelId("openai", "gpt-5.6-luna"), "gpt-6-luna");
+  assert.equal(normalizeModelId("openai", "gpt-5.6-luna-low"), "gpt-6-luna-low");
+  assert.equal(normalizeModelId("openai", "gpt-6-sol"), "gpt-6.1-sol");
+  assert.equal(normalizeModelId("gemini", "gemini-3.1-pro-preview"), "gemini-3.8-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.5-flash"), "gemini-3.8-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.6-flash"), "gemini-3.8-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.7-flash"), "gemini-3.8-flash");
+  assert.equal(normalizeModelId("gemini", "gemini-3.1-flash-lite-preview"), "gemini-3.5-flash-lite");
+  assert.equal(normalizeModelId("anthropic", "claude-opus-4-6"), "claude-opus-5-5");
+  assert.equal(normalizeModelId("anthropic", "claude-sonnet-4-6"), "claude-sonnet-5-5");
+});
+
+test("luna-low preset resolves to gpt-6-luna with low reasoning", () => {
+  const profile = resolveModelProfile("openai", "gpt-6-luna-low");
+  assert.equal(profile.apiModelId, "gpt-6-luna");
   assert.equal(profile.openaiReasoningEffort, "low");
 });
 
@@ -240,7 +288,7 @@ test("writeEditorSettings preserves provider-specific API keys when switching pr
     writeEditorSettings({
       ...readEditorSettings(),
       provider: "openai",
-      modelId: "gpt-5.6-sol",
+      modelId: "gpt-6.1-sol",
       apiKey: "openai-key"
     });
 
@@ -267,7 +315,7 @@ test("sanitizeEditorSettings replaces legacy 7-section expertise templates with 
   assert.doesNotMatch(sanitized.expertisePrompt, /Показові абзаци/);
 });
 
-test("one-time Luna migration overwrites prior model then later changes persist", () => {
+test("one-time GPT-6 migration remaps only retired ids and preserves provider choice", () => {
   const storage = new Map<string, string>();
   const originalWindow = globalThis.window;
   const settingsKey = getEditorSettingsStorageKey("uk");
@@ -299,26 +347,112 @@ test("one-time Luna migration overwrites prior model then later changes persist"
       })
     );
 
-    assert.equal(storage.get(getForcedDefaultLunaMigrationStorageKey("uk")), undefined);
+    assert.equal(storage.get(getForcedDefaultGpt6MigrationStorageKey("uk")), undefined);
 
     const migrated = readEditorSettings("uk");
-    assert.equal(migrated.provider, "openai");
-    assert.equal(migrated.modelId, "gpt-5.6-luna");
-    assert.equal(migrated.apiKey, "openai-key");
+    assert.equal(migrated.provider, "gemini");
+    assert.equal(migrated.modelId, "gemini-3.8-flash");
+    assert.equal(migrated.apiKey, "gemini-key");
     assert.equal(migrated.apiKeys.gemini, "gemini-key");
-    assert.equal(storage.get(getForcedDefaultLunaMigrationStorageKey("uk")), "1");
+    assert.equal(storage.get(getForcedDefaultGpt6MigrationStorageKey("uk")), "1");
 
     writeEditorSettings({
       ...migrated,
-      provider: "gemini",
-      modelId: "gemini-3.7-flash",
-      apiKey: "gemini-key"
+      provider: "anthropic",
+      modelId: "claude-sonnet-5-5",
+      apiKey: "anthropic-key"
     });
 
     const restored = readEditorSettings("uk");
+    assert.equal(restored.provider, "anthropic");
+    assert.equal(restored.modelId, "claude-sonnet-5-5");
+    assert.equal(restored.apiKey, "anthropic-key");
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+test("one-time GPT-6 migration remaps retired OpenAI ids without forcing provider", () => {
+  const storage = new Map<string, string>();
+  const originalWindow = globalThis.window;
+  const settingsKey = getEditorSettingsStorageKey("uk");
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        }
+      }
+    }
+  });
+
+  try {
+    storage.set(
+      settingsKey,
+      JSON.stringify({
+        ...DEFAULT_EDITOR_SETTINGS,
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+        apiKey: "openai-key",
+        apiKeys: {
+          openai: "openai-key"
+        }
+      })
+    );
+
+    const migrated = readEditorSettings("uk");
+    assert.equal(migrated.provider, "openai");
+    assert.equal(migrated.modelId, "gpt-6-luna");
+    assert.equal(storage.get(getForcedDefaultGpt6MigrationStorageKey("uk")), "1");
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow
+    });
+  }
+});
+
+test("one-time GPT-6 migration leaves current presets untouched", () => {
+  const storage = new Map<string, string>();
+  const originalWindow = globalThis.window;
+  const settingsKey = getEditorSettingsStorageKey("uk");
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        }
+      }
+    }
+  });
+
+  try {
+    storage.set(
+      settingsKey,
+      JSON.stringify({
+        ...DEFAULT_EDITOR_SETTINGS,
+        provider: "gemini",
+        modelId: "gemini-3.5-flash-lite",
+        apiKey: "gemini-key",
+        apiKeys: {
+          gemini: "gemini-key"
+        }
+      })
+    );
+
+    const restored = readEditorSettings("uk");
     assert.equal(restored.provider, "gemini");
-    assert.equal(restored.modelId, "gemini-3.7-flash");
-    assert.equal(restored.apiKey, "gemini-key");
+    assert.equal(restored.modelId, "gemini-3.5-flash-lite");
+    assert.equal(storage.get(getForcedDefaultGpt6MigrationStorageKey("uk")), "1");
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
