@@ -131,6 +131,17 @@ test("local action router asks for clarification on vague Ukrainian prompts", ()
     assert.equal(inferLocalActionRoute({ prompt, locale: "uk" }).executor, "clarify", prompt);
   }
 
+  // A specific instruction that merely contains the word is carried out, in either language.
+  assert.equal(
+    inferLocalActionRoute({ prompt: "Додай щось про ризики куріння під час вагітності для плода", locale: "uk" }).executor,
+    "patch"
+  );
+  assert.equal(
+    inferLocalActionRoute({ prompt: "Add something about the risks of smoking during pregnancy", locale: "en" }).executor,
+    "patch"
+  );
+  assert.equal(inferLocalActionRoute({ prompt: "Do something with this", locale: "en" }).executor, "clarify");
+
   // The vague word must stand alone: it is not matched inside another word.
   assert.equal(inferLocalActionRoute({ prompt: "Поясни, чому дещось не так", locale: "uk" }).executor, "patch");
 });

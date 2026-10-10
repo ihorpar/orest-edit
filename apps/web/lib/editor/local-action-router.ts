@@ -81,6 +81,8 @@ const TEXT_INTENT_LABELS: Record<AppLocale, Record<LocalActionTextIntent, string
   }
 };
 
+const CLARIFY_MAX_WORDS = 6;
+
 const REGEXES = {
   uk: {
     // \b is ASCII-only in JavaScript and never matches around Cyrillic, so bound the phrase by letters instead.
@@ -162,7 +164,11 @@ export function inferLocalActionRoute(input: LocalActionRouteRequest): LocalActi
     };
   }
 
-  if (trimmedPrompt && REGEXES[locale].clarify.test(trimmedPrompt) && !preferredTextIntent) {
+  // "Something" inside a specific instruction ("add something about the risks of…") is not a vague
+  // request, so only a short prompt is sent back for clarification.
+  const isShortPrompt = trimmedPrompt.split(/\s+/).length <= CLARIFY_MAX_WORDS;
+
+  if (trimmedPrompt && isShortPrompt && REGEXES[locale].clarify.test(trimmedPrompt) && !preferredTextIntent) {
     return {
       executor: "clarify",
       actionLabel: locale === "en" ? "Clarify action" : "Уточніть дію",

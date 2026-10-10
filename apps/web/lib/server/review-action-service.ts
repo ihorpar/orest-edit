@@ -6,7 +6,6 @@ import type {
   EditorialCalloutKind,
   EditorialHeadingLevel,
   EditorialReviewRecommendationType,
-  EditorialVisualIntent,
   ReviewActionDiagnostics,
   ReviewActionProposal,
   ReviewActionRequest,
@@ -22,7 +21,6 @@ import {
 import {
   buildOpenAiRequestModelFields,
   DEFAULT_VISUAL_IMAGE_QUALITY,
-  getVisualStylePresetGuide,
   normalizeVisualImageQuality,
   normalizeVisualStylePreset,
   resolveModelProfile,
@@ -34,8 +32,6 @@ import { resolveProviderApiKey } from "./patch-service.ts";
 import type { AppLocale } from "../i18n/product-locale.ts";
 import {
   buildCalloutProviderPrompt,
-  buildFallbackCalloutPrompt,
-  buildFallbackImagePrompt,
   buildImageProviderPrompt,
   buildReplaceProviderPrompt,
   buildReplaceSystemPrompt,
@@ -598,81 +594,6 @@ function getReplaceProviderUsed(type: EditorialReviewRecommendationType, provide
   return `${provider}:${type === "list" ? "list_replace" : "text_replace"}`;
 }
 
-function createFallbackCalloutProposal(request: ReviewActionRequest): ReviewActionProposal {
-  const locale = request.locale ?? "uk";
-  const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
-  const calloutKind: EditorialCalloutKind = request.item.calloutKind ?? "mechanism";
-  const calloutDepth = normalizeEditorialCalloutDepth(request.item.calloutDepth);
-  const fallbackLength = calloutDepth === "deep" ? 1200 : 220;
-
-  return {
-    id: createPatchId("proposal-callout"),
-    reviewItemId: request.item.id,
-    sourceRevisionId: request.item.documentRevisionId,
-    targetRevisionId: request.currentRevision.documentRevisionId,
-    kind: "callout_prompt",
-    summary: request.item.reason,
-    canApplyDirectly: true,
-    calloutDraft: {
-      calloutKind,
-      calloutDepth,
-      title: locale === "en" ? getEditorialCalloutKindLabel(calloutKind, locale) : getEditorialCalloutKindTitle(calloutKind),
-      prompt: buildFallbackCalloutPrompt(locale, calloutKind, calloutDepth, excerpt, request.item.recommendation),
-      previewText: normalizeCalloutBodyByKind(excerpt.slice(0, fallbackLength), calloutKind)
-    }
-  };
-}
-
-function createFallbackSubsectionProposal(request: ReviewActionRequest): ReviewActionProposal {
-  const fallbackTitle = sanitizeCalloutTitle(request.item.title) || (request.locale === "en" ? "New subheading" : "Новий підзаголовок");
-  const headingLevel = normalizeHeadingLevel(request.item.headingLevel ?? request.item.subsectionDraft?.headingLevel);
-  const prompt = buildProviderPrompt(request, "subsection");
-
-  return {
-    id: createPatchId("proposal-subsection"),
-    reviewItemId: request.item.id,
-    sourceRevisionId: request.item.documentRevisionId,
-    targetRevisionId: request.currentRevision.documentRevisionId,
-    kind: "subsection_prompt",
-    summary: request.item.reason,
-    canApplyDirectly: true,
-    subsectionDraft: {
-      title: fallbackTitle,
-      headingLevel,
-      lead: "",
-      prompt
-    }
-  };
-}
-
-function createFallbackImagePromptProposal(request: ReviewActionRequest): ReviewActionProposal {
-  const locale = request.locale ?? "uk";
-  const excerpt = request.item.anchor.excerpt || request.item.anchor.blockIds.map((blockId) => getBlockText(request.document.blocks.find((block) => block.id === blockId)!)).join("\n\n");
-  const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
-  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
-  const visualIntent = request.item.visualIntent ?? "infographic";
-  const imageQuality = normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY);
-
-  return {
-    id: createPatchId("proposal-image"),
-    reviewItemId: request.item.id,
-    sourceRevisionId: request.item.documentRevisionId,
-    targetRevisionId: request.currentRevision.documentRevisionId,
-    kind: "image_prompt",
-    summary: request.item.reason,
-    canApplyDirectly: false,
-    imageDraft: {
-      visualIntent,
-      visualStylePreset,
-      imageQuality,
-      prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
-      alt: request.item.title,
-      caption: "",
-      targetModel: resolveReviewImageTargetModel(imageQuality)
-    }
-  };
-}
-
 async function createCalloutProposal(
   request: ReviewActionRequest,
   apiKey: string,
@@ -758,10 +679,7 @@ async function createImagePromptProposal(
   fetchImpl: FetchLike
 ): Promise<{ proposal: ReviewActionProposal; providerUsed: string; rawOutput?: string }> {
   const prompt = buildProviderPrompt(request, "image");
-  const locale = request.locale ?? "uk";
-  const excerpt = getRequestExcerpt(request);
   const visualStylePreset = normalizeVisualStylePreset(request.visualStylePreset);
-  const visualStyleGuide = getVisualStylePresetGuide(visualStylePreset, locale);
   const visualIntent = request.item.visualIntent ?? "infographic";
   const imageQuality = normalizeVisualImageQuality(request.imageQuality, DEFAULT_VISUAL_IMAGE_QUALITY);
   const result = request.provider === "gemini"
