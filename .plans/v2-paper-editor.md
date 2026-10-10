@@ -30,8 +30,8 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 - Status: Active
 - Plan revision: r1 (2026-10-09)
 - Canonical plan: `.plans/v2-paper-editor.md` in the main working tree. Plan owner: the orchestrator session. Executors report evidence; only the orchestrator checks off tasks.
-- Current milestone: 2 — Suggestion engine and the first pass (assigned 2026-10-10, in progress). Milestone 1 accepted 2026-10-10.
-- Next action: receive the Milestone 2 executor report, run the required independent review, accept or return fixes.
+- Current milestone: 3 — Remaining passes and quiet mode (assigned 2026-10-10, in progress). Milestones 1 and 2 accepted and committed together on `v2`.
+- Next action: receive the Milestone 3 executor report, decide on review (required if store or bridge contracts changed), accept or return fixes, commit.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
 - Orchestrator may decide: implementation choices, simplifications within scope, reordering independent tasks. Needs the owner: changing hard constraints or required outcomes, weakening acceptance, pushes/deploys, anything touching v1 behaviour.
@@ -67,12 +67,14 @@ Stop rule: if stable block ids cannot be kept through Tiptap editing, report `Bl
 
 Depends on: 1. Mode: proceed. Independent review: required (core state machine everything else builds on).
 
-- [ ] 2.1 `apps/web/lib/v2/api.ts`: typed client for review runs (start, poll with `afterItem`, cancel), proposals, with fail-loud error mapping; reuse `review-run-recovery.ts`, `review-run-persistence.ts`, `review-run-merge.ts` rather than re-implementing them.
-- [ ] 2.2 `apps/web/lib/v2/store.ts`: a pure reducer for passes, review items, proposals, focus, filter, quiet mode and decisions, with unit tests.
-- [ ] 2.3 `Правки` tab: pass rows (launcher + state + filter), summary with progress, queue cards streaming in while the `clarity` run is in flight, `Зупинити`, recovery of an in-flight run after reload.
-- [ ] 2.4 Inline review: a pending item highlights its anchor range; focusing it prepares the proposal (`/api/edit/review/proposal`) and shows a word-level del/ins diff inline as editor decorations (not document content); accept applies the block replacement as one undo step; reject stores a rejected idea; edited anchors go stale via `reconcileReviewItemsWithRevision`.
-- [ ] 2.5 Card ⇄ mark linking (click and hover), refine + regenerate on a card.
-- [ ] 2.6 Verify: unit tests; runtime with a real key: run `Ясність`, accept, reject, undo, reload mid-run, stale card after a manual edit; a bad model id or missing key shows the real error.
+- [x] 2.1 `apps/web/lib/v2/api.ts`: typed client for review runs (start, poll with `afterItem`, cancel), proposals, with fail-loud error mapping; reuse `review-run-recovery.ts`, `review-run-persistence.ts`, `review-run-merge.ts` rather than re-implementing them.
+- [x] 2.2 `apps/web/lib/v2/store.ts`: a pure reducer for passes, review items, proposals, focus, filter, quiet mode and decisions, with unit tests.
+- [x] 2.3 `Правки` tab: pass rows (launcher + state + filter), summary with progress, queue cards streaming in while the `clarity` run is in flight, `Зупинити`, recovery of an in-flight run after reload.
+- [x] 2.4 Inline review: a pending item highlights its anchor range; focusing it prepares the proposal (`/api/edit/review/proposal`) and shows a word-level del/ins diff inline as editor decorations (not document content); accept applies the block replacement as one undo step; reject stores a rejected idea; edited anchors go stale via `reconcileReviewItemsWithRevision`.
+- [x] 2.5 Card ⇄ mark linking (click and hover), refine + regenerate on a card.
+- [x] 2.6 Verify: unit tests; runtime with a real key: run `Ясність`, accept, reject, undo, reload mid-run, stale card after a manual edit; a bad model id or missing key shows the real error.
+
+Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suite (513/513) and checked real-keystroke typing on `/v2` after the text-sanitizer plugin; executor ran build and real-backend QA on a six-paragraph sample (run, streamed cards, prepare on card action, inline diff, accept + one-step undo with stable ids, reject, refine + regenerate, stale on manual edit, stop, reload recovery, real provider error shown); independent review found a diff-first blocker (invisible characters from pasted text made a ready proposal acceptable with no diff drawn) plus four defects, all fixed and unit-tested. Real calls spent: 5 runs, 4 proposals. Not verified at runtime: incremental streaming on a multi-chunk chapter, the mismatch/empty card states, failed-regenerate display, rerun-keeps-cards, cross-tab lease handover.
 
 ## Milestone 3 - Remaining passes and quiet mode
 
@@ -130,6 +132,15 @@ Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 - Finding: the default-editor switch is build-time (`NEXT_PUBLIC_*` is inlined, `/` is prerendered); flipping it needs a rebuild. Document in `docs/DEPLOYMENT.md` (6.5).
 - Finding: existing DOCX export → import does not preserve headings or callouts (they return as paragraphs); this is in v1's `lib/editor` libraries and affects v1 equally. Out of scope unless the owner asks.
 - Finding (M1 interfaces later milestones rely on): block id lives in `attrs.id` / `data-block-id`; `findBlockPosition`, `getTopLevelBlockIds` in `apps/web/lib/v2/block-ids.ts`; `ManuscriptEditor` ref handle `getEditor/getDocument/replaceDocument/run`; decorations hook in `createEditingExtension` (`apps/web/lib/v2/tiptap-extensions.ts`); all draft writes go through `writeV2DraftIfUnchanged` and respect the workspace `blocked` gate; `tiptapToDocument` throws on a block without an id.
+- Decision (orchestrator, 2026-10-10): a proposal is prepared only by an explicit action on its card (`Показати правку`, Enter, re-prepare, regenerate). Clicking a mark or a card only focuses. Reason: every proposal is a paid model call and a caret click into a marked paragraph was triggering one.
+- Decision (orchestrator, 2026-10-10): accept is impossible unless the diff is actually drawn (`isReviewDiffDrawn`); every later accept path, including bulk accept, must honour the equivalent "result is visible" check. Reason: diff-first.
+- Decision (orchestrator, 2026-10-10): inline diffs coalesce a mostly rewritten sentence into one deletion + one insertion (thresholds in `apps/web/lib/v2/word-diff.ts`); light edits stay word-level. Reason: readability and prototype fidelity.
+- Decision (orchestrator, 2026-10-10): a rerun keeps the pass's undecided cards until the new run produces items or completes successfully. Reason: a failed or stopped rerun must not empty the queue. Differs from v1.
+- Decision (orchestrator, 2026-10-10): `Ясність` runs without diagnostics text until Milestone 4 supplies `expertise` (v1 requires diagnostics first; the server does not).
+- Finding: text is sanitised on entry to the editor (`apps/web/lib/v2/text-sanitizer.ts`) so the ProseMirror document and the bridge output always agree.
+- Finding: an empty `APP_PASSWORD` opens pages in dev but the AI routes answer 503; real-backend QA needs a process-only password and a login through `/api/auth/login`.
+- Finding (M2 interfaces): `apps/web/lib/v2/api.ts` (runs, proposals), `store.ts` (pure reducer; `PASS_STEP_ID`, `selectQueue`, `quiet/set`, `replaceOnResult`), `review-marks.ts` (`ReviewMark`, `ins-block` widgets for ghost blocks), `review-apply.ts` (`replaceAnchoredBlocks`, `sealHistory`), `components/v2/useReviewEngine.ts` (`runPass`, `focusItem`, `showItem`, `prepareItem`, `acceptItem`), `EditsTab.tsx` (`LIVE_PASSES`).
+- Carried into Milestone 3: non-replace item kinds (ready subsection drafts, emphasis targets, callout drafts) in the engine and in draft persistence; runs for steps without a pass row; redo detection for proposals with fewer `newBlocks` than anchors; pruning stored proposals; draft write frequency during polling.
 - Deferred to 6.1: confirmation before `Відкрити` replaces the manuscript; a "discard and start over" action for an unreadable v2 draft.
 - Assumption: v1 items for `structure` arrive with ready heading drafts and `emphasis` items carry exact targets (per `docs/CURRENT_STATE.md`). Resolve: confirm against real responses in Milestone 3.
 

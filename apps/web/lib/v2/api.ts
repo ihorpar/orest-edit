@@ -1,0 +1,693 @@
+import type { Block, EditorDocument } from "../editor/document-model.ts";
+import {
+  computeAnchorFingerprint,
+  deriveManuscriptRevisionState,
+  type ManuscriptRevisionState
+} from "../editor/manuscript-structure.ts";
+import {
+  isEditorialReviewRunApiResponse,
+  isReplaceReviewType,
+  normalizeEditorialCalloutDepth,
+  type EditorialReviewItem,
+  type EditorialReviewRequest,
+  type EditorialReviewResponse,
+  type EditorialReviewRunError,
+  type EditorialReviewRunSnapshot,
+  type EditorialReviewStepId,
+  type EditorialStepRunMode,
+  type RejectedReviewIdea,
+  type ReviewActionProposal,
+  type ReviewActionRequest
+} from "../editor/review-contract.ts";
+import { resolveReviewPollWaitMs } from "../editor/review-poll-interval.ts";
+import {
+  interpretReviewRunPollBody,
+  isTransientReviewPollFetchError,
+  resolveReviewPollFetchTimeoutMs,
+  REVIEW_POLL_FETCH_MAX_RETRIES,
+  sanitizeExposedErrorMessage
+} from "../editor/review-run-recovery.ts";
+import { sanitizeEditorSettings, type EditorSettings } from "../editor/settings.ts";
+import {
+  getEditorSettingsStorageKey,
+  getLegacyEditorSettingsStorageKey,
+  type AppLocale
+} from "../i18n/product-locale.ts";
+
+/**
+ * Typed client for the review endpoints the classic editor drives from `app/editor/page.tsx`:
+ * `POST/GET/DELETE /api/edit/review` (durable runs) and `POST /api/edit/review/proposal`.
+ *
+ * Every reply is a discriminated union. A failure always carries a message a person can read: the server's
+ * own text when there is one, otherwise what went wrong on the way. Nothing here invents a result.
+ */
+
+export const REVIEW_RUN_ENDPOINT = "/api/edit/review";
+export const REVIEW_PROPOSAL_ENDPOINT = "/api/edit/review/proposal";
+export const REVIEW_RUN_CAPABILITY_HEADER = "x-review-run-capability";
+
+/** Client-side texts for failures the server did not describe. */
+export interface ReviewApiMessages {
+  /** The reply was not a review-run state at all. */
+  invalid: string;
+  /** The hosting platform cut the request off (non-JSON timeout page). */
+  platformTimeout: string;
+  /** The status check did not answer in time, several times in a row. */
+  pollTimeout: string;
+  /** The run belongs to another interface language. */
+  wrongLocale: string;
+  /** The run finished, but its result does not match what was asked for. */
+  resultInvalid: string;
+  /** The proposal reply could not be read. */
+  proposalInvalid: string;
+  /** The request never reached the server. */
+  network: string;
+}
+
+export type ReviewRunFailureCode =
+  | EditorialReviewRunError["code"]
+  | "invalid_response"
+  | "platform_failure"
+  | "network_error"
+  | "poll_timeout"
+  | "wrong_locale"
+  | "invalid_result";
+
+type CompletedRunSnapshot = EditorialReviewRunSnapshot & { status: "completed" };
+
+export type ReviewRunReply =
+  | {
+      kind: "run";
+      run: EditorialReviewRunSnapshot;
+      /** Signed reference that authorises later polls and the cancel call for this run. */
+      capability: string;
+      items: EditorialReviewItem[];
+      itemCursor?: number;
+    }
+  | { kind: "result"; run: CompletedRunSnapshot; result: EditorialReviewResponse }
+  | {
+      kind: "error";
+      code: ReviewRunFailureCode;
+      message: string;
+      retryable: boolean;
+      httpStatus?: number;
+      run?: EditorialReviewRunSnapshot;
+      items: EditorialReviewItem[];
+      itemCursor?: number;
+    };
+
+export type ReviewRunOutcome =
+  | { kind: "completed"; run: CompletedRunSnapshot; result: EditorialReviewResponse }
+  | { kind: "failed"; code: ReviewRunFailureCode; message: string; run?: EditorialReviewRunSnapshot }
+  /** This poller stopped being the owner (stopped by the editor, replaced, or another tab holds the lease). */
+  | { kind: "superseded" };
+
+export type ProposalReply =
+  | { kind: "text_diff"; proposal: ReviewActionProposal & { textDiff: NonNullable<ReviewActionProposal["textDiff"]> } }
+  /** Subsection, callout and image drafts; used by later passes. */
+  | { kind: "draft"; proposal: ReviewActionProposal }
+  | { kind: "stale_anchor"; message: string; proposal: ReviewActionProposal }
+  | { kind: "error"; message: string; httpStatus?: number };
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+/* ---------- settings (read-only) ---------- */
+
+/**
+ * Reads the provider, model and prompts the classic editor saved, without writing anything back.
+ * `readEditorSettings` from `lib/editor/settings.ts` is not used here because it can persist a migration.
+ */
+export function readEditorSettingsReadOnly(storage: Pick<Storage, "getItem">, locale: AppLocale): EditorSettings {
+  const raw =
+    storage.getItem(getEditorSettingsStorageKey(locale)) ??
+    (locale === "uk" ? storage.getItem(getLegacyEditorSettingsStorageKey()) : null);
+
+  if (!raw) {
+    return sanitizeEditorSettings(null, locale);
+  }
+
+  try {
+    return sanitizeEditorSettings(JSON.parse(raw) as Partial<EditorSettings>, locale);
+  } catch {
+    return sanitizeEditorSettings(null, locale);
+  }
+}
+
+/* ---------- request builders ---------- */
+
+export interface ReviewRunRequestInput {
+  document: EditorDocument;
+  settings: EditorSettings;
+  locale: AppLocale;
+  stepId: EditorialReviewStepId;
+  runMode: EditorialStepRunMode;
+  rejectedIdeas: RejectedReviewIdea[];
+  /** Diagnostics text, when the chapter overview has been run. */
+  expertise?: string | null;
+}
+
+/** Same fields the classic editor sends for a workflow step; the revision is compact (order and id only). */
+export function buildReviewRunRequest(input: ReviewRunRequestInput): EditorialReviewRequest {
+  const { document, settings, locale, stepId, runMode } = input;
+  const fullRevision = deriveManuscriptRevisionState(document);
+  const revision: ManuscriptRevisionState = {
+    documentRevisionId: fullRevision.documentRevisionId,
+    blockOrder: fullRevision.blockOrder,
+    blockFingerprints: {}
+  };
+  const cardsPrompt = settings.cardsPrompt.trim() || settings.reviewPrompt.trim() || undefined;
+  const expertise = input.expertise?.trim() || undefined;
+
+  if (stepId === "emphasis") {
+    return {
+      document,
+      revision,
+      provider: settings.provider,
+      modelId: settings.modelId,
+      locale,
+      async: true,
+      basePrompt: settings.basePrompt,
+      cardsPrompt,
+      workflowStepPrompts: settings.workflowStepPrompts,
+      changeLevel: 5,
+      additionalInstructions: "",
+      stepId,
+      runMode,
+      rejectedIdeas: input.rejectedIdeas
+    };
+  }
+
+  const isDiagnostics = stepId === "diagnostics";
+
+  return {
+    document,
+    revision,
+    provider: settings.provider,
+    modelId: settings.modelId,
+    locale,
+    async: true,
+    basePrompt: settings.basePrompt,
+    expertisePrompt: isDiagnostics ? settings.expertisePrompt.trim() || settings.reviewPrompt.trim() || undefined : undefined,
+    cardsPrompt: isDiagnostics ? undefined : cardsPrompt,
+    workflowStepPrompts: settings.workflowStepPrompts,
+    changeLevel: 5,
+    additionalInstructions: "",
+    stepId,
+    runMode,
+    stepContext: isDiagnostics ? { diagnosticsMode: "concise" } : { diagnosticsExpertise: expertise },
+    expertise: isDiagnostics ? undefined : expertise,
+    rejectedIdeas: input.rejectedIdeas
+  };
+}
+
+export interface ProposalRequestInput {
+  document: EditorDocument;
+  item: EditorialReviewItem;
+  settings: EditorSettings;
+  locale: AppLocale;
+  editorialInstruction?: string;
+}
+
+/** Compact proposal request: only the anchored blocks travel, as in the classic editor. */
+export function buildProposalRequest(input: ProposalRequestInput): ReviewActionRequest {
+  const { document, item, settings, locale } = input;
+  const revision = deriveManuscriptRevisionState(document);
+  const isReplace = isReplaceReviewType(item.recommendationType);
+  const compactItem: ReviewActionRequest["item"] = {
+    id: item.id,
+    reviewSessionId: item.reviewSessionId,
+    documentRevisionId: item.documentRevisionId,
+    changeLevel: item.changeLevel,
+    title: item.title,
+    reason: item.reason,
+    recommendation: item.recommendation,
+    recommendationType: item.recommendationType,
+    suggestedAction: item.suggestedAction,
+    priority: item.priority,
+    anchor: item.anchor,
+    insertionPoint: item.insertionPoint,
+    status: item.status
+  };
+
+  if (item.calloutKind) {
+    compactItem.calloutKind = item.calloutKind;
+    compactItem.calloutDepth = normalizeEditorialCalloutDepth(item.calloutDepth);
+  }
+
+  if (item.visualIntent) {
+    compactItem.visualIntent = item.visualIntent;
+  }
+
+  const relatedBlockIds = Array.from(
+    new Set(
+      (isReplace ? [...item.anchor.blockIds] : [...item.anchor.blockIds, item.insertionPoint.anchorBlockId]).filter(
+        (value): value is string => Boolean(value)
+      )
+    )
+  );
+  const relatedBlocks = relatedBlockIds
+    .map((blockId) => document.blocks.find((block) => block.id === blockId))
+    .filter((block): block is Block => Boolean(block));
+
+  const request: ReviewActionRequest = {
+    document: { version: 2, blocks: relatedBlocks },
+    currentRevision: {
+      documentRevisionId: revision.documentRevisionId,
+      blockOrder: relatedBlockIds,
+      blockFingerprints: Object.fromEntries(
+        relatedBlockIds.map((blockId) => [blockId, revision.blockFingerprints[blockId] ?? ""])
+      )
+    },
+    item: compactItem,
+    editorialInstruction: input.editorialInstruction?.trim() || undefined,
+    provider: settings.provider,
+    modelId: settings.modelId,
+    locale
+  };
+
+  if (isReplace) {
+    return { ...request, basePrompt: settings.basePrompt };
+  }
+
+  if (item.suggestedAction === "prepare_callout") {
+    return { ...request, calloutPromptTemplate: settings.calloutPromptTemplate };
+  }
+
+  if (item.suggestedAction === "prepare_visual") {
+    return { ...request, imagePromptTemplate: settings.imagePromptTemplate };
+  }
+
+  return request;
+}
+
+/**
+ * A stale item can be prepared again when every anchored block still exists: it is sent with the current
+ * fingerprint of those blocks. Returns null when a block is gone and the suggestion has nothing to attach to.
+ */
+export function refreshItemAnchor(item: EditorialReviewItem, document: EditorDocument): EditorialReviewItem | null {
+  const known = new Set(document.blocks.map((block) => block.id));
+
+  if (item.anchor.blockIds.length === 0 || !item.anchor.blockIds.every((blockId) => known.has(blockId))) {
+    return null;
+  }
+
+  return {
+    ...item,
+    status: "pending",
+    activeProposalId: undefined,
+    anchor: { ...item.anchor, fingerprint: computeAnchorFingerprint(document, item.anchor.blockIds) }
+  };
+}
+
+/* ---------- reply interpretation ---------- */
+
+export function interpretReviewRunReply(responseText: string, httpStatus: number, messages: ReviewApiMessages): ReviewRunReply {
+  const parsed = interpretReviewRunPollBody(responseText, {
+    invalid: messages.invalid,
+    platformTimeout: messages.platformTimeout
+  });
+
+  if (!parsed.ok) {
+    const isPlatform = parsed.message === messages.platformTimeout;
+
+    return {
+      kind: "error",
+      code: isPlatform ? "platform_failure" : "invalid_response",
+      message: withHttpStatus(parsed.message, httpStatus),
+      retryable: isPlatform,
+      httpStatus,
+      items: []
+    };
+  }
+
+  const payload = parsed.payload;
+
+  if (!isEditorialReviewRunApiResponse(payload)) {
+    // The auth gate and some proxies answer `{ "error": "..." }` instead of the run envelope.
+    const plainError =
+      payload && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
+        ? ((payload as { error: string }).error.trim() || null)
+        : null;
+
+    return {
+      kind: "error",
+      code: "invalid_response",
+      message: plainError ?? withHttpStatus(messages.invalid, httpStatus),
+      retryable: false,
+      httpStatus,
+      items: []
+    };
+  }
+
+  if (payload.kind === "error") {
+    return {
+      kind: "error",
+      code: payload.error.code,
+      message: sanitizeExposedErrorMessage(payload.error.message, messages.resultInvalid),
+      retryable: payload.error.retryable,
+      httpStatus,
+      run: payload.run,
+      items: payload.items ?? [],
+      itemCursor: payload.itemCursor
+    };
+  }
+
+  if (payload.kind === "result") {
+    return { kind: "result", run: payload.run, result: payload.result };
+  }
+
+  return {
+    kind: "run",
+    run: payload.run,
+    capability: payload.capability,
+    items: payload.items ?? [],
+    itemCursor: payload.itemCursor
+  };
+}
+
+/** Next `afterItem` cursor: the server's count when it reports one, otherwise the items received so far. */
+export function advanceItemCursor(current: number, reply: ReviewRunReply): number {
+  if (reply.kind === "result") {
+    return current;
+  }
+
+  if (typeof reply.itemCursor === "number" && reply.itemCursor >= current) {
+    return reply.itemCursor;
+  }
+
+  return current + reply.items.length;
+}
+
+/**
+ * Checks that a completed run answers the request that started it. Returns the problem, or null.
+ */
+export function validateCompletedReviewResult(
+  result: EditorialReviewResponse,
+  expected: Pick<EditorialReviewRunSnapshot, "stepId" | "runMode" | "provider" | "modelId" | "documentRevisionId">,
+  messages: Pick<ReviewApiMessages, "resultInvalid">
+): string | null {
+  if (
+    result.stepId !== expected.stepId ||
+    result.runMode !== expected.runMode ||
+    result.diagnostics.requestedProvider !== expected.provider ||
+    result.diagnostics.requestedModelId !== expected.modelId ||
+    result.diagnostics.stepId !== result.stepId ||
+    result.diagnostics.stepRunId !== result.stepRunId ||
+    result.items.some((item) => item.documentRevisionId !== expected.documentRevisionId)
+  ) {
+    return messages.resultInvalid;
+  }
+
+  return null;
+}
+
+export function interpretProposalReply(responseText: string, httpStatus: number, messages: ReviewApiMessages): ProposalReply {
+  let payload: unknown;
+
+  try {
+    payload = JSON.parse(responseText) as unknown;
+  } catch {
+    return { kind: "error", message: withHttpStatus(messages.proposalInvalid, httpStatus), httpStatus };
+  }
+
+  const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+  const serverError = typeof record?.error === "string" && record.error.trim() ? record.error.trim() : null;
+  const proposal = record?.proposal as ReviewActionProposal | undefined;
+
+  if (!proposal || typeof proposal !== "object" || typeof proposal.kind !== "string") {
+    return { kind: "error", message: serverError ?? withHttpStatus(messages.proposalInvalid, httpStatus), httpStatus };
+  }
+
+  if (proposal.kind === "stale_anchor") {
+    return {
+      kind: "stale_anchor",
+      message: proposal.staleReason?.trim() || serverError || proposal.summary || messages.proposalInvalid,
+      proposal
+    };
+  }
+
+  if (serverError) {
+    return { kind: "error", message: serverError, httpStatus };
+  }
+
+  if (httpStatus < 200 || httpStatus >= 300) {
+    return { kind: "error", message: withHttpStatus(messages.proposalInvalid, httpStatus), httpStatus };
+  }
+
+  if (proposal.kind === "text_diff") {
+    const textDiff = proposal.textDiff;
+
+    if (
+      !textDiff ||
+      !Array.isArray(textDiff.blockIds) ||
+      textDiff.blockIds.length === 0 ||
+      !Array.isArray(textDiff.oldBlocks) ||
+      !Array.isArray(textDiff.newBlocks) ||
+      textDiff.newBlocks.length === 0
+    ) {
+      return { kind: "error", message: messages.proposalInvalid, httpStatus };
+    }
+
+    return { kind: "text_diff", proposal: { ...proposal, textDiff } };
+  }
+
+  return { kind: "draft", proposal };
+}
+
+function withHttpStatus(message: string, httpStatus: number): string {
+  return httpStatus >= 400 ? `${message} (HTTP ${httpStatus})` : message;
+}
+
+function describeNetworkError(error: unknown, messages: ReviewApiMessages): string {
+  const detail = error instanceof Error ? error.message.trim() : "";
+  return detail ? `${messages.network} ${detail}` : messages.network;
+}
+
+/* ---------- calls ---------- */
+
+export interface ReviewApiDeps {
+  messages: ReviewApiMessages;
+  fetchImpl?: FetchLike;
+}
+
+function resolveFetch(deps: ReviewApiDeps): FetchLike {
+  return deps.fetchImpl ?? ((input, init) => fetch(input, init));
+}
+
+export async function startReviewRun(request: EditorialReviewRequest, deps: ReviewApiDeps): Promise<ReviewRunReply> {
+  let response: Response;
+  let text: string;
+
+  try {
+    response = await resolveFetch(deps)(REVIEW_RUN_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    });
+    text = await response.text();
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "network_error",
+      message: describeNetworkError(error, deps.messages),
+      retryable: true,
+      items: []
+    };
+  }
+
+  return interpretReviewRunReply(text, response.status, deps.messages);
+}
+
+export interface ReviewRunReference {
+  runId: string;
+  capability: string;
+  locale: AppLocale;
+}
+
+/** One status check. Throws on a network failure or an abort, so the poller can tell them apart and retry. */
+export async function fetchReviewRun(
+  reference: ReviewRunReference & { afterItem: number; signal?: AbortSignal },
+  deps: ReviewApiDeps
+): Promise<ReviewRunReply> {
+  const query = `runId=${encodeURIComponent(reference.runId)}&locale=${encodeURIComponent(reference.locale)}&afterItem=${encodeURIComponent(String(reference.afterItem))}`;
+  const response = await resolveFetch(deps)(`${REVIEW_RUN_ENDPOINT}?${query}`, {
+    method: "GET",
+    credentials: "same-origin",
+    signal: reference.signal,
+    headers: {
+      "Cache-Control": "no-store",
+      [REVIEW_RUN_CAPABILITY_HEADER]: reference.capability
+    }
+  });
+
+  return interpretReviewRunReply(await response.text(), response.status, deps.messages);
+}
+
+export type CancelReviewRunReply = { kind: "cancelled" } | { kind: "error"; message: string };
+
+export async function cancelReviewRun(reference: ReviewRunReference, deps: ReviewApiDeps): Promise<CancelReviewRunReply> {
+  try {
+    const response = await resolveFetch(deps)(
+      `${REVIEW_RUN_ENDPOINT}?runId=${encodeURIComponent(reference.runId)}&locale=${encodeURIComponent(reference.locale)}`,
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { [REVIEW_RUN_CAPABILITY_HEADER]: reference.capability }
+      }
+    );
+    const reply = interpretReviewRunReply(await response.text(), response.status, deps.messages);
+
+    if (reply.kind === "error" && reply.code === "run_cancelled") {
+      return { kind: "cancelled" };
+    }
+
+    return { kind: "error", message: reply.kind === "error" ? reply.message : deps.messages.invalid };
+  } catch (error) {
+    return { kind: "error", message: describeNetworkError(error, deps.messages) };
+  }
+}
+
+export async function prepareProposal(
+  request: ReviewActionRequest,
+  deps: ReviewApiDeps & { signal?: AbortSignal }
+): Promise<ProposalReply> {
+  let response: Response;
+  let text: string;
+
+  try {
+    response = await resolveFetch(deps)(REVIEW_PROPOSAL_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      signal: deps.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    });
+    text = await response.text();
+  } catch (error) {
+    return { kind: "error", message: describeNetworkError(error, deps.messages) };
+  }
+
+  return interpretProposalReply(text, response.status, deps.messages);
+}
+
+/* ---------- polling ---------- */
+
+export interface ReviewRunSnapshotUpdate {
+  run: EditorialReviewRunSnapshot;
+  capability: string;
+  /** Items that arrived since the previous snapshot. */
+  items: EditorialReviewItem[];
+  itemCursor: number;
+}
+
+export interface PollReviewRunOptions extends ReviewApiDeps {
+  run: EditorialReviewRunSnapshot;
+  capability: string;
+  locale: AppLocale;
+  /** Cursor to resume from after a reload; 0 for a fresh run. */
+  itemCursor?: number;
+  /** Size of the manuscript, used for the poll interval and the per-request timeout. */
+  getSourceChars: () => number;
+  /** False once the editor stopped or replaced this poller. */
+  isCurrent: () => boolean;
+  /** Cross-tab poll lease (`tryAcquireReviewRunPollLease`); false means another tab polls this run. */
+  acquireLease: (runId: string) => boolean;
+  onSnapshot: (update: ReviewRunSnapshotUpdate) => void;
+  /** Lets the owner abort the request that is in flight. */
+  onRequest?: (controller: AbortController | null) => void;
+  wait?: (ms: number) => Promise<void>;
+}
+
+const defaultWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Polls a run until it completes, fails or this poller is superseded. Streamed items are handed to
+ * `onSnapshot` as they arrive, with the cursor to persist for recovery.
+ */
+export async function pollReviewRun(options: PollReviewRunOptions): Promise<ReviewRunOutcome> {
+  const wait = options.wait ?? defaultWait;
+  let run = options.run;
+  let capability = options.capability;
+  let itemCursor = Math.max(0, Math.floor(options.itemCursor ?? 0));
+
+  while (true) {
+    if (!options.isCurrent() || !options.acquireLease(run.runId)) {
+      return { kind: "superseded" };
+    }
+
+    if (run.locale !== options.locale) {
+      return { kind: "failed", code: "wrong_locale", message: options.messages.wrongLocale, run };
+    }
+
+    await wait(resolveReviewPollWaitMs(run.pollAfterMs, options.getSourceChars()));
+
+    if (!options.isCurrent()) {
+      return { kind: "superseded" };
+    }
+
+    const timeoutMs = resolveReviewPollFetchTimeoutMs(options.getSourceChars());
+    let reply: ReviewRunReply | null = null;
+
+    for (let attempt = 1; attempt <= REVIEW_POLL_FETCH_MAX_RETRIES; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      options.onRequest?.(controller);
+
+      try {
+        reply = await fetchReviewRun(
+          { runId: run.runId, capability, locale: options.locale, afterItem: itemCursor, signal: controller.signal },
+          options
+        );
+        break;
+      } catch (error) {
+        if (!options.isCurrent()) {
+          return { kind: "superseded" };
+        }
+
+        if (isTransientReviewPollFetchError(error) && attempt < REVIEW_POLL_FETCH_MAX_RETRIES) {
+          continue;
+        }
+
+        const isAbort = error instanceof Error && error.name === "AbortError";
+
+        return isAbort
+          ? { kind: "failed", code: "poll_timeout", message: options.messages.pollTimeout, run }
+          : { kind: "failed", code: "network_error", message: describeNetworkError(error, options.messages), run };
+      } finally {
+        clearTimeout(timer);
+        options.onRequest?.(null);
+      }
+    }
+
+    if (!options.isCurrent()) {
+      return { kind: "superseded" };
+    }
+
+    if (!reply) {
+      return { kind: "failed", code: "poll_timeout", message: options.messages.pollTimeout, run };
+    }
+
+    itemCursor = advanceItemCursor(itemCursor, reply);
+
+    if (reply.kind === "error") {
+      if (reply.run) {
+        options.onSnapshot({ run: reply.run, capability, items: reply.items, itemCursor });
+      }
+
+      return { kind: "failed", code: reply.code, message: reply.message, run: reply.run ?? run };
+    }
+
+    if (reply.run.locale !== options.locale) {
+      return { kind: "failed", code: "wrong_locale", message: options.messages.wrongLocale, run: reply.run };
+    }
+
+    if (reply.kind === "result") {
+      return { kind: "completed", run: reply.run, result: reply.result };
+    }
+
+    run = reply.run;
+    capability = reply.capability;
+    options.onSnapshot({ run, capability, items: reply.items, itemCursor });
+  }
+}
