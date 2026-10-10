@@ -144,7 +144,7 @@ export function TopBar({
         <div className="topbar-brand">
           <span className="brand-mark" aria-hidden="true" />
           <span>
-            OrestGPT <span className="brand-version">V1</span>
+            Book GPT <span className="brand-version">V1</span>
           </span>
         </div>
         <nav className="nav-links" aria-label={copy.topbar.navigation}>

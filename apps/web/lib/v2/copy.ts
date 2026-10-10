@@ -27,7 +27,7 @@ const UK = {
   dateLocale: "uk-UA",
   stats: (words: number, paragraphs: number): string =>
     `${words} ${pluralizeUk(words, "слово", "слова", "слів")} · ${paragraphs} ${pluralizeUk(paragraphs, "абзац", "абзаци", "абзаців")}`,
-  brand: "Orest Edit",
+  brand: "Book GPT",
   untitledSource: "Рукопис",
   untitledChapter: "Без заголовка",
   saved: "Збережено",
@@ -127,7 +127,7 @@ const UK = {
         ]
       },
       {
-        title: "Тихий режим",
+        title: "Компактний режим",
         items: [
           { keys: "Enter", text: "Прийняти показану правку або підготувати її" },
           { keys: "Backspace / Delete", text: "Відхилити" },
@@ -327,7 +327,7 @@ const UK = {
     bulkAcceptTitle: "Прийняти всі правки, показані в тексті",
     bulkAccepted: (count: number) => `Прийнято: ${count}.`,
     bulkFailed: "Текст уже інший. Нічого не змінено.",
-    quiet: "Тихий режим",
+    quiet: "Компактний режим",
     quietTitle: "По одній правці, з клавіатури. Правки готуються автоматично.",
     quietPosition: (index: number, total: number) => `${index} з ${total}`,
     keyAccept: "прийняти",

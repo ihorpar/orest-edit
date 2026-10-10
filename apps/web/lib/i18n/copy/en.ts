@@ -1,7 +1,7 @@
 import editor from "../editor-messages/en";
 
 const en = {
-  appTitle: "Orest Edit | AI Manuscript Editor",
+  appTitle: "Book GPT | AI Manuscript Editor",
   generic: {
     success: "Done",
     error: "Error",

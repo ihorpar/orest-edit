@@ -10,7 +10,7 @@ export const EN: V2Copy = {
   dateLocale: "en-US",
   stats: (words: number, paragraphs: number): string =>
     `${words} ${pluralizeEn(words, "word", "words")} · ${paragraphs} ${pluralizeEn(paragraphs, "paragraph", "paragraphs")}`,
-  brand: "Orest Edit",
+  brand: "Book GPT",
   untitledSource: "Manuscript",
   untitledChapter: "Untitled",
   saved: "Saved",
@@ -109,7 +109,7 @@ export const EN: V2Copy = {
         ]
       },
       {
-        title: "Quiet mode",
+        title: "Compact mode",
         items: [
           { keys: "Enter", text: "Accept the edit on screen, or prepare it" },
           { keys: "Backspace / Delete", text: "Reject" },
@@ -307,7 +307,7 @@ export const EN: V2Copy = {
     bulkAcceptTitle: "Accept every change shown in the text",
     bulkAccepted: (count: number) => `Accepted: ${count}.`,
     bulkFailed: "The text has changed. Nothing was applied.",
-    quiet: "Quiet mode",
+    quiet: "Compact mode",
     quietTitle: "One change at a time, by keyboard. Changes are prepared automatically.",
     quietPosition: (index: number, total: number) => `${index} of ${total}`,
     keyAccept: "accept",

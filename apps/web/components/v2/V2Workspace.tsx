@@ -1129,7 +1129,7 @@ export function V2Workspace() {
     <div className={styles.root} ref={rootRef}>
       <header className={styles.top}>
         <a className={styles.logo} href="/v2">
-          <i>O</i>
+          <i>B</i>
           <span>{copy.brand}</span>
         </a>
         <div className={styles.crumb}>

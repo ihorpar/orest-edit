@@ -23,8 +23,8 @@ const configuredLocale = getConfiguredAppLocale();
 
 export const metadata: Metadata = {
   title: {
-    default: configuredLocale === "en" ? "Orest Edit | AI Manuscript Editor" : "Orest Edit | AI Редактор рукопису",
-    template: "%s | Orest Edit"
+    default: configuredLocale === "en" ? "Book GPT | AI Manuscript Editor" : "Book GPT | AI Редактор рукопису",
+    template: "%s | Book GPT"
   },
   icons: {
     icon: "/icon.svg",

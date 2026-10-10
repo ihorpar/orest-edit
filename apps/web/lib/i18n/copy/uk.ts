@@ -1,7 +1,7 @@
 import editor from "../editor-messages/uk";
 
 const uk = {
-  appTitle: "Orest Edit | AI Редактор рукопису",
+  appTitle: "Book GPT | AI Редактор рукопису",
   generic: {
     success: "Готово",
     error: "Помилка",
