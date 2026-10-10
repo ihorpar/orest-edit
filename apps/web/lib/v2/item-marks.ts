@@ -10,7 +10,7 @@ import {
   type V2ReviewItem
 } from "./item-kinds.ts";
 import type { ReviewMark } from "./review-marks.ts";
-import { getItemPassId, selectQueue, type V2ReviewState } from "./store.ts";
+import { getItemSource, selectQueue, type V2ReviewState } from "./store.ts";
 import type { BlockDiff } from "./word-diff.ts";
 
 /**
@@ -35,7 +35,7 @@ export function buildItemMarks(
     const stale = item.status === "stale";
     const base: ReviewMark = {
       itemId: item.id,
-      tone: getItemPassId(item),
+      tone: getItemSource(item),
       blockIds: item.anchor.blockIds,
       state: proposal?.status === "preparing" ? "preparing" : stale ? "stale" : item.status === "ready" ? "ready" : "pending",
       focused,

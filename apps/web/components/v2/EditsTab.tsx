@@ -18,22 +18,26 @@ import {
   getItemKind,
   getSpellReplacement,
   hasCalloutDraft,
+  needsProposalCall,
   type V2ReviewItem
 } from "../../lib/v2/item-kinds";
 import {
   canAcceptItem,
   canApplyProposal,
-  getItemPassId,
+  getItemSource,
   planRunAll,
   selectBulkCandidates,
   selectPassOpenCount,
   selectPassState,
   selectQueue,
   selectRunningPassId,
+  selectRunningRunId,
   selectSummary,
+  type V2ItemSource,
   type V2PassId
 } from "../../lib/v2/store";
 import type { ReviewDiffReport } from "../../lib/v2/review-marks";
+import { createBlocksWhereLabel } from "../../lib/v2/where-label";
 import { V2Icon, type V2IconName } from "./icons";
 import type { ReviewEngine } from "./useReviewEngine";
 import styles from "./v2.module.css";
@@ -48,7 +52,7 @@ export const LIVE_PASSES: ReadonlySet<V2PassRowId> = new Set<V2PassRowId>([
   "spell"
 ]);
 
-const PASS_TONE: Record<V2PassRowId, string | undefined> = {
+export const PASS_TONE: Record<V2PassRowId, string | undefined> = {
   structure: styles.tStructure,
   clarity: styles.tClarity,
   interest: styles.tInterest,
@@ -58,7 +62,7 @@ const PASS_TONE: Record<V2PassRowId, string | undefined> = {
   spell: styles.tSpell
 };
 
-const PASS_ICON: Record<V2PassRowId, V2IconName> = {
+export const PASS_ICON: Record<V2PassRowId, V2IconName> = {
   structure: "structure",
   clarity: "clarity",
   interest: "interest",
@@ -67,6 +71,10 @@ const PASS_ICON: Record<V2PassRowId, V2IconName> = {
   accent: "accent",
   spell: "spell"
 };
+
+/** Colour and icon of a card: its pass, or the other place it came from (a fact-check finding, a request). */
+const SOURCE_TONE: Record<V2ItemSource, string | undefined> = { ...PASS_TONE, fact: styles.tFact, request: styles.tRequest };
+const SOURCE_ICON: Record<V2ItemSource, V2IconName> = { ...PASS_ICON, fact: "fact", request: "chat" };
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 
@@ -89,9 +97,18 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
   const queue = selectQueue(state);
   const summary = selectSummary(state);
   const runningPassId = selectRunningPassId(state);
+  // A step of `Огляд` or a chapter request holds the same single slot as a pass.
+  const runningRunId = selectRunningRunId(state);
   const spellRunning = selectPassState(state, "spell").status === "running";
-  const passNames = useMemo(() => new Map<string, string>(text.passList.map((pass) => [pass.id, pass.name])), [text.passList]);
-  const where = useMemo(() => createWhereLabel(document, text), [document, text]);
+  const sourceNames = useMemo(
+    () => new Map<string, string>([...text.passList.map((pass): [string, string] => [pass.id, pass.name]), ...Object.entries(text.sourceNames)]),
+    [text.passList, text.sourceNames]
+  );
+  const passNames = sourceNames;
+  const where = useMemo(() => {
+    const label = createBlocksWhereLabel(document, text);
+    return (item: V2ReviewItem) => label(item.anchor.blockIds);
+  }, [document, text]);
   const drawn = useMemo(() => new Set(diffReport.drawn), [diffReport.drawn]);
 
   const filterName = state.filter === "all" ? null : passNames.get(state.filter) ?? state.filter;
@@ -115,7 +132,7 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
         drawn={drawn.has(item.id)}
         drawFailure={diffReport.failed.find((entry) => entry.itemId === item.id)?.reason ?? null}
         where={where(item)}
-        passName={passNames.get(getItemPassId(item) ?? "") ?? ""}
+        passName={sourceNames.get(getItemSource(item) ?? "") ?? ""}
         fresh={fresh}
         disabled={disabled}
         quiet={quiet}
@@ -154,7 +171,7 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
     );
   } else if (queue.length > 0) {
     list = <div className={styles.queue}>{queue.map((item) => renderCard(item))}</div>;
-  } else if (runningPassId || spellRunning) {
+  } else if (runningPassId || spellRunning || runningRunId === "request") {
     list = (
       <div className={styles.empty}>
         <b>{text.waitingTitle}</b>
@@ -242,7 +259,7 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
             pass={pass}
             live={LIVE_PASSES.has(pass.id)}
             disabled={disabled}
-            otherRunning={pass.id !== "spell" && runningPassId !== null && runningPassId !== pass.id}
+            otherRunning={pass.id !== "spell" && runningRunId !== null && runningRunId !== pass.id}
           />
         ))}
       </ul>
@@ -474,7 +491,7 @@ function ReviewCard({
 }) {
   const text = copy.edits;
   const { state } = review;
-  const passId = getItemPassId(item);
+  const source = getItemSource(item);
   const kind = getItemKind(item);
   const proposal = state.proposals[item.id];
   const focused = state.focusId === item.id;
@@ -537,8 +554,9 @@ function ReviewCard({
         {kind === "callout" ? text.preparingCallout : text.preparing}
       </button>
     );
-  } else if (kind === "heading" || kind === "accent" || kind === "spell") {
+  } else if ((kind === "heading" && !needsProposalCall(item)) || kind === "accent" || kind === "spell") {
     // Nothing to prepare: the result is in the text already, so accepting does not need the card focused.
+    // (A subheading asked for by hand has no title yet: it is prepared like a rewrite, with a retry on failure.)
     main = stale ? null : (
       <button
         type="button"
@@ -622,8 +640,9 @@ function ReviewCard({
 
   return (
     <article
-      className={cx(styles.card, passId ? PASS_TONE[passId] : undefined, focused && styles.isFocus, hot && styles.isHot, fresh && styles.cardNew)}
+      className={cx(styles.card, source ? SOURCE_TONE[source] : undefined, focused && styles.isFocus, hot && styles.isHot, fresh && styles.cardNew)}
       data-card={item.id}
+      data-card-source={source ?? undefined}
       data-card-kind={kind}
       data-card-state={preparing ? "preparing" : stale ? "stale" : item.status === "ready" ? "ready" : failed ? "failed" : "pending"}
       tabIndex={0}
@@ -642,7 +661,7 @@ function ReviewCard({
     >
       <header>
         <span className={styles.ttag}>
-          {passId ? <V2Icon name={PASS_ICON[passId]} /> : null}
+          {source ? <V2Icon name={SOURCE_ICON[source]} /> : null}
           {passName}
         </span>
         <span className={styles.where}>{where}</span>
@@ -808,38 +827,4 @@ function ReviewCard({
       </footer>
     </article>
   );
-}
-
-/** "абз. 3", "абз. 3–4", "заголовок": the paragraph numbers are the ones shown in the manuscript gutter. */
-function createWhereLabel(document: EditorDocument | null, text: V2Copy["edits"]): (item: V2ReviewItem) => string {
-  const paragraphNumber = new Map<string, number>();
-  const blockType = new Map<string, string>();
-  let count = 0;
-
-  for (const block of document?.blocks ?? []) {
-    blockType.set(block.id, block.type);
-
-    if (block.type === "paragraph") {
-      count += 1;
-      paragraphNumber.set(block.id, count);
-    }
-  }
-
-  return (item) => {
-    const ids = item.anchor.blockIds;
-
-    if (ids.length === 0 || !ids.every((blockId) => blockType.has(blockId))) {
-      return text.whereGone;
-    }
-
-    const numbers = ids.map((blockId) => paragraphNumber.get(blockId)).filter((value): value is number => value !== undefined);
-
-    if (numbers.length === 0) {
-      return blockType.get(ids[0]!) === "heading" ? text.whereHeading : text.whereBlock;
-    }
-
-    const first = Math.min(...numbers);
-    const last = Math.max(...numbers);
-    return text.whereParagraph(first === last ? String(first) : `${first}–${last}`);
-  };
 }

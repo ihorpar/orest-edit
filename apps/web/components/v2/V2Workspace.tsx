@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
 import type { Editor } from "@tiptap/react";
 import { redo, redoDepth, undo, undoDepth } from "@tiptap/pm/history";
-import type { Command } from "@tiptap/pm/state";
+import { TextSelection, type Command } from "@tiptap/pm/state";
 import { storeEditorAssetFromBlob } from "../../lib/editor/asset-store";
 import {
   documentToPlainText,
@@ -31,14 +31,18 @@ import {
   writeV2DraftIfUnchanged
 } from "../../lib/v2/draft-storage";
 import { getActiveBlockKind, insertImage, isMarkActive } from "../../lib/v2/editor-commands";
+import type { FragmentScope } from "../../lib/v2/fragment-actions";
+import { shouldScrollToFocus, type FocusScrollState } from "../../lib/v2/focus-scroll";
 import { getReviewDiffReport, isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDiffReport } from "../../lib/v2/review-marks";
 import { isOpenItem } from "../../lib/v2/store";
+import { isSelfDismissing, toastReducer, type V2Toast, type V2ToastEvent } from "../../lib/v2/toast";
 import { ensureDocumentBlockIds, tiptapToDocument, V2_MARK } from "../../lib/v2/tiptap-bridge";
 import { useProductLocale } from "../providers/ProductLocaleProvider";
 import { LIVE_PASSES } from "./EditsTab";
 import { FormatToolbar, type ToolbarState } from "./FormatToolbar";
 import { V2Icon } from "./icons";
 import { ManuscriptEditor, type ManuscriptEditorHandle } from "./ManuscriptEditor";
+import { SelectionComposer } from "./SelectionComposer";
 import { useReviewEngine } from "./useReviewEngine";
 import { V2Panel, type PanelTab } from "./V2Panel";
 import styles from "./v2.module.css";
@@ -54,11 +58,7 @@ interface EditorSession {
   initialDocument: EditorDocument;
 }
 
-interface ToastState {
-  tone: "info" | "error";
-  message: string;
-  action?: { label: string; run: () => void };
-}
+type ToastState = V2Toast;
 
 const SAVE_DELAY_MS = 400;
 const TOAST_MS = 6000;
@@ -88,6 +88,8 @@ export function V2Workspace() {
   const liveEditorRef = useRef<Editor | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const askInputRef = useRef<HTMLTextAreaElement>(null);
   const lastDocumentRef = useRef<EditorDocument | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const sourceNameRef = useRef<string | null>(null);
@@ -102,11 +104,21 @@ export function V2Workspace() {
   const [sourceName, setSourceName] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [blocked, setBlocked] = useState<SaveBlock | null>(null);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [toast, setToastState] = useState<ToastState | null>(null);
+  const sendToast = useCallback((event: V2ToastEvent) => setToastState((current) => toastReducer(current, event)), []);
+  /** Shows a message (replacing the one on screen) or closes it. */
+  const setToast = useCallback(
+    (next: ToastState | null) => sendToast(next ? { type: "show", toast: next } : { type: "dismissed" }),
+    [sendToast]
+  );
   const [menu, setMenu] = useState<MenuId | null>(null);
   const [busy, setBusy] = useState<"import" | "export" | null>(null);
   const [tab, setTab] = useState<PanelTab>("overview");
   const [diffReport, setDiffReport] = useState<ReviewDiffReport>({ drawn: [], failed: [] });
+  // What the `Запит` tab is about and what is typed there; kept here so switching tabs loses neither.
+  const [askScope, setAskScope] = useState<FragmentScope | null>(null);
+  const [askDraft, setAskDraft] = useState("");
+  const [askFocus, setAskFocus] = useState(0);
   const contentError = blocked === "content";
   // Set below; the review engine and the save path need each other.
   const flushRef = useRef<() => EditorDocument | null>(() => null);
@@ -142,7 +154,19 @@ export function V2Workspace() {
       return liveEditor && !liveEditor.isDestroyed ? getReviewDiffReport(liveEditor.state).drawn : [];
     },
     livePasses: LIVE_PASSES,
-    notify: (tone, message, action) => setToast({ tone, message, action })
+    notify: (tone, message, action, area) => setToast({ tone, message, action, area }),
+    resolveToast: (area) => sendToast({ type: "resolved", area }),
+    onShowQueue: () => {
+      setTab("edits");
+
+      // The result is drawn where the selection was: let go of it, so the change is what is seen.
+      const liveEditor = liveEditorRef.current;
+
+      if (liveEditor && !liveEditor.isDestroyed && !liveEditor.state.selection.empty) {
+        const { state } = liveEditor;
+        liveEditor.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(state.selection.to), -1)));
+      }
+    }
   });
   const reviewRef = useRef(review);
   reviewRef.current = review;
@@ -275,6 +299,8 @@ export function V2Workspace() {
       }
 
       startSession(locale, initial.draft.document);
+      setAskScope(null);
+      setAskDraft("");
       reviewRef.current.hydrate(initial.draft.review ?? null, initial.draft.document);
 
       // Work in progress is shown first: a run in flight or suggestions waiting for a decision.
@@ -360,13 +386,14 @@ export function V2Workspace() {
   }, [menu]);
 
   useEffect(() => {
-    if (!toast || toast.tone === "error") {
+    // An error stays until it is closed, replaced, or the action it reported succeeds on a retry.
+    if (!isSelfDismissing(toast)) {
       return;
     }
 
-    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
+    const timer = window.setTimeout(() => sendToast({ type: "expired" }), TOAST_MS);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [sendToast, toast]);
 
   const [toolbarState, setToolbarState] = useState<ToolbarState | null>(null);
 
@@ -426,6 +453,7 @@ export function V2Workspace() {
       editorRef.current.replaceDocument(nextDocument);
       // Suggestions belonged to the previous text; a run in flight is cancelled with them.
       review.reset();
+      setAskScope(null);
       sourceNameRef.current = nextSourceName;
       setSourceName(nextSourceName);
       flush();
@@ -435,6 +463,7 @@ export function V2Workspace() {
     // The stored draft could not be shown in the editor: the imported document starts a fresh session.
     blockSaving(null);
     review.reset();
+    setAskScope(null);
     sourceNameRef.current = nextSourceName;
     setSourceName(nextSourceName);
     persist(nextDocument);
@@ -584,8 +613,17 @@ export function V2Workspace() {
   const focusId = review.state.focusId;
   const focusSource = review.focusSource;
 
+  const focusSequence = review.focusSequence;
+  const focusScrollRef = useRef<FocusScrollState | null>(null);
+
   useEffect(() => {
-    if (!focusId) {
+    // Only when the focused item changed or the editor asked to see it again; never because the panel tab
+    // changed or the page re-rendered for another reason.
+    const next: FocusScrollState = { focusId, sequence: focusSequence };
+    const scroll = shouldScrollToFocus(focusScrollRef.current, next);
+    focusScrollRef.current = next;
+
+    if (!focusId || !scroll) {
       return;
     }
 
@@ -608,7 +646,7 @@ export function V2Workspace() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [focusId, focusSource, tab]);
+  }, [focusId, focusSequence, focusSource]);
   // Quiet mode is driven from the keyboard, but never while the editor is typing somewhere: in the
   // manuscript, in a ghost heading, in the refine field, or with a button, link or menu under the keys.
   const quiet = review.state.quiet;
@@ -673,6 +711,25 @@ export function V2Workspace() {
   }, [confirmFocused, isReady, moveFocus, quiet, rejectItem, tab]);
 
   const toggleMenu = (id: MenuId) => setMenu((current) => (current === id ? null : id));
+
+  // `Свій запит` in the composer: the fragment becomes the scope of the `Запит` tab and the field takes focus.
+  const handleOwnRequest = useCallback((scope: FragmentScope) => {
+    setAskScope(scope);
+    setTab("ask");
+    setAskFocus((current) => current + 1);
+  }, []);
+
+  useEffect(() => {
+    if (askFocus > 0 && tab === "ask") {
+      askInputRef.current?.focus();
+    }
+  }, [askFocus, tab]);
+
+  const notifyFromPanel = useCallback(
+    (tone: "info" | "error", message: string) => setToast({ tone, message, area: "overview" }),
+    [setToast]
+  );
+  const clearAskScope = useCallback(() => setAskScope(null), []);
 
   return (
     <div className={styles.root} ref={rootRef}>
@@ -788,7 +845,7 @@ export function V2Workspace() {
         />
       </header>
       <div className={styles.app}>
-        <main className={styles.stage}>
+        <main className={styles.stage} ref={stageRef}>
           <FormatToolbar
             copy={copy}
             state={isReady ? toolbarState : null}
@@ -830,8 +887,27 @@ export function V2Workspace() {
             ) : null}
             {!session && !blocked ? <span className={styles.srOnly}>{copy.loading}</span> : null}
           </article>
+          {isReady ? (
+            <SelectionComposer editor={editor} copy={copy} review={review} containerRef={stageRef} onOwnRequest={handleOwnRequest} />
+          ) : null}
         </main>
-        <V2Panel copy={copy} locale={locale} tab={tab} onTabChange={setTab} review={review} diffReport={diffReport} document={snapshot} aiDisabled={!isReady} />
+        <V2Panel
+          copy={copy}
+          locale={locale}
+          tab={tab}
+          onTabChange={setTab}
+          review={review}
+          diffReport={diffReport}
+          document={snapshot}
+          chapterTitle={title}
+          aiDisabled={!isReady}
+          askScope={askScope}
+          onAskScopeClear={clearAskScope}
+          askDraft={askDraft}
+          onAskDraftChange={setAskDraft}
+          askInputRef={askInputRef}
+          onNotify={notifyFromPanel}
+        />
       </div>
       {blocked === "conflict" ? (
         <div className={styles.notice} role="alert">

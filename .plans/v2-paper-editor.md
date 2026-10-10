@@ -30,8 +30,9 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 - Status: Active
 - Plan revision: r1 (2026-10-09)
 - Canonical plan: `.plans/v2-paper-editor.md` in the main working tree. Plan owner: the orchestrator session. Executors report evidence; only the orchestrator checks off tasks.
-- Current milestone: 4 — Огляд and Запит (assigned 2026-10-10, in progress). Milestones 1–3 accepted and committed on `v2`.
-- Next action: receive the Milestone 4 executor report, decide on review (required if store or engine contracts changed), accept or return fixes, commit.
+- Current milestone: 5 — Illustrations (assigned 2026-10-10, in progress). Milestones 1–4 accepted and committed on `v2`.
+- Next action: receive the Milestone 5 executor report, decide on review (required if store or engine contracts changed), accept or return fixes, commit.
+- Open owner decision: whether to fix the server bug in `apps/web/lib/server/patch-service.ts` (see findings) — it is outside this plan's scope because it changes shared server code used by v1.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
 - Orchestrator may decide: implementation choices, simplifications within scope, reordering independent tasks. Needs the owner: changing hard constraints or required outcomes, weakening acceptance, pushes/deploys, anything touching v1 behaviour.
@@ -93,10 +94,12 @@ Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suit
 
 Depends on: 3. Mode: proceed. Independent review: conditional.
 
-- [ ] 4.1 `Огляд`: diagnostics run (concise/extended) rendered as the model's markdown, with shortcuts to launch passes; fact-check rows with sources; a finding can open its linked suggestion or be added to a persisted, copyable "Запити до автора" list.
-- [ ] 4.2 `Запит` for the chapter: `final_editing` with the editor's instruction (plan → generate progress), results land in the same queue; request history with outcomes.
-- [ ] 4.3 Selection composer: appears under a text selection and disappears with it; quick actions and `Свій запит` go through `/api/edit/local-action` and the existing executors; results use the same inline diff and queue.
-- [ ] 4.4 Verify: runtime with a real key for diagnostics, fact-check, a chapter request and three fragment actions; idle state has nothing positioned over the manuscript.
+- [x] 4.1 `Огляд`: diagnostics run (concise/extended) rendered as the model's markdown, with shortcuts to launch passes; fact-check rows with sources; a finding can open its linked suggestion or be added to a persisted, copyable "Запити до автора" list.
+- [x] 4.2 `Запит` for the chapter: `final_editing` with the editor's instruction (plan → generate progress), results land in the same queue; request history with outcomes.
+- [x] 4.3 Selection composer: appears under a text selection and disappears with it; quick actions and `Свій запит` go through `/api/edit/local-action` and the existing executors; results use the same inline diff and queue.
+- [x] 4.4 Verify: runtime with a real key for diagnostics, fact-check, a chapter request and three fragment actions; idle state has nothing positioned over the manuscript.
+
+Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suite (703/703) and checked `Огляд` idle and the composer under a real drag selection by screenshot; executor ran build and real-backend QA on the six-paragraph sample (diagnostics report, pass shortcut carrying `expertise`, fact-check with reload mid-run and a sourced finding for the planted false claim, `До правки`, author queries with copy, chapter request planning → generating → 6 cards, composer quick action with inline diff, accept + one undo, `Свій запит` scope, zero requests after reload, a real provider failure shown verbatim); independent review found no unseen-change or unprompted-cost path and three should-fix defects (stuck fragment request after rejecting a preparing card, stale holes retried with a new instruction, remote images rendered from model markdown), all fixed and unit-tested in a no-network round. Real calls spent: 1 diagnostics, 1 fact-check, 1 chapter request, 1 pass run, 1 proposal, 4 fragment requests. Not verified at runtime: the fix round itself (unit tests and reading only), extended diagnostics, a GFM table in a real report, the empty fact-check state, holes and per-action retry, stop/cancel, `Списком`/`Підзаголовок`/`Коротше`, a clarify answer. Cosmetic issue for 6.4: the diagnostics starter text wraps narrowly beside the mode switch.
 
 ## Milestone 5 - Illustrations
 
@@ -153,6 +156,16 @@ Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 - Finding: running `next build` beside the dev server breaks the dev API (500s); build only with the dev server stopped.
 - Finding (M3 interfaces): `apps/web/lib/v2/item-kinds.ts` (`getItemKind`, `needsProposalCall`), `item-marks.ts` (`buildItemMarks`), `accept-plan.ts` (`planBulkAccept`), `spell-items.ts`; `ReviewGhost` in `review-marks.ts`; `applyReviewEdits` in `review-apply.ts`; store `queue`/`queuePaused`, `planQuietPreparation`, `item/restored`; engine `notify(tone, message, { label, run })`.
 - Carried into Milestone 4: run state keyed by step rather than pass (diagnostics, fact_check, final_editing have no pass row; a persisted run of such a step is currently dropped silently on reload); a label/tone source for items without a pass; an action that inserts a single manual/local item into the queue; `getItemKind` identifies accents only by `stepId === "emphasis"`.
+- INCIDENT (2026-10-10): the Milestone 4 executor cleared localStorage, sessionStorage and three IndexedDB stores for `http://127.0.0.1:3000` in the built-in browser pane during cleanup, without a snapshot. Repo unaffected; the owner was told. Standing rule for all executors from now on: never clear browser storage or delete databases on any origin; snapshot the keys you will change before QA and restore only those; do QA on one stated origin.
+- Finding (server, shared with v1, NOT fixed — owner decision pending): `POST /api/edit/patch` fails on OpenAI, the default provider, with 502 `Invalid schema for response_format 'patch_operations' … Missing 'bold'`, so fragment rewrites (`Простіше`, `Коротше`, free text) fail on default settings in v1 and v2. v2 shows the error verbatim. The fix belongs in `apps/web/lib/server/patch-service.ts`.
+- Finding (server, shared with v1, not fixed): the Ukrainian clarify pattern in `apps/web/lib/editor/local-action-router.ts` uses `` around Cyrillic and never matches, so `clarify` is effectively English-only.
+- Finding: in dev the pane may redirect `127.0.0.1:3000` to `localhost:3000` after login; they are different origins with separate storage.
+- Decision (orchestrator, 2026-10-10): model markdown never renders images; only http(s) links become anchors (`apps/web/components/v2/ReportMarkdown.tsx`).
+- Decision (orchestrator, 2026-10-10): rewrite-type fragment actions refuse a scope containing a non-text block (image, table, divider, callout) instead of sending it. Reason: a paragraph answer would be drawn as deleting that block.
+- Decision (orchestrator, 2026-10-10): a chapter-request retry always uses the instruction its plan was made for (`planInstruction`).
+- Finding (M4 interfaces): `V2RunId` (passes + `diagnostics` | `fact_check` | `request`), `launchRun`, `state.steps/overview/request`, `item/added`, `getItemSource`; `apps/web/lib/v2/overview.ts`, `fragment-actions.ts` (`buildFragmentManualItem`, `executeFragment` in the engine), `selection-scope.ts`, `toast.ts` (areas), `focus-scroll.ts`; components `OverviewTab.tsx`, `AskTab.tsx`, `SelectionComposer.tsx`, `ReportMarkdown.tsx`.
+- Carried into Milestone 5: the manual `visual` item (no `stepId`, `visualIntent: "infographic"`) and chapter-request `visual` cards already reach the queue with a disabled placeholder (`kind === "visual"` branch of `ReviewCard` in `EditsTab.tsx`); `visual` is mapped but not in `LIVE_PASSES`; the router request sends no `visualStylePreset`; remove the `copy.ask.visualPending` toast.
+- Deferred to 6.3: a keyboard path to the selection composer and to fragment scope.
 - Deferred to 6.1: confirmation before `Відкрити` replaces the manuscript; a "discard and start over" action for an unreadable v2 draft.
 - Assumption: v1 items for `structure` arrive with ready heading drafts and `emphasis` items carry exact targets (per `docs/CURRENT_STATE.md`). Resolve: confirm against real responses in Milestone 3.
 

@@ -10,9 +10,12 @@ import {
   normalizeEditorialCalloutDepth,
   normalizeRejectedReviewIdeas,
   reconcileReviewItemsWithRevision,
+  type CustomRequestPlanAction,
+  type DiagnosticsMode,
   type EditorialCalloutDepth,
   type EditorialCalloutKind,
   type EditorialReviewItem,
+  type EditorialReviewRunPhase,
   type EditorialReviewStepId,
   type EditorialStepRunMode,
   type RejectedReviewIdea,
@@ -37,6 +40,16 @@ import {
   resolveAccentRange,
   type V2ReviewItem
 } from "./item-kinds.ts";
+import {
+  addAuthorQuery,
+  coerceOverviewState,
+  createInitialOverviewState,
+  removeAuthorQuery,
+  setAuthorQueryNote,
+  type V2AuthorQuery,
+  type V2FactFinding,
+  type V2OverviewState
+} from "./overview.ts";
 
 /**
  * Suggestion engine state for the v2 editor: passes, the review queue, prepared proposals, focus, filter and
@@ -68,6 +81,36 @@ export const QUIET_DWELL_MS = 500;
 /** Quiet mode never has more automatic preparations in flight than this. */
 export const QUIET_MAX_AUTO_PREPARATIONS = 2;
 
+/**
+ * Review runs that have no pass row: the two read-only steps of `Огляд` and the editor's own request for
+ * the chapter (`Запит`). They go through the same run endpoint as passes, one run at a time.
+ */
+export type V2StepRunId = "diagnostics" | "fact_check" | "request";
+/** Anything that is run through the review endpoint, plus spellcheck. */
+export type V2RunId = V2PassId | V2StepRunId;
+
+export const STEP_RUN_STEP_ID: Record<V2StepRunId, EditorialReviewStepId> = {
+  diagnostics: "diagnostics",
+  fact_check: "fact_check",
+  request: "final_editing"
+};
+
+const STEP_RUN_IDS: V2StepRunId[] = ["diagnostics", "fact_check", "request"];
+
+export function isStepRunId(runId: V2RunId): runId is V2StepRunId {
+  return runId === "diagnostics" || runId === "fact_check" || runId === "request";
+}
+
+/** The review step a run id stands for; undefined for spellcheck, which has its own endpoint. */
+export function getRunStepId(runId: V2RunId): EditorialReviewStepId | undefined {
+  return isStepRunId(runId) ? STEP_RUN_STEP_ID[runId] : PASS_STEP_ID[runId];
+}
+
+export function getRunIdForStep(stepId: EditorialReviewStepId | undefined): V2RunId | null {
+  const stepRun = STEP_RUN_IDS.find((runId) => STEP_RUN_STEP_ID[runId] === stepId);
+  return stepRun ?? getPassIdForStep(stepId);
+}
+
 export function getPassIdForStep(stepId: EditorialReviewStepId | undefined): V2PassId | null {
   if (!stepId) {
     return null;
@@ -83,6 +126,8 @@ export interface V2PassProgress {
   completed: number;
   total: number;
   percent: number;
+  /** A chapter request first plans its actions, then writes them; other runs have no phases. */
+  phase?: EditorialReviewRunPhase;
 }
 
 export interface V2PassState {
@@ -150,8 +195,100 @@ export interface V2AppliedChange {
 
 export type V2ReviewFilter = "all" | V2PassId;
 
+/* ---------- the editor's own requests (`Запит`) ---------- */
+
+export type V2RequestOutcome =
+  | { kind: "running" }
+  /**
+   * `count` suggestions reached the queue; `holes` planned actions came back empty and can be retried;
+   * `warnings` are the messages of parts that could not be checked (a fragment spellcheck).
+   */
+  | { kind: "done"; count: number; holes?: number; warnings?: string[] }
+  | { kind: "error"; message: string }
+  | { kind: "stopped" }
+  /** The router could not tell what is wanted; the question is on screen. */
+  | { kind: "question" }
+  /** The page was reloaded while a fragment request was in flight; its answer was lost. */
+  | { kind: "interrupted" };
+
+export interface V2RequestEntry {
+  id: string;
+  scope: "chapter" | "fragment";
+  /** What was asked: the instruction, or the name of the quick action. */
+  text: string;
+  /** The selected words, for a fragment request. */
+  quote?: string;
+  /** Paragraph reference of the fragment as it was when the request was made. */
+  where?: string;
+  at: string;
+  outcome: V2RequestOutcome;
+}
+
+/** A planned action of a chapter request that came back without a suggestion. */
+export interface V2RequestHole {
+  index: number;
+  message: string;
+}
+
+/** The router's question about a fragment request, with the executors the editor can choose from. */
+export interface V2ClarifyQuestion {
+  entryId: string;
+  prompt: string;
+  blockIds: string[];
+  quote: string;
+  choices: Array<"patch" | "spellcheck" | "callout" | "visual">;
+}
+
+export interface V2RequestState {
+  history: V2RequestEntry[];
+  /** Planned actions of the last chapter request; a hole is retried from here. */
+  plan: CustomRequestPlanAction[] | null;
+  /** The instruction the plan was made for. A retried action is sent with this one, never with a later one. */
+  planInstruction: string;
+  holes: V2RequestHole[];
+  /** History entry of the chapter request that ran last (or is running). */
+  chapterEntryId: string | null;
+  /** Instruction of that request. */
+  instruction: string;
+  /** Index of the planned action being retried, while that run is in flight. */
+  retryIndex: number | null;
+  /** The fragment request in flight. Not stored: its answer does not survive a reload. */
+  fragment: { entryId: string; label: string } | null;
+  clarify: V2ClarifyQuestion | null;
+}
+
+/** How many requests the history keeps. */
+export const REQUEST_HISTORY_LIMIT = 30;
+
+export function createInitialRequestState(): V2RequestState {
+  return {
+    history: [],
+    plan: null,
+    planInstruction: "",
+    holes: [],
+    chapterEntryId: null,
+    instruction: "",
+    retryIndex: null,
+    fragment: null,
+    clarify: null
+  };
+}
+
+/** The instruction as it is sent, or null when there is nothing to send. */
+export function normalizeInstruction(text: string): string | null {
+  const trimmed = text.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** Label and colour source of a queue item: its pass, or where else it came from. */
+export type V2ItemSource = V2PassId | "fact" | "request";
+
 export interface V2ReviewState {
   passes: Partial<Record<V2PassId, V2PassState>>;
+  /** Run state of the steps that have no pass row; same shape and lifecycle as a pass. */
+  steps: Partial<Record<V2StepRunId, V2PassState>>;
+  overview: V2OverviewState;
+  request: V2RequestState;
   items: V2ReviewItem[];
   proposals: Record<string, V2ProposalState>;
   /** Refine instructions typed on cards and not yet sent. */
@@ -188,6 +325,10 @@ export interface V2PersistedReview {
   queue?: V2PassId[];
   /** Server messages of preparations that failed; kept so a failed one is retried only by the editor. */
   failed?: Record<string, string>;
+  /** Absent in drafts stored before `Огляд` and `Запит` existed. */
+  steps?: Partial<Record<V2StepRunId, V2PassState>>;
+  overview?: V2OverviewState;
+  request?: Pick<V2RequestState, "history" | "plan" | "planInstruction" | "holes" | "chapterEntryId" | "instruction" | "retryIndex">;
 }
 
 interface DocumentContext {
@@ -198,23 +339,63 @@ interface DocumentContext {
 export type V2ReviewAction =
   | { type: "hydrate"; persisted: V2PersistedReview | null }
   | { type: "reset" }
-  /** The launcher was pressed; the server has not answered yet. */
-  | { type: "run/requested"; passId: V2PassId }
+  /**
+   * The launcher was pressed; the server has not answered yet. `passId` names what runs: a pass, or one of
+   * the steps without a pass row (`diagnostics`, `fact_check`, `request`). `retryIndex` marks a chapter
+   * request that only retries one planned action.
+   */
+  | { type: "run/requested"; passId: V2RunId; retryIndex?: number }
   /** The server accepted the run. In `replace` mode the pass's earlier items go when the run first delivers. */
-  | { type: "run/started"; passId: V2PassId; runMode: EditorialStepRunMode; record: PersistedActiveReviewRun }
+  | { type: "run/started"; passId: V2RunId; runMode: EditorialStepRunMode; record: PersistedActiveReviewRun }
   /** A reload found a run in flight and polling resumed. */
-  | { type: "run/resumed"; passId: V2PassId; record: PersistedActiveReviewRun }
-  | ({ type: "run/snapshot"; passId: V2PassId; record: PersistedActiveReviewRun; items: EditorialReviewItem[] } & DocumentContext)
+  | { type: "run/resumed"; passId: V2RunId; record: PersistedActiveReviewRun }
+  | ({
+      type: "run/snapshot";
+      passId: V2RunId;
+      record: PersistedActiveReviewRun;
+      items: EditorialReviewItem[];
+      /** Planned actions of a chapter request, once the planning phase is over. */
+      plan?: CustomRequestPlanAction[];
+    } & DocumentContext)
   | ({
       type: "run/completed";
-      passId: V2PassId;
+      passId: V2RunId;
       runMode: EditorialStepRunMode;
       stepRunId: string;
       items: EditorialReviewItem[];
       warnings?: string[];
+      /** When the run finished; shown as the date of a report. */
+      at?: string;
+      /** Diagnostics: the model's markdown. */
+      expertise?: string;
+      /** Fact-check: the flagged claims; `items` are the suggestions linked to them. */
+      factCheck?: { findings: V2FactFinding[]; checkedCount: number };
+      /** Chapter request: the plan and the planned actions that came back empty. */
+      plan?: CustomRequestPlanAction[];
+      holes?: V2RequestHole[];
     } & DocumentContext)
-  | { type: "run/failed"; passId: V2PassId; message: string }
-  | { type: "run/stopped"; passId: V2PassId }
+  | { type: "run/failed"; passId: V2RunId; message: string; plan?: CustomRequestPlanAction[]; holes?: V2RequestHole[] }
+  | { type: "run/stopped"; passId: V2RunId }
+  | { type: "overview/modeSet"; mode: DiagnosticsMode }
+  | { type: "author/added"; query: V2AuthorQuery }
+  | { type: "author/noteSet"; id: string; note: string }
+  | { type: "author/removed"; id: string }
+  /**
+   * A request was made (or goes on after a question was answered): its history entry is added or set
+   * running again. `role` says what is in flight with it.
+   */
+  | { type: "request/logged"; entry: V2RequestEntry; role: "chapter" | "fragment"; instruction?: string; label?: string }
+  | { type: "request/settled"; entryId: string; outcome: V2RequestOutcome }
+  | { type: "clarify/set"; clarify: V2ClarifyQuestion | null }
+  /**
+   * One item made by hand (a fragment request) joins the queue, sorted and checked against the text. With a
+   * `proposal` it arrives prepared. An open hand-made item of the same kind on the same blocks is replaced.
+   */
+  | ({ type: "item/added"; item: V2ReviewItem; proposal?: ReviewActionProposal } & DocumentContext)
+  /** The editor gave up on a preparation in flight; whatever was ready before is ready again. */
+  | { type: "proposal/cancelled"; itemId: string }
+  /** Spelling findings for some blocks only; findings elsewhere and the pass state stay as they are. */
+  | ({ type: "spell/merged"; items: V2ReviewItem[]; blockIds: string[] } & DocumentContext)
   | ({ type: "items/reconciled" } & DocumentContext)
   /** `item` replaces the stored one (a stale item is sent with a refreshed anchor). */
   | { type: "proposal/requested"; item: EditorialReviewItem }
@@ -254,6 +435,9 @@ export type V2ReviewAction =
 export function createInitialReviewState(): V2ReviewState {
   return {
     passes: {},
+    steps: {},
+    overview: createInitialOverviewState(),
+    request: createInitialRequestState(),
     items: [],
     proposals: {},
     instructions: {},
@@ -278,8 +462,30 @@ export function isOpenItem(item: V2ReviewItem): boolean {
   return OPEN_STATUSES.has(item.status);
 }
 
+/** The pass an item belongs to (and is filtered by). Items made by hand or by a step without a row have none. */
 export function getItemPassId(item: V2ReviewItem): V2PassId | null {
-  return item.spell ? "spell" : getPassIdForStep(item.stepId);
+  if (item.spell) {
+    return "spell";
+  }
+
+  return item.origin === "manual" ? null : getPassIdForStep(item.stepId);
+}
+
+/** Where an item came from, for its label and colour: every item has one, also without a pass row. */
+export function getItemSource(item: V2ReviewItem): V2ItemSource | null {
+  if (item.spell) {
+    return "spell";
+  }
+
+  if (item.stepId === "fact_check") {
+    return "fact";
+  }
+
+  if (item.stepId === "final_editing" || item.origin === "manual") {
+    return "request";
+  }
+
+  return getItemPassId(item);
 }
 
 export function selectOpenItems(state: V2ReviewState, passId?: V2PassId): V2ReviewItem[] {
@@ -293,6 +499,11 @@ export function selectQueue(state: V2ReviewState): V2ReviewItem[] {
 
 export function selectPassState(state: V2ReviewState, passId: V2PassId): V2PassState {
   return state.passes[passId] ?? { status: "idle" };
+}
+
+/** Run state of a pass or of a step without a pass row. */
+export function selectRunState(state: V2ReviewState, runId: V2RunId): V2PassState {
+  return (isStepRunId(runId) ? state.steps[runId] : state.passes[runId]) ?? { status: "idle" };
 }
 
 export function selectPassOpenCount(state: V2ReviewState, passId: V2PassId): number {
@@ -313,9 +524,22 @@ export function selectRunningPassId(state: V2ReviewState): V2PassId | null {
   return entry ? entry[0] : null;
 }
 
+/** Whatever goes through the review endpoint right now: a pass or a step without a row. One at a time. */
+export function selectRunningRunId(state: V2ReviewState): V2RunId | null {
+  return selectRunningPassId(state) ?? STEP_RUN_IDS.find((runId) => state.steps[runId]?.status === "running") ?? null;
+}
+
+/**
+ * True while the review endpoint is taken or about to be: a run is in flight, or a launch queue is being
+ * worked through. A new run cannot start then; its launcher says why.
+ */
+export function selectReviewBusy(state: V2ReviewState): boolean {
+  return selectRunningRunId(state) !== null || (state.queue.length > 0 && !state.queuePaused);
+}
+
 /** The queued pass to start now, or null while a review run is in flight or nothing waits. */
 export function selectNextQueuedPass(state: V2ReviewState): V2PassId | null {
-  return state.queuePaused || selectRunningPassId(state) ? null : state.queue[0] ?? null;
+  return state.queuePaused || selectRunningRunId(state) ? null : state.queue[0] ?? null;
 }
 
 /**
@@ -424,6 +648,7 @@ export function shouldPersistAfter(action: V2ReviewAction): boolean {
     case "hover/set":
     case "instruction/set":
     case "spell/requested":
+    case "clarify/set":
       return false;
     case "run/snapshot":
       // A poll that only moved the progress bar is not worth a full draft write; one that brought items is.
@@ -491,28 +716,39 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
     case "hydrate":
       return action.persisted ? restoreReviewState(action.persisted) : createInitialReviewState();
 
-    case "reset":
-      return createInitialReviewState();
+    case "reset": {
+      // The reports, findings and requests belonged to the text that is gone; the chosen mode is a preference.
+      const initial = createInitialReviewState();
+      return { ...initial, overview: { ...initial.overview, diagnosticsMode: state.overview.diagnosticsMode } };
+    }
 
-    case "run/requested":
-      return withPass({ ...state, queue: state.queue.filter((passId) => passId !== action.passId) }, action.passId, {
+    case "run/requested": {
+      const next = withPass({ ...state, queue: state.queue.filter((passId) => passId !== action.passId) }, action.passId, {
         status: "running"
       });
+      return action.passId === "request" ? { ...next, request: { ...next.request, retryIndex: action.retryIndex ?? null } } : next;
+    }
 
-    case "run/started":
-      return withPass({ ...state, activeRun: action.record }, action.passId, {
+    case "run/started": {
+      const next = withPass({ ...state, activeRun: action.record }, action.passId, {
         status: "running",
         progress: readProgress(action.record),
         replaceOnResult: action.runMode === "replace" ? true : undefined
       });
 
+      // A new chapter request has a plan of its own; the holes of the previous one cannot be retried any more.
+      return action.passId === "request" && action.runMode === "replace"
+        ? { ...next, request: { ...next.request, plan: null, planInstruction: "", holes: [] } }
+        : next;
+    }
+
     case "run/resumed":
       return withPass({ ...state, activeRun: action.record }, action.passId, {
-        ...selectPassState(state, action.passId),
+        ...selectRunState(state, action.passId),
         status: "running",
         error: undefined,
         stopped: undefined,
-        progress: readProgress(action.record) ?? selectPassState(state, action.passId).progress
+        progress: readProgress(action.record) ?? selectRunState(state, action.passId).progress
       });
 
     case "run/snapshot": {
@@ -520,8 +756,8 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
         return state;
       }
 
-      const stepId = PASS_STEP_ID[action.passId];
-      const pass = selectPassState(state, action.passId);
+      const stepId = deliveringStepId(action.passId);
+      const pass = selectRunState(state, action.passId);
       const delivers = action.items.length > 0 && Boolean(stepId);
       const replaces = delivers && pass.replaceOnResult === true;
       const items =
@@ -534,7 +770,11 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
               stepId
             })
           : state.items;
-      const merged = { ...state, items, activeRun: action.record };
+      const planned =
+        action.passId === "request" && action.plan && action.plan.length > 0 && state.request.retryIndex === null
+          ? adoptPlan(state.request, action.plan)
+          : state.request;
+      const merged = { ...state, items, activeRun: action.record, request: planned };
 
       return withPass(delivers ? reconcileState(merged, action.document, action.revision) : merged, action.passId, {
         status: "running",
@@ -544,8 +784,57 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
     }
 
     case "run/completed": {
-      const stepId = PASS_STEP_ID[action.passId];
-      const replaces = selectPassState(state, action.passId).replaceOnResult === true;
+      if (action.passId === "diagnostics") {
+        const text = action.expertise?.trim() ?? "";
+
+        return withPass(
+          {
+            ...state,
+            activeRun: null,
+            overview: text
+              ? { ...state.overview, diagnostics: { text, at: action.at ?? "", mode: state.overview.diagnosticsMode } }
+              : state.overview
+          },
+          "diagnostics",
+          { status: "done" }
+        );
+      }
+
+      if (action.passId === "fact_check") {
+        // Linked suggestions are told apart by their claim, not by type and anchor: two claims of one
+        // paragraph are two cards. The earlier ones go only now, when the new result is in.
+        const kept = clearReviewItemsForReplaceRun(state.items, "fact_check") as V2ReviewItem[];
+        const taken = new Set(kept.map((item) => item.id));
+        const linked = action.items
+          .filter((item) => !taken.has(item.id))
+          .map((item): V2ReviewItem => ({ ...item, stepId: "fact_check", stepRunId: action.stepRunId }));
+        const linkedIds = new Set(linked.map((item) => item.id));
+        const findings = (action.factCheck?.findings ?? []).map((finding) =>
+          finding.itemId && !linkedIds.has(finding.itemId) ? { ...finding, itemId: null } : finding
+        );
+
+        return withPass(
+          reconcileState(
+            {
+              ...state,
+              items: sortItems([...kept, ...linked], action.document),
+              activeRun: null,
+              overview: {
+                ...state.overview,
+                factCheck: { findings, at: action.at ?? "", checkedCount: Math.max(action.factCheck?.checkedCount ?? 0, findings.length) }
+              }
+            },
+            action.document,
+            action.revision
+          ),
+          "fact_check",
+          { status: "done", lastRunItemCount: findings.length }
+        );
+      }
+
+      const stepId = getRunStepId(action.passId);
+      const replaces = selectRunState(state, action.passId).replaceOnResult === true;
+      const before = stepId ? state.items.filter((item) => item.stepId === stepId).length : 0;
       const items = stepId
         ? mergeIncoming({
             current: replaces ? clearReviewItemsForReplaceRun(state.items, stepId) : state.items,
@@ -556,25 +845,205 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
           })
         : state.items;
 
-      return withPass(reconcileState({ ...state, items, activeRun: null }, action.document, action.revision), action.passId, {
+      const completed = withPass(reconcileState({ ...state, items, activeRun: null }, action.document, action.revision), action.passId, {
         status: "done",
         warnings: action.warnings && action.warnings.length > 0 ? action.warnings : undefined,
         lastRunItemCount: action.items.length
       });
+
+      if (action.passId !== "request") {
+        return completed;
+      }
+
+      const { request } = state;
+
+      if (request.retryIndex !== null) {
+        // One planned action was retried: its hole is closed, and what it produced is added to the count.
+        const added = Math.max(0, items.filter((item) => item.stepId === stepId).length - before);
+        const holes = request.holes.filter((hole) => hole.index !== request.retryIndex);
+
+        return {
+          ...completed,
+          request: {
+            ...request,
+            holes,
+            retryIndex: null,
+            history: request.history.map((entry): V2RequestEntry =>
+              entry.id === request.chapterEntryId && entry.outcome.kind === "done"
+                ? { ...entry, outcome: { kind: "done", count: entry.outcome.count + added, ...(holes.length > 0 ? { holes: holes.length } : {}) } }
+                : entry
+            )
+          }
+        };
+      }
+
+      const holes = action.holes ?? [];
+
+      return {
+        ...completed,
+        request: settleEntry(
+          { ...adoptPlan(request, action.plan), holes, retryIndex: null },
+          request.chapterEntryId,
+          { kind: "done", count: action.items.length, ...(holes.length > 0 ? { holes: holes.length } : {}) }
+        )
+      };
     }
 
-    case "run/failed":
+    case "run/failed": {
       // Items that streamed in before the failure are real model output and stay in the queue; a rerun that
       // delivered nothing leaves the earlier cards untouched.
       // A pass that could not even start (empty text) must not stay in the launch queue either.
-      return withPass(
+      const failed = withPass(
         { ...state, activeRun: null, queue: state.queue.filter((passId) => passId !== action.passId) },
         action.passId,
         { status: "failed", error: action.message }
       );
 
-    case "run/stopped":
-      return withPass({ ...state, activeRun: null }, action.passId, { status: "idle", stopped: true });
+      if (action.passId !== "request") {
+        return failed;
+      }
+
+      const { request } = state;
+
+      if (request.retryIndex !== null) {
+        // The retried action failed again: its hole stays, with what the server said this time.
+        return {
+          ...failed,
+          request: {
+            ...request,
+            retryIndex: null,
+            holes: request.holes.map((hole) => (hole.index === request.retryIndex ? { ...hole, message: action.message } : hole))
+          }
+        };
+      }
+
+      return {
+        ...failed,
+        request: settleEntry(
+          { ...adoptPlan(request, action.plan), holes: action.holes ?? request.holes, retryIndex: null },
+          request.chapterEntryId,
+          { kind: "error", message: action.message }
+        )
+      };
+    }
+
+    case "run/stopped": {
+      const stopped = withPass({ ...state, activeRun: null }, action.passId, { status: "idle", stopped: true });
+
+      if (action.passId !== "request") {
+        return stopped;
+      }
+
+      return {
+        ...stopped,
+        request:
+          state.request.retryIndex !== null
+            ? { ...state.request, retryIndex: null }
+            : settleEntry(state.request, state.request.chapterEntryId, { kind: "stopped" })
+      };
+    }
+
+    case "overview/modeSet":
+      return action.mode === state.overview.diagnosticsMode || selectRunState(state, "diagnostics").status === "running"
+        ? state
+        : { ...state, overview: { ...state.overview, diagnosticsMode: action.mode } };
+
+    case "author/added": {
+      const authorQueries = addAuthorQuery(state.overview.authorQueries, action.query);
+      return authorQueries === state.overview.authorQueries ? state : { ...state, overview: { ...state.overview, authorQueries } };
+    }
+
+    case "author/noteSet": {
+      const authorQueries = setAuthorQueryNote(state.overview.authorQueries, action.id, action.note);
+      return authorQueries === state.overview.authorQueries ? state : { ...state, overview: { ...state.overview, authorQueries } };
+    }
+
+    case "author/removed": {
+      const authorQueries = removeAuthorQuery(state.overview.authorQueries, action.id);
+      return authorQueries === state.overview.authorQueries ? state : { ...state, overview: { ...state.overview, authorQueries } };
+    }
+
+    case "request/logged": {
+      const { request } = state;
+      const known = request.history.some((entry) => entry.id === action.entry.id);
+      const history = known
+        ? request.history.map((entry) => (entry.id === action.entry.id ? { ...entry, outcome: action.entry.outcome } : entry))
+        : [action.entry, ...request.history].slice(0, REQUEST_HISTORY_LIMIT);
+
+      return {
+        ...state,
+        request:
+          action.role === "chapter"
+            ? {
+                ...request,
+                history,
+                chapterEntryId: action.entry.id,
+                instruction: action.instruction ?? action.entry.text,
+                // A new request leaves nothing of the previous one to retry: its plan and holes go now, not
+                // when the server accepts the run, so a request that fails at the door cannot be "retried"
+                // with the old plan and the new words.
+                ...(known ? {} : { plan: null, planInstruction: "", holes: [], retryIndex: null })
+              }
+            : { ...request, history, clarify: null, fragment: { entryId: action.entry.id, label: action.label ?? action.entry.text } }
+      };
+    }
+
+    case "request/settled": {
+      const { request } = state;
+
+      if (!request.history.some((entry) => entry.id === action.entryId)) {
+        return state;
+      }
+
+      const settled = settleEntry(request, action.entryId, action.outcome);
+      return { ...state, request: request.fragment?.entryId === action.entryId ? { ...settled, fragment: null } : settled };
+    }
+
+    case "clarify/set":
+      return action.clarify === state.request.clarify ? state : { ...state, request: { ...state.request, clarify: action.clarify } };
+
+    case "item/added": {
+      if (state.items.some((entry) => entry.id === action.item.id)) {
+        return state;
+      }
+
+      const kind = getItemKind(action.item);
+      const anchorKey = action.item.anchor.blockIds.join("|");
+      const superseded = new Set(
+        state.items
+          .filter(
+            (entry) =>
+              entry.origin === "manual" &&
+              isOpenItem(entry) &&
+              getItemKind(entry) === kind &&
+              entry.anchor.blockIds.join("|") === anchorKey &&
+              state.proposals[entry.id]?.status !== "preparing"
+          )
+          .map((entry) => entry.id)
+      );
+      const items = sortItems([...state.items.filter((entry) => !superseded.has(entry.id)), action.item], action.document);
+      const proposals: Record<string, V2ProposalState> = action.proposal
+        ? { ...state.proposals, [action.item.id]: { status: "ready", proposal: action.proposal, noOpStreak: 0 } }
+        : state.proposals;
+
+      return reconcileState({ ...state, items, proposals }, action.document, action.revision);
+    }
+
+    case "proposal/cancelled": {
+      const pending = state.proposals[action.itemId];
+      return pending?.status === "preparing" ? settleItems(restorePrevious(state, action.itemId, pending)) : state;
+    }
+
+    case "spell/merged": {
+      const scope = new Set(action.blockIds);
+      const inScope = (item: V2ReviewItem) => Boolean(item.spell) && scope.has(item.anchor.blockIds[0] ?? "");
+      const ignored = new Set(state.items.filter((item) => inScope(item) && item.status === "dismissed").map((item) => getSpellKey(item)));
+      const kept = state.items.filter((item) => !(inScope(item) && isOpenItem(item)));
+      const taken = new Set(kept.map((item) => item.id));
+      const incoming = action.items.filter((item) => inScope(item) && !ignored.has(getSpellKey(item)) && !taken.has(item.id));
+
+      return reconcileState({ ...state, items: sortItems([...kept, ...incoming], action.document) }, action.document, action.revision);
+    }
 
     case "items/reconciled":
       return reconcileState(state, action.document, action.revision);
@@ -928,21 +1397,45 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
   }
 }
 
-function withPass(state: V2ReviewState, passId: V2PassId, pass: V2PassState): V2ReviewState {
-  return { ...state, passes: { ...state.passes, [passId]: pass } };
+function withPass(state: V2ReviewState, runId: V2RunId, pass: V2PassState): V2ReviewState {
+  return isStepRunId(runId)
+    ? { ...state, steps: { ...state.steps, [runId]: pass } }
+    : { ...state, passes: { ...state.passes, [runId]: pass } };
+}
+
+/** The step whose items a run streams into the queue; the two read-only steps deliver none. */
+function deliveringStepId(runId: V2RunId): EditorialReviewStepId | undefined {
+  return runId === "diagnostics" || runId === "fact_check" ? undefined : getRunStepId(runId);
+}
+
+/** Takes a plan together with the instruction it was made for. Without a plan nothing changes. */
+function adoptPlan(request: V2RequestState, plan: CustomRequestPlanAction[] | undefined): V2RequestState {
+  return plan && plan.length > 0 ? { ...request, plan, planInstruction: request.instruction } : request;
+}
+
+function settleEntry(request: V2RequestState, entryId: string | null, outcome: V2RequestOutcome): V2RequestState {
+  return entryId && request.history.some((entry) => entry.id === entryId)
+    ? { ...request, history: request.history.map((entry) => (entry.id === entryId ? { ...entry, outcome } : entry)) }
+    : request;
 }
 
 function readProgress(record: PersistedActiveReviewRun): V2PassProgress | undefined {
   const progress = record.run.progress;
 
-  if (!progress || progress.totalChunks <= 0) {
+  if (!progress) {
     return undefined;
+  }
+
+  if (progress.totalChunks <= 0) {
+    // A chapter request reports its phase before there is anything to count.
+    return progress.phase ? { completed: 0, total: 0, percent: 0, phase: progress.phase } : undefined;
   }
 
   return {
     completed: progress.completedChunks,
     total: progress.totalChunks,
-    percent: reviewChunkProgressPercent(progress)
+    percent: reviewChunkProgressPercent(progress),
+    ...(progress.phase ? { phase: progress.phase } : {})
   };
 }
 
@@ -1446,8 +1939,20 @@ export function serializeReviewState(state: V2ReviewState): V2PersistedReview {
     }
   }
 
+  const steps: Partial<Record<V2StepRunId, V2PassState>> = {};
+
+  for (const [runId, step] of Object.entries(state.steps) as Array<[V2StepRunId, V2PassState]>) {
+    steps[runId] = step.status === "running" && !state.activeRun ? { status: "idle" } : step;
+  }
+
+  const { history, plan, planInstruction, holes, chapterEntryId, instruction, retryIndex } = state.request;
+
   return {
     failed,
+    steps,
+    overview: state.overview,
+    // A fragment request in flight and a question on screen do not survive a reload.
+    request: { history, plan, planInstruction, holes, chapterEntryId, instruction, retryIndex },
     passes,
     // A request in flight does not survive a reload; the item is simply pending again.
     items: state.items.map((item) => (item.status === "preparing" ? { ...item, status: "pending" } : item)),
@@ -1480,6 +1985,9 @@ function restoreReviewState(persisted: V2PersistedReview): V2ReviewState {
   // `settleItems` turns a ready item without its proposal back into a pending one: it has to be prepared again.
   return settleItems({
     ...createInitialReviewState(),
+    steps: persisted.steps ?? {},
+    overview: persisted.overview ?? createInitialOverviewState(),
+    request: { ...createInitialRequestState(), ...(persisted.request ?? {}) },
     passes: persisted.passes,
     items: persisted.items.map((item) => (item.status === "preparing" ? { ...item, status: "pending" as const } : item)),
     proposals,
@@ -1511,28 +2019,24 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
   const items = Array.isArray(record.items) ? record.items.filter(isStoredReviewItem) : [];
   const itemIds = new Set(items.map((item) => item.id));
   const passes: Partial<Record<V2PassId, V2PassState>> = {};
+  const steps: Partial<Record<V2StepRunId, V2PassState>> = {};
 
   if (record.passes && typeof record.passes === "object") {
     for (const passId of PASS_IDS) {
-      const pass = (record.passes as Record<string, unknown>)[passId];
+      const pass = coercePassState((record.passes as Record<string, unknown>)[passId]);
 
-      if (pass && typeof pass === "object" && PASS_STATUSES.includes((pass as V2PassState).status)) {
-        const candidate = pass as V2PassState;
-        passes[passId] = {
-          status: candidate.status,
-          error: typeof candidate.error === "string" ? candidate.error : undefined,
-          stopped: candidate.stopped === true ? true : undefined,
-          warnings: Array.isArray(candidate.warnings) ? candidate.warnings.filter((entry) => typeof entry === "string") : undefined,
-          progress:
-            candidate.progress &&
-            typeof candidate.progress.completed === "number" &&
-            typeof candidate.progress.total === "number" &&
-            typeof candidate.progress.percent === "number"
-              ? candidate.progress
-              : undefined,
-          lastRunItemCount: typeof candidate.lastRunItemCount === "number" ? candidate.lastRunItemCount : undefined,
-          replaceOnResult: candidate.replaceOnResult === true ? true : undefined
-        };
+      if (pass) {
+        passes[passId] = pass;
+      }
+    }
+  }
+
+  if (record.steps && typeof record.steps === "object") {
+    for (const runId of STEP_RUN_IDS) {
+      const step = coercePassState((record.steps as Record<string, unknown>)[runId]);
+
+      if (step) {
+        steps[runId] = step;
       }
     }
   }
@@ -1568,11 +2072,17 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
   const activeRun = coerceActiveRun(record.activeRun);
 
   // Without a resumable run nothing can be "running" after a reload.
-  for (const passId of PASS_IDS) {
-    const pass = passes[passId];
+  const resumableRunId = activeRun ? getRunIdForStep(activeRun.run.stepId) : null;
 
-    if (pass?.status === "running" && (!activeRun || getPassIdForStep(activeRun.run.stepId) !== passId)) {
+  for (const passId of PASS_IDS) {
+    if (passes[passId]?.status === "running" && resumableRunId !== passId) {
       passes[passId] = { status: "idle" };
+    }
+  }
+
+  for (const runId of STEP_RUN_IDS) {
+    if (steps[runId]?.status === "running" && resumableRunId !== runId) {
+      steps[runId] = { status: "idle" };
     }
   }
 
@@ -1594,6 +2104,9 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
 
   return {
     passes,
+    steps,
+    overview: coerceOverviewState(record.overview),
+    request: coerceRequestState(record.request, resumableRunId === "request"),
     items,
     proposals,
     decisions,
@@ -1603,6 +2116,152 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
     quiet: false,
     queue,
     failed
+  };
+}
+
+function coercePassState(value: unknown): V2PassState | null {
+  if (!value || typeof value !== "object" || !PASS_STATUSES.includes((value as V2PassState).status)) {
+    return null;
+  }
+
+  const candidate = value as V2PassState;
+  const progress =
+    candidate.progress &&
+    typeof candidate.progress.completed === "number" &&
+    typeof candidate.progress.total === "number" &&
+    typeof candidate.progress.percent === "number"
+      ? candidate.progress
+      : undefined;
+
+  return {
+    status: candidate.status,
+    error: typeof candidate.error === "string" ? candidate.error : undefined,
+    stopped: candidate.stopped === true ? true : undefined,
+    warnings: Array.isArray(candidate.warnings) ? candidate.warnings.filter((entry) => typeof entry === "string") : undefined,
+    progress:
+      progress && progress.phase !== undefined && progress.phase !== "planning" && progress.phase !== "generating"
+        ? { completed: progress.completed, total: progress.total, percent: progress.percent }
+        : progress,
+    lastRunItemCount: typeof candidate.lastRunItemCount === "number" ? candidate.lastRunItemCount : undefined,
+    replaceOnResult: candidate.replaceOnResult === true ? true : undefined
+  };
+}
+
+function coerceOutcome(value: unknown): V2RequestOutcome | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const outcome = value as Record<string, unknown>;
+
+  switch (outcome.kind) {
+    case "running":
+    case "stopped":
+    case "question":
+    case "interrupted":
+      return { kind: outcome.kind };
+    case "error":
+      return typeof outcome.message === "string" && outcome.message ? { kind: "error", message: outcome.message } : null;
+    case "done":
+      return typeof outcome.count === "number" && outcome.count >= 0
+        ? {
+            kind: "done",
+            count: Math.floor(outcome.count),
+            ...(typeof outcome.holes === "number" && outcome.holes > 0 ? { holes: Math.floor(outcome.holes) } : {}),
+            ...(isStringList(outcome.warnings) && outcome.warnings.length > 0 ? { warnings: outcome.warnings } : {})
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+const PLAN_TYPES = new Set(["rewrite", "simplify", "expand", "list", "subsection", "callout", "visual"]);
+const PLAN_PRIORITIES = new Set(["high", "medium", "low"]);
+
+function coercePlanAction(value: unknown): CustomRequestPlanAction | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const action = value as Partial<CustomRequestPlanAction>;
+  return typeof action.blockId === "string" &&
+    typeof action.title === "string" &&
+    typeof action.recommendation === "string" &&
+    PLAN_TYPES.has(action.recommendationType as string) &&
+    PLAN_PRIORITIES.has(action.priority as string)
+    ? {
+        blockId: action.blockId,
+        recommendationType: action.recommendationType!,
+        title: action.title,
+        recommendation: action.recommendation,
+        priority: action.priority!
+      }
+    : null;
+}
+
+/**
+ * Reads the request part of a stored draft. A request that was "running" when the page went away is running
+ * still only when it is the chapter request whose run can be resumed; a fragment request cannot be, so it is
+ * recorded as interrupted and nothing is sent again.
+ */
+function coerceRequestState(value: unknown, chapterRunResumable: boolean): NonNullable<V2PersistedReview["request"]> {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const chapterEntryId = typeof record.chapterEntryId === "string" ? record.chapterEntryId : null;
+  const history: V2RequestEntry[] = [];
+
+  for (const raw of Array.isArray(record.history) ? record.history : []) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+
+    const entry = raw as Partial<V2RequestEntry>;
+    const outcome = coerceOutcome(entry.outcome);
+
+    if (typeof entry.id !== "string" || typeof entry.text !== "string" || !outcome || (entry.scope !== "chapter" && entry.scope !== "fragment")) {
+      continue;
+    }
+
+    const live = outcome.kind === "running" && entry.scope === "chapter" && entry.id === chapterEntryId && chapterRunResumable;
+
+    history.push({
+      id: entry.id,
+      scope: entry.scope,
+      text: entry.text,
+      ...(typeof entry.quote === "string" && entry.quote ? { quote: entry.quote } : {}),
+      ...(typeof entry.where === "string" && entry.where ? { where: entry.where } : {}),
+      at: typeof entry.at === "string" ? entry.at : "",
+      outcome: (outcome.kind === "running" && !live) || outcome.kind === "question" ? { kind: "interrupted" } : outcome
+    });
+  }
+
+  const rawPlan = Array.isArray(record.plan) ? record.plan : [];
+  const plan = rawPlan.map(coercePlanAction).filter((action): action is CustomRequestPlanAction => action !== null);
+  const holes = (Array.isArray(record.holes) ? record.holes : []).filter(
+    (hole): hole is V2RequestHole =>
+      Boolean(hole) &&
+      typeof hole === "object" &&
+      Number.isInteger((hole as V2RequestHole).index) &&
+      (hole as V2RequestHole).index >= 0 &&
+      typeof (hole as V2RequestHole).message === "string"
+  );
+
+  // A plan is an indexed list: with one action unreadable the indexes of the holes would point elsewhere.
+  // And a plan without the instruction it was made for cannot be retried, so it is not kept at all.
+  const planInstruction = typeof record.planInstruction === "string" ? record.planInstruction.trim() : "";
+  const planUsable = plan.length > 0 && plan.length === rawPlan.length && planInstruction.length > 0;
+
+  return {
+    history: history.slice(0, REQUEST_HISTORY_LIMIT),
+    plan: planUsable ? plan : null,
+    planInstruction: planUsable ? planInstruction : "",
+    holes: planUsable ? holes.map((hole) => ({ index: hole.index, message: hole.message })) : [],
+    chapterEntryId: chapterEntryId && history.some((entry) => entry.id === chapterEntryId) ? chapterEntryId : null,
+    instruction: typeof record.instruction === "string" ? record.instruction : "",
+    retryIndex:
+      chapterRunResumable && typeof record.retryIndex === "number" && Number.isInteger(record.retryIndex) && record.retryIndex >= 0
+        ? record.retryIndex
+        : null
   };
 }
 

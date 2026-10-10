@@ -196,6 +196,12 @@ export function createReviewMarksPlugin(handlers: ReviewMarkHandlers = {}): Plug
       },
       handleDOMEvents: {
         mouseover(view, event) {
+          // Not while a button is held: redrawing the marks in the middle of a drag would put the selection
+          // back where it was before the drag began.
+          if (event.buttons !== 0) {
+            return false;
+          }
+
           hover(readItemId(event.target, reviewMarksKey.getState(view.state)?.marks ?? []));
           return false;
         },

@@ -55,12 +55,21 @@ export type V2ReviewItem = EditorialReviewItem & {
   calloutPrepared?: boolean;
 };
 
+const OTHER_KIND_TYPES: ReadonlySet<string> = new Set(["subsection", "callout", "visual", "list"]);
+
+function isAccentTarget(item: V2ReviewItem): boolean {
+  return typeof item.emphasisTarget?.text === "string" && item.emphasisTarget.text.trim().length > 0;
+}
+
 export function getItemKind(item: V2ReviewItem): V2ItemKind {
   if (item.spell) {
     return "spell";
   }
 
-  if (item.stepId === "emphasis") {
+  // An accent is an item that names the exact phrase to make bold. Every item of the emphasis pass is one
+  // (also a damaged one without its phrase, which then has nothing to show); an item from another source
+  // counts when it carries the phrase and is not a suggestion of another kind (heading, callout, image, list).
+  if (item.stepId === "emphasis" || (isAccentTarget(item) && !OTHER_KIND_TYPES.has(item.recommendationType))) {
     return "accent";
   }
 

@@ -28,6 +28,8 @@
   --t-accent: #1f7a8c;
   --t-spell: #b23f2c;
   --t-formatting: #8a6a1f;
+  --t-fact: #a04a1a;
+  --t-request: #1f4d3a;
   --del-fg: #b3261e;
   --ins-fg: #1f4d3a;
 
@@ -62,6 +64,8 @@
 .tAccent { --t: var(--t-accent); }
 .tSpell { --t: var(--t-spell); }
 .tFormatting { --t: var(--t-formatting); }
+.tFact { --t: var(--t-fact); }
+.tRequest { --t: var(--t-request); }
 
 /* ---------- buttons ---------- */
 .btn {
@@ -339,6 +343,7 @@
 }
 
 .stage {
+  position: relative;
   min-width: 0;
 }
 
@@ -831,6 +836,25 @@
   font-size: 13px;
 }
 
+.scope q {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font: italic 400 15px/1.5 var(--f-text);
+  color: var(--ink-2);
+  quotes: "«" "»";
+  overflow-wrap: anywhere;
+}
+
+.scope .tb {
+  grid-row: 1;
+  grid-column: 2;
+  margin: -6px -6px -6px 0;
+}
+
+.scopeFrag {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
 .composer {
   position: relative;
 }
@@ -851,6 +875,17 @@
 
 .askq::placeholder {
   color: var(--ink-3);
+}
+
+.askq:focus {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.askqInvalid,
+.askqInvalid:focus {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 16%, transparent);
 }
 
 .askq:disabled {
@@ -1355,6 +1390,8 @@
 .ms [data-sg-tone="accent"] { --t: var(--t-accent); }
 .ms [data-sg-tone="spell"] { --t: var(--t-spell); }
 .ms [data-sg-tone="formatting"] { --t: var(--t-formatting); }
+.ms [data-sg-tone="fact"] { --t: var(--t-fact); }
+.ms [data-sg-tone="request"] { --t: var(--t-request); }
 
 .ms [data-sg] {
   border-radius: 3px;
@@ -1767,6 +1804,566 @@
 .ms [data-sg-ins-block] ul,
 .ms [data-sg-ins-block] ol {
   margin: 0;
+}
+
+/* ---------- Огляд and Запит (docs/concepts/v2/ed.css: .finding, .quick, .chip, .asks, #selbar) ---------- */
+.note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.noteOk {
+  color: var(--ok);
+}
+
+.note svg {
+  width: 14px;
+  height: 14px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.starter .busy {
+  margin-top: 6px;
+}
+
+.starterMain {
+  min-width: 0;
+}
+
+.starterSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: none;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.runError {
+  margin: 12px 0 0;
+  padding: 8px 11px;
+  border-left: 2px solid var(--bad);
+  background: color-mix(in srgb, var(--bad) 7%, var(--surface));
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.runError b {
+  font-weight: 600;
+  color: var(--bad);
+}
+
+/* A section of `Огляд` starts with its own heading: it keeps the gap a heading has elsewhere in the panel. */
+.body section > .sec:first-child {
+  margin-top: 28px;
+}
+
+.root .askq:focus-visible,
+.root .authorRow input:focus-visible {
+  outline: none;
+}
+
+.secMeta {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.reportBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.reportBar label,
+.modeRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+/* The model's markdown, in the panel's own typography. */
+.report {
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.report > :first-child {
+  margin-top: 0;
+}
+
+.report h1,
+.report h2,
+.report h3,
+.report h4 {
+  margin: 20px 0 6px;
+  font: 600 14.5px/1.35 var(--f-ui);
+  color: var(--ink);
+}
+
+.report h1,
+.report h2 {
+  font: italic 500 18px/1.3 var(--f-text);
+}
+
+.report p {
+  margin: 0 0 9px;
+}
+
+.report ul,
+.report ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.report li {
+  margin: 3px 0;
+}
+
+.report li > p {
+  margin: 0;
+}
+
+.report strong {
+  font-weight: 600;
+}
+
+.report blockquote {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+}
+
+.report a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.report hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.report code {
+  font: inherit;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--panel);
+}
+
+.reportTable {
+  margin: 0 0 12px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.report table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.report th,
+.report td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.report th {
+  background: var(--panel);
+  font-weight: 600;
+}
+
+.report tr:last-child td {
+  border-bottom: 0;
+}
+
+.report th:last-child,
+.report td:last-child {
+  border-right: 0;
+}
+
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: 400 13px/1.2 var(--f-ui);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.chip:hover {
+  border-color: var(--ink-3);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chip svg {
+  width: 14px;
+  height: 14px;
+  color: var(--t, var(--ink-3));
+}
+
+.findings {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.finding {
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.finding p {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.finding .claim {
+  font: italic 400 16px/1.55 var(--f-text);
+  color: var(--ink);
+}
+
+.claim::before {
+  content: "«";
+}
+
+.claim::after {
+  content: "»";
+}
+
+.findingMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.status {
+  color: var(--t-fact);
+  font: 600 12.5px/1 var(--f-ui);
+}
+
+.statusHard {
+  color: var(--bad);
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.sources .chip {
+  padding: 4px 10px;
+  font-size: 12.5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.authors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.authors li {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.authors .claim {
+  display: block;
+  font: italic 400 15px/1.5 var(--f-text);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.authorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.authorRow input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/1 var(--f-ui);
+  outline: none;
+}
+
+.authorRow input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.askError {
+  margin: 8px 0 0;
+  color: var(--bad);
+  font-size: 13px;
+}
+
+.runline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.runline > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.clarify {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--warn) 6%, var(--surface));
+}
+
+.clarify b {
+  display: block;
+  font-weight: 600;
+}
+
+.clarify p {
+  margin: 3px 0 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.holes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.holes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.holes b {
+  font-weight: 600;
+}
+
+.holes em {
+  grid-column: 1;
+  font-style: normal;
+  color: var(--bad);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.holes .btn {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+}
+
+.asks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.asks li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.asks b {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.asks q {
+  display: block;
+  margin: 2px 0 4px;
+  font: italic 400 14px/1.45 var(--f-text);
+  color: var(--ink-3);
+  quotes: "«" "»";
+  overflow-wrap: anywhere;
+}
+
+.asks small {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.askErr {
+  color: var(--bad);
+  overflow-wrap: anywhere;
+}
+
+.askRes {
+  color: var(--ok);
+}
+
+.askMuted {
+  color: var(--ink-3);
+}
+
+/* The composer exists only while text is selected; it is never in the page otherwise. */
+@keyframes selbarPop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.selbar {
+  position: absolute;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  background: var(--ink);
+  border-radius: 4px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  overflow-x: auto;
+  scrollbar-width: none;
+  animation: selbarPop 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.selbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--surface);
+  font: 500 13px/1 var(--f-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.selbar button:hover {
+  background: color-mix(in srgb, var(--surface) 16%, transparent);
+}
+
+.selbar button:focus-visible {
+  outline-color: var(--surface);
+  outline-offset: -2px;
+}
+
+.selbar .selbarOwn {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-radius: 0 3px 3px 0;
+  box-shadow: -1px 0 0 color-mix(in srgb, var(--surface) 25%, transparent);
+}
+
+.selbar .selbarOwn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.selbarBusy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 11px;
+  color: var(--surface);
+  font: 500 13px/1 var(--f-ui);
+  white-space: nowrap;
 }
 
 @media (max-width: 980px) {

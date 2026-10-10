@@ -8,6 +8,9 @@ import {
   isEditorialReviewRunApiResponse,
   isReplaceReviewType,
   normalizeEditorialCalloutDepth,
+  type ChatMessage,
+  type CustomRequestPlanAction,
+  type DiagnosticsMode,
   type EditorialReviewItem,
   type EditorialReviewRequest,
   type EditorialReviewResponse,
@@ -86,6 +89,8 @@ export type ReviewRunReply =
       capability: string;
       items: EditorialReviewItem[];
       itemCursor?: number;
+      /** Planned actions of a chapter request, once it has planned them. */
+      plan?: CustomRequestPlanAction[];
     }
   | { kind: "result"; run: CompletedRunSnapshot; result: EditorialReviewResponse }
   | {
@@ -147,9 +152,23 @@ export interface ReviewRunRequestInput {
   rejectedIdeas: RejectedReviewIdea[];
   /** Diagnostics text, when the chapter overview has been run. */
   expertise?: string | null;
+  /** How detailed the diagnostics report should be; read only by the diagnostics step. */
+  diagnosticsMode?: DiagnosticsMode;
+  /** The editor's own instruction; the chapter request (`final_editing`) cannot run without one. */
+  instruction?: string;
+  /** One planned action of an earlier chapter request to generate again (sent in `preserve` mode). */
+  planAction?: CustomRequestPlanAction & { index: number };
+  /** Id and time of the history message that carries the instruction; injected in tests. */
+  messageStamp?: { id: string; timestamp: string };
 }
 
-/** Same fields the classic editor sends for a workflow step; the revision is compact (order and id only). */
+/**
+ * Same fields the classic editor sends for a workflow step; the revision is compact (order and id only).
+ *
+ * Diagnostics text travels the way the classic editor sends it: as `expertise` and
+ * `stepContext.diagnosticsExpertise` to every step except diagnostics itself (which gets its mode instead)
+ * and accents (whose request carries no step context at all).
+ */
 export function buildReviewRunRequest(input: ReviewRunRequestInput): EditorialReviewRequest {
   const { document, settings, locale, stepId, runMode } = input;
   const fullRevision = deriveManuscriptRevisionState(document);
@@ -181,6 +200,17 @@ export function buildReviewRunRequest(input: ReviewRunRequestInput): EditorialRe
   }
 
   const isDiagnostics = stepId === "diagnostics";
+  const instruction = input.instruction?.trim() || undefined;
+  const history: ChatMessage[] | undefined = instruction
+    ? [
+        {
+          id: input.messageStamp?.id ?? `chat-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+          role: "user",
+          content: `[${stepId}] ${instruction}`,
+          timestamp: input.messageStamp?.timestamp ?? new Date().toISOString()
+        }
+      ]
+    : undefined;
 
   return {
     document,
@@ -197,9 +227,13 @@ export function buildReviewRunRequest(input: ReviewRunRequestInput): EditorialRe
     additionalInstructions: "",
     stepId,
     runMode,
-    stepContext: isDiagnostics ? { diagnosticsMode: "concise" } : { diagnosticsExpertise: expertise },
+    ...(history ? { history, stepFeedback: instruction } : {}),
+    stepContext: isDiagnostics
+      ? { diagnosticsMode: input.diagnosticsMode ?? "concise" }
+      : { diagnosticsExpertise: expertise, ...(instruction ? { currentStepFeedback: instruction } : {}) },
     expertise: isDiagnostics ? undefined : expertise,
-    rejectedIdeas: input.rejectedIdeas
+    rejectedIdeas: input.rejectedIdeas,
+    ...(input.planAction ? { customRequestPlanAction: input.planAction } : {})
   };
 }
 
@@ -364,7 +398,8 @@ export function interpretReviewRunReply(responseText: string, httpStatus: number
     run: payload.run,
     capability: payload.capability,
     items: payload.items ?? [],
-    itemCursor: payload.itemCursor
+    itemCursor: payload.itemCursor,
+    ...(payload.plan && Array.isArray(payload.plan.actions) && payload.plan.actions.length > 0 ? { plan: payload.plan.actions } : {})
   };
 }
 
@@ -582,6 +617,7 @@ export interface ReviewRunSnapshotUpdate {
   /** Items that arrived since the previous snapshot. */
   items: EditorialReviewItem[];
   itemCursor: number;
+  plan?: CustomRequestPlanAction[];
 }
 
 export interface PollReviewRunOptions extends ReviewApiDeps {
@@ -691,7 +727,7 @@ export async function pollReviewRun(options: PollReviewRunOptions): Promise<Revi
 
     run = reply.run;
     capability = reply.capability;
-    options.onSnapshot({ run, capability, items: reply.items, itemCursor });
+    options.onSnapshot({ run, capability, items: reply.items, itemCursor, ...(reply.plan ? { plan: reply.plan } : {}) });
   }
 }
 
@@ -724,6 +760,8 @@ export type SpellcheckReply =
       kind: "ok";
       findings: SpellFinding[];
       checkedBlocks: number;
+      /** Ids of the blocks whose batch the service answered; nothing is known about the others. */
+      checkedBlockIds: string[];
       /** Messages of the batches the service could not check; the rest of the result is real. */
       failures: string[];
     }
@@ -779,6 +817,8 @@ export interface SpellcheckRunInput {
   document: EditorDocument;
   locale: AppLocale;
   signal?: AbortSignal;
+  /** Check these blocks only (a fragment request); every paragraph and heading when absent. */
+  blockIds?: string[];
 }
 
 /**
@@ -792,11 +832,12 @@ export async function runSpellcheck(
 ): Promise<SpellcheckReply> {
   const { document, locale } = input;
   const revision = deriveManuscriptRevisionState(document);
-  const targets = getSpellcheckableBlocks(document, revision, revision.blockOrder);
+  const targets = getSpellcheckableBlocks(document, revision, input.blockIds ?? revision.blockOrder);
   const chunks = createSpellcheckBatchChunks(targets);
   const doFetch = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
   const findings: SpellFinding[] = [];
   const failures: string[] = [];
+  const checkedBlockIds: string[] = [];
   let checked = 0;
 
   for (const chunk of chunks) {
@@ -852,6 +893,7 @@ export async function runSpellcheck(
     }
 
     checked += chunk.parts.length;
+    checkedBlockIds.push(...chunk.parts.map((part) => part.blockId));
     findings.push(...mapSpellcheckIssuesToBlocks(chunk, payload.issues));
   }
 
@@ -859,5 +901,5 @@ export async function runSpellcheck(
     return { kind: "error", message: failures[0] ?? deps.messages.invalid };
   }
 
-  return { kind: "ok", findings, checkedBlocks: checked, failures };
+  return { kind: "ok", findings, checkedBlocks: checked, checkedBlockIds, failures };
 }
