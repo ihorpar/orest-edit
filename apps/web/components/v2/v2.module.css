@@ -2376,6 +2376,371 @@
   }
 }
 
+/* ---------- illustrations: ghost figure, figure in the text, studio
+   (docs/concepts/v2/shared.css + ed.css: .ghost-fig, .fig-edit, #studio, .st-box, .vz) ---------- */
+.ms figure {
+  position: relative;
+}
+
+.ms figure[data-sg-ghost="figure"] {
+  margin: 6px 0 24px;
+  padding: 16px 20px;
+  border: 1.5px dashed color-mix(in srgb, var(--t, var(--t-visual)) 55%, transparent);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--t, var(--t-visual)) 6%, var(--surface));
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.ms figure[data-sg-ghost="figure"] b {
+  display: block;
+}
+
+.ms figure[data-sg-ghost="figure"] figcaption {
+  margin: 2px 0 0;
+}
+
+.ms [data-sg-ghost-note] {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-2);
+  font: 400 13px/1.45 var(--f-ui);
+}
+
+.ms figure[data-sg-ghost="figure"] button,
+.ms button[data-figure-edit] {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 13.5px/1 var(--f-ui);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s;
+}
+
+/* As in the prototype: the ghost's button is a plain text button, the one on a real figure is outlined. */
+.ms figure[data-sg-ghost="figure"] button {
+  margin-top: 10px;
+  border-color: transparent;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.ms figure[data-sg-ghost="figure"] button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.ms button[data-figure-edit]:hover {
+  border-color: var(--ink-3);
+}
+
+.ms figure[data-sg-ghost="figure"] button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ms button[data-figure-edit] {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.cardNoteOk {
+  color: var(--ok);
+}
+
+.studio {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  padding: 24px;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.stBox {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 28px 28px;
+  border-radius: calc(var(--r) + 6px);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+  outline: none;
+}
+
+.root .stBox:focus-visible {
+  outline: none;
+}
+
+.stBox > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.stBox > header b {
+  display: block;
+  margin-top: 6px;
+  font: 600 24px/1.25 var(--f-text);
+}
+
+.stBox > header p {
+  max-width: 640px;
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.stBox > header .tb {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.vz {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 24px;
+  font: 400 13.5px/1.45 var(--f-ui);
+  text-align: left;
+}
+
+.vzView {
+  min-width: 0;
+}
+
+.vzForm {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+}
+
+.vzForm .busy,
+.vzForm .cardNote,
+.vzForm .cardError,
+.vzView .cardNote,
+.vzView .cardError {
+  margin: 0;
+}
+
+.vzView .cardNote,
+.vzView .cardError {
+  margin-top: 10px;
+}
+
+.vzRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+}
+
+.vzHint {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.vzSeg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+}
+
+.vzSeg button {
+  padding: 7px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--f-ui);
+  cursor: pointer;
+}
+
+.vzSeg button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.vzSeg .vzSegOn {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.root .vzSeg button:focus-visible {
+  outline-offset: -2px;
+}
+
+.vzField {
+  display: grid;
+  gap: 7px;
+  color: var(--ink-3);
+  font: 600 12px/1 var(--f-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.vzField textarea,
+.vzField input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 14px/1.5 var(--f-ui);
+  letter-spacing: 0;
+  text-transform: none;
+  resize: vertical;
+  outline: none;
+}
+
+.vzField input {
+  font-size: 13.5px;
+}
+
+.root .vzField textarea:focus,
+.root .vzField input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  outline: none;
+}
+
+.vzField textarea:read-only {
+  color: var(--ink-2);
+  background: var(--panel);
+}
+
+.chipOn,
+.chipOn:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.sw {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+}
+
+.chipOn .sw {
+  border-color: var(--surface);
+}
+
+.sw[data-style="minimal"] { background: #fff; }
+.sw[data-style="calm_gradient"] { background: linear-gradient(135deg, #7dd3fc, #f0abfc); }
+.sw[data-style="neo_brutal"] { background: #fde047; }
+.sw[data-style="modern_glass"] { background: #bfdbfe; }
+
+.vzStale {
+  margin: 0;
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
+.vzCap {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font: italic 400 14px/1.5 var(--f-text);
+}
+
+.ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: repeating-linear-gradient(-45deg, transparent 0 10px, rgba(85, 84, 78, 0.07) 10px 11px), var(--panel);
+  color: var(--ink-2);
+  font: 400 12.5px/1.4 var(--f-ui);
+  text-align: center;
+}
+
+.ph b {
+  color: var(--ink);
+  font: 600 14px/1.3 var(--f-ui);
+}
+
+.ph span {
+  max-width: 380px;
+}
+
+.phBusy .spin {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.phBusy .btn {
+  margin-top: 6px;
+}
+
+.shot {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.shotWait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  color: var(--ink-3);
+}
+
+.shotStale img {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.shotFlag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  background: var(--warn);
+  color: var(--surface);
+  font: 600 12px/1.2 var(--f-ui);
+}
+
+@media (max-width: 800px) {
+  .vz {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio {
+    padding: 8px;
+  }
+
+  .stBox {
+    padding: 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .root * {
     animation: none !important;

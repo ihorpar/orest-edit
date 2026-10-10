@@ -37,17 +37,19 @@ import {
   type V2PassId
 } from "../../lib/v2/store";
 import type { ReviewDiffReport } from "../../lib/v2/review-marks";
+import { getStudioPhase, normalizeVisualIntent } from "../../lib/v2/studio";
 import { createBlocksWhereLabel } from "../../lib/v2/where-label";
 import { V2Icon, type V2IconName } from "./icons";
 import type { ReviewEngine } from "./useReviewEngine";
 import styles from "./v2.module.css";
 
-/** Passes wired to the backend. `Ілюстрації` stays visible and disabled until its milestone. */
+/** Passes wired to the backend: all of them. A row outside this set is shown greyed and cannot be launched. */
 export const LIVE_PASSES: ReadonlySet<V2PassRowId> = new Set<V2PassRowId>([
   "structure",
   "clarity",
   "interest",
   "formatting",
+  "visual",
   "accent",
   "spell"
 ]);
@@ -154,7 +156,7 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
           {acceptable || current.status !== "stale" ? (
             <span>
               <kbd>↵</kbd>
-              {acceptable ? text.keyAccept : text.keyShow}
+              {getItemKind(current) === "visual" ? text.keyStudio : acceptable ? text.keyAccept : text.keyShow}
             </span>
           ) : null}
           <span>
@@ -268,7 +270,6 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
           {text.queuePausedNote}
         </p>
       ) : null}
-      <p className={styles.pending}>{text.liveNote}</p>
       <h3 className={styles.sec}>
         {text.queue}
         {summary.open > 0 || state.quiet ? (
@@ -535,6 +536,8 @@ function ReviewCard({
   } else if (kind === "callout" && calloutReady && item.calloutDraft) {
     const kindTitle = getEditorialCalloutKindTitle(item.calloutDraft.calloutKind, locale);
     what = text.whatCallout(kindTitle, item.calloutDraft.title?.trim() || kindTitle);
+  } else if (kind === "visual") {
+    what = text.whatVisual(copy.studio.intents[normalizeVisualIntent(item.studio?.intent ?? item.visualIntent)], item.title);
   } else if (spell) {
     what = replacement ? (
       <>
@@ -569,9 +572,10 @@ function ReviewCard({
       </button>
     );
   } else if (kind === "visual") {
-    main = (
-      <button type="button" className={soft} disabled title={text.notLive}>
-        {text.soon}
+    // The studio is where an illustration is prepared, seen and inserted; the card only leads there.
+    main = stale ? null : (
+      <button type="button" className={soft} data-studio-open onClick={stop(() => review.openStudio(item.id))}>
+        {text.openStudio}
       </button>
     );
   } else if (calloutReady) {
@@ -635,7 +639,17 @@ function ReviewCard({
   }
 
   const staleNote =
-    kind === "heading" ? text.headingGone : kind === "accent" ? text.accentStale : kind === "spell" ? text.spellStale : failed?.message ?? text.stale;
+    kind === "heading"
+      ? text.headingGone
+      : kind === "visual"
+        ? text.visualGone
+        : kind === "accent"
+          ? text.accentStale
+          : kind === "spell"
+            ? text.spellStale
+            : failed?.message ?? text.stale;
+  const studio = kind === "visual" && !stale ? item.studio : undefined;
+  const studioPhase = kind === "visual" ? getStudioPhase(studio) : null;
   const showRefine = focused && !stale && ((kind === "replace" && (ready || failed)) || (kind === "callout" && (calloutReady || failed)));
 
   return (
@@ -644,7 +658,9 @@ function ReviewCard({
       data-card={item.id}
       data-card-source={source ?? undefined}
       data-card-kind={kind}
-      data-card-state={preparing ? "preparing" : stale ? "stale" : item.status === "ready" ? "ready" : failed ? "failed" : "pending"}
+      data-card-state={
+        preparing ? "preparing" : stale ? "stale" : studioPhase ? studioPhase : item.status === "ready" ? "ready" : failed ? "failed" : "pending"
+      }
       tabIndex={0}
       aria-current={focused ? "true" : undefined}
       onClick={() => review.focusItem(item.id)}
@@ -760,6 +776,29 @@ function ReviewCard({
         </p>
       ) : null}
       {stale && !preparing ? <p className={styles.cardNote}>{staleNote}</p> : null}
+      {studioPhase === "preparing" || studioPhase === "generating" ? (
+        <p className={styles.busy} role="status">
+          <span className={styles.spin} />
+          {studioPhase === "preparing" ? text.visualPreparing : text.visualGenerating}
+        </p>
+      ) : null}
+      {studio?.promptState.status === "failed" ? (
+        <p className={styles.cardError} role="alert">
+          <b>{text.visualPromptFailed}</b> {studio.promptState.message}
+        </p>
+      ) : null}
+      {studio?.generation.status === "failed" ? (
+        <p className={styles.cardError} role="alert">
+          <b>{text.visualGenerationFailed}</b> {studio.generation.message}
+        </p>
+      ) : null}
+      {studio?.generation.status === "interrupted" ? (
+        <p className={styles.cardError} role="alert">
+          {text.visualInterrupted}
+        </p>
+      ) : null}
+      {studioPhase === "generated" ? <p className={cx(styles.cardNote, styles.cardNoteOk)}>{text.visualReady}</p> : null}
+      {studioPhase === "stale" ? <p className={styles.cardNote}>{text.visualStale}</p> : null}
       {failed && !stale ? (
         <p className={styles.cardError} role="alert">
           <b>{text.proposalFailed}</b> {failed.message}

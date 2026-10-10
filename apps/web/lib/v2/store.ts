@@ -41,6 +41,17 @@ import {
   type V2ReviewItem
 } from "./item-kinds.ts";
 import {
+  coerceStudioData,
+  coerceVisualPrefs,
+  createStudioData,
+  isStudioTouched,
+  serializeStudioData,
+  studioReducer,
+  type V2StudioDefaults,
+  type V2StudioEvent,
+  type V2VisualPrefs
+} from "./studio.ts";
+import {
   addAuthorQuery,
   coerceOverviewState,
   createInitialOverviewState,
@@ -71,7 +82,7 @@ export const PASS_STEP_ID: Partial<Record<V2PassId, EditorialReviewStepId>> = {
 };
 
 /** Review passes in the order `Запустити всі` runs them: structure first, accents last. */
-export const RUN_ALL_ORDER: V2PassId[] = ["structure", "clarity", "interest", "formatting", "accent"];
+export const RUN_ALL_ORDER: V2PassId[] = ["structure", "clarity", "interest", "formatting", "visual", "accent"];
 /** Passes whose result is visible without a model call, so several can be accepted at once. */
 export const BULK_PASSES: ReadonlySet<V2PassId> = new Set<V2PassId>(["structure", "accent", "spell"]);
 /** How many accepted decisions keep their proposal in memory for undo. */
@@ -309,6 +320,8 @@ export interface V2ReviewState {
   rejectedIdeas: RejectedReviewIdea[];
   /** Signed reference of the run in flight; persisted so a reload can resume polling. */
   activeRun: PersistedActiveReviewRun | null;
+  /** Style and speed of illustrations as the editor chose them last; v2's own memory of the choice. */
+  visualPrefs: V2VisualPrefs;
 }
 
 /** What survives a reload, stored inside the v2 draft. */
@@ -329,6 +342,8 @@ export interface V2PersistedReview {
   steps?: Partial<Record<V2StepRunId, V2PassState>>;
   overview?: V2OverviewState;
   request?: Pick<V2RequestState, "history" | "plan" | "planInstruction" | "holes" | "chapterEntryId" | "instruction" | "retryIndex">;
+  /** Absent in drafts stored before illustrations existed. */
+  visualPrefs?: V2VisualPrefs;
 }
 
 interface DocumentContext {
@@ -430,7 +445,11 @@ export type V2ReviewAction =
   | { type: "hover/set"; itemId: string | null }
   | { type: "filter/set"; filter: V2ReviewFilter }
   | { type: "quiet/set"; quiet: boolean }
-  | { type: "instruction/set"; itemId: string; text: string };
+  | { type: "instruction/set"; itemId: string; text: string }
+  /** The studio was opened for an illustration: it gets its studio state, unless it has one already. */
+  | { type: "studio/opened"; itemId: string; defaults: V2StudioDefaults }
+  /** Something happened in the studio of this illustration (`studioReducer`). */
+  | { type: "studio/event"; itemId: string; event: V2StudioEvent };
 
 export function createInitialReviewState(): V2ReviewState {
   return {
@@ -449,7 +468,8 @@ export function createInitialReviewState(): V2ReviewState {
     queuePaused: false,
     decisions: [],
     rejectedIdeas: [],
-    activeRun: null
+    activeRun: null,
+    visualPrefs: {}
   };
 }
 
@@ -460,6 +480,34 @@ const OPEN_STATUSES = new Set<EditorialReviewItem["status"]>(["pending", "prepar
 /** An item the editor still has to decide on. */
 export function isOpenItem(item: V2ReviewItem): boolean {
   return OPEN_STATUSES.has(item.status);
+}
+
+/**
+ * An illustration whose studio can be opened: one still waiting for a decision, or one that is in the text
+ * already (its image can be regenerated and replaced there).
+ */
+export function isStudioItem(item: V2ReviewItem): boolean {
+  return getItemKind(item) === "visual" && (isOpenItem(item) || item.status === "applied");
+}
+
+/** The illustration that put this image block into the manuscript, if a suggestion did. */
+export function findFigureItem(state: V2ReviewState, blockId: string): V2ReviewItem | null {
+  const decision = state.decisions.find(
+    (entry) => entry.outcome === "accepted" && !entry.undone && (entry.insertedBlockIds ?? []).includes(blockId)
+  );
+  const item = decision ? state.items.find((entry) => entry.id === decision.itemId) : undefined;
+
+  return item && item.status === "applied" && getItemKind(item) === "visual" ? item : null;
+}
+
+/** The image block an inserted illustration stands in, or null while it is not in the text. */
+export function getFigureBlockId(state: V2ReviewState, itemId: string): string | null {
+  const item = state.items.find((entry) => entry.id === itemId);
+  const decision = state.decisions.find((entry) => entry.itemId === itemId);
+
+  return item?.status === "applied" && decision?.outcome === "accepted" && !decision.undone
+    ? decision.insertedBlockIds?.[0] ?? null
+    : null;
 }
 
 /** The pass an item belongs to (and is filtered by). Items made by hand or by a step without a row have none. */
@@ -763,7 +811,7 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
       const items =
         delivers && stepId
           ? mergeIncoming({
-              current: replaces ? clearReviewItemsForReplaceRun(state.items, stepId) : state.items,
+              current: replaces ? clearForReplaceRun(state.items, stepId) : state.items,
               incoming: action.items,
               document: action.document,
               revision: action.revision,
@@ -837,7 +885,7 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
       const before = stepId ? state.items.filter((item) => item.stepId === stepId).length : 0;
       const items = stepId
         ? mergeIncoming({
-            current: replaces ? clearReviewItemsForReplaceRun(state.items, stepId) : state.items,
+            current: replaces ? clearForReplaceRun(state.items, stepId) : state.items,
             incoming: action.items.map((item) => ({ ...item, stepId, stepRunId: action.stepRunId })),
             document: action.document,
             revision: action.revision,
@@ -1394,6 +1442,39 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
       return action.text
         ? { ...state, instructions: { ...state.instructions, [action.itemId]: action.text } }
         : { ...state, instructions: omitKey(state.instructions, action.itemId) };
+
+    case "studio/opened": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+
+      if (!item || !isStudioItem(item) || item.studio) {
+        return state;
+      }
+
+      const studio = createStudioData(action.defaults);
+      return { ...state, items: state.items.map((entry) => (entry.id === item.id ? { ...entry, studio } : entry)) };
+    }
+
+    case "studio/event": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+
+      if (!item?.studio || !isStudioItem(item)) {
+        return state;
+      }
+
+      const studio = studioReducer(item.studio, action.event);
+
+      if (studio === item.studio) {
+        return state;
+      }
+
+      // The style and speed chosen last are where the next illustration starts.
+      const visualPrefs: V2VisualPrefs =
+        studio.style !== item.studio.style || studio.quality !== item.studio.quality
+          ? { style: studio.style, quality: studio.quality }
+          : state.visualPrefs;
+
+      return { ...state, visualPrefs, items: state.items.map((entry) => (entry.id === item.id ? { ...entry, studio } : entry)) };
+    }
   }
 }
 
@@ -1745,6 +1826,29 @@ function reconcileState(state: V2ReviewState, document: EditorDocument, revision
       return keepOpen(rebased === spell ? item : { ...item, spell: rebased });
     }
 
+    if (kind === "visual") {
+      // An illustration belongs to a place, not to exact wording: it stays while its paragraphs and the block
+      // it goes after exist. Its insertion, undo and redo are recognised by the image block it inserted.
+      const inserted = accepted?.insertedBlockIds ?? [];
+      let next = item;
+
+      if (item.status === "applied") {
+        if (!(accepted && !accepted.undone && inserted.length > 0 && inserted.every((blockId) => !blocks.has(blockId)))) {
+          return item;
+        }
+
+        next = reopen(item, accepted);
+      } else if (!open) {
+        return item;
+      } else if (accepted?.undone && inserted.length > 0 && inserted.every((blockId) => blocks.has(blockId))) {
+        return reapply(item);
+      }
+
+      return areParagraphIdsResolvable(revision, next.anchor.blockIds) && blocks.has(next.insertionPoint.anchorBlockId)
+        ? keepOpen(next)
+        : makeStale(next);
+    }
+
     if (kind === "heading" || kind === "callout") {
       const inserted = accepted?.insertedBlockIds ?? [];
 
@@ -1872,6 +1976,20 @@ function sortItems(items: V2ReviewItem[], document: EditorDocument): V2ReviewIte
   });
 }
 
+/**
+ * An illustration a rerun must keep: it is in the text (its figure still opens its studio), or its studio
+ * holds something that was typed, paid for or is in flight. Only untouched suggestions are replaced.
+ */
+export function isKeptOnReplace(item: V2ReviewItem): boolean {
+  return getItemKind(item) === "visual" && (item.status === "applied" || (isOpenItem(item) && isStudioTouched(item.studio)));
+}
+
+/** The items a run in `replace` mode starts from: everything of other steps, and what must outlive a rerun. */
+function clearForReplaceRun(items: V2ReviewItem[], stepId: EditorialReviewStepId): V2ReviewItem[] {
+  const kept = new Set(items.filter((item) => item.stepId === stepId && isKeptOnReplace(item)).map((item) => item.id));
+  return items.filter((item) => item.stepId !== stepId || kept.has(item.id));
+}
+
 function accentMergeKey(item: V2ReviewItem): string {
   return `${item.anchor.blockIds.join("|")}:${item.emphasisTarget?.text ?? ""}:${item.emphasisTarget?.occurrence ?? 1}`;
 }
@@ -1888,7 +2006,18 @@ function mergeIncoming(input: {
   stepId: EditorialReviewStepId;
 }): V2ReviewItem[] {
   if (input.stepId !== "emphasis") {
-    return sortItems(mergeIncomingReviewItems(input) as V2ReviewItem[], input.document);
+    // An illustration that is already there for a place (kept through a rerun, or inserted) is the one for
+    // that place: a new suggestion for the same paragraphs or the same insertion point is not a second card.
+    const held = input.current.filter((item) => getItemKind(item) === "visual" && (isOpenItem(item) || item.status === "applied"));
+    const heldAnchors = new Set(held.map((item) => item.anchor.blockIds.join("|")));
+    const heldPlaces = new Set(held.map((item) => item.insertionPoint.anchorBlockId));
+    const incoming = input.incoming.filter(
+      (item) =>
+        item.recommendationType !== "visual" ||
+        (!heldAnchors.has(item.anchor.blockIds.join("|")) && !heldPlaces.has(item.insertionPoint.anchorBlockId))
+    );
+
+    return sortItems(mergeIncomingReviewItems({ ...input, incoming }) as V2ReviewItem[], input.document);
   }
 
   const seenIds = new Set(input.current.map((item) => item.id));
@@ -1954,8 +2083,16 @@ export function serializeReviewState(state: V2ReviewState): V2PersistedReview {
     // A fragment request in flight and a question on screen do not survive a reload.
     request: { history, plan, planInstruction, holes, chapterEntryId, instruction, retryIndex },
     passes,
-    // A request in flight does not survive a reload; the item is simply pending again.
-    items: state.items.map((item) => (item.status === "preparing" ? { ...item, status: "pending" } : item)),
+    // A request in flight does not survive a reload; the item is simply pending again. So is the studio of
+    // an illustration: only a generation job the server has named is kept, to be asked about again.
+    items: state.items.map((item) => {
+      const studio = item.studio ? serializeStudioData(item.studio) : undefined;
+
+      return item.status === "preparing" || studio !== item.studio
+        ? { ...item, status: item.status === "preparing" ? "pending" : item.status, ...(studio ? { studio } : {}) }
+        : item;
+    }),
+    visualPrefs: state.visualPrefs,
     proposals,
     // What a decision keeps for undo (its proposal, what a rejection replaced) does not survive a reload.
     decisions: state.decisions.map(({ proposal: _proposal, restore: _restore, ...decision }) => decision),
@@ -1996,6 +2133,7 @@ function restoreReviewState(persisted: V2PersistedReview): V2ReviewState {
     activeRun: persisted.activeRun,
     filter: persisted.filter,
     quiet: false,
+    visualPrefs: persisted.visualPrefs ?? {},
     queue: persisted.queue ?? [],
     // Whatever waited in the launch queue waits for the editor now.
     queuePaused: (persisted.queue ?? []).length > 0
@@ -2016,7 +2154,16 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
   }
 
   const record = value as Record<string, unknown>;
-  const items = Array.isArray(record.items) ? record.items.filter(isStoredReviewItem) : [];
+  const items = (Array.isArray(record.items) ? record.items.filter(isStoredReviewItem) : []).map((item): V2ReviewItem => {
+    if (item.studio === undefined) {
+      return item;
+    }
+
+    // Only an illustration has a studio; one that cannot be read starts over.
+    const { studio: stored, ...rest } = item;
+    const studio = getItemKind(item) === "visual" ? coerceStudioData(stored) : undefined;
+    return studio ? { ...rest, studio } : rest;
+  });
   const itemIds = new Set(items.map((item) => item.id));
   const passes: Partial<Record<V2PassId, V2PassState>> = {};
   const steps: Partial<Record<V2StepRunId, V2PassState>> = {};
@@ -2115,7 +2262,8 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
     filter,
     quiet: false,
     queue,
-    failed
+    failed,
+    visualPrefs: coerceVisualPrefs(record.visualPrefs)
   };
 }
 

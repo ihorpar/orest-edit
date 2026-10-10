@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Command } from "@tiptap/pm/state";
-import { getDocumentTextStats, type EditorDocument } from "../../lib/editor/document-model";
+import { resolveEditorAssetUrl, storeEditorAssetFromBlob, storeEditorAssetFromDataUrl } from "../../lib/editor/asset-store";
+import { getDocumentTextStats, getInlineText, type EditorDocument } from "../../lib/editor/document-model";
 import type { PersistedActiveReviewRun } from "../../lib/editor/draft-state";
 import { computeAnchorFingerprint, deriveManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
 import type { LocalActionClarifyChoice } from "../../lib/editor/local-action-router";
@@ -13,7 +14,7 @@ import type {
   EditorialCalloutKind,
   EditorialReviewResponse,
   EditorialReviewRunSnapshot,
-  EditorialStepRunMode
+  EditorialStepRunMode,
 } from "../../lib/editor/review-contract";
 import { retainReviewRunProgress } from "../../lib/editor/review-run-merge";
 import {
@@ -25,7 +26,11 @@ import {
   withReviewRunStartLock
 } from "../../lib/editor/review-run-persistence";
 import { addSpellcheckDictionaryWord, isSpellcheckWordInDictionary, readSpellcheckDictionaryWords } from "../../lib/editor/spellcheck-dictionary";
-import type { AppLocale } from "../../lib/i18n/product-locale";
+import {
+  getLegacyVisualStylePresetStorageKey,
+  getVisualStylePresetStorageKey,
+  type AppLocale
+} from "../../lib/i18n/product-locale";
 import { buildFactCheckActionInstruction } from "../../lib/i18n/server-prompts/review-action";
 import { planAccept, planBulkAccept } from "../../lib/v2/accept-plan";
 import {
@@ -42,6 +47,7 @@ import {
   type ReviewApiDeps
 } from "../../lib/v2/api";
 import type { V2Copy } from "../../lib/v2/copy";
+import { removeFigure, updateFigure, type FigureContent } from "../../lib/v2/figure-apply";
 import {
   buildFragmentManualItem,
   buildLocalActionRequest,
@@ -67,15 +73,28 @@ import { applyReviewEdits, replaceAnchoredBlocks, resolveReplacementBlocks, seal
 import type { ReviewMark } from "../../lib/v2/review-marks";
 import { buildSpellItems, filterFindingsByDictionary, selectSpellItemsInDictionary } from "../../lib/v2/spell-items";
 import {
+  buildFigureBlock,
+  canGenerate,
+  canInsertImage,
+  canPreparePrompt,
+  resolveStudioDefaults,
+  type V2StudioData,
+  type V2StudioEvent,
+  type V2StudioField
+} from "../../lib/v2/studio";
+import {
   canAcceptItem,
   canApplyProposal,
   planQuietPreparation,
   QUIET_DWELL_MS,
   createInitialReviewState,
+  findFigureItem,
+  getFigureBlockId,
   getItemPassId,
   getRunIdForStep,
   getRunStepId,
   isOpenItem,
+  isStudioItem,
   normalizeInstruction,
   planRunAll,
   reviewReducer,
@@ -95,7 +114,16 @@ import {
   type V2ReviewState,
   type V2RunId
 } from "../../lib/v2/store";
+import { createBlockIdForNodeType, V2_NODE } from "../../lib/v2/tiptap-bridge";
 import type { V2ToastArea } from "../../lib/v2/toast";
+import {
+  buildImageRequest,
+  buildVisualProposalRequest,
+  generateImage,
+  requestVisualPrompt,
+  storeGeneratedAsset,
+  type VisualApiMessages
+} from "../../lib/v2/visual-api";
 import { createBlocksWhereLabel } from "../../lib/v2/where-label";
 import { diffProposalBlocks, type BlockDiff } from "../../lib/v2/word-diff";
 
@@ -141,6 +169,14 @@ export type PrepareOutcome =
   | { kind: "cancelled" }
   /** Nothing was sent (the item is gone, already being prepared, or the draft cannot be saved). */
   | { kind: "skipped" };
+
+/** What the illustration studio is open for: an illustration of the queue, or an image block added by hand. */
+export type StudioTarget = { kind: "item"; itemId: string } | { kind: "block"; blockId: string };
+
+/** One image request in flight; aborting it stops the wait (and a download of the result, if one is running). */
+interface VisualRun {
+  controller: AbortController;
+}
 
 export interface ReviewEngine {
   state: V2ReviewState;
@@ -209,6 +245,34 @@ export interface ReviewEngine {
   rejectItem: (itemId: string) => void;
   setFilter: (filter: V2ReviewFilter) => void;
   setInstruction: (itemId: string, text: string) => void;
+  /** What the illustration studio is open for, or null while it is closed. */
+  studioTarget: StudioTarget | null;
+  /** Opens the studio for an illustration. Opening sends nothing: every paid call has its own button inside. */
+  openStudio: (itemId: string) => void;
+  /** `Змінити` on a figure in the text: the studio of the illustration behind it, or its caption only. */
+  openFigure: (blockId: string) => void;
+  /** Closes the studio. Everything in it stays on the illustration. */
+  closeStudio: () => void;
+  setStudioField: (itemId: string, change: V2StudioField) => void;
+  /** Asks the model for a prompt for the chosen type and style (a model call; replaces the prompt on screen). */
+  prepareVisualPrompt: (itemId: string) => void;
+  cancelVisualPrompt: (itemId: string) => void;
+  /** Generates an image for the prompt and settings on screen (a call to the image model). */
+  generateVisual: (itemId: string) => void;
+  /** Stops waiting for the image. The request has been sent already; its result is not shown. */
+  cancelVisualGeneration: (itemId: string) => void;
+  /** Inserts the generated image after the anchor. `shownAssetId` is the image the studio is showing. */
+  insertVisual: (itemId: string, shownAssetId: string | null) => void;
+  /** Puts the newly generated image (and the caption) in place of the one in the text. */
+  replaceVisual: (itemId: string, shownAssetId: string | null) => void;
+  /** Takes an inserted illustration out of the text; it is back in the queue. */
+  removeVisual: (itemId: string) => void;
+  /** Changes the caption of a figure in the text. False when nothing changed. */
+  saveFigureCaption: (blockId: string, caption: string) => boolean;
+  /** The image block with this id as the manuscript has it right now. */
+  readFigure: (blockId: string) => FigureContent | null;
+  /** The figure an illustration stands in right now (read from the latest state, also between renders). */
+  findFigureBlockId: (itemId: string) => string | null;
 }
 
 function describeUnexpected(error: unknown, fallback: string): string {
@@ -264,6 +328,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
   const prepareCounterRef = useRef(0);
   const fragmentRunRef = useRef<FragmentRun | null>(null);
   const diffCacheRef = useRef(new Map<string, BlockDiff[]>());
+  const [studioTarget, setStudioTarget] = useState<StudioTarget | null>(null);
+  /** Prompt preparations and image generations in flight, by illustration. */
+  const visualPromptRunsRef = useRef(new Map<string, AbortController>());
+  const visualRunsRef = useRef(new Map<string, VisualRun>());
 
   if (!tabIdRef.current) {
     tabIdRef.current = createTabId();
@@ -560,6 +628,396 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     runAbortRef.current = null;
   }, [clearLeaseTimer]);
 
+  /* ---------- illustrations ---------- */
+
+  const visualMessages = useCallback((): VisualApiMessages => {
+    const { api } = optionsRef.current.copy;
+
+    return {
+      network: api.network,
+      promptInvalid: api.visualPromptInvalid,
+      promptEmpty: api.visualPromptEmpty,
+      imageInvalid: api.imageInvalid,
+      imageEmpty: api.imageEmpty,
+      imageTimeout: api.imageTimeout,
+      assetFailed: api.assetFailed
+    };
+  }, []);
+
+  const studioEvent = useCallback((itemId: string, event: V2StudioEvent) => dispatch({ type: "studio/event", itemId, event }), [dispatch]);
+
+  const findStudio = useCallback((itemId: string): { item: V2ReviewItem; studio: V2StudioData } | null => {
+    const item = stateRef.current.items.find((entry) => entry.id === itemId);
+    return item && item.studio && isStudioItem(item) ? { item, studio: item.studio } : null;
+  }, []);
+
+  /** Lets go of every illustration request in flight without touching the store (the state is being replaced). */
+  const stopVisualRuns = useCallback(() => {
+    for (const controller of visualPromptRunsRef.current.values()) {
+      controller.abort();
+    }
+
+    for (const run of visualRunsRef.current.values()) {
+      run.controller.abort();
+    }
+
+    visualPromptRunsRef.current.clear();
+    visualRunsRef.current.clear();
+  }, []);
+
+  const cancelVisualPrompt = useCallback(
+    (itemId: string) => {
+      const controller = visualPromptRunsRef.current.get(itemId);
+      visualPromptRunsRef.current.delete(itemId);
+      controller?.abort();
+      studioEvent(itemId, { type: "prompt/cancelled" });
+    },
+    [studioEvent]
+  );
+
+  const cancelVisualGeneration = useCallback(
+    (itemId: string) => {
+      const run = visualRunsRef.current.get(itemId);
+      visualRunsRef.current.delete(itemId);
+      run?.controller.abort();
+      studioEvent(itemId, { type: "generation/cancelled" });
+    },
+    [studioEvent]
+  );
+
+  const prepareVisualPrompt = useCallback(
+    (itemId: string) => {
+      const { locale, copy, getDocument, canWrite, notify } = optionsRef.current;
+      const found = findStudio(itemId);
+
+      if (!found || !canPreparePrompt(found.studio) || visualPromptRunsRef.current.has(itemId)) {
+        return;
+      }
+
+      if (!canWrite()) {
+        notify("error", copy.edits.writeBlocked);
+        return;
+      }
+
+      const { item, studio } = found;
+      const document = getDocument();
+      const requestItem = document ? refreshItemAnchor(item, document) : null;
+      const controller = new AbortController();
+      visualPromptRunsRef.current.set(itemId, controller);
+      studioEvent(itemId, { type: "prompt/requested" });
+
+      const isCurrent = () => visualPromptRunsRef.current.get(itemId) === controller;
+      const settle = (event: V2StudioEvent) => {
+        if (isCurrent()) {
+          visualPromptRunsRef.current.delete(itemId);
+          studioEvent(itemId, event);
+          optionsRef.current.saveNow();
+        }
+      };
+
+      if (!document || !requestItem) {
+        // The paragraphs the illustration was proposed for are gone: there is nothing to write a prompt about.
+        settle({ type: "prompt/failed", message: copy.edits.visualGone });
+        return;
+      }
+
+      const requested = { intent: studio.intent, style: studio.style, quality: studio.quality };
+
+      void (async () => {
+        try {
+          const reply = await requestVisualPrompt(
+            buildVisualProposalRequest({
+              document,
+              item: requestItem,
+              settings: readEditorSettingsReadOnly(window.localStorage, locale),
+              locale,
+              ...requested
+            }),
+            { messages: { ...visualMessages() }, signal: controller.signal }
+          );
+
+          if (reply.kind === "prompt") {
+            // The prompt was written for what was asked: the chosen type and style at the time of the request.
+            settle({ type: "prompt/ready", prompt: reply.prompt, alt: reply.alt, caption: reply.caption, intent: requested.intent, style: requested.style });
+          } else {
+            settle({ type: "prompt/failed", message: reply.message });
+          }
+        } catch (error) {
+          settle({ type: "prompt/failed", message: describeUnexpected(error, copy.edits.unexpected) });
+        }
+      })();
+    },
+    [findStudio, studioEvent, visualMessages]
+  );
+
+  /**
+   * Generates the image the way the classic editor does: one request whose answer carries the image. The
+   * image goes straight into the browser's asset store; only its id reaches the state.
+   */
+  const generateVisual = useCallback(
+    (itemId: string) => {
+      const { locale, copy, canWrite, notify, saveNow } = optionsRef.current;
+      const found = findStudio(itemId);
+
+      if (!found || !canGenerate(found.studio) || visualRunsRef.current.has(itemId)) {
+        return;
+      }
+
+      if (!canWrite()) {
+        notify("error", copy.edits.writeBlocked);
+        return;
+      }
+
+      const { studio } = found;
+      const run: VisualRun = { controller: new AbortController() };
+      visualRunsRef.current.set(itemId, run);
+      studioEvent(itemId, { type: "generation/requested", at: new Date().toISOString() });
+      // On disk before the wait: a reload during it finds "interrupted", never a request to repeat.
+      saveNow();
+
+      void (async () => {
+        const isCurrent = () => visualRunsRef.current.get(itemId) === run;
+        const settle = (event: V2StudioEvent) => {
+          if (isCurrent()) {
+            visualRunsRef.current.delete(itemId);
+            studioEvent(itemId, event);
+            saveNow();
+          }
+        };
+
+        try {
+          const reply = await generateImage(buildImageRequest({ prompt: studio.prompt, quality: studio.quality, locale }), {
+            messages: visualMessages(),
+            signal: run.controller.signal
+          });
+
+          if (!isCurrent() || reply.kind === "aborted") {
+            return;
+          }
+
+          if (reply.kind === "failed") {
+            settle({ type: "generation/failed", message: reply.message });
+            return;
+          }
+
+          let stored: { assetId: string; mimeType: string };
+
+          try {
+            stored = await storeGeneratedAsset(reply.asset, {
+              storeDataUrl: storeEditorAssetFromDataUrl,
+              storeBlob: storeEditorAssetFromBlob,
+              resolveUrl: resolveEditorAssetUrl,
+              signal: run.controller.signal
+            });
+          } catch (error) {
+            settle({ type: "generation/failed", message: describeUnexpected(error, copy.api.assetFailed) });
+            return;
+          }
+
+          settle({ type: "generation/completed", assetId: stored.assetId, mimeType: stored.mimeType, at: new Date().toISOString() });
+        } catch (error) {
+          settle({ type: "generation/failed", message: describeUnexpected(error, copy.edits.unexpected) });
+        }
+      })();
+    },
+    [findStudio, studioEvent, visualMessages]
+  );
+
+  const setStudioField = useCallback(
+    (itemId: string, change: V2StudioField) => studioEvent(itemId, { type: "field", change }),
+    [studioEvent]
+  );
+
+  const closeStudio = useCallback(() => setStudioTarget(null), []);
+
+  const openStudio = useCallback(
+    (itemId: string) => {
+      const { locale } = optionsRef.current;
+      const item = stateRef.current.items.find((entry) => entry.id === itemId);
+
+      // A stale illustration has lost its place in the text; its card says so.
+      if (!item || !isStudioItem(item) || item.status === "stale") {
+        return;
+      }
+
+      if (isOpenItem(item)) {
+        setFocusSource("card");
+        dispatch({ type: "focus/set", itemId });
+      }
+
+      if (!item.studio) {
+        let classicStyle: string | null = null;
+
+        try {
+          // Read only: the classic editor's remembered style is the starting point until v2 has its own.
+          classicStyle =
+            window.localStorage.getItem(getVisualStylePresetStorageKey(locale)) ??
+            (locale === "uk" ? window.localStorage.getItem(getLegacyVisualStylePresetStorageKey()) : null);
+        } catch {
+          classicStyle = null;
+        }
+
+        dispatch({
+          type: "studio/opened",
+          itemId,
+          defaults: resolveStudioDefaults({ intent: item.visualIntent, prefs: stateRef.current.visualPrefs, classicStyle })
+        });
+      }
+
+      // Opening is free: nothing is sent until `Підготувати промпт` or `Згенерувати` is pressed in the studio.
+      setStudioTarget({ kind: "item", itemId });
+    },
+    [dispatch, setFocusSource]
+  );
+
+  const openFigure = useCallback(
+    (blockId: string) => {
+      const item = findFigureItem(stateRef.current, blockId);
+
+      if (item?.studio) {
+        setStudioTarget({ kind: "item", itemId: item.id });
+      } else {
+        // Added from the toolbar or imported, or its illustration is no longer known: the caption only.
+        setStudioTarget({ kind: "block", blockId });
+      }
+    },
+    []
+  );
+
+  const readFigure = useCallback((blockId: string): FigureContent | null => {
+    const block = optionsRef.current.getDocument()?.blocks.find((entry) => entry.id === blockId);
+    return block?.type === "image" ? { assetId: block.assetId, alt: block.alt, caption: getInlineText(block.caption ?? []) } : null;
+  }, []);
+
+  const findFigureBlockId = useCallback((itemId: string) => getFigureBlockId(stateRef.current, itemId), []);
+
+  const insertVisual = useCallback(
+    (itemId: string, shownAssetId: string | null) => {
+      const { copy, getDocument, runCommand, notify, canWrite } = optionsRef.current;
+      const found = findStudio(itemId);
+
+      // Only an image that is on screen in the studio, generated for exactly what the studio shows.
+      if (!found || !isOpenItem(found.item) || found.item.status === "stale" || !canInsertImage(found.studio, shownAssetId) || !canWrite()) {
+        return;
+      }
+
+      const { item, studio } = found;
+      const before = getDocument();
+      const anchorBlockId = item.insertionPoint.anchorBlockId;
+      let id = createBlockIdForNodeType(V2_NODE.image);
+
+      while (before?.blocks.some((block) => block.id === id)) {
+        id = createBlockIdForNodeType(V2_NODE.image);
+      }
+
+      const block = buildFigureBlock(studio, id, item.title);
+
+      if (
+        !before ||
+        !block ||
+        !before.blocks.some((entry) => entry.id === anchorBlockId) ||
+        !runCommand(applyReviewEdits([{ type: "insert", anchorBlockId, side: "after", blocks: [block] }]))
+      ) {
+        if (before) {
+          dispatch({ type: "items/reconciled", ...withContext(before) });
+        }
+
+        notify("error", copy.studio.applyFailed, undefined, "accept");
+        return;
+      }
+
+      runCommand(sealHistory);
+
+      const after = getDocument();
+      dispatch({
+        type: "item/accepted",
+        itemId,
+        appliedFingerprint: after ? computeAnchorFingerprint(after, item.anchor.blockIds) : "",
+        insertedBlockIds: [id],
+        at: new Date().toISOString()
+      });
+
+      if (after) {
+        dispatch({ type: "items/reconciled", ...withContext(after) });
+      }
+
+      setStudioTarget(null);
+      notify("info", copy.studio.inserted);
+    },
+    [dispatch, findStudio, withContext]
+  );
+
+  const replaceVisual = useCallback(
+    (itemId: string, shownAssetId: string | null) => {
+      const { copy, getDocument, runCommand, notify, canWrite } = optionsRef.current;
+      const found = findStudio(itemId);
+      const blockId = getFigureBlockId(stateRef.current, itemId);
+
+      if (!found || !blockId || !found.studio.asset || !canInsertImage(found.studio, shownAssetId) || !canWrite()) {
+        return;
+      }
+
+      const { item, studio } = found;
+      const change = { assetId: found.studio.asset.assetId, alt: studio.alt.trim() || item.title, caption: studio.caption.trim() };
+
+      if (!runCommand(updateFigure(blockId, change))) {
+        notify("error", readFigure(blockId) ? copy.studio.replaceSame : copy.studio.figureGone, undefined, "accept");
+        return;
+      }
+
+      runCommand(sealHistory);
+
+      const after = getDocument();
+
+      if (after) {
+        dispatch({ type: "items/reconciled", ...withContext(after) });
+      }
+
+      notify("info", copy.studio.replaced);
+    },
+    [dispatch, findStudio, readFigure, withContext]
+  );
+
+  const removeVisual = useCallback(
+    (itemId: string) => {
+      const { copy, getDocument, runCommand, notify, canWrite } = optionsRef.current;
+      const blockId = getFigureBlockId(stateRef.current, itemId);
+
+      if (!blockId || !canWrite()) {
+        return;
+      }
+
+      if (!runCommand(removeFigure(blockId))) {
+        notify("error", copy.studio.figureGone, undefined, "accept");
+        return;
+      }
+
+      runCommand(sealHistory);
+
+      const after = getDocument();
+
+      if (after) {
+        // The image block is gone, so the illustration is open again, with everything its studio had.
+        dispatch({ type: "items/reconciled", ...withContext(after) });
+      }
+
+      notify("info", copy.studio.removed);
+    },
+    [dispatch, withContext]
+  );
+
+  const saveFigureCaption = useCallback((blockId: string, caption: string): boolean => {
+    const { copy, runCommand, notify, canWrite } = optionsRef.current;
+
+    if (!canWrite() || !runCommand(updateFigure(blockId, { caption: caption.trim() }))) {
+      return false;
+    }
+
+    runCommand(sealHistory);
+    notify("info", copy.studio.captionSaved);
+    return true;
+  }, []);
+
   const hydrate = useCallback(
     (persisted: V2PersistedReview | null, document: EditorDocument) => {
       stopLocalRun();
@@ -572,6 +1030,8 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       prepareControllersRef.current.clear();
       prepareRequestsRef.current.clear();
       diffCacheRef.current.clear();
+      stopVisualRuns();
+      setStudioTarget(null);
       dispatch({ type: "hydrate", persisted });
       dispatch({ type: "items/reconciled", ...withContext(document) });
 
@@ -597,7 +1057,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         );
       }
     },
-    [dispatch, resumeRun, stopLocalRun, withContext]
+    [dispatch, resumeRun, stopLocalRun, stopVisualRuns, withContext]
   );
 
   const stopSpell = useCallback(() => {
@@ -729,8 +1189,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     fragmentRunRef.current = null;
     prepareRequestsRef.current.clear();
     diffCacheRef.current.clear();
+    stopVisualRuns();
+    setStudioTarget(null);
     dispatch({ type: "reset" });
-  }, [apiDeps, dispatch, stopLocalRun]);
+  }, [apiDeps, dispatch, stopLocalRun, stopVisualRuns]);
 
   const reconcile = useCallback(
     (document: EditorDocument) => {
@@ -1106,6 +1568,12 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
       const item = stateRef.current.items.find((entry) => entry.id === itemId);
 
+      // What an illustration has to show is its studio.
+      if (item && getItemKind(item) === "visual") {
+        openStudio(itemId);
+        return;
+      }
+
       // Failed and stale suggestions have their own explicit retry buttons.
       if (
         stateRef.current.focusId === itemId &&
@@ -1118,7 +1586,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         prepareItem(itemId);
       }
     },
-    [focusItem, prepareItem]
+    [focusItem, openStudio, prepareItem]
   );
 
   const hoverItem = useCallback((itemId: string | null) => dispatch({ type: "hover/set", itemId }), [dispatch]);
@@ -1287,6 +1755,13 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       prepareRequestsRef.current.delete(itemId);
       prepareControllersRef.current.get(itemId)?.abort();
       prepareControllersRef.current.delete(itemId);
+
+      if (item.studio) {
+        // Nothing of a rejected illustration stays in flight: a restored one is simply not generating.
+        cancelVisualPrompt(itemId);
+        cancelVisualGeneration(itemId);
+      }
+
       dispatch({ type: "item/rejected", itemId, at: new Date().toISOString() });
       // A mistaken rejection can be taken back while this message is on screen.
       notify("info", item.spell ? copy.edits.ignored : copy.edits.rejected, {
@@ -1297,7 +1772,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         }
       });
     },
-    [dispatch]
+    [cancelVisualGeneration, cancelVisualPrompt, dispatch]
   );
 
   const runAll = useCallback(() => {
@@ -1437,6 +1912,12 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       return;
     }
 
+    if (getItemKind(item) === "visual") {
+      // An illustration is never accepted from the keyboard: Enter opens its studio, where the image is seen.
+      openStudio(itemId);
+      return;
+    }
+
     if (canAcceptItem(current, itemId) && isDiffDrawn(itemId)) {
       acceptItem(itemId);
       return;
@@ -1444,7 +1925,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
     const proposal = current.proposals[itemId];
 
-    if (proposal?.status === "preparing" || item.status === "stale" || getItemKind(item) === "visual") {
+    if (proposal?.status === "preparing" || item.status === "stale") {
       return;
     }
 
@@ -1455,7 +1936,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     }
 
     notify("error", copy.edits.notDrawn, undefined, "accept");
-  }, [acceptItem, prepareItem]);
+  }, [acceptItem, openStudio, prepareItem]);
 
   const setFilter = useCallback((filter: V2ReviewFilter) => dispatch({ type: "filter/set", filter }), [dispatch]);
 
@@ -1539,10 +2020,19 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       };
 
       try {
-        const routed = await requestLocalAction(buildLocalActionRequest({ action, prompt: input.prompt, locale, choice: input.choice }), {
-          messages: fragmentMessages(),
-          signal: run.controller.signal
-        });
+        const routed = await requestLocalAction(
+          buildLocalActionRequest({
+            action,
+            prompt: input.prompt,
+            locale,
+            choice: input.choice,
+            visualStylePreset: resolveStudioDefaults({ prefs: stateRef.current.visualPrefs }).style
+          }),
+          {
+            messages: fragmentMessages(),
+            signal: run.controller.signal
+          }
+        );
 
         if (!isCurrent() || routed.kind === "aborted") {
           return;
@@ -1704,9 +2194,8 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         dispatch({ type: "item/added", item, ...context });
 
         if (execution.recommendationType === "visual") {
-          // The card is the result for now: the studio that prepares the image comes with illustrations.
+          // The card and the ghost figure are the result; the prompt is prepared when the studio is opened.
           settle({ kind: "done", count: 1 });
-          notify("info", copy.ask.visualPending);
           show([item.id]);
           return;
         }
@@ -1860,9 +2349,24 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       spellRunRef.current = null;
       fragmentRunRef.current?.controller.abort();
       fragmentRunRef.current = null;
+      // A request in flight is let go of; the saved draft already says the generation was interrupted.
+      stopVisualRuns();
     },
-    [stopLocalRun]
+    [stopLocalRun, stopVisualRuns]
   );
+
+  // The studio closes by itself when the illustration it was open for is no longer there to work on.
+  useEffect(() => {
+    if (studioTarget?.kind !== "item") {
+      return;
+    }
+
+    const item = state.items.find((entry) => entry.id === studioTarget.itemId);
+
+    if (!item || !item.studio || !isStudioItem(item)) {
+      setStudioTarget(null);
+    }
+  }, [state.items, studioTarget]);
 
   // `Запустити всі`: the next queued pass starts as soon as no review run is in flight.
   useEffect(() => {
@@ -1926,13 +2430,25 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     }
   }, [prepareForQuiet, state]);
 
-  const { locale } = options;
+  const { locale, copy } = options;
 
   const marks = useMemo<ReviewMark[]>(() => {
     const cache = diffCacheRef.current;
     const liveProposalIds = new Set<string>();
     const result = buildItemMarks(state, {
       locale,
+      figure: {
+        label: (intent) => copy.studio.ghostKind(copy.studio.intents[intent]),
+        action: copy.edits.openStudio,
+        notes: {
+          preparing: copy.edits.visualPreparing,
+          prompt_failed: copy.edits.visualPromptFailed,
+          generating: copy.edits.visualGenerating,
+          generation_failed: copy.edits.visualGenerationFailed,
+          generated: copy.edits.visualReady,
+          stale: copy.edits.visualStale
+        }
+      },
       getDiff: (item) => {
         const proposal = state.proposals[item.id];
 
@@ -1961,7 +2477,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     }
 
     return result;
-  }, [locale, state]);
+  }, [copy, locale, state]);
 
   return {
     state,
@@ -2006,6 +2522,21 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     acceptItem,
     rejectItem,
     setFilter,
-    setInstruction
+    setInstruction,
+    studioTarget,
+    openStudio,
+    openFigure,
+    closeStudio,
+    setStudioField,
+    prepareVisualPrompt,
+    cancelVisualPrompt,
+    generateVisual,
+    cancelVisualGeneration,
+    insertVisual,
+    replaceVisual,
+    removeVisual,
+    saveFigureCaption,
+    readFigure,
+    findFigureBlockId
   };
 }

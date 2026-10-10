@@ -24,6 +24,12 @@ export interface V2ExtensionOptions {
   placeholder?: string;
   locale?: AppLocale;
   imageMissingLabel?: string;
+  /**
+   * `Змінити` on a figure in the text was pressed. With this handler and `imageEditLabel` every image block
+   * shows that button; without them (tests, headless use) it shows none.
+   */
+  onImageEdit?: (blockId: string) => void;
+  imageEditLabel?: string;
   /** Called when a review mark in the manuscript is clicked or hovered. */
   review?: ReviewMarkHandlers;
 }
@@ -215,7 +221,14 @@ function createImageNode(options: V2ExtensionOptions) {
       }
 
       renderImageFigure(dom, node, options);
-      return { dom };
+
+      return {
+        dom,
+        // The button is not manuscript content: a press on it must not select or drag the figure.
+        stopEvent: (event: Event) =>
+          Boolean(event.target && typeof (event.target as Element).closest === "function" && (event.target as Element).closest("[data-figure-edit]")),
+        ignoreMutation: () => true
+      };
     }
   });
 }
@@ -237,6 +250,22 @@ function renderImageFigure(dom: HTMLElement, node: ProseMirrorNode, options: V2E
     frame.setAttribute("data-image-frame", "missing");
     frame.textContent = options.imageMissingLabel ?? "";
   };
+
+  const blockId = typeof node.attrs.id === "string" ? node.attrs.id : "";
+
+  if (blockId && options.onImageEdit && options.imageEditLabel) {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.setAttribute("data-figure-edit", blockId);
+    edit.contentEditable = "false";
+    edit.textContent = options.imageEditLabel;
+    edit.addEventListener("mousedown", (event) => event.preventDefault());
+    edit.addEventListener("click", (event) => {
+      event.preventDefault();
+      options.onImageEdit?.(blockId);
+    });
+    dom.append(edit);
+  }
 
   const assetId = String(node.attrs.assetId ?? "");
 

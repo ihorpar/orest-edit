@@ -30,8 +30,8 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 - Status: Active
 - Plan revision: r1 (2026-10-09)
 - Canonical plan: `.plans/v2-paper-editor.md` in the main working tree. Plan owner: the orchestrator session. Executors report evidence; only the orchestrator checks off tasks.
-- Current milestone: 5 — Illustrations (assigned 2026-10-10, in progress). Milestones 1–4 accepted and committed on `v2`.
-- Next action: receive the Milestone 5 executor report, decide on review (required if store or engine contracts changed), accept or return fixes, commit.
+- Current milestone: 6 — Parity, polish and handover (assigned 2026-10-10, in progress). Milestones 1–5 accepted and committed on `v2`.
+- Next action: receive the Milestone 6 executor report, run the required final independent review, accept or return fixes, commit, then verify every Definition of Done item and prepare the final intent-review packet for the owner.
 - Open owner decision: whether to fix the server bug in `apps/web/lib/server/patch-service.ts` (see findings) — it is outside this plan's scope because it changes shared server code used by v1.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
@@ -105,9 +105,11 @@ Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suit
 
 Depends on: 3 (4 for the composer entry point). Mode: proceed. Independent review: conditional.
 
-- [ ] 5.1 `Ілюстрації` pass: cards and a ghost figure at the insertion point.
-- [ ] 5.2 Studio: intent, prompt, style preset, fast/quality, caption; generate and regenerate through the proposal and `/api/edit/review/image` job flow; a changed prompt invalidates the old preview; insert as an image block via the asset store; reopen an inserted figure.
-- [ ] 5.3 Verify: generate, regenerate and insert a real image; failure of the image provider shows the real error; the image survives reload and DOCX export.
+- [x] 5.1 `Ілюстрації` pass: cards and a ghost figure at the insertion point.
+- [x] 5.2 Studio: intent, prompt, style preset, fast/quality, caption; generate and regenerate through the proposal and `/api/edit/review/image` job flow; a changed prompt invalidates the old preview; insert as an image block via the asset store; reopen an inserted figure.
+- [x] 5.3 Verify: generate, regenerate and insert a real image; failure of the image provider shows the real error; the image survives reload and DOCX export.
+
+Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suite (787/787); executor ran build and real-backend QA (pass run with four visual cards and ghost figures, prompt preparation, prompt/caption editing, real image generation, stale state after a style change, `Оновити промпт` + regenerate, insert with one undo and redo, `Змінити` with replace and caption save, reload with zero requests, DOCX export containing the image, free studio open, own prompt, synchronous generation, modal keys with real key presses, cancel, broken-image state); independent review found no unseen-insert or unprompted-cost path and four should-fix defects (async job path unreliable on the in-memory server job store, poller limits, reruns deleting worked-on illustrations, modal losing keys when focus left the overlay), all fixed. Real calls spent: 1 pass run, 4 prompt preparations, 5 image generations (all fast). Not verified at runtime: the 75 s timeout, a provider-side generation failure, image-source rejections, rerun-keeps-illustrations (unit tests only), visual cards from a chapter request, `Якісно`, `Запустити всі` including visuals; DOCX export and `Замінити в тексті` were not re-run after the fix round.
 
 ## Milestone 6 - Parity, polish and handover
 
@@ -165,6 +167,14 @@ Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 - Decision (orchestrator, 2026-10-10): a chapter-request retry always uses the instruction its plan was made for (`planInstruction`).
 - Finding (M4 interfaces): `V2RunId` (passes + `diagnostics` | `fact_check` | `request`), `launchRun`, `state.steps/overview/request`, `item/added`, `getItemSource`; `apps/web/lib/v2/overview.ts`, `fragment-actions.ts` (`buildFragmentManualItem`, `executeFragment` in the engine), `selection-scope.ts`, `toast.ts` (areas), `focus-scroll.ts`; components `OverviewTab.tsx`, `AskTab.tsx`, `SelectionComposer.tsx`, `ReportMarkdown.tsx`.
 - Carried into Milestone 5: the manual `visual` item (no `stepId`, `visualIntent: "infographic"`) and chapter-request `visual` cards already reach the queue with a disabled placeholder (`kind === "visual"` branch of `ReviewCard` in `EditsTab.tsx`); `visual` is mapped but not in `LIVE_PASSES`; the router request sends no `visualStylePreset`; remove the `copy.ask.visualPending` toast.
+- Decision (orchestrator, 2026-10-10): images are generated with one synchronous POST, as v1 does; the async job path is not used. Reason: the server's image job store is an in-memory map per function instance, so a poll can miss the job on Vercel. Tradeoff: a generation in flight at reload becomes `interrupted` and is not resumed. (The orchestrator's Milestone 5 brief originally asked for the job path; that was a mistake.)
+- Decision (orchestrator, 2026-10-10): opening the studio is free; the prompt is prepared only by `Підготувати промпт` or written by the editor.
+- Decision (orchestrator, 2026-10-10): a replace run keeps illustration items that are inserted or have a prompt, caption, asset or request in flight.
+- Decision (orchestrator, 2026-10-10): image sources from responses are restricted to png/jpeg/webp, 20 MB, https with no credentials, and never overwrite an existing asset record.
+- Finding (server, shared with v1, not fixed): `createImagePromptProposal` in `apps/web/lib/server/review-action-service.ts` substitutes a stand-in prompt when the model's output is unusable; v2 can detect only the fully empty case.
+- Finding: `Скасувати` during generation only stops waiting; the server has no cancel, so the call may still be billed (the UI says so).
+- Finding (M5 interfaces): `apps/web/lib/v2/studio.ts` (state machine, `isStudioTouched`), `visual-api.ts` (`generateImage`, limits), `figure-apply.ts`, `components/v2/VisualStudio.tsx`; `item.studio`, `visualPrefs`, `findFigureItem`, `isKeptOnReplace` in the store; QA hooks `data-studio*`, `data-sg-studio`, `data-figure-edit`, `data-card-state`.
+- Carried into Milestone 6: unreferenced image assets are never deleted (decide a safe cleanup or document it); per-keystroke store work while typing in the studio (measure in 6.4); toast buttons unreachable by keyboard while the studio is open; touched-but-stale illustration cards accumulate until rejected; studio responsive layout under 800 px untested; no live-region announcement when an image completes.
 - Deferred to 6.3: a keyboard path to the selection composer and to fragment scope.
 - Deferred to 6.1: confirmation before `Відкрити` replaces the manuscript; a "discard and start over" action for an unreadable v2 draft.
 - Assumption: v1 items for `structure` arrive with ready heading drafts and `emphasis` items carry exact targets (per `docs/CURRENT_STATE.md`). Resolve: confirm against real responses in Milestone 3.

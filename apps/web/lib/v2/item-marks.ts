@@ -11,6 +11,7 @@ import {
 } from "./item-kinds.ts";
 import type { ReviewMark } from "./review-marks.ts";
 import { getItemSource, selectQueue, type V2ReviewState } from "./store.ts";
+import { getStudioPhase, normalizeVisualIntent, type V2StudioPhase } from "./studio.ts";
 import type { BlockDiff } from "./word-diff.ts";
 
 /**
@@ -23,9 +24,24 @@ import type { BlockDiff } from "./word-diff.ts";
  *
  * In quiet mode every mark but the current one is `dim`: a faint trace that cannot be accepted.
  */
+export interface FigureMarkCopy {
+  /** "Візуал · Інфографіка" for an intent. */
+  label: (intent: "infographic" | "illustration") => string;
+  action: string;
+  /** What to say under the title for a phase of the studio; nothing for the phases without a word. */
+  notes: Partial<Record<V2StudioPhase, string>>;
+}
+
 export function buildItemMarks(
   state: V2ReviewState,
-  options: { locale: AppLocale; getDiff: (item: V2ReviewItem) => BlockDiff[] | undefined }
+  options: {
+    locale: AppLocale;
+    getDiff: (item: V2ReviewItem) => BlockDiff[] | undefined;
+    /** Words of the ghost figure. Without them (tests of other kinds) an illustration only marks its paragraphs. */
+    figure?: FigureMarkCopy;
+    /** False when AI actions are off: the ghost figure is shown, its button is not live. */
+    studioEnabled?: boolean;
+  }
 ): ReviewMark[] {
   const marks: ReviewMark[] = [];
 
@@ -129,6 +145,34 @@ export function buildItemMarks(
           });
         }
 
+        break;
+      }
+
+      case "visual": {
+        if (stale || !options.figure) {
+          // Its place in the text is gone (or there are no words for it): only the paragraphs are marked.
+          marks.push(base);
+          break;
+        }
+
+        const phase = getStudioPhase(item.studio);
+        const note = options.figure.notes[phase];
+
+        marks.push({
+          ...base,
+          blockIds: [],
+          state: phase === "preparing" || phase === "generating" ? "preparing" : base.state,
+          ghost: {
+            type: "figure",
+            anchorBlockId: item.insertionPoint.anchorBlockId,
+            label: options.figure.label(normalizeVisualIntent(item.studio?.intent ?? item.visualIntent)),
+            title: item.title,
+            ...(item.studio?.caption.trim() ? { caption: item.studio.caption.trim() } : {}),
+            ...(note ? { note } : {}),
+            action: options.figure.action,
+            enabled: options.studioEnabled !== false
+          }
+        });
         break;
       }
 

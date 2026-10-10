@@ -51,6 +51,22 @@ export type ReviewGhost =
       block: CalloutBlock;
       /** "Аналогія · докладно": kind and depth as the editor reads them. */
       label: string;
+    }
+  | {
+      /** An illustration that is not in the text yet, shown where its image would go: after this block. */
+      type: "figure";
+      anchorBlockId: string;
+      /** "Візуал · Інфографіка". */
+      label: string;
+      title: string;
+      /** The caption typed in the studio, when there is one. */
+      caption?: string;
+      /** Where the illustration is (image ready, being generated, failed), in the editor's words. */
+      note?: string;
+      /** Text of the button that opens the studio. */
+      action: string;
+      /** False when the studio cannot be opened right now (AI actions are off). */
+      enabled: boolean;
     };
 
 export type ReviewInlineTarget =
@@ -82,6 +98,8 @@ export interface ReviewMarkHandlers {
   onDiffReport?: (report: ReviewDiffReport) => void;
   /** The title was typed over, or the level switched, on the editable ghost heading. */
   onHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
+  /** `Відкрити студію` was pressed on a ghost figure. */
+  onStudioOpen?: (itemId: string) => void;
 }
 
 interface ReviewMarksPluginState {
@@ -235,6 +253,8 @@ interface BlockEntry {
   pos: number;
 }
 
+type GhostHandlers = Pick<ReviewMarkHandlers, "onHeadingChange" | "onStudioOpen">;
+
 export function buildReviewDecorations(doc: ProseMirrorNode, marks: ReviewMark[]): DecorationSet {
   return buildReviewMarkState(doc, marks).decorations;
 }
@@ -242,7 +262,7 @@ export function buildReviewDecorations(doc: ProseMirrorNode, marks: ReviewMark[]
 export function buildReviewMarkState(
   doc: ProseMirrorNode,
   marks: ReviewMark[],
-  handlers: Pick<ReviewMarkHandlers, "onHeadingChange"> = {}
+  handlers: GhostHandlers = {}
 ): { decorations: DecorationSet; report: ReviewDiffReport } {
   if (marks.length === 0) {
     return { decorations: DecorationSet.empty, report: EMPTY_REPORT };
@@ -539,12 +559,32 @@ function buildGhostDecoration(
   mark: ReviewMark,
   ghost: ReviewGhost,
   blocks: Map<string, BlockEntry>,
-  handlers: Pick<ReviewMarkHandlers, "onHeadingChange">
+  handlers: GhostHandlers
 ): { decorations: Decoration[]; complete: boolean } | null {
   const entry = blocks.get(ghost.anchorBlockId);
 
   if (!entry || mark.dim) {
     return null;
+  }
+
+  if (ghost.type === "figure") {
+    const flags = `${mark.focused ? "f" : ""}${mark.hot ? "h" : ""}${mark.state}`;
+
+    return {
+      // A ghost figure is a place and a button, not a result: there is no image in it to accept.
+      complete: false,
+      decorations: [
+        Decoration.widget(entry.pos + entry.node.nodeSize, () => createGhostFigure(mark.itemId, ghost, markAttributes(mark), handlers), {
+          side: -1,
+          key: `sg-ghost-${mark.itemId}-fig-${flags}-${hashText(JSON.stringify(ghost))}`,
+          ignoreSelection: true,
+          stopEvent: (event: Event) => isGhostControl(event.target),
+          review: "ghost",
+          itemId: mark.itemId,
+          ghost
+        })
+      ]
+    };
   }
 
   const before = ghost.type === "heading" || ghost.side === "before";
@@ -652,6 +692,58 @@ function createGhostHeading(
     title.textContent = ghost.title;
     wrapper.append(title);
   }
+
+  return wrapper;
+}
+
+function createGhostFigure(
+  itemId: string,
+  ghost: Extract<ReviewGhost, { type: "figure" }>,
+  attributes: Record<string, string>,
+  handlers: GhostHandlers
+): HTMLElement {
+  const wrapper = document.createElement("figure");
+  wrapper.setAttribute("data-sg-ghost", "figure");
+  wrapper.contentEditable = "false";
+
+  for (const [name, value] of Object.entries(attributes)) {
+    wrapper.setAttribute(name, value);
+  }
+
+  const kind = document.createElement("span");
+  kind.setAttribute("data-sg-ghost-kind", "");
+  kind.textContent = ghost.label;
+  wrapper.append(kind);
+
+  const title = document.createElement("b");
+  title.setAttribute("data-sg-ghost-title", "");
+  title.textContent = ghost.title;
+  wrapper.append(title);
+
+  if (ghost.caption?.trim()) {
+    const caption = document.createElement("figcaption");
+    caption.textContent = ghost.caption;
+    wrapper.append(caption);
+  }
+
+  if (ghost.note) {
+    const note = document.createElement("span");
+    note.setAttribute("data-sg-ghost-note", "");
+    note.textContent = ghost.note;
+    wrapper.append(note);
+  }
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.setAttribute("data-sg-ghost-control", "");
+  open.setAttribute("data-sg-studio", itemId);
+  open.textContent = ghost.action;
+  open.disabled = !ghost.enabled;
+  open.addEventListener("click", (event) => {
+    event.preventDefault();
+    handlers.onStudioOpen?.(itemId);
+  });
+  wrapper.append(open);
 
   return wrapper;
 }

@@ -13,7 +13,8 @@ import type {
   EditorialCalloutDepth,
   EditorialCalloutKind,
   EditorialVisualIntent,
-  ReviewActionProposal
+  ReviewActionProposal,
+  VisualStylePreset
 } from "../editor/review-contract.ts";
 import type { EditorSettings } from "../editor/settings.ts";
 import type { AppLocale } from "../i18n/product-locale.ts";
@@ -79,6 +80,8 @@ export function buildLocalActionRequest(input: {
   prompt?: string;
   locale: AppLocale;
   choice?: LocalActionClarifyChoice;
+  /** The style new illustrations start with; sent with a request that asks for one, as in the classic editor. */
+  visualStylePreset?: VisualStylePreset;
 }): LocalActionRouteRequest {
   const prompt = input.action === "custom" ? (input.prompt ?? "").trim() : "";
   let explicitMode: Exclude<LocalActionMode, "auto"> | null = null;
@@ -130,7 +133,8 @@ export function buildLocalActionRequest(input: {
     preferredTextIntent,
     calloutKind: DEFAULT_CALLOUT_KIND,
     calloutDepth: DEFAULT_CALLOUT_DEPTH,
-    visualIntent: DEFAULT_VISUAL_INTENT
+    visualIntent: DEFAULT_VISUAL_INTENT,
+    ...(input.visualStylePreset ? { visualStylePreset: input.visualStylePreset } : {})
   };
 }
 

@@ -45,6 +45,7 @@ import { ManuscriptEditor, type ManuscriptEditorHandle } from "./ManuscriptEdito
 import { SelectionComposer } from "./SelectionComposer";
 import { useReviewEngine } from "./useReviewEngine";
 import { V2Panel, type PanelTab } from "./V2Panel";
+import { VisualStudio } from "./VisualStudio";
 import styles from "./v2.module.css";
 
 type SaveState = "saved" | "saving" | "error";
@@ -651,9 +652,11 @@ export function V2Workspace() {
   // manuscript, in a ghost heading, in the refine field, or with a button, link or menu under the keys.
   const quiet = review.state.quiet;
   const { confirmFocused, moveFocus, rejectItem } = review;
+  const studioOpen = review.studioTarget !== null;
 
   useEffect(() => {
-    if (!quiet || tab !== "edits" || !isReady) {
+    // With the studio open the keys belong to it: nothing is decided in the queue behind it.
+    if (!quiet || tab !== "edits" || !isReady || studioOpen) {
       return;
     }
 
@@ -708,7 +711,7 @@ export function V2Workspace() {
 
     window.document.addEventListener("keydown", handleKey);
     return () => window.document.removeEventListener("keydown", handleKey);
-  }, [confirmFocused, isReady, moveFocus, quiet, rejectItem, tab]);
+  }, [confirmFocused, isReady, moveFocus, quiet, rejectItem, studioOpen, tab]);
 
   const toggleMenu = (id: MenuId) => setMenu((current) => (current === id ? null : id));
 
@@ -724,6 +727,16 @@ export function V2Workspace() {
       askInputRef.current?.focus();
     }
   }, [askFocus, tab]);
+
+  // `Відкрити студію` on a ghost figure: the card it belongs to is shown behind the studio.
+  const { openStudio } = review;
+  const handleStudioOpen = useCallback(
+    (itemId: string) => {
+      setTab("edits");
+      openStudio(itemId);
+    },
+    [openStudio]
+  );
 
   const notifyFromPanel = useCallback(
     (tone: "info" | "error", message: string) => setToast({ tone, message, area: "overview" }),
@@ -875,6 +888,9 @@ export function V2Workspace() {
                 placeholder={copy.placeholder}
                 ariaLabel={copy.manuscriptLabel}
                 imageMissingLabel={copy.imageMissing}
+                imageEditLabel={copy.studio.edit}
+                onStudioOpen={handleStudioOpen}
+                onImageEdit={review.openFigure}
                 onChange={handleChange}
                 onEditorChange={handleEditorChange}
                 onContentError={handleContentError}
@@ -909,8 +925,11 @@ export function V2Workspace() {
           onNotify={notifyFromPanel}
         />
       </div>
+      {review.studioTarget ? (
+        <VisualStudio copy={copy} locale={locale} review={review} target={review.studioTarget} disabled={!isReady} />
+      ) : null}
       {blocked === "conflict" ? (
-        <div className={styles.notice} role="alert">
+        <div className={styles.notice} role="alert" data-studio-outside>
           <span>{copy.conflict}</span>
           <button type="button" onClick={() => window.location.reload()}>
             {copy.reload}
@@ -918,7 +937,11 @@ export function V2Workspace() {
         </div>
       ) : null}
       {toast && blocked !== "conflict" ? (
-        <div className={`${styles.toast} ${toast.tone === "error" ? styles.toastError : ""}`} role={toast.tone === "error" ? "alert" : "status"}>
+        <div
+          className={`${styles.toast} ${toast.tone === "error" ? styles.toastError : ""}`}
+          role={toast.tone === "error" ? "alert" : "status"}
+          data-studio-outside
+        >
           <span>{toast.message}</span>
           {toast.action ? (
             <button

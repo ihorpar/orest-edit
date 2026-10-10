@@ -30,6 +30,8 @@ interface ManuscriptEditorProps {
   placeholder: string;
   ariaLabel: string;
   imageMissingLabel: string;
+  /** Text of the button on a figure that opens the studio for it. */
+  imageEditLabel: string;
   /** Called on every document change; read the document lazily with `getDocument()`. */
   onChange: () => void;
   onEditorChange: (editor: Editor | null) => void;
@@ -43,6 +45,10 @@ interface ManuscriptEditorProps {
   onReviewDiffReport?: (report: ReviewDiffReport) => void;
   /** The editor typed over the title of a ghost heading or switched its level. */
   onReviewHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
+  /** `Відкрити студію` on a ghost figure. */
+  onStudioOpen?: (itemId: string) => void;
+  /** `Змінити` on a figure that is in the text. */
+  onImageEdit?: (blockId: string) => void;
 }
 
 const NO_MARKS: ReviewMark[] = [];
@@ -54,6 +60,7 @@ export function ManuscriptEditor({
   placeholder,
   ariaLabel,
   imageMissingLabel,
+  imageEditLabel,
   onChange,
   onEditorChange,
   onContentError,
@@ -61,10 +68,22 @@ export function ManuscriptEditor({
   onReviewItemClick,
   onReviewItemHover,
   onReviewDiffReport,
-  onReviewHeadingChange
+  onReviewHeadingChange,
+  onStudioOpen,
+  onImageEdit
 }: ManuscriptEditorProps) {
-  const callbacks = useRef({ onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport, onReviewHeadingChange });
-  callbacks.current = { onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport, onReviewHeadingChange };
+  const latest = {
+    onChange,
+    onContentError,
+    onReviewItemClick,
+    onReviewItemHover,
+    onReviewDiffReport,
+    onReviewHeadingChange,
+    onStudioOpen,
+    onImageEdit
+  };
+  const callbacks = useRef(latest);
+  callbacks.current = latest;
 
   const extensions = useMemo(
     () =>
@@ -72,15 +91,18 @@ export function ManuscriptEditor({
         locale,
         placeholder,
         imageMissingLabel,
+        imageEditLabel,
+        onImageEdit: (blockId) => callbacks.current.onImageEdit?.(blockId),
         resolveAssetUrl: (assetId) => resolveEditorAssetUrl(createEditorAssetToken(assetId)),
         review: {
           onItemClick: (itemId, onDiff) => callbacks.current.onReviewItemClick?.(itemId, onDiff),
           onItemHover: (itemId) => callbacks.current.onReviewItemHover?.(itemId),
           onDiffReport: (report) => callbacks.current.onReviewDiffReport?.(report),
-          onHeadingChange: (itemId, change) => callbacks.current.onReviewHeadingChange?.(itemId, change)
+          onHeadingChange: (itemId, change) => callbacks.current.onReviewHeadingChange?.(itemId, change),
+          onStudioOpen: (itemId) => callbacks.current.onStudioOpen?.(itemId)
         }
       }),
-    [locale, placeholder, imageMissingLabel]
+    [locale, placeholder, imageMissingLabel, imageEditLabel]
   );
   const initialContent = useMemo(() => documentToTiptap(ensureDocumentHasBlocks(initialDocument)), [initialDocument]);
 

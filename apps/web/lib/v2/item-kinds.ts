@@ -11,6 +11,7 @@ import {
 } from "../editor/review-contract.ts";
 import type { SpellcheckIssueCategory } from "../editor/spellcheck-contract.ts";
 import type { AppLocale } from "../i18n/product-locale.ts";
+import type { V2StudioData } from "./studio.ts";
 
 /**
  * What a suggestion does to the manuscript, and the pure helpers each kind needs. The kind decides whether a
@@ -21,7 +22,8 @@ import type { AppLocale } from "../i18n/product-locale.ts";
  * - `accent`   makes one exact phrase bold; nothing to prepare (emphasis);
  * - `callout`  inserts a callout block next to the anchor; needs a prepared callout draft;
  * - `spell`    replaces one exact range with a chosen suggestion; comes from the spellcheck endpoint;
- * - `visual`   an illustration; wired in a later milestone.
+ * - `visual`   an illustration: inserts an image block after its anchor, once an image has been generated
+ *              in the studio and seen there (`lib/v2/studio.ts`).
  */
 export type V2ItemKind = "replace" | "heading" | "accent" | "callout" | "spell" | "visual";
 
@@ -53,6 +55,12 @@ export type V2ReviewItem = EditorialReviewItem & {
    * that is not a callout and is never drawn or inserted.
    */
   calloutPrepared?: boolean;
+  /**
+   * Everything the illustration studio knows about this illustration: the prompt, the settings, the caption
+   * and the generated image (by its id in the asset store). Only `visual` items have it, once the studio has
+   * been opened for them.
+   */
+  studio?: V2StudioData;
 };
 
 const OTHER_KIND_TYPES: ReadonlySet<string> = new Set(["subsection", "callout", "visual", "list"]);
