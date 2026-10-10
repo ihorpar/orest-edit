@@ -320,7 +320,7 @@ test("the review section round-trips through the stored draft", () => {
   assert.equal(stored.review.passes.clarity?.status, "running");
   assert.deepEqual(stored.review.passes.clarity?.progress, { completed: 1, total: 3, percent: 33 });
   assert.equal(stored.review.filter, "clarity");
-  assert.equal(stored.review.quiet, true);
+  assert.equal(stored.review.quiet, false, "a draft written with quiet mode on opens with it off: a reload must not start model calls");
   assert.deepEqual(stored.document, paragraphDocument("Текст."));
 });
 

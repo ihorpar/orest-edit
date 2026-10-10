@@ -1,6 +1,7 @@
 "use client";
 
 import type { EditorDocument } from "../../lib/editor/document-model";
+import type { AppLocale } from "../../lib/i18n/product-locale";
 import type { V2Copy } from "../../lib/v2/copy";
 import type { ReviewDiffReport } from "../../lib/v2/review-marks";
 import { selectOpenItems } from "../../lib/v2/store";
@@ -19,6 +20,7 @@ const TABS: Array<{ id: PanelTab; icon: V2IconName }> = [
 
 interface V2PanelProps {
   copy: V2Copy;
+  locale: AppLocale;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   review: ReviewEngine;
@@ -32,7 +34,7 @@ interface V2PanelProps {
  * Right-hand panel with the three tabs. `Правки` runs the suggestion engine; `Огляд` and `Запит` are wired
  * in later milestones, so their launchers are disabled and they render no model output.
  */
-export function V2Panel({ copy, tab, onTabChange, review, diffReport, document, aiDisabled }: V2PanelProps) {
+export function V2Panel({ copy, locale, tab, onTabChange, review, diffReport, document, aiDisabled }: V2PanelProps) {
   const openCount = selectOpenItems(review.state).length;
 
   return (
@@ -59,7 +61,7 @@ export function V2Panel({ copy, tab, onTabChange, review, diffReport, document, 
         {tab === "overview" ? (
           <OverviewTab copy={copy} />
         ) : tab === "edits" ? (
-          <EditsTab copy={copy} review={review} diffReport={diffReport} document={document} disabled={aiDisabled} />
+          <EditsTab copy={copy} locale={locale} review={review} diffReport={diffReport} document={document} disabled={aiDisabled} />
         ) : (
           <AskTab copy={copy} />
         )}

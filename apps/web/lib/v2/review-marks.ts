@@ -1,13 +1,17 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Command } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import type { Block, InlineNode } from "../editor/document-model.ts";
+import type { Block, CalloutBlock, InlineNode } from "../editor/document-model.ts";
+import { findOccurrenceRange } from "./item-kinds.ts";
+import { V2_MARK } from "./tiptap-bridge.ts";
 import { diffWords, type BlockDiff, type DiffSegment } from "./word-diff.ts";
 
 /**
  * Inline review marks. Suggestions are drawn over the manuscript as ProseMirror decorations: attributes on
- * the anchored blocks, `<del>` wrappers over text that would go, and `<ins>` widgets for text that would
- * come. Nothing here touches the document, so the marks can never reach `getDocument()` or the saved draft.
+ * the anchored blocks, `<del>` wrappers over text that would go, `<ins>` widgets for text that would come,
+ * ghost blocks (a heading, a callout) at the place they would be inserted, and inline marks over an exact
+ * phrase (an accent, a misspelt word). Nothing here touches the document, so the marks can never reach
+ * `getDocument()` or the saved draft.
  */
 
 export type ReviewMarkState = "pending" | "preparing" | "ready" | "stale";
@@ -22,7 +26,38 @@ export interface ReviewMark {
   hot: boolean;
   /** Prepared change to draw inline; present only for the focused item with a ready proposal. */
   diff?: BlockDiff[];
+  /** A block that would be inserted, drawn at its insertion point exactly as it would read. */
+  ghost?: ReviewGhost;
+  /** A suggestion about an exact phrase inside one text block. */
+  inline?: ReviewInlineTarget;
+  /** Quiet mode, not the current item: shown only as a faint dotted trace, and not counted as drawn. */
+  dim?: boolean;
 }
+
+export type ReviewGhost =
+  | {
+      type: "heading";
+      /** The heading goes before this block. */
+      anchorBlockId: string;
+      title: string;
+      level: 2 | 3;
+      /** The title can be typed over and the level switched (the focused ghost). */
+      editable: boolean;
+    }
+  | {
+      type: "callout";
+      anchorBlockId: string;
+      side: "before" | "after";
+      block: CalloutBlock;
+      /** "Аналогія · докладно": kind and depth as the editor reads them. */
+      label: string;
+    };
+
+export type ReviewInlineTarget =
+  /** The `occurrence`-th (1-based) `text` in the block would become bold. */
+  | { type: "accent"; blockId: string; text: string; occurrence: number }
+  /** `badText` at `start`..`end` would be replaced with `replacement` (absent when there is nothing to offer). */
+  | { type: "spell"; blockId: string; start: number; end: number; badText: string; replacement?: string };
 
 /** Why a prepared change could not be shown in the text. */
 export type ReviewDiffFailure =
@@ -45,6 +80,8 @@ export interface ReviewMarkHandlers {
   onItemClick?: (itemId: string, onDiff: boolean) => void;
   onItemHover?: (itemId: string | null) => void;
   onDiffReport?: (report: ReviewDiffReport) => void;
+  /** The title was typed over, or the level switched, on the editable ghost heading. */
+  onHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
 }
 
 interface ReviewMarksPluginState {
@@ -54,14 +91,17 @@ interface ReviewMarksPluginState {
 }
 
 const EMPTY_REPORT: ReviewDiffReport = { drawn: [], failed: [] };
-const DRAWN_DIFF_SELECTOR = 'del[data-sg-del], ins[data-sg-ins], [data-sg-ins-block], [data-sg-diff="block"]';
+const DRAWN_DIFF_SELECTOR =
+  'del[data-sg-del], ins[data-sg-ins], [data-sg-ins-block], [data-sg-diff="block"], [data-sg-ghost], [data-sg-inline]';
 
 /** What a decoration stands for; kept in `spec` so it can be inspected without a DOM. */
 export type ReviewDecorationSpec =
   | { review: "block"; blockId: string; itemIds: string[] }
   | { review: "del"; itemId: string; text: string }
   | { review: "ins"; itemId: string; text: string; nodes: InlineNode[] }
-  | { review: "ins-block"; itemId: string; block: Block };
+  | { review: "ins-block"; itemId: string; block: Block }
+  | { review: "ghost"; itemId: string; ghost: ReviewGhost }
+  | { review: "inline"; itemId: string; inline: ReviewInlineTarget; dim: boolean };
 
 export const reviewMarksKey = new PluginKey<ReviewMarksPluginState>("v2ReviewMarks");
 
@@ -109,12 +149,12 @@ export function createReviewMarksPlugin(handlers: ReviewMarkHandlers = {}): Plug
         const marks = transaction.getMeta(reviewMarksKey) as ReviewMark[] | undefined;
 
         if (marks) {
-          return { marks, ...buildReviewMarkState(transaction.doc, marks) };
+          return { marks, ...buildReviewMarkState(transaction.doc, marks, handlers) };
         }
 
         if (transaction.docChanged) {
           // Rebuilt rather than mapped: a mark belongs to block ids, and a diff is only valid for exact text.
-          return { marks: value.marks, ...buildReviewMarkState(transaction.doc, value.marks) };
+          return { marks: value.marks, ...buildReviewMarkState(transaction.doc, value.marks, handlers) };
         }
 
         return value;
@@ -195,7 +235,8 @@ export function buildReviewDecorations(doc: ProseMirrorNode, marks: ReviewMark[]
 
 export function buildReviewMarkState(
   doc: ProseMirrorNode,
-  marks: ReviewMark[]
+  marks: ReviewMark[],
+  handlers: Pick<ReviewMarkHandlers, "onHeadingChange"> = {}
 ): { decorations: DecorationSet; report: ReviewDiffReport } {
   if (marks.length === 0) {
     return { decorations: DecorationSet.empty, report: EMPTY_REPORT };
@@ -255,6 +296,25 @@ export function buildReviewMarkState(
     built.touched.forEach((blockId) => diffBlocks.add(blockId));
   }
 
+  for (const mark of marks) {
+    const built = mark.ghost
+      ? buildGhostDecoration(mark, mark.ghost, blocks, handlers)
+      : mark.inline
+        ? buildInlineDecorations(mark, mark.inline, blocks)
+        : null;
+
+    if (!built) {
+      continue;
+    }
+
+    decorations.push(...built.decorations);
+
+    // The result counts as visible only when it is drawn in full: not a dimmed trace, not a word without a fix.
+    if (built.complete) {
+      report.drawn.push(mark.itemId);
+    }
+  }
+
   for (const [blockId, blockMarks] of marksByBlock) {
     const entry = blocks.get(blockId)!;
     const primary = blockMarks.find((mark) => mark.focused) ?? blockMarks.find((mark) => mark.hot) ?? blockMarks[0]!;
@@ -273,6 +333,10 @@ export function buildReviewMarkState(
 
     if (blockMarks.some((mark) => mark.hot)) {
       attributes["data-sg-hot"] = "";
+    }
+
+    if (primary.dim) {
+      attributes["data-sg-dim"] = "";
     }
 
     if (diffBlocks.has(blockId)) {
@@ -305,6 +369,17 @@ function buildDiffDecorations(
   const touched: string[] = [];
   let widgetIndex = 0;
   const key = (suffix: string) => `sg-${mark.itemId}-${(widgetIndex += 1)}-${suffix}`;
+
+  // The anchored blocks are replaced as one run. With another block between them now, the change cannot be
+  // applied as drawn, so it is not drawn.
+  for (let index = 1; index < mark.blockIds.length; index += 1) {
+    const previous = blocks.get(mark.blockIds[index - 1]!);
+    const current = blocks.get(mark.blockIds[index]!);
+
+    if (!previous || !current || previous.pos + previous.node.nodeSize !== current.pos) {
+      return null;
+    }
+  }
 
   for (const diff of diffs) {
     const blockId = diff.kind === "add" ? diff.afterBlockId : diff.blockId;
@@ -399,6 +474,282 @@ function buildDiffDecorations(
   return { decorations, struck, touched };
 }
 
+function markAttributes(mark: ReviewMark): Record<string, string> {
+  const attributes: Record<string, string> = { [REVIEW_ITEMS_ATTRIBUTE]: mark.itemId };
+
+  if (mark.tone) {
+    attributes["data-sg-tone"] = mark.tone;
+  }
+
+  if (mark.focused) {
+    attributes["data-sg-focus"] = "";
+  }
+
+  if (mark.hot) {
+    attributes["data-sg-hot"] = "";
+  }
+
+  if (mark.dim) {
+    attributes["data-sg-dim"] = "";
+  }
+
+  if (mark.state === "preparing") {
+    attributes["data-sg-busy"] = "";
+  }
+
+  return attributes;
+}
+
+function hashText(text: string): string {
+  let hash = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+
+  return hash.toString(36);
+}
+
+/** True when every character between the two positions is bold. */
+function isRangeBold(doc: ProseMirrorNode, from: number, to: number): boolean {
+  let bold = true;
+
+  doc.nodesBetween(from, to, (node) => {
+    if (node.isInline && !node.marks.some((entry) => entry.type.name === V2_MARK.bold)) {
+      bold = false;
+    }
+
+    return bold;
+  });
+
+  return bold;
+}
+
+/**
+ * A ghost block at its insertion point, or null when the block it belongs next to is gone. A dimmed ghost
+ * is not drawn at all: in quiet mode only the current item is expanded in the text.
+ */
+function buildGhostDecoration(
+  mark: ReviewMark,
+  ghost: ReviewGhost,
+  blocks: Map<string, BlockEntry>,
+  handlers: Pick<ReviewMarkHandlers, "onHeadingChange">
+): { decorations: Decoration[]; complete: boolean } | null {
+  const entry = blocks.get(ghost.anchorBlockId);
+
+  if (!entry || mark.dim) {
+    return null;
+  }
+
+  const before = ghost.type === "heading" || ghost.side === "before";
+  const position = before ? entry.pos : entry.pos + entry.node.nodeSize;
+  const flags = `${mark.focused ? "f" : ""}${mark.hot ? "h" : ""}${mark.state}`;
+  // The ghost being typed in must stay the same DOM node whatever else changes (the pointer moving over
+  // it, its title becoming empty), or the input would lose its caret. So it is keyed by item and level
+  // only, and wears no attribute that changes while it is edited.
+  const editing = ghost.type === "heading" && ghost.editable;
+  const attributes = editing ? markAttributes({ ...mark, hot: false, state: "ready" }) : markAttributes(mark);
+
+  if (ghost.type === "heading") {
+    const key = editing
+      ? `sg-ghost-${mark.itemId}-h${ghost.level}-edit`
+      : `sg-ghost-${mark.itemId}-h${ghost.level}-${flags}-${hashText(ghost.title)}`;
+
+    return {
+      complete: ghost.title.trim().length > 0,
+      decorations: [
+        Decoration.widget(position, () => createGhostHeading(mark.itemId, ghost, attributes, handlers), {
+          side: 0,
+          key,
+          ignoreSelection: true,
+          stopEvent: (event: Event) => isGhostControl(event.target),
+          review: "ghost",
+          itemId: mark.itemId,
+          ghost
+        })
+      ]
+    };
+  }
+
+  return {
+    complete: true,
+    decorations: [
+      Decoration.widget(position, () => createGhostCallout(ghost, attributes), {
+        side: -1,
+        key: `sg-ghost-${mark.itemId}-${flags}-${hashText(JSON.stringify(ghost.block) + ghost.label)}`,
+        ignoreSelection: true,
+        review: "ghost",
+        itemId: mark.itemId,
+        ghost
+      })
+    ]
+  };
+}
+
+function isGhostControl(target: EventTarget | null): boolean {
+  return Boolean(target && typeof (target as Element).closest === "function" && (target as Element).closest("[data-sg-ghost-control]"));
+}
+
+function createGhostHeading(
+  itemId: string,
+  ghost: Extract<ReviewGhost, { type: "heading" }>,
+  attributes: Record<string, string>,
+  handlers: Pick<ReviewMarkHandlers, "onHeadingChange">
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.setAttribute("data-sg-ghost", "heading");
+  wrapper.setAttribute("data-sg-level", String(ghost.level));
+  wrapper.setAttribute("role", "heading");
+  wrapper.setAttribute("aria-level", String(ghost.level));
+  wrapper.contentEditable = "false";
+
+  for (const [name, value] of Object.entries(attributes)) {
+    wrapper.setAttribute(name, value);
+  }
+
+  const label = `H${ghost.level}`;
+
+  if (ghost.editable) {
+    const level = document.createElement("button");
+    level.type = "button";
+    level.setAttribute("data-sg-lvl", "");
+    level.setAttribute("data-sg-ghost-control", "");
+    level.textContent = label;
+    level.addEventListener("click", (event) => {
+      event.preventDefault();
+      handlers.onHeadingChange?.(itemId, { headingLevel: ghost.level === 2 ? 3 : 2 });
+    });
+    wrapper.append(level);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = ghost.title;
+    input.setAttribute("data-sg-ghost-title", "");
+    input.setAttribute("data-sg-ghost-control", "");
+    input.setAttribute("spellcheck", "false");
+    input.addEventListener("input", () => handlers.onHeadingChange?.(itemId, { title: input.value }));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault();
+        input.blur();
+      }
+    });
+    wrapper.append(input);
+  } else {
+    const level = document.createElement("span");
+    level.setAttribute("data-sg-lvl", "");
+    level.textContent = label;
+    wrapper.append(level);
+
+    const title = document.createElement("span");
+    title.setAttribute("data-sg-ghost-title", "");
+    title.textContent = ghost.title;
+    wrapper.append(title);
+  }
+
+  return wrapper;
+}
+
+function createGhostCallout(ghost: Extract<ReviewGhost, { type: "callout" }>, attributes: Record<string, string>): HTMLElement {
+  const wrapper = document.createElement("aside");
+  wrapper.setAttribute("data-sg-ghost", "callout");
+  wrapper.contentEditable = "false";
+
+  for (const [name, value] of Object.entries(attributes)) {
+    wrapper.setAttribute(name, value);
+  }
+
+  const kind = document.createElement("span");
+  kind.setAttribute("data-sg-ghost-kind", "");
+  kind.textContent = ghost.label;
+  wrapper.append(kind);
+
+  const title = document.createElement("p");
+  title.setAttribute("data-sg-ghost-title", "");
+  appendInline(title, ghost.block.title);
+  wrapper.append(title);
+
+  for (const paragraph of ghost.block.body) {
+    const line = document.createElement("p");
+    appendInline(line, paragraph);
+    wrapper.append(line);
+  }
+
+  return wrapper;
+}
+
+/**
+ * An inline mark over an exact phrase, or null when the phrase is not where the mark expects it (the text
+ * was edited; the store re-reads the item on the next save and moves or retires it).
+ */
+function buildInlineDecorations(
+  mark: ReviewMark,
+  target: ReviewInlineTarget,
+  blocks: Map<string, BlockEntry>
+): { decorations: Decoration[]; complete: boolean } | null {
+  const entry = blocks.get(target.blockId);
+
+  if (!entry || !entry.node.isTextblock) {
+    return null;
+  }
+
+  const text = readBlockText(entry.node);
+  const range = target.type === "accent" ? findOccurrenceRange(text, target.text, target.occurrence) : { start: target.start, end: target.end };
+
+  if (!range || range.end <= range.start) {
+    return null;
+  }
+
+  if (target.type === "spell" && text.slice(range.start, range.end) !== target.badText) {
+    return null;
+  }
+
+  const from = entry.pos + 1 + range.start;
+  const to = entry.pos + 1 + range.end;
+
+  // An accent over text that is bold already has nothing to show.
+  if (target.type === "accent" && isRangeBold(entry.node, range.start, range.end)) {
+    return null;
+  }
+
+  const dim = Boolean(mark.dim);
+  const decorations: Decoration[] = [
+    // Its own wrapper element: overlapping marks (a misspelt word inside an accent phrase) must not share
+    // one element, where the attributes of one would overwrite the other's.
+    Decoration.inline(from, to, { nodeName: "span", ...markAttributes(mark), "data-sg-inline": target.type }, {
+      review: "inline",
+      itemId: mark.itemId,
+      inline: target,
+      dim
+    } satisfies ReviewDecorationSpec)
+  ];
+
+  if (target.type === "accent") {
+    return { decorations, complete: !dim };
+  }
+
+  const replacement = target.replacement;
+
+  if (!replacement || dim) {
+    return { decorations, complete: false };
+  }
+
+  const nodes: InlineNode[] = [{ text: replacement }];
+  decorations.push(
+    Decoration.widget(to, () => createInsertedText(nodes, mark.itemId), {
+      side: -1,
+      key: `sg-spell-${mark.itemId}-${hashText(replacement)}`,
+      ignoreSelection: true,
+      review: "ins",
+      itemId: mark.itemId,
+      text: replacement,
+      nodes
+    })
+  );
+
+  return { decorations, complete: true };
+}
+
 /** Text of a text block as the document model sees it: soft breaks are `\n`. */
 export function readBlockText(node: ProseMirrorNode): string {
   return node.textBetween(0, node.content.size, "\n", "\n");
@@ -426,9 +777,16 @@ export function sliceInlineNodes(nodes: InlineNode[], from: number, to: number, 
   return slice.map((node) => node.text).join("") === expected ? slice : [{ text: expected }];
 }
 
-function createInsertedText(nodes: InlineNode[]): HTMLElement {
+function createInsertedText(nodes: InlineNode[], itemId?: string): HTMLElement {
   const element = document.createElement("ins");
   element.setAttribute("data-sg-ins", "");
+
+  if (itemId) {
+    // A spelling fix stands outside its word's mark; this ties a click on it to the same item.
+    element.setAttribute(REVIEW_ITEMS_ATTRIBUTE, itemId);
+    element.setAttribute("data-sg-inline-ins", "");
+  }
+
   appendInline(element, nodes);
   return element;
 }

@@ -1,4 +1,4 @@
-import type { EditorDocument } from "../editor/document-model.ts";
+import type { Block, EditorDocument } from "../editor/document-model.ts";
 import type { PersistedActiveReviewRun } from "../editor/draft-state.ts";
 import {
   areParagraphIdsResolvable,
@@ -7,8 +7,11 @@ import {
 } from "../editor/manuscript-structure.ts";
 import {
   isEditorialReviewRunSnapshot,
+  normalizeEditorialCalloutDepth,
   normalizeRejectedReviewIdeas,
   reconcileReviewItemsWithRevision,
+  type EditorialCalloutDepth,
+  type EditorialCalloutKind,
   type EditorialReviewItem,
   type EditorialReviewStepId,
   type EditorialStepRunMode,
@@ -17,6 +20,23 @@ import {
 } from "../editor/review-contract.ts";
 import { clearReviewItemsForReplaceRun, mergeIncomingReviewItems } from "../editor/review-run-merge.ts";
 import { reviewChunkProgressPercent } from "../editor/review-run-progress.ts";
+import { getInlineText } from "../editor/document-model.ts";
+import {
+  getAccentPhrase,
+  getHeadingDraft,
+  getItemKind,
+  hasBoldOccurrence,
+  isAnchorContiguous,
+  getSpellKey,
+  getSpellReplacement,
+  getTextBlockContent,
+  hasLocalResult,
+  isInlineRangeBold,
+  needsProposalCall,
+  rebaseSpellRange,
+  resolveAccentRange,
+  type V2ReviewItem
+} from "./item-kinds.ts";
 
 /**
  * Suggestion engine state for the v2 editor: passes, the review queue, prepared proposals, focus, filter and
@@ -24,7 +44,7 @@ import { reviewChunkProgressPercent } from "../editor/review-run-progress.ts";
  * revision whenever items have to be merged or checked against the text.
  */
 
-/** Passes of the `Правки` tab. `formatting` (lists) joins the visible six in a later milestone. */
+/** Passes of the `Правки` tab. */
 export type V2PassId = "structure" | "clarity" | "interest" | "visual" | "accent" | "spell" | "formatting";
 
 /** The review step behind a pass. `spell` has its own endpoint and no review step. */
@@ -36,6 +56,17 @@ export const PASS_STEP_ID: Partial<Record<V2PassId, EditorialReviewStepId>> = {
   accent: "emphasis",
   formatting: "formatting"
 };
+
+/** Review passes in the order `Запустити всі` runs them: structure first, accents last. */
+export const RUN_ALL_ORDER: V2PassId[] = ["structure", "clarity", "interest", "formatting", "accent"];
+/** Passes whose result is visible without a model call, so several can be accepted at once. */
+export const BULK_PASSES: ReadonlySet<V2PassId> = new Set<V2PassId>(["structure", "accent", "spell"]);
+/** How many accepted decisions keep their proposal in memory for undo. */
+export const DECISION_PROPOSALS_KEPT = 30;
+/** Quiet mode prepares on its own only after an item has been current this long (holding an arrow key skips it). */
+export const QUIET_DWELL_MS = 500;
+/** Quiet mode never has more automatic preparations in flight than this. */
+export const QUIET_MAX_AUTO_PREPARATIONS = 2;
 
 export function getPassIdForStep(stepId: EditorialReviewStepId | undefined): V2PassId | null {
   if (!stepId) {
@@ -98,21 +129,45 @@ export interface V2Decision {
   proposal?: ReviewActionProposal;
   /** The applied text was taken back with undo; the item is open again. */
   undone?: boolean;
+  /** Ids of the blocks that stand where the anchor was after a replacement (accepted `replace` items). */
+  appliedBlockIds?: string[];
+  /** Ids of the blocks the acceptance inserted (headings, callouts). */
+  insertedBlockIds?: string[];
+  /**
+   * What a rejection replaced, kept in memory so it can be taken back (`item/restored`): the status the
+   * item had, its ready proposal, and whether this rejection is the one that added the rejected idea.
+   */
+  restore?: { status: EditorialReviewItem["status"]; proposal?: V2ReadyProposal; addedIdea: boolean };
+}
+
+/** What an acceptance did to the manuscript, as far as the store needs to recognise its undo and redo. */
+export interface V2AppliedChange {
+  itemId: string;
+  appliedFingerprint: string;
+  appliedBlockIds?: string[];
+  insertedBlockIds?: string[];
 }
 
 export type V2ReviewFilter = "all" | V2PassId;
 
 export interface V2ReviewState {
   passes: Partial<Record<V2PassId, V2PassState>>;
-  items: EditorialReviewItem[];
+  items: V2ReviewItem[];
   proposals: Record<string, V2ProposalState>;
   /** Refine instructions typed on cards and not yet sent. */
   instructions: Record<string, string>;
   focusId: string | null;
   hoverId: string | null;
   filter: V2ReviewFilter;
-  /** One-card-at-a-time mode. Only the flag lives here; its interface comes in a later milestone. */
+  /** One-card-at-a-time mode: the queue is walked item by item and focus never leaves it. */
   quiet: boolean;
+  /** Review passes waiting for their turn after `Запустити всі`; the server runs one at a time. */
+  queue: V2PassId[];
+  /**
+   * The queue came from a stored draft: nothing in it starts until the editor says so. A reload must never
+   * launch a paid run by itself.
+   */
+  queuePaused: boolean;
   decisions: V2Decision[];
   rejectedIdeas: RejectedReviewIdea[];
   /** Signed reference of the run in flight; persisted so a reload can resume polling. */
@@ -122,13 +177,17 @@ export interface V2ReviewState {
 /** What survives a reload, stored inside the v2 draft. */
 export interface V2PersistedReview {
   passes: Partial<Record<V2PassId, V2PassState>>;
-  items: EditorialReviewItem[];
+  items: V2ReviewItem[];
   proposals: Record<string, ReviewActionProposal>;
   decisions: V2Decision[];
   rejectedIdeas: RejectedReviewIdea[];
   activeRun: PersistedActiveReviewRun | null;
   filter: V2ReviewFilter;
+  /** Always false in a stored draft: quiet mode is switched on by the editor, never by a reload. */
   quiet: boolean;
+  queue?: V2PassId[];
+  /** Server messages of preparations that failed; kept so a failed one is retried only by the editor. */
+  failed?: Record<string, string>;
 }
 
 interface DocumentContext {
@@ -161,8 +220,31 @@ export type V2ReviewAction =
   | { type: "proposal/requested"; item: EditorialReviewItem }
   | { type: "proposal/ready"; itemId: string; proposal: ReviewActionProposal }
   | { type: "proposal/failed"; itemId: string; message: string; stale?: boolean }
-  | { type: "item/accepted"; itemId: string; appliedFingerprint: string; at: string }
+  /** A prepared callout or heading draft arrived; it is kept on the item itself, as in the classic editor. */
+  | { type: "draft/ready"; itemId: string; proposal: ReviewActionProposal }
+  | ({ type: "item/accepted"; at: string } & V2AppliedChange)
+  /** Several visible results applied in one manuscript step. */
+  | { type: "items/accepted"; entries: V2AppliedChange[]; at: string }
+  | { type: "item/headingEdited"; itemId: string; title?: string; headingLevel?: 2 | 3 }
+  /** Kind or depth of a callout changed: the draft written for the old choice is dropped. */
+  | { type: "item/calloutOptions"; itemId: string; calloutKind?: EditorialCalloutKind; calloutDepth?: EditorialCalloutDepth }
+  | { type: "spell/choice"; itemId: string; choice: number }
+  | { type: "spell/requested" }
+  | ({ type: "spell/completed"; items: V2ReviewItem[]; warnings?: string[] } & DocumentContext)
+  | { type: "spell/failed"; message: string }
+  | { type: "spell/stopped" }
+  /** Open findings that leave the queue without a decision (their word is in the personal dictionary). */
+  | { type: "spell/removed"; itemIds: string[] }
+  | { type: "queue/set"; passIds: V2PassId[] }
+  | { type: "queue/removed"; passId: V2PassId }
+  | { type: "queue/cleared" }
+  /** Quiet-mode navigation: next (1) or previous (-1) item of the visible queue, wrapping around. */
+  | { type: "focus/moved"; delta: 1 | -1 }
   | { type: "item/rejected"; itemId: string; at: string }
+  /** A rejection taken back: the item is as it was, and the rejected idea it added is gone. */
+  | { type: "item/restored"; itemId: string }
+  /** The editor let a queue that came from a stored draft go on. */
+  | { type: "queue/resumed" }
   | { type: "focus/set"; itemId: string | null }
   | { type: "hover/set"; itemId: string | null }
   | { type: "filter/set"; filter: V2ReviewFilter }
@@ -179,6 +261,8 @@ export function createInitialReviewState(): V2ReviewState {
     hoverId: null,
     filter: "all",
     quiet: false,
+    queue: [],
+    queuePaused: false,
     decisions: [],
     rejectedIdeas: [],
     activeRun: null
@@ -190,20 +274,20 @@ export function createInitialReviewState(): V2ReviewState {
 const OPEN_STATUSES = new Set<EditorialReviewItem["status"]>(["pending", "preparing", "ready", "stale"]);
 
 /** An item the editor still has to decide on. */
-export function isOpenItem(item: EditorialReviewItem): boolean {
+export function isOpenItem(item: V2ReviewItem): boolean {
   return OPEN_STATUSES.has(item.status);
 }
 
-export function getItemPassId(item: EditorialReviewItem): V2PassId | null {
-  return getPassIdForStep(item.stepId);
+export function getItemPassId(item: V2ReviewItem): V2PassId | null {
+  return item.spell ? "spell" : getPassIdForStep(item.stepId);
 }
 
-export function selectOpenItems(state: V2ReviewState, passId?: V2PassId): EditorialReviewItem[] {
+export function selectOpenItems(state: V2ReviewState, passId?: V2PassId): V2ReviewItem[] {
   return state.items.filter((item) => isOpenItem(item) && (!passId || getItemPassId(item) === passId));
 }
 
 /** The visible queue: open items of the filtered pass, in manuscript order. */
-export function selectQueue(state: V2ReviewState): EditorialReviewItem[] {
+export function selectQueue(state: V2ReviewState): V2ReviewItem[] {
   return state.filter === "all" ? selectOpenItems(state) : selectOpenItems(state, state.filter);
 }
 
@@ -221,9 +305,132 @@ export function selectSummary(state: V2ReviewState): { open: number; decided: nu
   return { open, decided, hasAny: open + decided > 0 };
 }
 
+/** The review pass in flight. Spellcheck is a different endpoint and may run beside it. */
 export function selectRunningPassId(state: V2ReviewState): V2PassId | null {
-  const entry = (Object.entries(state.passes) as Array<[V2PassId, V2PassState]>).find(([, pass]) => pass.status === "running");
+  const entry = (Object.entries(state.passes) as Array<[V2PassId, V2PassState]>).find(
+    ([passId, pass]) => passId !== "spell" && pass.status === "running"
+  );
   return entry ? entry[0] : null;
+}
+
+/** The queued pass to start now, or null while a review run is in flight or nothing waits. */
+export function selectNextQueuedPass(state: V2ReviewState): V2PassId | null {
+  return state.queuePaused || selectRunningPassId(state) ? null : state.queue[0] ?? null;
+}
+
+/**
+ * What `Запустити всі` starts: the review passes that have not produced a finished run yet (never run,
+ * stopped or failed), in `RUN_ALL_ORDER`, and whether spellcheck should start beside them.
+ */
+export function planRunAll(state: V2ReviewState, live: ReadonlySet<string>): { queue: V2PassId[]; spell: boolean } {
+  const waiting = (passId: V2PassId) => {
+    const status = selectPassState(state, passId).status;
+    return live.has(passId) && status !== "running" && status !== "done";
+  };
+
+  return { queue: RUN_ALL_ORDER.filter(waiting), spell: waiting("spell") };
+}
+
+/** True when the item's result can be applied as far as the store knows; the caller still checks it is drawn. */
+export function canAcceptItem(state: V2ReviewState, itemId: string): boolean {
+  const item = state.items.find((entry) => entry.id === itemId);
+
+  if (!item) {
+    return false;
+  }
+
+  const kind = getItemKind(item);
+
+  if (kind === "replace") {
+    return canApplyProposal(state, itemId);
+  }
+
+  if (kind === "visual" || item.status !== "ready" || !hasLocalResult(item)) {
+    return false;
+  }
+
+  if (state.proposals[itemId]?.status === "preparing" || (state.instructions[itemId] ?? "").trim()) {
+    return false;
+  }
+
+  return kind !== "spell" || getSpellReplacement(item) !== null;
+}
+
+/**
+ * Items `Прийняти всі` would apply: the filtered pass must be one whose results need no model call, and
+ * only items whose result is drawn in the manuscript right now (`drawnIds`) count.
+ */
+export function selectBulkCandidates(state: V2ReviewState, drawnIds: Iterable<string>): V2ReviewItem[] {
+  if (state.filter === "all" || !BULK_PASSES.has(state.filter) || state.quiet) {
+    return [];
+  }
+
+  const drawn = new Set(drawnIds);
+
+  return selectQueue(state).filter((item) => {
+    const kind = getItemKind(item);
+    return (kind === "heading" || kind === "accent" || kind === "spell") && drawn.has(item.id) && canAcceptItem(state, item.id);
+  });
+}
+
+/**
+ * Quiet mode walks the queue quickly, so it prepares the focused item and the next ONE item on its own.
+ * This is the only place where a proposal is requested without a click on a card. Failed, stale and
+ * already requested items are never picked again.
+ */
+export function selectQuietPreparationTargets(state: V2ReviewState): string[] {
+  if (!state.quiet) {
+    return [];
+  }
+
+  const queue = selectQueue(state);
+  const index = queue.findIndex((item) => item.id === state.focusId);
+
+  if (index < 0) {
+    return [];
+  }
+
+  const candidates = queue.length > 1 ? [queue[index]!, queue[(index + 1) % queue.length]!] : [queue[index]!];
+
+  return candidates
+    .filter((item) => item.status === "pending" && !state.proposals[item.id] && needsProposalCall(item) && getItemKind(item) !== "visual")
+    .map((item) => item.id);
+}
+
+/**
+ * What quiet mode may prepare right now. On top of the two-item rule:
+ * - nothing until the current item has been current for `QUIET_DWELL_MS` (an item the editor only passed
+ *   over on the way to another one is never prepared);
+ * - never more than `QUIET_MAX_AUTO_PREPARATIONS` automatic preparations in flight.
+ */
+export function planQuietPreparation(
+  state: V2ReviewState,
+  timing: { focusedSince: number | null; now: number; autoInFlight: number }
+): string[] {
+  if (!state.quiet || timing.focusedSince === null || timing.now - timing.focusedSince < QUIET_DWELL_MS) {
+    return [];
+  }
+
+  const room = QUIET_MAX_AUTO_PREPARATIONS - Math.max(0, timing.autoInFlight);
+  return room > 0 ? selectQuietPreparationTargets(state).slice(0, room) : [];
+}
+
+/** False for actions that change nothing worth writing to the draft. */
+export function shouldPersistAfter(action: V2ReviewAction): boolean {
+  switch (action.type) {
+    case "hydrate":
+    case "focus/set":
+    case "focus/moved":
+    case "hover/set":
+    case "instruction/set":
+    case "spell/requested":
+      return false;
+    case "run/snapshot":
+      // A poll that only moved the progress bar is not worth a full draft write; one that brought items is.
+      return action.items.length > 0;
+    default:
+      return true;
+  }
 }
 
 /** A ready proposal may be applied only when no refine instruction is waiting to be sent, as in v1. */
@@ -246,7 +453,7 @@ export function getRejectedIdeaKey(idea: RejectedReviewIdea): string {
 }
 
 /** The shape the review endpoint accepts back as `rejectedIdeas`. */
-export function buildRejectedIdea(item: EditorialReviewItem): RejectedReviewIdea | null {
+export function buildRejectedIdea(item: V2ReviewItem): RejectedReviewIdea | null {
   return (
     normalizeRejectedReviewIdeas([
       {
@@ -261,6 +468,25 @@ export function buildRejectedIdea(item: EditorialReviewItem): RejectedReviewIdea
 /* ---------- reducer ---------- */
 
 export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
+  return keepQuietFocus(reduce(state, action));
+}
+
+/** In quiet mode there is always a current item while the visible queue is not empty. */
+function keepQuietFocus(state: V2ReviewState): V2ReviewState {
+  if (!state.quiet) {
+    return state;
+  }
+
+  const queue = selectQueue(state);
+
+  if (queue.length === 0 || queue.some((item) => item.id === state.focusId)) {
+    return state;
+  }
+
+  return { ...state, focusId: queue[0]!.id };
+}
+
+function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
   switch (action.type) {
     case "hydrate":
       return action.persisted ? restoreReviewState(action.persisted) : createInitialReviewState();
@@ -269,7 +495,9 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
       return createInitialReviewState();
 
     case "run/requested":
-      return withPass(state, action.passId, { status: "running" });
+      return withPass({ ...state, queue: state.queue.filter((passId) => passId !== action.passId) }, action.passId, {
+        status: "running"
+      });
 
     case "run/started":
       return withPass({ ...state, activeRun: action.record }, action.passId, {
@@ -298,7 +526,7 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
       const replaces = delivers && pass.replaceOnResult === true;
       const items =
         delivers && stepId
-          ? mergeIncomingReviewItems({
+          ? mergeIncoming({
               current: replaces ? clearReviewItemsForReplaceRun(state.items, stepId) : state.items,
               incoming: action.items,
               document: action.document,
@@ -306,8 +534,9 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
               stepId
             })
           : state.items;
+      const merged = { ...state, items, activeRun: action.record };
 
-      return withPass(settleItems({ ...state, items, activeRun: action.record }), action.passId, {
+      return withPass(delivers ? reconcileState(merged, action.document, action.revision) : merged, action.passId, {
         status: "running",
         progress: readProgress(action.record) ?? pass.progress,
         replaceOnResult: pass.replaceOnResult && !replaces ? true : undefined
@@ -318,7 +547,7 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
       const stepId = PASS_STEP_ID[action.passId];
       const replaces = selectPassState(state, action.passId).replaceOnResult === true;
       const items = stepId
-        ? mergeIncomingReviewItems({
+        ? mergeIncoming({
             current: replaces ? clearReviewItemsForReplaceRun(state.items, stepId) : state.items,
             incoming: action.items.map((item) => ({ ...item, stepId, stepRunId: action.stepRunId })),
             document: action.document,
@@ -327,7 +556,7 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
           })
         : state.items;
 
-      return withPass(settleItems({ ...state, items, activeRun: null }), action.passId, {
+      return withPass(reconcileState({ ...state, items, activeRun: null }, action.document, action.revision), action.passId, {
         status: "done",
         warnings: action.warnings && action.warnings.length > 0 ? action.warnings : undefined,
         lastRunItemCount: action.items.length
@@ -337,7 +566,12 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
     case "run/failed":
       // Items that streamed in before the failure are real model output and stay in the queue; a rerun that
       // delivered nothing leaves the earlier cards untouched.
-      return withPass({ ...state, activeRun: null }, action.passId, { status: "failed", error: action.message });
+      // A pass that could not even start (empty text) must not stay in the launch queue either.
+      return withPass(
+        { ...state, activeRun: null, queue: state.queue.filter((passId) => passId !== action.passId) },
+        action.passId,
+        { status: "failed", error: action.message }
+      );
 
     case "run/stopped":
       return withPass({ ...state, activeRun: null }, action.passId, { status: "idle", stopped: true });
@@ -413,7 +647,8 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
         };
       }
 
-      return {
+      // An item that still carries a drawable draft (a callout whose regeneration failed) is ready again.
+      return settleItems({
         ...state,
         items: state.items.map((entry) =>
           entry.id === action.itemId && isOpenItem(entry)
@@ -421,26 +656,191 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
             : entry
         ),
         proposals: { ...state.proposals, [action.itemId]: { status: "failed", message: action.message } }
-      };
+      });
     }
 
-    case "item/accepted": {
+    case "draft/ready": {
       const item = state.items.find((entry) => entry.id === action.itemId);
+      const pending = state.proposals[action.itemId];
 
-      if (!item || !isOpenItem(item)) {
+      if (pending?.status !== "preparing") {
         return state;
       }
 
-      const applied = state.proposals[item.id];
+      const settled = { ...state, proposals: omitKey(state.proposals, action.itemId) };
 
-      return decide(state, item, {
-        itemId: item.id,
-        passId: getItemPassId(item),
-        outcome: "accepted",
-        at: action.at,
-        appliedFingerprint: action.appliedFingerprint,
-        proposal: applied?.status === "ready" ? applied.proposal : undefined
+      if (!item || !isOpenItem(item) || item.status === "stale") {
+        return settleItems(settled);
+      }
+
+      const { calloutDraft, subsectionDraft } = action.proposal;
+      let next: V2ReviewItem | null = null;
+
+      if (action.proposal.kind === "callout_prompt" && calloutDraft) {
+        const calloutDepth = normalizeEditorialCalloutDepth(calloutDraft.calloutDepth);
+        next = {
+          ...item,
+          calloutKind: calloutDraft.calloutKind,
+          calloutDepth,
+          calloutPrepared: true,
+          calloutDraft: {
+            calloutKind: calloutDraft.calloutKind,
+            calloutDepth,
+            title: calloutDraft.title,
+            prompt: calloutDraft.prompt,
+            previewText: calloutDraft.previewText ?? ""
+          }
+        };
+      } else if (action.proposal.kind === "subsection_prompt" && subsectionDraft) {
+        next = {
+          ...item,
+          headingLevel: subsectionDraft.headingLevel,
+          subsectionDraft: { title: subsectionDraft.title, headingLevel: subsectionDraft.headingLevel, prompt: subsectionDraft.prompt }
+        };
+      }
+
+      if (!next) {
+        return settleItems(settled);
+      }
+
+      const updated = next;
+
+      return settleItems({
+        ...settled,
+        items: state.items.map((entry) => (entry.id === action.itemId ? updated : entry)),
+        instructions: omitKey(state.instructions, action.itemId)
       });
+    }
+
+    case "item/accepted":
+      return accept(state, action, action.at);
+
+    case "items/accepted":
+      return action.entries.reduce((current, entry) => accept(current, entry, action.at), state);
+
+    case "item/headingEdited": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+      const draft = item ? getHeadingDraft(item) : null;
+
+      if (!item || !isOpenItem(item) || getItemKind(item) !== "heading") {
+        return state;
+      }
+
+      const headingLevel = action.headingLevel ?? draft?.headingLevel ?? 3;
+
+      // An emptied title is kept as typed: the suggestion then has nothing to insert until a title is back.
+      return settleItems({
+        ...state,
+        items: state.items.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                headingLevel,
+                subsectionDraft: {
+                  ...entry.subsectionDraft,
+                  title: action.title ?? entry.subsectionDraft?.title ?? "",
+                  headingLevel,
+                  prompt: entry.subsectionDraft?.prompt ?? ""
+                }
+              }
+            : entry
+        )
+      });
+    }
+
+    case "item/calloutOptions": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+
+      if (!item || !isOpenItem(item) || getItemKind(item) !== "callout" || state.proposals[item.id]?.status === "preparing") {
+        return state;
+      }
+
+      const calloutKind = action.calloutKind ?? item.calloutDraft?.calloutKind ?? item.calloutKind ?? "mechanism";
+      const calloutDepth = normalizeEditorialCalloutDepth(action.calloutDepth ?? item.calloutDraft?.calloutDepth ?? item.calloutDepth);
+
+      if (calloutKind === (item.calloutDraft?.calloutKind ?? item.calloutKind) && calloutDepth === (item.calloutDraft?.calloutDepth ?? item.calloutDepth)) {
+        return state;
+      }
+
+      // The draft was written for another kind or depth: it must not stay on screen as if it matched.
+      return settleItems({
+        ...state,
+        items: state.items.map((entry) =>
+          entry.id === item.id ? { ...entry, calloutKind, calloutDepth, calloutDraft: undefined, calloutPrepared: undefined } : entry
+        ),
+        proposals: omitKey(state.proposals, item.id)
+      });
+    }
+
+    case "spell/choice": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+
+      if (!item?.spell || !isOpenItem(item) || action.choice < 0 || action.choice >= item.spell.suggestions.length) {
+        return state;
+      }
+
+      const spell = { ...item.spell, choice: action.choice };
+      return { ...state, items: state.items.map((entry) => (entry.id === item.id ? { ...entry, spell } : entry)) };
+    }
+
+    case "spell/requested":
+      return withPass(state, "spell", { status: "running" });
+
+    case "spell/completed": {
+      // Findings the editor chose to leave as they are do not come back on a rerun.
+      const ignored = new Set(
+        state.items.filter((item) => item.spell && item.status === "dismissed").map((item) => getSpellKey(item))
+      );
+      const kept = state.items.filter((item) => !(item.spell && isOpenItem(item)));
+      const taken = new Set(kept.map((item) => item.id));
+      const incoming = action.items.filter((item) => item.spell && !ignored.has(getSpellKey(item)) && !taken.has(item.id));
+      const items = sortItems([...kept, ...incoming], action.document);
+
+      return withPass(reconcileState({ ...state, items }, action.document, action.revision), "spell", {
+        status: "done",
+        warnings: action.warnings && action.warnings.length > 0 ? action.warnings : undefined,
+        lastRunItemCount: incoming.length
+      });
+    }
+
+    case "spell/failed":
+      return withPass(state, "spell", { status: "failed", error: action.message });
+
+    case "spell/stopped":
+      return withPass(state, "spell", { status: "idle", stopped: true });
+
+    case "spell/removed": {
+      const remove = new Set(action.itemIds);
+      const items = state.items.filter((item) => !(item.spell && isOpenItem(item) && remove.has(item.id)));
+      return items.length === state.items.length ? state : settleItems({ ...state, items });
+    }
+
+    case "queue/set":
+      return {
+        ...state,
+        queuePaused: false,
+        queue: action.passIds.filter((passId, index, list) => PASS_STEP_ID[passId] && list.indexOf(passId) === index)
+      };
+
+    case "queue/resumed":
+      return state.queuePaused ? { ...state, queuePaused: false } : state;
+
+    case "queue/removed":
+      return state.queue.includes(action.passId) ? { ...state, queue: state.queue.filter((passId) => passId !== action.passId) } : state;
+
+    case "queue/cleared":
+      return state.queue.length > 0 || state.queuePaused ? { ...state, queue: [], queuePaused: false } : state;
+
+    case "focus/moved": {
+      const queue = selectQueue(state);
+
+      if (queue.length === 0) {
+        return state;
+      }
+
+      const index = queue.findIndex((item) => item.id === state.focusId);
+      const next = index < 0 ? (action.delta > 0 ? 0 : queue.length - 1) : (index + action.delta + queue.length) % queue.length;
+      return queue[next]!.id === state.focusId ? state : { ...state, focusId: queue[next]!.id };
     }
 
     case "item/rejected": {
@@ -450,17 +850,53 @@ export function reviewReducer(state: V2ReviewState, action: V2ReviewAction): V2R
         return state;
       }
 
-      const idea = buildRejectedIdea(item);
+      // A spelling finding is not an idea of the model; it must not travel to later review runs.
+      const idea = item.spell ? null : buildRejectedIdea(item);
       const rejectedIdeas =
         idea && !state.rejectedIdeas.some((entry) => getRejectedIdeaKey(entry) === getRejectedIdeaKey(idea))
           ? normalizeRejectedReviewIdeas([...state.rejectedIdeas, idea])
           : state.rejectedIdeas;
 
+      const previous = state.proposals[item.id];
+      const kept =
+        previous?.status === "ready"
+          ? { proposal: previous.proposal, noOpStreak: previous.noOpStreak }
+          : previous?.status === "preparing"
+            ? previous.previous
+            : undefined;
+
       return decide({ ...state, rejectedIdeas }, item, {
         itemId: item.id,
         passId: getItemPassId(item),
         outcome: "rejected",
-        at: action.at
+        at: action.at,
+        restore: {
+          status: item.status === "preparing" ? "pending" : item.status,
+          ...(kept ? { proposal: kept } : {}),
+          addedIdea: rejectedIdeas !== state.rejectedIdeas
+        }
+      });
+    }
+
+    case "item/restored": {
+      const item = state.items.find((entry) => entry.id === action.itemId);
+      const decision = state.decisions.find((entry) => entry.itemId === action.itemId);
+
+      if (!item || item.status !== "dismissed" || decision?.outcome !== "rejected" || !decision.restore) {
+        return state;
+      }
+
+      const { restore } = decision;
+      const idea = restore.addedIdea ? buildRejectedIdea(item) : null;
+
+      return settleItems({
+        ...state,
+        items: state.items.map((entry) => (entry.id === item.id ? { ...entry, status: restore.status } : entry)),
+        proposals: restore.proposal ? { ...state.proposals, [item.id]: { status: "ready", ...restore.proposal } } : state.proposals,
+        decisions: state.decisions.filter((entry) => entry.itemId !== item.id),
+        rejectedIdeas: idea ? state.rejectedIdeas.filter((entry) => getRejectedIdeaKey(entry) !== getRejectedIdeaKey(idea)) : state.rejectedIdeas,
+        // Back in view, it is the current item again.
+        focusId: state.filter === "all" || getItemPassId(item) === state.filter ? item.id : state.focusId
       });
     }
 
@@ -544,7 +980,8 @@ function restorePrevious(
  *
  * - a stale item cannot have a request in flight (the answer would be for text that is gone) and points at
  *   no active proposal; a proposal that was ready is kept, for the case the text comes back;
- * - an item is `ready` exactly when it is not stale and a ready proposal exists for it;
+ * - an item is `ready` exactly when it is not stale and its result exists: a ready proposal, or a result the
+ *   item carries itself (heading title, accent phrase, callout draft, spelling finding);
  * - proposals, instructions, focus and hover of items no longer in the queue are dropped.
  */
 function settleItems(state: V2ReviewState): V2ReviewState {
@@ -570,14 +1007,17 @@ function settleItems(state: V2ReviewState): V2ReviewState {
       return item;
     }
 
-    if (item.status === "ready" && entry?.status !== "ready" && entry?.status !== "preparing") {
+    // Headings, accents, callout drafts and spelling findings carry their result themselves.
+    const local = hasLocalResult(item);
+
+    if (item.status === "ready" && entry?.status !== "ready" && entry?.status !== "preparing" && !local) {
       changed = true;
       return { ...item, status: "pending" as const, activeProposalId: undefined };
     }
 
-    if (item.status === "pending" && entry?.status === "ready") {
+    if (item.status === "pending" && (entry?.status === "ready" || local)) {
       changed = true;
-      return { ...item, status: "ready" as const, activeProposalId: entry.proposal.id };
+      return { ...item, status: "ready" as const, activeProposalId: entry?.status === "ready" ? entry.proposal.id : undefined };
     }
 
     return item;
@@ -610,7 +1050,53 @@ function dropOrphans(state: V2ReviewState): V2ReviewState {
   return { ...state, proposals, instructions, focusId, hoverId };
 }
 
-function decide(state: V2ReviewState, item: EditorialReviewItem, decision: V2Decision): V2ReviewState {
+function accept(state: V2ReviewState, change: V2AppliedChange, at: string): V2ReviewState {
+  const item = state.items.find((entry) => entry.id === change.itemId);
+
+  if (!item || !isOpenItem(item)) {
+    return state;
+  }
+
+  const applied = state.proposals[item.id];
+
+  return decide(state, item, {
+    itemId: item.id,
+    passId: getItemPassId(item),
+    outcome: "accepted",
+    at,
+    appliedFingerprint: change.appliedFingerprint,
+    proposal: applied?.status === "ready" ? applied.proposal : undefined,
+    ...(change.appliedBlockIds ? { appliedBlockIds: change.appliedBlockIds } : {}),
+    ...(change.insertedBlockIds ? { insertedBlockIds: change.insertedBlockIds } : {})
+  });
+}
+
+/** Only the most recent accepted decisions keep their proposal: it is there for undo, not as an archive. */
+function pruneDecisionProposals(decisions: V2Decision[]): V2Decision[] {
+  let kept = 0;
+  let changed = false;
+  const result = decisions.slice();
+
+  for (let index = result.length - 1; index >= 0; index -= 1) {
+    const decision = result[index]!;
+
+    if (!decision.proposal) {
+      continue;
+    }
+
+    kept += 1;
+
+    if (kept > DECISION_PROPOSALS_KEPT) {
+      const { proposal: _dropped, ...rest } = decision;
+      result[index] = rest;
+      changed = true;
+    }
+  }
+
+  return changed ? result : decisions;
+}
+
+function decide(state: V2ReviewState, item: V2ReviewItem, decision: V2Decision): V2ReviewState {
   const queue = selectQueue(state);
   const index = queue.findIndex((entry) => entry.id === item.id);
   const neighbour = index >= 0 ? queue[index + 1] ?? queue[index - 1] : undefined;
@@ -621,7 +1107,7 @@ function decide(state: V2ReviewState, item: EditorialReviewItem, decision: V2Dec
     items: state.items.map((entry) => (entry.id === item.id ? { ...entry, status, activeProposalId: undefined } : entry)),
     proposals: omitKey(state.proposals, item.id),
     instructions: omitKey(state.instructions, item.id),
-    decisions: [...state.decisions.filter((entry) => entry.itemId !== item.id), decision],
+    decisions: pruneDecisionProposals([...state.decisions.filter((entry) => entry.itemId !== item.id), decision]),
     focusId: state.focusId === item.id ? neighbour?.id ?? null : state.focusId,
     hoverId: state.hoverId === item.id ? null : state.hoverId
   };
@@ -630,14 +1116,21 @@ function decide(state: V2ReviewState, item: EditorialReviewItem, decision: V2Dec
 /**
  * Checks every item against the current text.
  *
- * - An open item whose anchored blocks changed or disappeared becomes stale (`reconcileReviewItemsWithRevision`).
- *   Its prepared proposal cannot be applied while it is stale, but is kept.
- * - A stale item whose anchor reads exactly as before again (the edit was undone) is open again: ready when
- *   its proposal is still there, pending otherwise.
- * - An accepted item whose anchor is back to the original text (the acceptance was undone) is open again,
- *   with the proposal it had; when the applied text returns (redo), it is accepted again.
+ * Suggestions that rewrite blocks (and callouts, whose draft was written for the anchored text):
+ * - an open item whose anchored blocks changed or disappeared becomes stale (`reconcileReviewItemsWithRevision`);
+ *   its prepared proposal cannot be applied while it is stale, but is kept;
+ * - a stale item whose anchor reads exactly as before again (the edit was undone) is open again;
+ * - an accepted item whose anchor is back to the original text (the acceptance was undone) is open again,
+ *   with the proposal it had; when the applied blocks return (redo), it is accepted again.
+ *
+ * Suggestions tied to an exact place rather than to the whole block survive edits elsewhere in it:
+ * - an accent stays while its phrase is there and not bold yet; its acceptance is recognised by the bold;
+ * - a spelling finding is moved with its word (`rebaseSpellRange`) or goes stale when the word was touched;
+ * - a heading stays while the block it goes before exists; headings and callouts recognise their undo and
+ *   redo by the block they inserted.
  */
 function reconcileState(state: V2ReviewState, document: EditorDocument, revision: ManuscriptRevisionState): V2ReviewState {
+  const blocks = new Map<string, Block>(document.blocks.map((block) => [block.id, block]));
   const decisionByItem = new Map(state.decisions.map((decision) => [decision.itemId, decision]));
   let decisions = state.decisions;
   let proposals = state.proposals;
@@ -647,13 +1140,171 @@ function reconcileState(state: V2ReviewState, document: EditorDocument, revision
     decisions = decisions.map((decision) => (decision.itemId === itemId ? { ...decision, ...patch } : decision));
   };
 
-  const revived = state.items.map((item) => {
+  /** The acceptance was taken back: the item is open again, with the proposal it had. */
+  const reopen = (item: V2ReviewItem, decision: V2Decision): V2ReviewItem => {
+    changed = true;
+    setDecision(item.id, { undone: true });
+
+    if (decision.proposal) {
+      proposals = { ...proposals, [item.id]: { status: "ready", proposal: decision.proposal, noOpStreak: 0 } };
+      return { ...item, status: "ready", activeProposalId: decision.proposal.id };
+    }
+
+    return { ...item, status: "pending" };
+  };
+
+  /** The undone acceptance is in the manuscript again (redo). */
+  const reapply = (item: V2ReviewItem): V2ReviewItem => {
+    changed = true;
+    setDecision(item.id, { undone: false });
+    proposals = omitKey(proposals, item.id);
+    return { ...item, status: "applied", activeProposalId: undefined };
+  };
+
+  const makeStale = (item: V2ReviewItem): V2ReviewItem => {
+    if (item.status === "stale") {
+      return item;
+    }
+
+    changed = true;
+    return { ...item, status: "stale" };
+  };
+
+  /** Keeps an open item open: a stale one is revived, and its anchor is re-read from the current text. */
+  const keepOpen = (item: V2ReviewItem): V2ReviewItem => {
+    const fingerprint = computeAnchorFingerprint(document, item.anchor.blockIds);
+
+    if (item.status !== "stale" && fingerprint === item.anchor.fingerprint) {
+      return item;
+    }
+
+    changed = true;
+    return {
+      ...item,
+      status: item.status === "stale" ? "pending" : item.status,
+      anchor: { ...item.anchor, fingerprint }
+    };
+  };
+
+  const revived = state.items.map((item): V2ReviewItem => {
+    const kind = getItemKind(item);
+    const decision = decisionByItem.get(item.id);
+    const accepted = decision?.outcome === "accepted" ? decision : undefined;
+    const open = isOpenItem(item);
+
+    if (kind === "accent" || kind === "spell") {
+      const content = getTextBlockContent(blocks.get(item.anchor.blockIds[0] ?? ""));
+
+      if (!content || item.anchor.blockIds.length !== 1) {
+        return open ? makeStale(item) : item;
+      }
+
+      const text = getInlineText(content);
+
+      if (kind === "accent") {
+        const range = resolveAccentRange(text, item);
+        const bold = range ? isInlineRangeBold(content, range.start, range.end) : false;
+
+        if (item.status === "applied") {
+          // Judged by what was applied, not by re-counting occurrences: the same phrase typed earlier in the
+          // paragraph shifts the count, while the accepted words are still bold where they were.
+          return accepted && !accepted.undone && range && !bold && !hasBoldOccurrence(content, getAccentPhrase(item))
+            ? reopen(item, accepted)
+            : item;
+        }
+
+        if (!open) {
+          return item;
+        }
+
+        if (accepted?.undone && range && bold) {
+          return reapply(item);
+        }
+
+        // Gone, or bold already by the editor's own hand: there is nothing left to accept.
+        return range && !bold ? keepOpen(item) : makeStale(item);
+      }
+
+      const spell = item.spell!;
+
+      if (item.status === "applied") {
+        return accepted && !accepted.undone && text === spell.blockText ? reopen(item, accepted) : item;
+      }
+
+      if (!open) {
+        return item;
+      }
+
+      if (accepted?.undone && computeAnchorFingerprint(document, item.anchor.blockIds) === accepted.appliedFingerprint) {
+        return reapply(item);
+      }
+
+      const rebased = rebaseSpellRange(spell, text);
+
+      if (!rebased) {
+        return makeStale(item);
+      }
+
+      if (rebased !== spell) {
+        changed = true;
+      }
+
+      return keepOpen(rebased === spell ? item : { ...item, spell: rebased });
+    }
+
+    if (kind === "heading" || kind === "callout") {
+      const inserted = accepted?.insertedBlockIds ?? [];
+
+      if (item.status === "applied") {
+        return accepted && !accepted.undone && inserted.length > 0 && inserted.every((blockId) => !blocks.has(blockId))
+          ? reopen(item, accepted)
+          : item;
+      }
+
+      if (open && accepted?.undone && inserted.length > 0 && inserted.every((blockId) => blocks.has(blockId))) {
+        return reapply(item);
+      }
+
+      if (kind === "heading") {
+        if (!open) {
+          return item;
+        }
+
+        return areParagraphIdsResolvable(revision, item.anchor.blockIds) && blocks.has(item.insertionPoint.anchorBlockId)
+          ? keepOpen(item)
+          : makeStale(item);
+      }
+    }
+
+    if (accepted?.undone && open) {
+      // Redo. A replacement may leave fewer (or more) blocks than the anchor had, so the applied blocks are
+      // looked up by their own ids, and the anchored blocks the replacement removed must be gone again.
+      const appliedIds = accepted.appliedBlockIds ?? item.anchor.blockIds;
+      const removed = item.anchor.blockIds.filter((blockId) => !appliedIds.includes(blockId));
+
+      if (
+        accepted.appliedFingerprint !== undefined &&
+        areParagraphIdsResolvable(revision, appliedIds) &&
+        removed.every((blockId) => !blocks.has(blockId)) &&
+        computeAnchorFingerprint(document, appliedIds) === accepted.appliedFingerprint &&
+        (appliedIds.length !== item.anchor.blockIds.length || accepted.appliedFingerprint !== item.anchor.fingerprint)
+      ) {
+        return reapply(item);
+      }
+    }
+
     if (!areParagraphIdsResolvable(revision, item.anchor.blockIds)) {
       return item;
     }
 
     const fingerprint = computeAnchorFingerprint(document, item.anchor.blockIds);
-    const decision = decisionByItem.get(item.id);
+    // A rewrite replaces its anchored blocks as one run. With something between them now (a heading or a
+    // callout inserted, a paragraph typed) it could only fail on accept, so it is stale and can be prepared anew.
+    const torn = kind === "replace" && open && !isAnchorContiguous(revision.blockOrder, item.anchor.blockIds);
+
+    if (torn) {
+      return makeStale(item);
+    }
 
     if (item.status === "stale" && fingerprint === item.anchor.fingerprint) {
       changed = true;
@@ -661,34 +1312,15 @@ function reconcileState(state: V2ReviewState, document: EditorDocument, revision
     }
 
     if (
+      kind !== "callout" &&
       item.status === "applied" &&
-      decision?.outcome === "accepted" &&
-      !decision.undone &&
-      decision.appliedFingerprint !== undefined &&
-      decision.appliedFingerprint !== item.anchor.fingerprint &&
+      accepted &&
+      !accepted.undone &&
+      accepted.appliedFingerprint !== undefined &&
+      accepted.appliedFingerprint !== item.anchor.fingerprint &&
       fingerprint === item.anchor.fingerprint
     ) {
-      changed = true;
-      setDecision(item.id, { undone: true });
-
-      if (decision.proposal) {
-        proposals = { ...proposals, [item.id]: { status: "ready", proposal: decision.proposal, noOpStreak: 0 } };
-        return { ...item, status: "ready" as const, activeProposalId: decision.proposal.id };
-      }
-
-      return { ...item, status: "pending" as const };
-    }
-
-    if (
-      decision?.outcome === "accepted" &&
-      decision.undone &&
-      isOpenItem(item) &&
-      fingerprint === decision.appliedFingerprint
-    ) {
-      changed = true;
-      setDecision(item.id, { undone: false });
-      proposals = omitKey(proposals, item.id);
-      return { ...item, status: "applied" as const, activeProposalId: undefined };
+      return reopen(item, accepted);
     }
 
     return item;
@@ -696,7 +1328,7 @@ function reconcileState(state: V2ReviewState, document: EditorDocument, revision
 
   // `reconcileReviewItemsWithRevision` returns a fresh object for every stale item, also for one that already
   // was stale, so a change is detected by status and untouched items keep their identity.
-  const items = reconcileReviewItemsWithRevision(revived, document, revision).map((item, index) => {
+  const items = (reconcileReviewItemsWithRevision(revived, document, revision) as V2ReviewItem[]).map((item, index) => {
     const before = revived[index]!;
 
     if (item.status === before.status) {
@@ -709,6 +1341,80 @@ function reconcileState(state: V2ReviewState, document: EditorDocument, revision
   });
 
   return settleItems(changed ? { ...state, items, proposals, decisions } : state);
+}
+
+/* ---------- order and merging ---------- */
+
+const KIND_ORDER: Record<string, number> = { heading: 0, replace: 1, accent: 2, spell: 2, callout: 3, visual: 4 };
+
+/** Manuscript order: by block, then by what comes first inside it (a heading goes before, a callout after). */
+function sortItems(items: V2ReviewItem[], document: EditorDocument): V2ReviewItem[] {
+  const blockIndex = new Map(document.blocks.map((block, index) => [block.id, index]));
+  const text = new Map<string, string>();
+  const keys = new Map<string, [number, number, number]>();
+
+  for (const item of items) {
+    const kind = getItemKind(item);
+    const blockId = (kind === "heading" ? item.insertionPoint.anchorBlockId : item.anchor.blockIds[0]) ?? "";
+    let offset = 0;
+
+    if (kind === "spell") {
+      offset = item.spell!.range.start;
+    } else if (kind === "accent") {
+      if (!text.has(blockId)) {
+        const content = getTextBlockContent(document.blocks[blockIndex.get(blockId) ?? -1]);
+        text.set(blockId, content ? getInlineText(content) : "");
+      }
+
+      offset = resolveAccentRange(text.get(blockId) ?? "", item)?.start ?? 0;
+    }
+
+    keys.set(item.id, [blockIndex.get(blockId) ?? Number.MAX_SAFE_INTEGER, KIND_ORDER[kind] ?? 1, offset]);
+  }
+
+  return items.slice().sort((left, right) => {
+    const a = keys.get(left.id)!;
+    const b = keys.get(right.id)!;
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || left.id.localeCompare(right.id);
+  });
+}
+
+function accentMergeKey(item: V2ReviewItem): string {
+  return `${item.anchor.blockIds.join("|")}:${item.emphasisTarget?.text ?? ""}:${item.emphasisTarget?.occurrence ?? 1}`;
+}
+
+/**
+ * Adds the items a run delivered to the queue. The classic merge keeps one item per recommendation type and
+ * anchor, which would drop every accent in a paragraph but the first; accents are told apart by their phrase.
+ */
+function mergeIncoming(input: {
+  current: V2ReviewItem[];
+  incoming: EditorialReviewItem[];
+  document: EditorDocument;
+  revision: ManuscriptRevisionState;
+  stepId: EditorialReviewStepId;
+}): V2ReviewItem[] {
+  if (input.stepId !== "emphasis") {
+    return sortItems(mergeIncomingReviewItems(input) as V2ReviewItem[], input.document);
+  }
+
+  const seenIds = new Set(input.current.map((item) => item.id));
+  const seenKeys = new Set(input.current.filter((item) => item.stepId === input.stepId).map(accentMergeKey));
+  const additions = input.incoming
+    .map((item): V2ReviewItem => ({ ...item, stepId: input.stepId }))
+    .filter((item) => {
+      const key = accentMergeKey(item);
+
+      if (seenIds.has(item.id) || seenKeys.has(key)) {
+        return false;
+      }
+
+      seenIds.add(item.id);
+      seenKeys.add(key);
+      return true;
+    });
+
+  return sortItems([...input.current, ...additions], input.document);
 }
 
 /* ---------- persistence ---------- */
@@ -732,16 +1438,28 @@ export function serializeReviewState(state: V2ReviewState): V2PersistedReview {
     passes[passId] = pass.status === "running" && !state.activeRun ? { status: "idle" } : pass;
   }
 
+  const failed: Record<string, string> = {};
+
+  for (const [itemId, proposal] of Object.entries(state.proposals)) {
+    if (proposal.status === "failed") {
+      failed[itemId] = proposal.message;
+    }
+  }
+
   return {
+    failed,
     passes,
     // A request in flight does not survive a reload; the item is simply pending again.
     items: state.items.map((item) => (item.status === "preparing" ? { ...item, status: "pending" } : item)),
     proposals,
-    decisions: state.decisions,
+    // What a decision keeps for undo (its proposal, what a rejection replaced) does not survive a reload.
+    decisions: state.decisions.map(({ proposal: _proposal, restore: _restore, ...decision }) => decision),
     rejectedIdeas: state.rejectedIdeas,
     activeRun: state.activeRun,
     filter: state.filter,
-    quiet: state.quiet
+    // Quiet mode spends model calls on its own, so it is never switched on by a reload.
+    quiet: false,
+    queue: state.queue
   };
 }
 
@@ -753,6 +1471,9 @@ function restoreReviewState(persisted: V2PersistedReview): V2ReviewState {
 
     if (proposal && isOpenItem(item)) {
       proposals[item.id] = { status: "ready", proposal, noOpStreak: proposal.textDiff?.warning?.code === "no_op" ? 1 : 0 };
+    } else if (persisted.failed?.[item.id] && isOpenItem(item)) {
+      // Still failed after a reload: it is retried by the editor, never on its own.
+      proposals[item.id] = { status: "failed", message: persisted.failed[item.id]! };
     }
   }
 
@@ -766,7 +1487,10 @@ function restoreReviewState(persisted: V2PersistedReview): V2ReviewState {
     rejectedIdeas: persisted.rejectedIdeas,
     activeRun: persisted.activeRun,
     filter: persisted.filter,
-    quiet: persisted.quiet
+    quiet: false,
+    queue: persisted.queue ?? [],
+    // Whatever waited in the launch queue waits for the editor now.
+    queuePaused: (persisted.queue ?? []).length > 0
   });
 }
 
@@ -837,8 +1561,9 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
       outcome: entry.outcome,
       at: typeof entry.at === "string" ? entry.at : "",
       ...(typeof entry.appliedFingerprint === "string" ? { appliedFingerprint: entry.appliedFingerprint } : {}),
-      ...(isStoredTextDiffProposal(entry.proposal) ? { proposal: entry.proposal } : {}),
-      ...(entry.undone === true ? { undone: true } : {})
+      ...(entry.undone === true ? { undone: true } : {}),
+      ...(isStringList(entry.appliedBlockIds) ? { appliedBlockIds: entry.appliedBlockIds } : {}),
+      ...(isStringList(entry.insertedBlockIds) ? { insertedBlockIds: entry.insertedBlockIds } : {})
     }));
   const activeRun = coerceActiveRun(record.activeRun);
 
@@ -851,7 +1576,21 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
     }
   }
 
+  const failed: Record<string, string> = {};
+
+  if (record.failed && typeof record.failed === "object") {
+    for (const [itemId, message] of Object.entries(record.failed as Record<string, unknown>)) {
+      if (itemIds.has(itemId) && typeof message === "string" && message) {
+        failed[itemId] = message;
+      }
+    }
+  }
+
   const filter = record.filter === "all" || PASS_IDS.includes(record.filter as V2PassId) ? (record.filter as V2ReviewFilter) : "all";
+  const queue = (Array.isArray(record.queue) ? record.queue : []).filter(
+    (passId, index, list): passId is V2PassId =>
+      PASS_IDS.includes(passId as V2PassId) && Boolean(PASS_STEP_ID[passId as V2PassId]) && list.indexOf(passId) === index
+  );
 
   return {
     passes,
@@ -861,16 +1600,49 @@ export function coercePersistedReview(value: unknown): V2PersistedReview | null 
     rejectedIdeas: normalizeRejectedReviewIdeas(record.rejectedIdeas),
     activeRun,
     filter,
-    quiet: record.quiet === true
+    quiet: false,
+    queue,
+    failed
   };
 }
 
-function isStoredReviewItem(value: unknown): value is EditorialReviewItem {
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isStoredSpellData(value: unknown): boolean {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const item = value as Partial<EditorialReviewItem>;
+  const spell = value as Partial<NonNullable<V2ReviewItem["spell"]>>;
+  return Boolean(
+    spell.range &&
+      Number.isInteger(spell.range.start) &&
+      Number.isInteger(spell.range.end) &&
+      spell.range.start >= 0 &&
+      spell.range.end > spell.range.start &&
+      typeof spell.badText === "string" &&
+      spell.badText.length === spell.range.end - spell.range.start &&
+      isStringList(spell.suggestions) &&
+      typeof spell.choice === "number" &&
+      typeof spell.blockText === "string" &&
+      typeof spell.occurrence === "number"
+  );
+}
+
+function isStoredReviewItem(value: unknown): value is V2ReviewItem {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const item = value as Partial<V2ReviewItem>;
+
+  // A damaged spelling finding has no range to draw or to fix; it is left out like any unreadable item.
+  if (item.spell !== undefined && !isStoredSpellData(item.spell)) {
+    return false;
+  }
+
   return Boolean(
     typeof item.id === "string" &&
       typeof item.title === "string" &&

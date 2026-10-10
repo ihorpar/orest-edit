@@ -28,9 +28,12 @@ import {
   sanitizeExposedErrorMessage
 } from "../editor/review-run-recovery.ts";
 import { sanitizeEditorSettings, type EditorSettings } from "../editor/settings.ts";
+import type { SpellcheckIssue, SpellcheckRange, SpellcheckResponse } from "../editor/spellcheck-contract.ts";
+import { createSpellcheckBatchChunks, getSpellcheckableBlocks, type SpellcheckBatchChunk } from "../editor/spellcheck-view-model.ts";
 import {
   getEditorSettingsStorageKey,
   getLegacyEditorSettingsStorageKey,
+  getProductLocaleConfig,
   type AppLocale
 } from "../i18n/product-locale.ts";
 
@@ -690,4 +693,171 @@ export async function pollReviewRun(options: PollReviewRunOptions): Promise<Revi
     capability = reply.capability;
     options.onSnapshot({ run, capability, items: reply.items, itemCursor });
   }
+}
+
+/* ---------- spellcheck ---------- */
+
+export const SPELLCHECK_ENDPOINT = "/api/edit/spellcheck";
+
+export interface SpellcheckApiMessages {
+  /** The reply could not be read as a spellcheck result. */
+  invalid: string;
+  /** The request never reached the server. */
+  network: string;
+}
+
+/** One finding, with offsets inside the text of its own block. */
+export interface SpellFinding {
+  blockId: string;
+  /** Text of the block the offsets refer to. */
+  blockText: string;
+  range: SpellcheckRange;
+  badText: string;
+  suggestions: string[];
+  message: string;
+  category: SpellcheckIssue["category"];
+  ruleId: string;
+}
+
+export type SpellcheckReply =
+  | {
+      kind: "ok";
+      findings: SpellFinding[];
+      checkedBlocks: number;
+      /** Messages of the batches the service could not check; the rest of the result is real. */
+      failures: string[];
+    }
+  | { kind: "error"; message: string }
+  | { kind: "aborted" };
+
+/**
+ * Moves the findings of one batch (several blocks joined into one text) back to their blocks. A finding
+ * that does not lie inside a single block, or whose range does not read as a word of that block, is dropped.
+ */
+export function mapSpellcheckIssuesToBlocks(chunk: SpellcheckBatchChunk, issues: SpellcheckIssue[]): SpellFinding[] {
+  const findings: SpellFinding[] = [];
+
+  for (const issue of issues) {
+    const range = issue?.range;
+
+    if (!range || !Number.isInteger(range.start) || !Number.isInteger(range.end) || range.end <= range.start) {
+      continue;
+    }
+
+    const owner = chunk.parts.find((part) => range.start >= part.textStart && range.end <= part.textEnd);
+
+    if (!owner) {
+      continue;
+    }
+
+    const start = range.start - owner.textStart;
+    const end = range.end - owner.textStart;
+    const suggestions = Array.from(
+      new Set(
+        (Array.isArray(issue.suggestions) ? issue.suggestions : [])
+          .map((suggestion) => (typeof suggestion?.value === "string" ? suggestion.value : ""))
+          .filter((value) => value.length > 0)
+      )
+    );
+
+    findings.push({
+      blockId: owner.blockId,
+      blockText: owner.text,
+      range: { start, end },
+      badText: owner.text.slice(start, end),
+      suggestions,
+      message: typeof issue.message === "string" ? issue.message : "",
+      category: issue.category ?? "unknown",
+      ruleId: typeof issue.ruleId === "string" ? issue.ruleId : ""
+    });
+  }
+
+  return findings;
+}
+
+export interface SpellcheckRunInput {
+  document: EditorDocument;
+  locale: AppLocale;
+  signal?: AbortSignal;
+}
+
+/**
+ * Checks every paragraph and heading through `POST /api/edit/spellcheck`, batched into a few requests as in
+ * the classic editor. A batch the service could not check is reported in `failures`; when no batch could be
+ * checked the whole call is an error. Nothing is ever reported as "no mistakes" without an answer.
+ */
+export async function runSpellcheck(
+  input: SpellcheckRunInput,
+  deps: { messages: SpellcheckApiMessages; fetchImpl?: FetchLike }
+): Promise<SpellcheckReply> {
+  const { document, locale } = input;
+  const revision = deriveManuscriptRevisionState(document);
+  const targets = getSpellcheckableBlocks(document, revision, revision.blockOrder);
+  const chunks = createSpellcheckBatchChunks(targets);
+  const doFetch = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  const findings: SpellFinding[] = [];
+  const failures: string[] = [];
+  let checked = 0;
+
+  for (const chunk of chunks) {
+    let status = 0;
+    let text: string;
+
+    try {
+      const response = await doFetch(SPELLCHECK_ENDPOINT, {
+        method: "POST",
+        credentials: "same-origin",
+        signal: input.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          locale,
+          documentRevisionId: revision.documentRevisionId,
+          language: getProductLocaleConfig(locale).spellcheckLanguage,
+          provider: "languagetool_public",
+          trigger: "manual",
+          selection: { blockId: chunk.chunkId, text: chunk.text, range: { start: 0, end: chunk.text.length } }
+        })
+      });
+      status = response.status;
+      text = await response.text();
+    } catch (error) {
+      if (input.signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        return { kind: "aborted" };
+      }
+
+      const detail = error instanceof Error ? error.message.trim() : "";
+      failures.push(detail ? `${deps.messages.network} ${detail}` : deps.messages.network);
+      continue;
+    }
+
+    let payload: Partial<SpellcheckResponse> | null = null;
+
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      payload = parsed && typeof parsed === "object" ? (parsed as Partial<SpellcheckResponse>) : null;
+    } catch {
+      payload = null;
+    }
+
+    const serverError = typeof payload?.error === "string" && payload.error.trim() ? payload.error.trim() : null;
+
+    if (serverError) {
+      failures.push(serverError);
+      continue;
+    }
+
+    if (!payload || !Array.isArray(payload.issues) || status < 200 || status >= 300) {
+      failures.push(withHttpStatus(deps.messages.invalid, status));
+      continue;
+    }
+
+    checked += chunk.parts.length;
+    findings.push(...mapSpellcheckIssuesToBlocks(chunk, payload.issues));
+  }
+
+  if (chunks.length > 0 && checked === 0) {
+    return { kind: "error", message: failures[0] ?? deps.messages.invalid };
+  }
+
+  return { kind: "ok", findings, checkedBlocks: checked, failures };
 }

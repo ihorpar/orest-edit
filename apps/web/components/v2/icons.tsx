@@ -19,6 +19,8 @@ const PATHS = {
   list: <><path d="M9 7h11" /><path d="M9 12h11" /><path d="M9 17h11" /><path d="M4.5 7h.01" /><path d="M4.5 12h.01" /><path d="M4.5 17h.01" /></>,
   orderedList: <><path d="M10 7h10" /><path d="M10 12h10" /><path d="M10 17h10" /><path d="M4 5.5 5.5 5v4" /><path d="M4 14.6c0-1.1 2.5-1.1 2.5.1 0 .9-2.5 1.5-2.5 2.8h2.7" /></>,
   box: <><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M8 10h8" /><path d="M8 14h5" /></>,
+  left: <path d="m14 6-6 6 6 6" />,
+  right: <path d="m10 6 6 6-6 6" />,
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />
 } satisfies Record<string, ReactNode>;
 

@@ -41,6 +41,8 @@ interface ManuscriptEditorProps {
   onReviewItemHover?: (itemId: string | null) => void;
   /** Which prepared changes are visible in the text right now. */
   onReviewDiffReport?: (report: ReviewDiffReport) => void;
+  /** The editor typed over the title of a ghost heading or switched its level. */
+  onReviewHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
 }
 
 const NO_MARKS: ReviewMark[] = [];
@@ -58,10 +60,11 @@ export function ManuscriptEditor({
   reviewMarks = NO_MARKS,
   onReviewItemClick,
   onReviewItemHover,
-  onReviewDiffReport
+  onReviewDiffReport,
+  onReviewHeadingChange
 }: ManuscriptEditorProps) {
-  const callbacks = useRef({ onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport });
-  callbacks.current = { onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport };
+  const callbacks = useRef({ onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport, onReviewHeadingChange });
+  callbacks.current = { onChange, onContentError, onReviewItemClick, onReviewItemHover, onReviewDiffReport, onReviewHeadingChange };
 
   const extensions = useMemo(
     () =>
@@ -73,7 +76,8 @@ export function ManuscriptEditor({
         review: {
           onItemClick: (itemId, onDiff) => callbacks.current.onReviewItemClick?.(itemId, onDiff),
           onItemHover: (itemId) => callbacks.current.onReviewItemHover?.(itemId),
-          onDiffReport: (report) => callbacks.current.onReviewDiffReport?.(report)
+          onDiffReport: (report) => callbacks.current.onReviewDiffReport?.(report),
+          onHeadingChange: (itemId, change) => callbacks.current.onReviewHeadingChange?.(itemId, change)
         }
       }),
     [locale, placeholder, imageMissingLabel]
@@ -118,15 +122,17 @@ export function ManuscriptEditor({
       }
     };
 
-    // The view is attached after the editor object exists.
+    // The view is attached after the editor object exists, and Tiptap builds its state anew when it
+    // attaches, so marks set before that are set again once the editor reports it is ready.
     if (editor.isInitialized) {
       apply();
-      return;
     }
 
     editor.on("mount", apply);
+    editor.on("create", apply);
     return () => {
       editor.off("mount", apply);
+      editor.off("create", apply);
     };
   }, [editor, reviewMarks]);
 

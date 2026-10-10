@@ -31,10 +31,11 @@ import {
   writeV2DraftIfUnchanged
 } from "../../lib/v2/draft-storage";
 import { getActiveBlockKind, insertImage, isMarkActive } from "../../lib/v2/editor-commands";
-import { isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDiffReport } from "../../lib/v2/review-marks";
+import { getReviewDiffReport, isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDiffReport } from "../../lib/v2/review-marks";
 import { isOpenItem } from "../../lib/v2/store";
 import { ensureDocumentBlockIds, tiptapToDocument, V2_MARK } from "../../lib/v2/tiptap-bridge";
 import { useProductLocale } from "../providers/ProductLocaleProvider";
+import { LIVE_PASSES } from "./EditsTab";
 import { FormatToolbar, type ToolbarState } from "./FormatToolbar";
 import { V2Icon } from "./icons";
 import { ManuscriptEditor, type ManuscriptEditorHandle } from "./ManuscriptEditor";
@@ -56,6 +57,7 @@ interface EditorSession {
 interface ToastState {
   tone: "info" | "error";
   message: string;
+  action?: { label: string; run: () => void };
 }
 
 const SAVE_DELAY_MS = 400;
@@ -135,7 +137,12 @@ export function V2Workspace() {
       const liveEditor = liveEditorRef.current;
       return Boolean(liveEditor && !liveEditor.isDestroyed && isReviewDiffDrawn(liveEditor.state, itemId));
     },
-    notify: (tone, message) => setToast({ tone, message })
+    getDrawnIds: () => {
+      const liveEditor = liveEditorRef.current;
+      return liveEditor && !liveEditor.isDestroyed ? getReviewDiffReport(liveEditor.state).drawn : [];
+    },
+    livePasses: LIVE_PASSES,
+    notify: (tone, message, action) => setToast({ tone, message, action })
   });
   const reviewRef = useRef(review);
   reviewRef.current = review;
@@ -271,7 +278,10 @@ export function V2Workspace() {
       reviewRef.current.hydrate(initial.draft.review ?? null, initial.draft.document);
 
       // Work in progress is shown first: a run in flight or suggestions waiting for a decision.
-      if (initial.draft.review && (initial.draft.review.activeRun || initial.draft.review.items.some(isOpenItem))) {
+      if (
+        initial.draft.review &&
+        (initial.draft.review.activeRun || (initial.draft.review.queue ?? []).length > 0 || initial.draft.review.items.some(isOpenItem))
+      ) {
         setTab("edits");
       }
     } catch (error) {
@@ -599,6 +609,69 @@ export function V2Workspace() {
 
     return () => window.cancelAnimationFrame(frame);
   }, [focusId, focusSource, tab]);
+  // Quiet mode is driven from the keyboard, but never while the editor is typing somewhere: in the
+  // manuscript, in a ghost heading, in the refine field, or with a button, link or menu under the keys.
+  const quiet = review.state.quiet;
+  const { confirmFocused, moveFocus, rejectItem } = review;
+
+  useEffect(() => {
+    if (!quiet || tab !== "edits" || !isReady) {
+      return;
+    }
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) {
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target : null;
+
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"]')) {
+        return;
+      }
+
+      // Enter on a focused button or link presses that button.
+      if (event.key === "Enter" && target?.closest("button, a")) {
+        return;
+      }
+
+      const focusedId = reviewRef.current.state.focusId;
+
+      if (!focusedId) {
+        return;
+      }
+
+      // A held key must not decide one suggestion after another: accepting and rejecting take a fresh press.
+      if (event.repeat && (event.key === "Enter" || event.key === "Backspace" || event.key === "Delete")) {
+        event.preventDefault();
+        return;
+      }
+
+      switch (event.key) {
+        case "Enter":
+          event.preventDefault();
+          confirmFocused();
+          break;
+        case "Backspace":
+        case "Delete":
+          event.preventDefault();
+          rejectItem(focusedId);
+          break;
+        case "ArrowRight":
+          event.preventDefault();
+          moveFocus(1);
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          moveFocus(-1);
+          break;
+      }
+    };
+
+    window.document.addEventListener("keydown", handleKey);
+    return () => window.document.removeEventListener("keydown", handleKey);
+  }, [confirmFocused, isReady, moveFocus, quiet, rejectItem, tab]);
+
   const toggleMenu = (id: MenuId) => setMenu((current) => (current === id ? null : id));
 
   return (
@@ -752,12 +825,13 @@ export function V2Workspace() {
                 onReviewItemClick={handleMarkClick}
                 onReviewItemHover={review.hoverItem}
                 onReviewDiffReport={setDiffReport}
+                onReviewHeadingChange={review.editHeading}
               />
             ) : null}
             {!session && !blocked ? <span className={styles.srOnly}>{copy.loading}</span> : null}
           </article>
         </main>
-        <V2Panel copy={copy} tab={tab} onTabChange={setTab} review={review} diffReport={diffReport} document={snapshot} aiDisabled={!isReady} />
+        <V2Panel copy={copy} locale={locale} tab={tab} onTabChange={setTab} review={review} diffReport={diffReport} document={snapshot} aiDisabled={!isReady} />
       </div>
       {blocked === "conflict" ? (
         <div className={styles.notice} role="alert">
@@ -770,6 +844,20 @@ export function V2Workspace() {
       {toast && blocked !== "conflict" ? (
         <div className={`${styles.toast} ${toast.tone === "error" ? styles.toastError : ""}`} role={toast.tone === "error" ? "alert" : "status"}>
           <span>{toast.message}</span>
+          {toast.action ? (
+            <button
+              type="button"
+              data-toast-action
+              onClick={(event) => {
+                // Not left focused: in quiet mode the next Enter belongs to the current suggestion.
+                event.currentTarget.blur();
+                toast.action?.run();
+                setToast(null);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          ) : null}
           <button type="button" onClick={() => setToast(null)}>
             {copy.dismiss}
           </button>

@@ -5,7 +5,13 @@ import type { Command } from "@tiptap/pm/state";
 import { getDocumentTextStats, type EditorDocument } from "../../lib/editor/document-model";
 import type { PersistedActiveReviewRun } from "../../lib/editor/draft-state";
 import { computeAnchorFingerprint, deriveManuscriptRevisionState } from "../../lib/editor/manuscript-structure";
-import type { EditorialReviewResponse, EditorialReviewRunSnapshot, EditorialStepRunMode } from "../../lib/editor/review-contract";
+import type {
+  EditorialCalloutDepth,
+  EditorialCalloutKind,
+  EditorialReviewResponse,
+  EditorialReviewRunSnapshot,
+  EditorialStepRunMode
+} from "../../lib/editor/review-contract";
 import { retainReviewRunProgress } from "../../lib/editor/review-run-merge";
 import {
   createPersistedActiveReviewRun,
@@ -15,7 +21,9 @@ import {
   tryAcquireReviewRunPollLease,
   withReviewRunStartLock
 } from "../../lib/editor/review-run-persistence";
+import { addSpellcheckDictionaryWord, isSpellcheckWordInDictionary, readSpellcheckDictionaryWords } from "../../lib/editor/spellcheck-dictionary";
 import type { AppLocale } from "../../lib/i18n/product-locale";
+import { planAccept, planBulkAccept } from "../../lib/v2/accept-plan";
 import {
   buildProposalRequest,
   buildReviewRunRequest,
@@ -24,24 +32,33 @@ import {
   prepareProposal,
   readEditorSettingsReadOnly,
   refreshItemAnchor,
+  runSpellcheck,
   startReviewRun,
   validateCompletedReviewResult,
   type ReviewApiDeps
 } from "../../lib/v2/api";
 import type { V2Copy } from "../../lib/v2/copy";
-import { replaceAnchoredBlocks, sealHistory } from "../../lib/v2/review-apply";
+import { getItemKind, hasCalloutDraft, needsProposalCall } from "../../lib/v2/item-kinds";
+import { buildItemMarks } from "../../lib/v2/item-marks";
+import { applyReviewEdits, replaceAnchoredBlocks, resolveReplacementBlocks, sealHistory } from "../../lib/v2/review-apply";
 import type { ReviewMark } from "../../lib/v2/review-marks";
+import { buildSpellItems, filterFindingsByDictionary, selectSpellItemsInDictionary } from "../../lib/v2/spell-items";
 import {
+  canAcceptItem,
   canApplyProposal,
+  planQuietPreparation,
+  QUIET_DWELL_MS,
   createInitialReviewState,
-  getItemPassId,
   getPassIdForStep,
   isOpenItem,
   PASS_STEP_ID,
+  planRunAll,
   reviewReducer,
-  selectQueue,
+  selectBulkCandidates,
+  selectNextQueuedPass,
   selectRunningPassId,
   serializeReviewState,
+  shouldPersistAfter,
   type V2PassId,
   type V2PersistedReview,
   type V2ReviewAction,
@@ -51,8 +68,6 @@ import {
 import { diffProposalBlocks, type BlockDiff } from "../../lib/v2/word-diff";
 
 const LEASE_RETRY_MS = 2_000;
-/** Actions that change nothing worth saving. */
-const TRANSIENT_ACTIONS = new Set<V2ReviewAction["type"]>(["focus/set", "hover/set", "instruction/set"]);
 
 export type ReviewFocusSource = "card" | "mark";
 
@@ -69,9 +84,14 @@ interface ReviewEngineOptions {
   requestSave: () => void;
   /** False when the draft must not be written (conflict, unreadable draft); AI actions are off then. */
   canWrite: () => boolean;
-  /** True while the prepared change of this item is visible in the manuscript. */
+  /** True while the result of this item is visible in the manuscript. */
   isDiffDrawn: (itemId: string) => boolean;
-  notify: (tone: "info" | "error", message: string) => void;
+  /** Ids of every item whose result is visible in the manuscript right now. */
+  getDrawnIds: () => string[];
+  /** Passes that can be launched (the rest are shown but not wired yet). */
+  livePasses: ReadonlySet<string>;
+  /** `action` adds one button to the message (taking a rejection back). */
+  notify: (tone: "info" | "error", message: string, action?: { label: string; run: () => void }) => void;
 }
 
 export interface ReviewEngine {
@@ -83,8 +103,31 @@ export interface ReviewEngine {
   hydrate: (persisted: V2PersistedReview | null, document: EditorDocument) => void;
   reset: () => void;
   reconcile: (document: EditorDocument) => void;
-  runPass: (passId: V2PassId) => void;
+  /** Starts a pass (a review run, or spellcheck). False when nothing was started and nothing changed. */
+  runPass: (passId: V2PassId) => boolean;
+  /** Stops the review run in flight. */
   stopRun: () => void;
+  /** Queues every pass that has not run yet; spellcheck starts beside them. */
+  runAll: () => void;
+  /** Empties the launch queue and stops whatever is running. */
+  stopAll: () => void;
+  /** Lets a queue that came from a stored draft go on. */
+  resumeQueue: () => void;
+  /** Empties the launch queue; a run in flight goes on. */
+  clearQueue: () => void;
+  /** Stops this pass if it is running, or takes it out of the launch queue. */
+  stopPass: (passId: V2PassId) => void;
+  /** Accepts every visible result of the filtered pass as one manuscript step. */
+  acceptAll: () => void;
+  editHeading: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
+  /** Changes kind or depth of a callout; a draft written for the old choice is prepared again. */
+  setCalloutOptions: (itemId: string, change: { calloutKind?: EditorialCalloutKind; calloutDepth?: EditorialCalloutDepth }) => void;
+  chooseSuggestion: (itemId: string, choice: number) => void;
+  addToDictionary: (itemId: string) => void;
+  setQuiet: (quiet: boolean) => void;
+  moveFocus: (delta: 1 | -1) => void;
+  /** Enter in quiet mode: accepts the current item when its result is on screen, otherwise asks to see it. */
+  confirmFocused: () => void;
   /** Focuses a suggestion. Never calls the model. */
   focusItem: (itemId: string | null, source?: ReviewFocusSource) => void;
   /** Explicit request to see a suggestion's change: focuses it and prepares the proposal if it has none. */
@@ -118,6 +161,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
   const runTokenRef = useRef<object | null>(null);
   const runAbortRef = useRef<AbortController | null>(null);
   const leaseTimerRef = useRef<number | null>(null);
+  const spellRunRef = useRef<{ token: object; controller: AbortController } | null>(null);
+  /** Items quiet mode asked to prepare on its own and that have not answered yet. */
+  const autoPreparingRef = useRef(new Set<string>());
+  const quietFocusRef = useRef<{ itemId: string | null; since: number | null }>({ itemId: null, since: null });
   const prepareRequestsRef = useRef(new Map<string, number>());
   const prepareCounterRef = useRef(0);
   const diffCacheRef = useRef(new Map<string, BlockDiff[]>());
@@ -138,7 +185,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     stateRef.current = next;
     setState(next);
 
-    if (!TRANSIENT_ACTIONS.has(action.type) && action.type !== "hydrate") {
+    if (shouldPersistAfter(action)) {
       optionsRef.current.requestSave();
     }
   }, []);
@@ -389,9 +436,112 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       if (record) {
         resumeRun(record, document);
       }
+
+      // Words added to the dictionary since the findings were stored (also from the classic editor) go.
+      if (stateRef.current.items.some((item) => item.spell && isOpenItem(item))) {
+        const { locale } = optionsRef.current;
+
+        void readSpellcheckDictionaryWords(locale).then(
+          (words) => {
+            const itemIds = selectSpellItemsInDictionary(stateRef.current.items, words, locale);
+
+            if (itemIds.length > 0) {
+              dispatch({ type: "spell/removed", itemIds });
+            }
+          },
+          (error: unknown) => optionsRef.current.notify("error", describeUnexpected(error, optionsRef.current.copy.edits.dictionaryReadFailed))
+        );
+      }
     },
     [dispatch, resumeRun, stopLocalRun, withContext]
   );
+
+  const stopSpell = useCallback(() => {
+    const run = spellRunRef.current;
+
+    if (!run) {
+      return;
+    }
+
+    spellRunRef.current = null;
+    run.controller.abort();
+    dispatch({ type: "spell/stopped" });
+  }, [dispatch]);
+
+  const runSpell = useCallback((): boolean => {
+    const { locale, copy, saveNow, getDocument, canWrite, notify } = optionsRef.current;
+
+    if (!canWrite()) {
+      notify("error", copy.edits.writeBlocked);
+      return false;
+    }
+
+    if (spellRunRef.current) {
+      return false;
+    }
+
+    const document = saveNow() ?? getDocument();
+
+    if (!document || getDocumentTextStats(document).words === 0) {
+      dispatch({ type: "spell/failed", message: copy.edits.emptyDocument });
+      return true;
+    }
+
+    const run = { token: {}, controller: new AbortController() };
+    spellRunRef.current = run;
+    dispatch({ type: "spell/requested" });
+
+    void (async () => {
+      const isCurrent = () => spellRunRef.current === run;
+
+      try {
+        let words: string[] = [];
+
+        try {
+          words = await readSpellcheckDictionaryWords(locale);
+        } catch (error) {
+          notify("error", describeUnexpected(error, copy.edits.dictionaryReadFailed));
+        }
+
+        const reply = await runSpellcheck(
+          { document, locale, signal: run.controller.signal },
+          { messages: { invalid: copy.api.spellInvalid, network: copy.api.network } }
+        );
+
+        if (!isCurrent() || reply.kind === "aborted") {
+          return;
+        }
+
+        spellRunRef.current = null;
+
+        if (reply.kind === "error") {
+          dispatch({ type: "spell/failed", message: reply.message });
+        } else if (reply.checkedBlocks === 0) {
+          dispatch({ type: "spell/failed", message: copy.edits.spellEmpty });
+        } else {
+          const live = getDocument() ?? document;
+          const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+          dispatch({
+            type: "spell/completed",
+            // Built against the text that was checked; the store then moves each finding to where its word is now.
+            items: buildSpellItems(filterFindingsByDictionary(reply.findings, words, locale), document, runId),
+            warnings: reply.failures,
+            ...withContext(live)
+          });
+        }
+
+        saveNow();
+      } catch (error) {
+        if (isCurrent()) {
+          spellRunRef.current = null;
+          dispatch({ type: "spell/failed", message: describeUnexpected(error, copy.edits.unexpected) });
+        }
+      }
+    })();
+
+    return true;
+  }, [dispatch, withContext]);
 
   const stopRun = useCallback(() => {
     const { locale, copy, notify, saveNow } = optionsRef.current;
@@ -426,6 +576,11 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       void cancelReviewRun({ runId: record.run.runId, capability: record.capability, locale }, apiDeps());
     }
 
+    if (spellRunRef.current) {
+      spellRunRef.current.controller.abort();
+      spellRunRef.current = null;
+    }
+
     prepareRequestsRef.current.clear();
     diffCacheRef.current.clear();
     dispatch({ type: "reset" });
@@ -441,29 +596,34 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
   );
 
   const runPass = useCallback(
-    (passId: V2PassId) => {
+    (passId: V2PassId): boolean => {
       const { locale, copy, saveNow, getDocument, canWrite, notify } = optionsRef.current;
+
+      if (passId === "spell") {
+        return runSpell();
+      }
+
       const stepId = PASS_STEP_ID[passId];
 
       if (!stepId) {
-        return;
+        return false;
       }
 
       if (!canWrite()) {
         notify("error", copy.edits.writeBlocked);
-        return;
+        return false;
       }
 
       if (selectRunningPassId(stateRef.current) || runTokenRef.current) {
         notify("error", copy.edits.anotherRun);
-        return;
+        return false;
       }
 
       const document = saveNow() ?? getDocument();
 
       if (!document || getDocumentTextStats(document).words === 0) {
         dispatch({ type: "run/failed", passId, message: copy.edits.emptyDocument });
-        return;
+        return true;
       }
 
       const runMode: EditorialStepRunMode = "replace";
@@ -536,8 +696,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
           abandonRun(passId, token, error, started);
         }
       })();
+
+      return true;
     },
-    [abandonRun, apiDeps, completeRun, dispatch, driveRun, withContext]
+    [abandonRun, apiDeps, completeRun, dispatch, driveRun, runSpell, withContext]
   );
 
   const prepareItem = useCallback(
@@ -608,16 +770,40 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
           return;
         }
 
-        if (reply.kind === "draft") {
-          dispatch({ type: "proposal/failed", itemId, message: copy.edits.proposalUnsupported });
-          return;
-        }
-
+        const kind = getItemKind(requestItem);
         const live = getDocument();
 
         if (!live || computeAnchorFingerprint(live, requestItem.anchor.blockIds) !== requestItem.anchor.fingerprint) {
           // Edited while the model was answering: the answer is for text that is no longer there.
           dispatch({ type: "proposal/failed", itemId, message: copy.edits.stale, stale: true });
+          return;
+        }
+
+        if (reply.kind === "draft") {
+          const { proposal } = reply;
+
+          if (kind === "callout" && proposal.kind === "callout_prompt" && proposal.calloutDraft) {
+            if (!proposal.calloutDraft.previewText?.trim()) {
+              dispatch({ type: "proposal/failed", itemId, message: copy.edits.calloutEmpty });
+              return;
+            }
+
+            dispatch({ type: "draft/ready", itemId, proposal });
+            return;
+          }
+
+          if (kind === "heading" && proposal.kind === "subsection_prompt" && proposal.subsectionDraft?.title?.trim()) {
+            dispatch({ type: "draft/ready", itemId, proposal });
+            return;
+          }
+
+          dispatch({ type: "proposal/failed", itemId, message: copy.edits.proposalUnsupported });
+          return;
+        }
+
+        if (kind !== "replace") {
+          // A rewrite came back for a suggestion that inserts a block: not something this card can show.
+          dispatch({ type: "proposal/failed", itemId, message: copy.edits.proposalUnsupported });
           return;
         }
 
@@ -649,7 +835,14 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       const item = stateRef.current.items.find((entry) => entry.id === itemId);
 
       // Failed and stale suggestions have their own explicit retry buttons.
-      if (stateRef.current.focusId === itemId && item && item.status === "pending" && !stateRef.current.proposals[itemId]) {
+      if (
+        stateRef.current.focusId === itemId &&
+        item &&
+        item.status === "pending" &&
+        !stateRef.current.proposals[itemId] &&
+        needsProposalCall(item) &&
+        getItemKind(item) !== "visual"
+      ) {
         prepareItem(itemId);
       }
     },
@@ -660,12 +853,60 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
   const acceptItem = useCallback(
     (itemId: string) => {
-      const { copy, getDocument, runCommand, notify, canWrite, isDiffDrawn } = optionsRef.current;
+      const { locale, copy, getDocument, runCommand, notify, canWrite, isDiffDrawn } = optionsRef.current;
       const current = stateRef.current;
       const item = current.items.find((entry) => entry.id === itemId);
+
+      if (!item || !canWrite()) {
+        return;
+      }
+
+      if (getItemKind(item) !== "replace") {
+        if (!canAcceptItem(current, itemId)) {
+          return;
+        }
+
+        // Diff-first: the heading, callout, accent or spelling fix must be on screen at this very moment.
+        if (!isDiffDrawn(itemId)) {
+          notify("error", copy.edits.notDrawn);
+          return;
+        }
+
+        const before = getDocument();
+        const plan = before ? planAccept(item, before, { locale }) : null;
+
+        if (!before || !plan || !runCommand(applyReviewEdits([plan.edit]))) {
+          if (before) {
+            dispatch({ type: "items/reconciled", ...withContext(before) });
+          }
+
+          notify("error", copy.edits.applyFailed);
+          return;
+        }
+
+        runCommand(sealHistory);
+
+        const after = getDocument();
+        dispatch({
+          type: "item/accepted",
+          itemId,
+          appliedFingerprint: after ? computeAnchorFingerprint(after, item.anchor.blockIds) : "",
+          insertedBlockIds: plan.insertedBlockIds,
+          at: new Date().toISOString()
+        });
+
+        if (after) {
+          // Other suggestions in the same block are re-read at once, not on the next save.
+          dispatch({ type: "items/reconciled", ...withContext(after) });
+        }
+
+        notify("info", copy.edits.accepted);
+        return;
+      }
+
       const proposal = current.proposals[itemId];
 
-      if (!item || !canApplyProposal(current, itemId) || proposal?.status !== "ready" || !proposal.proposal.textDiff || !canWrite()) {
+      if (!canApplyProposal(current, itemId) || proposal?.status !== "ready" || !proposal.proposal.textDiff) {
         return;
       }
 
@@ -687,7 +928,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         return;
       }
 
-      if (!runCommand(replaceAnchoredBlocks(blockIds, newBlocks))) {
+      // Ids are settled here, so the decision knows exactly which blocks stand in the text afterwards.
+      const resolved = resolveReplacementBlocks(blockIds, newBlocks);
+
+      if (!runCommand(replaceAnchoredBlocks(blockIds, resolved, { resolved: true }))) {
         notify("error", copy.edits.applyFailed);
         return;
       }
@@ -695,24 +939,247 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       runCommand(sealHistory);
 
       const after = getDocument();
+      const appliedBlockIds = resolved.map((block) => block.id);
       dispatch({
         type: "item/accepted",
         itemId,
-        appliedFingerprint: after ? computeAnchorFingerprint(after, item.anchor.blockIds) : "",
+        appliedFingerprint: after ? computeAnchorFingerprint(after, appliedBlockIds) : "",
+        appliedBlockIds,
         at: new Date().toISOString()
       });
+
+      if (after) {
+        dispatch({ type: "items/reconciled", ...withContext(after) });
+      }
+
       notify("info", copy.edits.accepted);
     },
     [dispatch, withContext]
   );
 
+  const acceptAll = useCallback(() => {
+    const { locale, copy, getDocument, runCommand, notify, canWrite, getDrawnIds } = optionsRef.current;
+
+    if (!canWrite()) {
+      return;
+    }
+
+    const before = getDocument();
+    // Only what the manuscript shows right now; anything else stays in the queue.
+    const candidates = selectBulkCandidates(stateRef.current, getDrawnIds());
+
+    if (!before || candidates.length === 0) {
+      return;
+    }
+
+    const { plans } = planBulkAccept(candidates, before, { locale });
+
+    if (plans.length === 0 || !runCommand(applyReviewEdits(plans.map((plan) => plan.edit)))) {
+      dispatch({ type: "items/reconciled", ...withContext(before) });
+      notify("error", copy.edits.bulkFailed);
+      return;
+    }
+
+    runCommand(sealHistory);
+
+    const after = getDocument();
+    const byId = new Map(candidates.map((item) => [item.id, item]));
+    dispatch({
+      type: "items/accepted",
+      at: new Date().toISOString(),
+      entries: plans.map((plan) => ({
+        itemId: plan.itemId,
+        appliedFingerprint: after ? computeAnchorFingerprint(after, byId.get(plan.itemId)!.anchor.blockIds) : "",
+        insertedBlockIds: plan.insertedBlockIds
+      }))
+    });
+
+    if (after) {
+      dispatch({ type: "items/reconciled", ...withContext(after) });
+    }
+
+    notify("info", copy.edits.bulkAccepted(plans.length));
+  }, [dispatch, withContext]);
+
   const rejectItem = useCallback(
     (itemId: string) => {
+      const { copy, notify } = optionsRef.current;
+      const item = stateRef.current.items.find((entry) => entry.id === itemId);
+
+      if (!item || !isOpenItem(item)) {
+        return;
+      }
+
       prepareRequestsRef.current.delete(itemId);
       dispatch({ type: "item/rejected", itemId, at: new Date().toISOString() });
+      // A mistaken rejection can be taken back while this message is on screen.
+      notify("info", item.spell ? copy.edits.ignored : copy.edits.rejected, {
+        label: copy.edits.restore,
+        run: () => {
+          setFocusSource("card");
+          dispatch({ type: "item/restored", itemId });
+        }
+      });
     },
     [dispatch]
   );
+
+  const runAll = useCallback(() => {
+    const { canWrite, copy, notify, livePasses } = optionsRef.current;
+
+    if (!canWrite()) {
+      notify("error", copy.edits.writeBlocked);
+      return;
+    }
+
+    const plan = planRunAll(stateRef.current, livePasses);
+
+    if (plan.spell) {
+      runSpell();
+    }
+
+    // The effect below starts the first one; each next starts when the run before it ends, however it ends.
+    dispatch({ type: "queue/set", passIds: [...stateRef.current.queue, ...plan.queue] });
+  }, [dispatch, runSpell]);
+
+  const stopAll = useCallback(() => {
+    dispatch({ type: "queue/cleared" });
+    stopRun();
+    stopSpell();
+  }, [dispatch, stopRun, stopSpell]);
+
+  const resumeQueue = useCallback(() => {
+    const { canWrite, copy, notify } = optionsRef.current;
+
+    if (!canWrite()) {
+      notify("error", copy.edits.writeBlocked);
+      return;
+    }
+
+    dispatch({ type: "queue/resumed" });
+  }, [dispatch]);
+
+  const clearQueue = useCallback(() => dispatch({ type: "queue/cleared" }), [dispatch]);
+
+  const stopPass = useCallback(
+    (passId: V2PassId) => {
+      if (passId === "spell") {
+        stopSpell();
+      } else if (stateRef.current.queue.includes(passId)) {
+        dispatch({ type: "queue/removed", passId });
+      } else if (selectRunningPassId(stateRef.current) === passId) {
+        stopRun();
+      }
+    },
+    [dispatch, stopRun, stopSpell]
+  );
+
+  const editHeading = useCallback(
+    (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => dispatch({ type: "item/headingEdited", itemId, ...change }),
+    [dispatch]
+  );
+
+  const setCalloutOptions = useCallback(
+    (itemId: string, change: { calloutKind?: EditorialCalloutKind; calloutDepth?: EditorialCalloutDepth }) => {
+      const item = stateRef.current.items.find((entry) => entry.id === itemId);
+
+      if (!item) {
+        return;
+      }
+
+      const hadDraft = hasCalloutDraft(item);
+      dispatch({ type: "item/calloutOptions", itemId, ...change });
+
+      const next = stateRef.current.items.find((entry) => entry.id === itemId);
+
+      // The old draft was written for another kind or depth; choosing a new one on the card asks for a new draft.
+      if (hadDraft && next && !hasCalloutDraft(next)) {
+        prepareItem(itemId);
+      }
+    },
+    [dispatch, prepareItem]
+  );
+
+  const chooseSuggestion = useCallback((itemId: string, choice: number) => dispatch({ type: "spell/choice", itemId, choice }), [dispatch]);
+
+  const addToDictionary = useCallback(
+    (itemId: string) => {
+      const { locale, copy, notify } = optionsRef.current;
+      const word = stateRef.current.items.find((entry) => entry.id === itemId)?.spell?.badText;
+
+      if (!word) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          await addSpellcheckDictionaryWord(word, locale);
+
+          // The helper is silent when the browser has no storage for it; make sure the word is really there.
+          if (!isSpellcheckWordInDictionary(word, await readSpellcheckDictionaryWords(locale), locale)) {
+            notify("error", copy.edits.dictionaryFailed);
+            return;
+          }
+
+          dispatch({ type: "spell/removed", itemIds: selectSpellItemsInDictionary(stateRef.current.items, [word], locale) });
+          notify("info", copy.edits.dictionaryAdded(word));
+        } catch (error) {
+          notify("error", describeUnexpected(error, copy.edits.dictionaryFailed));
+        }
+      })();
+    },
+    [dispatch]
+  );
+
+  const setQuiet = useCallback(
+    (quiet: boolean) => {
+      dispatch({ type: "quiet/set", quiet });
+
+      if (quiet) {
+        // The one mode that calls the model without a click on a card says so when it is switched on.
+        optionsRef.current.notify("info", optionsRef.current.copy.edits.quietNote);
+      }
+    },
+    [dispatch]
+  );
+
+  const moveFocus = useCallback(
+    (delta: 1 | -1) => {
+      setFocusSource("card");
+      dispatch({ type: "focus/moved", delta });
+    },
+    [dispatch]
+  );
+
+  const confirmFocused = useCallback(() => {
+    const { copy, notify, isDiffDrawn } = optionsRef.current;
+    const current = stateRef.current;
+    const itemId = current.focusId;
+    const item = itemId ? current.items.find((entry) => entry.id === itemId) : undefined;
+
+    if (!itemId || !item || !isOpenItem(item)) {
+      return;
+    }
+
+    if (canAcceptItem(current, itemId) && isDiffDrawn(itemId)) {
+      acceptItem(itemId);
+      return;
+    }
+
+    const proposal = current.proposals[itemId];
+
+    if (proposal?.status === "preparing" || item.status === "stale" || getItemKind(item) === "visual") {
+      return;
+    }
+
+    // Not prepared (or the last attempt failed): Enter asks to see the change, it never applies one unseen.
+    if (needsProposalCall(item) && proposal?.status !== "ready") {
+      prepareItem(itemId, (current.instructions[itemId] ?? "").trim() || undefined);
+      return;
+    }
+
+    notify("error", copy.edits.notDrawn);
+  }, [acceptItem, prepareItem]);
 
   const setFilter = useCallback((filter: V2ReviewFilter) => dispatch({ type: "filter/set", filter }), [dispatch]);
   const setInstruction = useCallback((itemId: string, text: string) => dispatch({ type: "instruction/set", itemId, text }), [dispatch]);
@@ -727,39 +1194,101 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       if (record) {
         releaseReviewRunPollLease(record.run.runId, tabIdRef.current);
       }
+
+      spellRunRef.current?.controller.abort();
+      spellRunRef.current = null;
     },
     [stopLocalRun]
   );
 
+  // `Запустити всі`: the next queued pass starts as soon as no review run is in flight.
+  useEffect(() => {
+    const next = selectNextQueuedPass(state);
+
+    if (!next || runTokenRef.current || leaseTimerRef.current !== null) {
+      return;
+    }
+
+    if (!runPass(next)) {
+      // Nothing can be started right now (the draft cannot be saved); do not keep trying.
+      dispatch({ type: "queue/cleared" });
+    }
+  }, [dispatch, runPass, state]);
+
+  // Quiet mode, and only quiet mode, prepares on its own: the current item and the next one, once the
+  // current item has stayed current for a moment, and never more than two requests at a time.
+  const prepareForQuiet = useCallback(() => {
+    const current = stateRef.current;
+    const auto = autoPreparingRef.current;
+
+    for (const itemId of auto) {
+      if (current.proposals[itemId]?.status !== "preparing") {
+        auto.delete(itemId);
+      }
+    }
+
+    if (!current.quiet || !optionsRef.current.canWrite()) {
+      return;
+    }
+
+    const targets = planQuietPreparation(current, {
+      focusedSince: quietFocusRef.current.itemId === current.focusId ? quietFocusRef.current.since : null,
+      now: Date.now(),
+      autoInFlight: auto.size
+    });
+
+    for (const itemId of targets) {
+      auto.add(itemId);
+      prepareItem(itemId);
+    }
+  }, [prepareItem]);
+
+  const quietFocusId = state.quiet ? state.focusId : null;
+
+  useEffect(() => {
+    quietFocusRef.current = { itemId: quietFocusId, since: quietFocusId ? Date.now() : null };
+
+    if (!quietFocusId) {
+      return;
+    }
+
+    const timer = window.setTimeout(prepareForQuiet, QUIET_DWELL_MS + 20);
+    return () => window.clearTimeout(timer);
+  }, [prepareForQuiet, quietFocusId]);
+
+  // A finished request frees room for the next one the current item is still waiting for.
+  useEffect(() => {
+    if (state.quiet && autoPreparingRef.current.size > 0) {
+      prepareForQuiet();
+    }
+  }, [prepareForQuiet, state]);
+
+  const { locale } = options;
+
   const marks = useMemo<ReviewMark[]>(() => {
     const cache = diffCacheRef.current;
     const liveProposalIds = new Set<string>();
-    const result = selectQueue(state).map((item): ReviewMark => {
-      const proposal = state.proposals[item.id];
-      const focused = state.focusId === item.id;
-      let diff: BlockDiff[] | undefined;
+    const result = buildItemMarks(state, {
+      locale,
+      getDiff: (item) => {
+        const proposal = state.proposals[item.id];
 
-      if (focused && proposal?.status === "ready" && proposal.proposal.textDiff && item.status === "ready") {
+        if (proposal?.status !== "ready" || !proposal.proposal.textDiff) {
+          return undefined;
+        }
+
         const { id } = proposal.proposal;
         const { blockIds, oldBlocks, newBlocks } = proposal.proposal.textDiff;
         liveProposalIds.add(id);
-        diff = cache.get(id);
+        let diff = cache.get(id);
 
         if (!diff) {
           diff = diffProposalBlocks(blockIds, oldBlocks, newBlocks);
           cache.set(id, diff);
         }
-      }
 
-      return {
-        itemId: item.id,
-        tone: getItemPassId(item),
-        blockIds: item.anchor.blockIds,
-        state: proposal?.status === "preparing" ? "preparing" : item.status === "stale" ? "stale" : item.status === "ready" ? "ready" : "pending",
-        focused,
-        hot: state.hoverId === item.id,
-        diff
-      };
+        return diff;
+      }
     });
 
     for (const id of cache.keys()) {
@@ -769,7 +1298,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     }
 
     return result;
-  }, [state]);
+  }, [locale, state]);
 
   return {
     state,
@@ -781,6 +1310,19 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
     reconcile,
     runPass,
     stopRun,
+    runAll,
+    stopAll,
+    resumeQueue,
+    clearQueue,
+    stopPass,
+    acceptAll,
+    editHeading,
+    setCalloutOptions,
+    chooseSuggestion,
+    addToDictionary,
+    setQuiet,
+    moveFocus,
+    confirmFocused,
     focusItem,
     showItem,
     hoverItem,

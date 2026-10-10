@@ -710,7 +710,7 @@ test("what must survive a reload round-trips through JSON", () => {
   assert.equal(hydrated.rejectedIdeas.length, 1);
   assert.equal(hydrated.decisions.length, 1);
   assert.equal(hydrated.filter, "clarity");
-  assert.equal(hydrated.quiet, true);
+  assert.equal(hydrated.quiet, false, "quiet mode calls the model on its own, so a reload never switches it on");
   assert.equal(hydrated.focusId, null);
   assert.equal(hydrated.activeRun?.run.runId, "run-2");
   assert.equal(hydrated.activeRun?.capability, "signed-cap");

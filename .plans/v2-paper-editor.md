@@ -30,8 +30,8 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 - Status: Active
 - Plan revision: r1 (2026-10-09)
 - Canonical plan: `.plans/v2-paper-editor.md` in the main working tree. Plan owner: the orchestrator session. Executors report evidence; only the orchestrator checks off tasks.
-- Current milestone: 3 — Remaining passes and quiet mode (assigned 2026-10-10, in progress). Milestones 1 and 2 accepted and committed together on `v2`.
-- Next action: receive the Milestone 3 executor report, decide on review (required if store or bridge contracts changed), accept or return fixes, commit.
+- Current milestone: 4 — Огляд and Запит (assigned 2026-10-10, in progress). Milestones 1–3 accepted and committed on `v2`.
+- Next action: receive the Milestone 4 executor report, decide on review (required if store or engine contracts changed), accept or return fixes, commit.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
 - Orchestrator may decide: implementation choices, simplifications within scope, reordering independent tasks. Needs the owner: changing hard constraints or required outcomes, weakening acceptance, pushes/deploys, anything touching v1 behaviour.
@@ -80,12 +80,14 @@ Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suit
 
 Depends on: 2. Mode: proceed. Independent review: conditional (required if the store or bridge contracts change).
 
-- [ ] 3.1 `Структура` (ghost headings from ready drafts, editable title, H2/H3), `Акценти` (inline, no proposal), `Врізки` (`interest`: ghost callout with kind and depth), `Списки` (`formatting`).
-- [ ] 3.2 `Правопис` through `/api/edit/spellcheck`: underlines, suggestions, ignore, add to dictionary.
-- [ ] 3.3 Bulk accept only for passes whose result is already visible (structure, accents, spelling).
-- [ ] 3.4 `Запустити всі`: passes queue client-side and run one after another (the server allows one review run at a time).
-- [ ] 3.5 Quiet mode: one card, dimmed marks, keyboard (Enter, Backspace/Delete, arrows), next proposal prepared ahead.
-- [ ] 3.6 Verify: unit tests for new reducer paths; runtime walk through each pass and quiet mode with a real key.
+- [x] 3.1 `Структура` (ghost headings from ready drafts, editable title, H2/H3), `Акценти` (inline, no proposal), `Врізки` (`interest`: ghost callout with kind and depth), `Списки` (`formatting`).
+- [x] 3.2 `Правопис` through `/api/edit/spellcheck`: underlines, suggestions, ignore, add to dictionary.
+- [x] 3.3 Bulk accept only for passes whose result is already visible (structure, accents, spelling).
+- [x] 3.4 `Запустити всі`: passes queue client-side and run one after another (the server allows one review run at a time).
+- [x] 3.5 Quiet mode: one card, dimmed marks, keyboard (Enter, Backspace/Delete, arrows), next proposal prepared ahead.
+- [x] 3.6 Verify: unit tests for new reducer paths; runtime walk through each pass and quiet mode with a real key.
+
+Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suite (600/600); executor ran build and real-backend QA on the six-paragraph sample (queue with reload in the middle, ghost heading insert/undo/edit, accents single and bulk with one undo, callout prepare/re-prepare/insert, list diff and accept with undo/redo, spellcheck fix/ignore/dictionary, quiet mode with real keys, paused queue after reload, reject + restore); independent review found no path that changes the manuscript unseen and five should-fix defects (unbounded and on-reload paid preparation in quiet mode, key repeat, ghost input re-creation, dead-end accept on a torn anchor, overlapping bulk edits), all fixed and unit-tested. Real calls spent: 5 review runs, 5 proposals. Open risk for 6.4 QA: one unexplained re-creation of the ghost heading input about a second after typing into an emptied title (not reproduced in three further attempts). Not verified at runtime: quiet-mode dwell/cap with real rewrite items, a failed pass inside the queue, `Зупинити всі`, `Продовжити чергу`, callout kind change, multi-suggestion spelling chooser, physically held keys.
 
 ## Milestone 4 - Огляд and Запит
 
@@ -141,6 +143,16 @@ Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 - Finding: an empty `APP_PASSWORD` opens pages in dev but the AI routes answer 503; real-backend QA needs a process-only password and a login through `/api/auth/login`.
 - Finding (M2 interfaces): `apps/web/lib/v2/api.ts` (runs, proposals), `store.ts` (pure reducer; `PASS_STEP_ID`, `selectQueue`, `quiet/set`, `replaceOnResult`), `review-marks.ts` (`ReviewMark`, `ins-block` widgets for ghost blocks), `review-apply.ts` (`replaceAnchoredBlocks`, `sealHistory`), `components/v2/useReviewEngine.ts` (`runPass`, `focusItem`, `showItem`, `prepareItem`, `acceptItem`), `EditsTab.tsx` (`LIVE_PASSES`).
 - Carried into Milestone 3: non-replace item kinds (ready subsection drafts, emphasis targets, callout drafts) in the engine and in draft persistence; runs for steps without a pass row; redo detection for proposals with fewer `newBlocks` than anchors; pruning stored proposals; draft write frequency during polling.
+- Decision (orchestrator, 2026-10-10): `Списки` (`formatting`) is a seventh pass row for v1 parity; `Ілюстрації` stays greyed until Milestone 5.
+- Decision (orchestrator, 2026-10-10): quiet mode may auto-prepare the current item (after a 500 ms dwell) and the next one, at most two in flight; the quiet flag is not persisted; failed preparations are never auto-retried. Reason: the mode exists to walk the queue quickly, but nothing may spend model calls on reload or on held arrow keys.
+- Decision (orchestrator, 2026-10-10): a queue restored from a draft is paused until `Продовжити чергу`; only a run that was in flight resumes. Reason: no paid runs without an action.
+- Decision (orchestrator, 2026-10-10): reject offers `Повернути` in a toast and removes the rejected idea it added.
+- Finding: callout items delivered by a review run look ready but their draft text is a copy of the source paragraph or a teaser; v2 treats only drafts from the proposal endpoint as prepared (`calloutPrepared`).
+- Finding: v1's `mergeIncomingReviewItems` keeps one item per type and anchor, dropping all but the first accent in a paragraph; v2 merges emphasis items by phrase.
+- Finding: emphasis items arrive with an empty `reason`; cards fall back to the recommendation or a fixed pass-level reason.
+- Finding: running `next build` beside the dev server breaks the dev API (500s); build only with the dev server stopped.
+- Finding (M3 interfaces): `apps/web/lib/v2/item-kinds.ts` (`getItemKind`, `needsProposalCall`), `item-marks.ts` (`buildItemMarks`), `accept-plan.ts` (`planBulkAccept`), `spell-items.ts`; `ReviewGhost` in `review-marks.ts`; `applyReviewEdits` in `review-apply.ts`; store `queue`/`queuePaused`, `planQuietPreparation`, `item/restored`; engine `notify(tone, message, { label, run })`.
+- Carried into Milestone 4: run state keyed by step rather than pass (diagnostics, fact_check, final_editing have no pass row; a persisted run of such a step is currently dropped silently on reload); a label/tone source for items without a pass; an action that inserts a single manual/local item into the queue; `getItemKind` identifies accents only by `stepId === "emphasis"`.
 - Deferred to 6.1: confirmation before `Відкрити` replaces the manuscript; a "discard and start over" action for an unreadable v2 draft.
 - Assumption: v1 items for `structure` arrive with ready heading drafts and `emphasis` items carry exact targets (per `docs/CURRENT_STATE.md`). Resolve: confirm against real responses in Milestone 3.
 
