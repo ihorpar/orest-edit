@@ -1,0 +1,76 @@
+/* Round 3: shared pieces of the three-zone workbench. Layout lives in each page. */
+body { background: var(--porcelain); }
+.chip { flex: none; white-space: nowrap; }
+.chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+
+/* Zones */
+.zone { padding: 14px 0; border-top: 1px solid var(--line); font-size: 13px; min-width: 0; }
+.zone:first-child { border-top: 0; }
+.zone > summary { list-style: none; cursor: pointer; display: grid; gap: 2px; }
+.zone > summary::-webkit-details-marker { display: none; }
+.zone h2 { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 0.12em; margin: 0; }
+.zone h2::after { content: " +"; color: var(--muted); }
+.zone[open] h2::after { content: ""; }
+.zd { color: var(--sub); font-size: 12px; line-height: 1.45; margin: 0; }
+.zd b { color: var(--ink); font-weight: 500; }
+.zb { display: grid; gap: 8px; margin-top: 10px; min-width: 0; }
+.zb > .btn { justify-self: start; }
+
+/* A pass: name, state, and the one place it is started from */
+.passes { display: grid; gap: 1px; }
+.pass { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 6px 3px 8px; border-radius: 8px; }
+.pass > i { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+.pass b { font-weight: 500; }
+.pass .ps { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pass .btn { padding: 3px 9px; font-size: 12px; }
+.pass .spin { margin: 0 8px; color: var(--sub); }
+.pass.st-wait { cursor: pointer; }
+.pass.st-wait .ps { color: var(--ink); font-weight: 500; }
+.pass.st-wait:hover, .pass.on { background: var(--bone); }
+.pass.on { box-shadow: inset 0 0 0 1px var(--ink); }
+.pass.st-done .ps { color: var(--green); }
+
+.dg { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.45; color: #334155; }
+.dg b { color: var(--ink); font-weight: 600; }
+.lnk { border: 0; background: none; padding: 0; cursor: pointer; color: var(--blue); font-size: 12px; white-space: nowrap; }
+.lnk:hover { text-decoration: underline; }
+.finding { border: 1px solid #fde68a; background: #fffbeb; border-radius: 8px; padding: 9px 11px; display: grid; gap: 6px; line-height: 1.45; }
+.finding q { font: italic 400 14px/1.5 var(--ms); quotes: "«" "»"; }
+.finding p { margin: 0; color: #334155; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.tools .sp { flex: 1; }
+.switch { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; cursor: pointer; font-size: 13px; padding: 4px 0; white-space: nowrap; }
+.switch i { width: 30px; height: 18px; border-radius: 999px; background: #cbd5e1; position: relative; transition: background 0.15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: #fff; transition: left 0.15s; }
+.switch[aria-checked="true"] i { background: var(--ink); }
+.switch[aria-checked="true"] i::after { left: 14px; }
+
+/* Manuscript rows with a margin */
+.ms ::selection { background: #bfdbfe; }
+.notes { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; min-width: 0; }
+.note { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: #fff; cursor: pointer; font: 400 13px/1.45 var(--ui); letter-spacing: -0.01em; }
+.note.is-focus, .note.is-hot { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.note-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.note p { margin: 6px 0 0; color: #334155; }
+.note p b { color: var(--ink); font-weight: 600; }
+.note .df { font: 400 14px/1.5 var(--ms); letter-spacing: 0; margin: 6px 0 0; }
+.note .df del { color: #991b1b; text-decoration-color: rgba(153, 27, 27, 0.4); }
+.note .df ins { color: #065f46; text-decoration: none; background: #d1fae5; border-radius: 3px; }
+.qcard { cursor: default; border-color: var(--ink); }
+.qcard .tools { margin-top: 10px; }
+.count { font: 400 11px var(--mono); color: var(--muted); }
+.sg.dim { border-bottom: 2px dotted #94a3b8; border-radius: 0; }
+
+/* Composer: in the page flow of the document (absolute), present only while text is selected */
+#comp {
+  position: absolute; z-index: 28; display: none; width: min(430px, calc(100vw - 24px));
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14); padding: 12px;
+}
+#comp.on { display: grid; gap: 10px; }
+.c-h { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.c-h .tag { white-space: nowrap; }
+.c-h q { font: italic 400 13px var(--ms); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.c-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.c-msg { margin: 0; font-size: 12px; color: var(--sub); }
+.c-msg:empty { display: none; }

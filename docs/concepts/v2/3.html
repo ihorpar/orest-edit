@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · 3 · Редакторський аркуш</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="r3.css">
+<style>
+  /* One thin line that follows the editor into the text: what is left, and the way back to the sheet */
+  #line { position: sticky; top: 48px; z-index: 20; display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; padding: 6px 24px; background: var(--porcelain); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--sub); }
+  #line a { color: var(--ink); font-weight: 500; }
+  #line .btn { padding: 3px 9px; font-size: 12px; }
+  #line .switch { font-size: 12px; padding: 0; }
+  #line .chips { flex: 1 1 200px; }
+
+  /* The cover sheet an editor clips to a manuscript: everything the tool can do, before the text starts */
+  #sheet { max-width: 1040px; margin: 28px auto 0; padding: 0 24px; scroll-margin-top: 90px; }
+  .paper { border: 1px solid var(--ink); border-radius: 4px; background: #fffefb; }
+  .paper > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 12px 20px; border-bottom: 1px solid var(--ink); }
+  .paper > header b { font: 600 17px var(--ms); }
+  .paper > header span { color: var(--sub); font-size: 12px; }
+  .paper > header .sp { flex: 1; }
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols .zone { border-top: 0; border-left: 1px solid var(--line); padding: 16px 20px; }
+  .cols .zone:first-child { border-left: 0; }
+  .cols .zone > summary { pointer-events: none; }
+  .cols .zone h2::after { content: ""; }
+
+  #doc { padding: 44px 24px 120px; }
+  .row { display: grid; grid-template-columns: minmax(0, 680px) minmax(0, 300px); gap: 32px; justify-content: center; }
+  @media (max-width: 1000px) {
+    #line { padding: 6px 16px; }
+    #sheet { padding: 0 12px; margin-top: 16px; }
+    .cols { grid-template-columns: minmax(0, 1fr); }
+    .cols .zone { border-left: 0; border-top: 1px solid var(--line); padding: 14px 16px; }
+    #doc { padding: 28px 16px 100px; }
+    .row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .notes { padding-bottom: 20px; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div id="line"></div>
+<section id="sheet"></section>
+<main id="doc"></main>
+
+<script src="shared.js"></script>
+<script src="r3.js"></script>
+<script>
+  O.header(3);
+  const $ = (id) => document.getElementById(id);
+  const chars = O.blocks.reduce((n, b) => n + b.text.length, 0);
+  P.init(() => {
+    $("line").innerHTML = `<a href="#sheet">↑ Аркуш редактора</a><span>${P.progress()}</span>` +
+      (P.shown.size ? P.chips() + (P.filter === "all" ? "" : P.bulk()) + P.quietSw() : "");
+    $("sheet").innerHTML = `<div class="paper">
+      <header><b>Редакторський аркуш</b><span>Розділ 3 · «${O.esc(O.blocks[0].text)}» · ${chars.toLocaleString("uk")} знаків · від автора у DOCX</span><span class="sp"></span>
+        <button class="lnk" data-docx>Імпорт / експорт DOCX</button></header>
+      <div class="cols">${P.zone("ov")}${P.zone("ed", { noTools: true })}${P.zone("ask")}</div></div>`;
+    $("doc").innerHTML = O.blocks.map((b) =>
+      `<div class="row"><div class="ms">${O.blockHtml(b, P.opt())}</div><div class="notes">${P.notes(b)}</div></div>`).join("");
+  });
+  $("sheet").addEventListener("click", (e) => { if (e.target.closest("[data-docx]")) $("docx").click(); });
+</script>
+</body>
+</html>

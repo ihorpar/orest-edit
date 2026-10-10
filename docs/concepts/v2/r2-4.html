@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · раунд 2 · 4 · Розмова</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .wrap { display: grid; grid-template-columns: minmax(0, 680px) minmax(0, 400px); gap: 40px; justify-content: center; padding: 0 20px; }
+  #doc { padding: 44px 0 120px; }
+  #doc ::selection { background: #bfdbfe; }
+
+  #thread { position: sticky; top: 48px; height: calc(100vh - 48px); display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bone); min-width: 0; }
+  #thread > header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  #fold { display: none; }
+  #msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .m { max-width: 100%; font-size: 13px; line-height: 1.5; }
+  .m p { margin: 0 0 8px; }
+  .m.me { align-self: flex-end; background: var(--ink); color: #fff; border-radius: 12px 12px 2px 12px; padding: 8px 12px; max-width: 88%; }
+  .m.me q { display: block; font: italic 400 12px/1.4 var(--ms); opacity: 0.75; border-left: 2px solid #64748b; padding-left: 8px; margin-bottom: 6px; quotes: none; }
+  .m.err { color: var(--red); border: 1px solid #fecaca; background: #fff; border-radius: 8px; padding: 8px 12px; }
+  .m.wait { display: flex; align-items: center; gap: 8px; color: var(--sub); }
+  .dg { margin: 0 0 8px; padding-left: 18px; }
+  .dg li { margin-bottom: 4px; }
+  .patch { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; cursor: pointer; }
+  .patch.is-focus, .patch.is-hot { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+  .patch .df { font: 400 14px/1.5 var(--ms); letter-spacing: 0; margin: 6px 0 4px; }
+  .patch .df del { color: #991b1b; text-decoration-color: rgba(153, 27, 27, 0.4); }
+  .patch .df ins { color: #065f46; text-decoration: none; background: #d1fae5; border-radius: 3px; }
+  .patch > p { margin: 0; color: var(--sub); }
+  .patch.accepted, .patch.rejected { background: transparent; }
+  .patch.rejected .df { opacity: 0.5; }
+  .st { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; }
+  .st.accepted { color: var(--green); }
+  .st.rejected { color: var(--sub); }
+  .link { border: 0; background: none; padding: 0 0 0 6px; cursor: pointer; color: var(--sub); font-size: 12px; text-decoration: underline; }
+  .patch .vz { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); cursor: default; }
+
+  #say { border-top: 1px solid var(--line); background: #fff; padding: 10px 12px; }
+  #scope { display: none; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--sub); }
+  #scope.on { display: flex; }
+  #scope q { color: var(--ink); font: italic 400 13px var(--ms); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+  #scope button { border: 0; background: none; cursor: pointer; color: var(--muted); }
+  #say .chips { margin-top: 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chip { flex: none; white-space: nowrap; }
+
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); padding: 0 16px; }
+    #doc { padding: 28px 0 62vh; }
+    #thread { position: fixed; left: 0; right: 0; top: auto; bottom: 0; height: 56vh; z-index: 25; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.1); }
+    #thread.min { height: auto; }
+    #thread.min #msgs { display: none; }
+    #fold { display: inline-block; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="wrap">
+  <main id="doc" class="ms"></main>
+  <aside id="thread">
+    <header><span class="tag">Розмова з розділом</span><button class="btn ghost" id="fold">Згорнути</button></header>
+    <div id="msgs"></div>
+    <div id="say">
+      <div id="scope"><span>Про фрагмент:</span><q></q><button title="Зняти виділення">✕</button></div>
+      <form class="ask" id="form"><input id="q" autocomplete="off" placeholder="Напишіть, що зробити з розділом…"><button class="btn primary">Надіслати</button></form>
+      <div class="chips" id="quick"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  O.header("r2-4");
+  // [type, ready-made line, matcher, how the answer opens]
+  const CMDS = [
+    ["clarity", "Спрости мову", /спрост|ясн|прост|зрозум/i, "Ось де мова найважча. Кожна правка окрема, приймайте вибірково."],
+    ["structure", "Додай підзаголовки", /заголов|структур/i, "Тема змінюється двічі. Пропоную поділити так:"],
+    ["interest", "Запропонуй врізку", /врізк|аналог|цікав|інтерес/i, "Одне місце проситься на аналогію:"],
+    ["visual", "Запропонуй візуал", /візуал|ілюстр|інфограф|зображ|картин/i, "Ось де картинка скаже більше за текст. Промпт і підпис можна змінити перед генеруванням."],
+    ["accent", "Розстав акценти", /акцент|жирн|виділ/i, "Виділив би по одній ключовій фразі на абзац:"],
+    ["spell", "Перевір правопис", /правопис|помилк|орфограф/i, "Знайшов орфографічні помилки:"],
+    ["fact", "Перевір факти", /факт/i, "Одне твердження варто перевірити за джерелом:"]
+  ];
+  const T = [{ who: "ai", diag: true }];   // the thread doubles as the change history
+  const shown = new Set();
+  let scope = null, busy = false, focus = null, vz = null;
+
+  const $ = (id) => document.getElementById(id);
+  const doc = $("doc"), msgs = $("msgs"), thread = $("thread"), scopeEl = $("scope"), input = $("q");
+
+  $("quick").innerHTML = CMDS.map(([k, label]) =>
+    `<button class="chip" data-k="${k}"><i style="background:${O.TYPES[k].color}"></i>${label}</button>`).join("");
+
+  function patch(id) {
+    const s = O.get(id), st = s.status;
+    const openBtn = `<button class="btn" data-vopen="${id}">${vz === id ? "Згорнути" : "Відкрити"}</button>`;
+    const acts = st === "pending"
+      ? `<button class="icon-btn no" data-a="rejected" title="Відхилити">✕</button>` + (s.type === "visual" ? openBtn : `<button class="icon-btn yes" data-a="accepted" title="Прийняти">✓</button>`)
+      : `<span class="st ${st}">${st === "accepted" ? (s.type === "visual" ? "У тексті" : "Прийнято") : "Відхилено"}</span><button class="link" data-a="pending">повернути</button>` + (s.type === "visual" && st === "accepted" ? openBtn : "");
+    return `<div class="patch ${st}${focus === id ? " is-focus" : ""}" data-s="${id}">
+      <div class="it-top">${O.tag(s.type)}<span class="acts">${acts}</span></div>
+      <div class="df">${O.diff(s)}</div><p>${O.esc(s.reason)}</p>
+      ${vz === id && st !== "rejected" ? O.vz(s) : ""}</div>`;
+  }
+
+  function msgHtml(m) {
+    if (m.who === "me") return `<div class="m me">${m.quote ? `<q>${O.esc(m.quote)}</q>` : ""}${O.esc(m.text)}</div>`;
+    if (m.err) return `<div class="m err">Не можу відповісти: у прототипі немає моделі, а вигадувати відповідь не буду. Спробуйте одну з готових реплік унизу.</div>`;
+    if (m.busy) return `<div class="m wait"><span class="spin"></span>Читаю…</div>`;
+    if (m.diag) return `<div class="m"><p>Я прочитав розділ. Ось що найбільше заважатиме читачеві:</p>
+      <ol class="dg">${O.DIAG.map((d) => `<li><b>${d.title}.</b> ${d.text}</li>`).join("")}</ol>
+      <p>З чого почнемо? Оберіть репліку внизу, напишіть свою або виділіть фрагмент у тексті.</p></div>`;
+    return `<div class="m"><p>${m.text}</p>${m.ids.map(patch).join("")}</div>`;
+  }
+
+  function render(bottom) {
+    doc.innerHTML = O.doc({ show: (s) => shown.has(s.id), focus });
+    msgs.innerHTML = T.map(msgHtml).join("");
+    if (bottom) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function send(text, type) {
+    if (busy) return;
+    T.push({ who: "me", text, quote: scope && scope.text });
+    thread.classList.remove("min");
+    if (!type) { T.push({ who: "ai", err: true }); return render(true); }
+    const cmd = CMDS.find((c) => c[0] === type);
+    const pool = O.S.filter((s) => s.type === type && !shown.has(s.id) && (!scope || s.block === scope.block));
+    const m = { who: "ai", busy: true, ids: [] };
+    T.push(m); busy = true;
+    render(true);
+    setTimeout(() => {
+      m.busy = false;
+      if (!pool.length) {
+        m.text = scope ? "У цьому фрагменті такого не знайшов." : "Нових пропозицій цього типу немає: усі вже є вище в розмові.";
+        busy = false;
+        return render(true);
+      }
+      m.text = cmd[3];
+      let i = 0;
+      const timer = setInterval(() => {   // patches arrive one by one
+        const s = pool[i++];
+        shown.add(s.id); m.ids.push(s.id);
+        if (i >= pool.length) { clearInterval(timer); busy = false; }
+        render(true);
+      }, 240);
+    }, 800);
+  }
+
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    const cmd = CMDS.find((c) => c[2].test(text));
+    input.value = "";
+    send(text, cmd && cmd[0]);
+  });
+  $("quick").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-k]");
+    if (b) send(CMDS.find((c) => c[0] === b.dataset.k)[1], b.dataset.k);
+  });
+  $("fold").onclick = () => { $("fold").textContent = thread.classList.toggle("min") ? "Розгорнути" : "Згорнути"; };
+
+  // Clicking a patch shows it in the text; clicking a mark in the text finds its patch.
+  function show(id, where) {
+    focus = id;
+    render();
+    const el = where.querySelector(`[data-s="${id}"]`);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  msgs.addEventListener("click", (e) => {
+    if (e.target.closest("[data-vz]")) return;
+    const t = e.target.closest("[data-s]");
+    if (!t) return;
+    const id = t.dataset.s, a = e.target.closest("[data-a]"), vo = e.target.closest("[data-vopen]");
+    if (a) return O.set(id, a.dataset.a);
+    if (vo) { vz = vz === id ? null : id; return render(); }
+    show(id, doc);
+  });
+  doc.addEventListener("click", (e) => {
+    if (!window.getSelection().isCollapsed) return;
+    const t = e.target.closest("[data-s]");
+    if (t && !e.target.closest("[data-studio]")) { thread.classList.remove("min"); show(t.dataset.s, msgs); }
+  });
+
+  function setScope(next) {
+    scope = next;
+    scopeEl.className = scope ? "on" : "";
+    if (scope) scopeEl.querySelector("q").textContent = scope.text;
+    input.placeholder = scope ? "Що зробити з цим фрагментом?" : "Напишіть, що зробити з розділом…";
+  }
+  scopeEl.querySelector("button").onclick = () => setScope(null);
+  doc.addEventListener("mouseup", () => {
+    const sel = window.getSelection();
+    const text = sel.toString().trim();
+    if (sel.isCollapsed || text.length < 4) return;
+    const node = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+    const block = node.closest("[data-b]");
+    if (block) setScope({ block: block.dataset.b, text });
+  });
+
+  O.hover(document.querySelector(".wrap"));
+  O.on(() => render());
+  $("reset").onclick = () => { T.length = 1; shown.clear(); focus = null; vz = null; setScope(null); O.reset(); };
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · A · Поля</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .bar {
+    position: sticky; top: 48px; z-index: 20;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+    padding: 10px 20px; background: var(--porcelain); border-bottom: 1px solid var(--line);
+  }
+  #bulk { display: flex; gap: 8px; align-items: center; }
+  .done { color: var(--green); font-size: 13px; }
+  #doc { padding: 40px 20px 120px; }
+  .row { display: grid; grid-template-columns: minmax(0, 680px) 300px; gap: 36px; justify-content: center; }
+  .notes { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+  .note { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: #fff; cursor: pointer; }
+  .note.is-focus, .note.is-hot { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+  .note-top { display: flex; align-items: center; justify-content: space-between; }
+  .acts { display: flex; gap: 4px; }
+  .note p { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: #334155; }
+  @media (max-width: 900px) {
+    .row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .notes { padding-bottom: 20px; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="bar">
+  <div class="chips" id="chips"></div>
+  <div id="bulk"></div>
+</div>
+<main id="doc"></main>
+
+<script src="shared.js"></script>
+<script>
+  O.header("a");
+  let filter = "all";
+  let focus = null;
+  const doc = document.getElementById("doc");
+  const chips = document.getElementById("chips");
+  const bulk = document.getElementById("bulk");
+  const vis = (s) => filter === "all" || s.type === filter;
+
+  const note = (s) =>
+    `<div class="note${focus === s.id ? " is-focus" : ""}" data-s="${s.id}">
+      <div class="note-top">${O.tag(s.type)}
+        <span class="acts">
+          <button class="icon-btn no" data-a="rejected" title="Відхилити">✕</button>
+          <button class="icon-btn yes" data-a="accepted" title="Прийняти">✓</button>
+        </span>
+      </div>
+      <p>${O.esc(s.reason)}</p>
+    </div>`;
+
+  function render() {
+    O.chips(chips, filter, (k) => { filter = k; render(); });
+    const p = O.pending(vis);
+    bulk.innerHTML = p.length
+      ? `<button class="btn" data-a="rejected">Відхилити всі</button><button class="btn primary" data-a="accepted">Прийняти всі · ${p.length}</button>`
+      : `<span class="done">Усе переглянуто</span>`;
+    doc.innerHTML = O.blocks.map((b) =>
+      `<div class="row"><div class="ms">${O.blockHtml(b, { show: vis, focus })}</div>` +
+      `<div class="notes">${O.pending((s) => s.block === b.id && vis(s)).map(note).join("")}</div></div>`
+    ).join("");
+  }
+
+  doc.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-s]");
+    if (!t) return;
+    const act = e.target.closest("[data-a]");
+    if (act) return O.set(t.dataset.s, act.dataset.a);
+    focus = t.dataset.s;
+    render();
+  });
+  bulk.addEventListener("click", (e) => {
+    const act = e.target.closest("[data-a]");
+    if (act) O.set(O.pending(vis).map((s) => s.id), act.dataset.a);
+  });
+  O.hover(doc);
+  O.on(render);
+  render();
+</script>
+</body>
+</html>

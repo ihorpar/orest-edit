@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · 5 · Поля з обох боків</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="r3.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&display=swap">
+<style>
+  /* Three zones = three columns: what I understood (left), the text and my requests (centre), what changes (right) */
+  #doc { padding: 0 20px 120px; }
+  .row3 { display: grid; grid-template-columns: minmax(0, 230px) minmax(0, 640px) minmax(0, 280px); gap: 28px; justify-content: center; }
+  #top { scroll-margin-top: 90px; }
+  .heads { border-bottom: 1px solid var(--line); margin-bottom: 36px; }
+  .heads .zone { border-top: 0; padding: 18px 0 16px; }
+  .heads .zone > summary { pointer-events: none; }
+  .heads .zone h2::after { content: ""; }
+  #line { position: sticky; top: 48px; z-index: 20; background: var(--porcelain); border-bottom: 1px solid var(--line); padding: 0 20px; font-size: 12px; color: var(--sub); }
+  #line .row3 > div { padding: 6px 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #line a { color: var(--ink); font-weight: 500; white-space: nowrap; }
+  #line .switch { font-size: 12px; padding: 0; margin-left: auto; }
+  #line .btn { padding: 3px 9px; font-size: 12px; }
+
+  /* Left margin: the reader's-eye remarks, pencilled next to the paragraph they are about */
+  .lm { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 12px; min-width: 0; }
+  .pencil { margin: 0; font: 500 19px/1.2 "Caveat", var(--ms); letter-spacing: 0; color: #57534e; border-right: 2px solid #d6d3d1; padding-right: 10px; text-align: right; }
+  .lm .finding { font-size: 12px; }
+  @media (max-width: 1100px) {
+    #doc, #line { padding-left: 16px; padding-right: 16px; }
+    .row3 { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .heads .zone { border-top: 1px solid var(--line); padding: 14px 0; }
+    .heads .zone:first-child { border-top: 0; }
+    .heads .zone > summary { pointer-events: auto; }
+    .heads .zone h2::after { content: " +"; }
+    .heads .zone[open] h2::after { content: ""; }
+    .pencil { text-align: left; border-right: 0; border-left: 2px solid #d6d3d1; padding: 0 0 0 10px; }
+    .notes { padding-bottom: 20px; }
+    #line .row3 { display: flex; flex-wrap: wrap; gap: 0 14px; }
+    #line .mid { display: none; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div id="line"></div>
+<main id="doc"></main>
+
+<script src="shared.js"></script>
+<script src="r3.js"></script>
+<script>
+  O.header(5);
+  const $ = (id) => document.getElementById(id);
+
+  // Per-paragraph remarks appear only after the editor asked for the overview
+  function remarks(b) {
+    const r = O.READ[b.id];
+    return (P.diag === "done" && r && r.heat >= 55 ? `<p class="pencil">${r.why}</p>` : "") +
+      (P.fact === "done" ? O.S.filter((s) => s.type === "fact" && s.block === b.id).map(P.finding).join("") : "");
+  }
+
+  P.init(() => {
+    const marks = (P.diag === "done" ? O.blocks.filter((b) => O.READ[b.id] && O.READ[b.id].heat >= 55).length : 0) + (P.fact === "done" ? 1 : 0);
+    $("line").innerHTML = `<div class="row3">
+      <div><a href="#top">↑ Огляд</a><span>${P.diag === "idle" && P.fact === "idle" ? "ще не читали" : "позначок на полях: " + marks}</span></div>
+      <div class="mid"><span>Запит: виділіть текст</span></div>
+      <div><a href="#top">↑ Правки</a><span>${P.progress()}</span>${P.shown.size ? P.quietSw() : ""}</div></div>`;
+    $("doc").innerHTML = `<div class="row3 heads" id="top">${P.zone("ov", { noFindings: true })}${P.zone("ask")}${P.zone("ed")}</div>` +
+      O.blocks.map((b) => `<div class="row3"><div class="lm">${remarks(b)}</div><div class="ms">${O.blockHtml(b, P.opt())}</div><div class="notes">${P.notes(b)}</div></div>`).join("");
+  }, { foldMobile: true });
+</script>
+</body>
+</html>

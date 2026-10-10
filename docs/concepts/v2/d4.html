@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · Сітка</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="ed.css">
+<style>
+  /* Сітка: Swiss and dense. No cards, no radii, no tints: black rules, one signal colour, everything on a grid. */
+  :root {
+    --f-ui: "IBM Plex Sans", system-ui, sans-serif;
+    --f-text: "IBM Plex Serif", Georgia, serif;
+    --f-head: var(--f-ui);
+    --bg: #f7f7f4; --surface: #f7f7f4; --panel: #f7f7f4;
+    --line: #d9d9d3; --line-strong: #161616;
+    --ink: #161616; --ink-2: #4a4a47; --ink-3: #7c7c77;
+    --accent: #161616; --accent-ink: #f7f7f4; --accent-soft: #e9e9e4;
+    --signal: #e23d14;
+    --del-bg: transparent; --del-fg: #e23d14; --ins-bg: #e5e5dd; --ins-fg: #161616;
+    --t-structure: #161616; --t-clarity: #161616; --t-interest: #161616; --t-visual: #161616;
+    --t-accent: #161616; --t-spell: #161616; --t-fact: #161616;
+    --r: 0px; --r-sm: 0px; --panel-w: 480px; --top-h: 48px;
+    --ring: 0 0 0 2px var(--signal);
+    --lift: 6px 6px 0 var(--ink);
+  }
+  body { font-size: 13.5px; }
+  .top { border-bottom: 2px solid var(--ink); padding: 0 0 0 16px; gap: 0; }
+  .logo i { border-radius: 0; width: 24px; height: 24px; font: 700 14px/1 var(--f-ui); }
+  .logo span { font-weight: 700; letter-spacing: -0.01em; }
+  .crumb { border-left-color: var(--ink); }
+  .top .btn.solid { height: var(--top-h); padding: 0 20px; margin-left: 8px; }
+  .top .vr { display: none; }
+  .fmt { height: 40px; border-bottom-color: var(--ink); padding: 0 16px; }
+  .app { border-top: 0; }
+  .sheet { max-width: 760px; margin: 0; padding: 40px 40px 160px 96px; }
+  .kicker { color: var(--signal); letter-spacing: 0.04em; font-weight: 700; }
+  .ms { font-size: 18px; line-height: 1.7; }
+  .ms h1 { font: 700 40px/1.08 var(--f-ui); letter-spacing: -0.03em; }
+  .ms h2 { font: 700 22px/1.25 var(--f-ui); letter-spacing: -0.01em; }
+  #doc p[data-b]::before { opacity: 1; color: var(--ink); font-weight: 600; left: -64px; width: 40px; text-align: left; border-top: 1px solid var(--ink); padding-top: 2px; top: 0.4em; line-height: 1.3; }
+  .sg del { text-decoration-color: var(--signal); text-decoration-thickness: 1.5px; }
+  .sg ins { padding: 2px 4px; margin-left: 4px; box-shadow: inset 0 -2px 0 var(--ink); }
+  .sg-accent { color: var(--ink); border-bottom: 3px solid var(--signal); }
+  .sg-fact del { background: none; color: var(--signal); }
+  .sg.dim { border-bottom: 2px solid var(--ink); }
+  .ms h2.ghost-h { color: var(--signal); }
+  .callout { border-top: 4px solid var(--ink); background: none; padding: 14px 0 0; border-radius: 0; font-family: var(--f-ui); }
+  .ghost-callout, .ghost-fig { border: 2px dashed var(--ink); background: none; padding: 14px 16px; }
+  .ghost-callout .kind, .ghost-fig .kind { color: var(--signal); }
+
+  #panel { border-left: 2px solid var(--ink); }
+  #tabs { padding: 0; border-bottom: 2px solid var(--ink); }
+  #tabs button { height: 48px; justify-content: flex-start; padding: 0 16px; font-weight: 600; font-size: 15px; color: var(--ink); border-right: 1px solid var(--ink); }
+  #tabs button:last-child { border-right: 0; }
+  #tabs button.on { background: var(--ink); color: var(--bg); }
+  #tabs button.on::after { display: none; }
+  #tabs button svg { display: none; }
+  #tabs b { background: var(--signal); color: #fff; border-radius: 0; margin-left: auto; }
+  #body { padding: 20px 20px 32px; }
+  #body h2 { font-weight: 700; font-size: 28px; letter-spacing: -0.03em; line-height: 1.05; }
+  .sec { border-top: 2px solid var(--ink); padding-top: 8px; margin: 32px 0 4px; color: var(--ink); font-weight: 700; letter-spacing: 0.04em; align-items: flex-start; }
+  .ico { background: none; border-radius: 0; width: 20px; height: 30px; color: var(--ink); place-items: center start; }
+  .passes { border: 0; padding: 0; }
+  .pass { grid-template-columns: 20px minmax(0, 1fr) auto; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .pass.ran:hover { background: var(--accent-soft); }
+  .pass.on, .pass.on:hover { background: var(--ink); color: var(--bg); margin: 0 -20px; padding: 9px 20px; }
+  .pass.on .ico, .pass.on em { color: inherit; }
+  .pass b { font-weight: 600; }
+  .pass .n { background: var(--signal); color: #fff; border-radius: 0; }
+  .pass .state.ok { color: var(--ink); }
+  .queue { gap: 0; }
+  .card { border: 0; border-bottom: 1px solid var(--line); padding: 14px 0 12px; }
+  .card:hover, .card.is-hot { border-color: var(--ink); }
+  .card.is-focus { box-shadow: -4px 0 0 var(--signal); margin-left: -20px; padding-left: 20px; border-color: var(--line); }
+  .ttag { text-transform: uppercase; letter-spacing: 0.05em; font-size: 11.5px; font-weight: 700; }
+  .ttag svg { display: none; }
+  .card .what { font: 500 15px/1.4 var(--f-ui); }
+  .starter { border-top-color: var(--line); }
+  .finds li { grid-template-columns: 20px minmax(0, 1fr); }
+  .finding, .scope { border: 0; border-left: 0; padding: 12px 0; background: none; }
+  .scope { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .finding .claim { font-style: normal; font-weight: 500; }
+  #askq { border: 2px solid var(--ink); }
+  #askq:focus { box-shadow: var(--lift); border-color: var(--ink); }
+  .empty { border: 0; border-top: 1px solid var(--line); text-align: left; padding: 16px 0; }
+  .btn.outline { border: 1.5px solid var(--ink); background: none; }
+  .btn.outline:hover { background: var(--ink); color: var(--bg); }
+  .btn.soft { background: none; border: 1.5px solid var(--ink); color: var(--ink); font-weight: 600; }
+  .btn.soft:hover, .card.is-focus .btn.soft { background: var(--ink); color: var(--bg); }
+  .chip { border: 1px solid var(--ink); border-radius: 0; }
+  .bar { height: 6px; border-radius: 0; background: var(--line); }
+  .bar i { background: var(--signal); border-radius: 0; }
+  .summary b { font-size: 44px; font-weight: 700; letter-spacing: -0.04em; }
+  .switch i, .switch i::after { border-radius: 0; box-shadow: none; }
+  .switch i { background: none; border: 1.5px solid var(--ink); height: 18px; }
+  .switch i::after { background: var(--ink); top: 1.5px; left: 1.5px; width: 12px; height: 12px; }
+  .switch.on i { background: var(--signal); }
+  .switch.on i::after { background: #fff; }
+  .proto { border-top: 2px solid var(--ink); }
+  #selbar { box-shadow: var(--lift); padding: 0; border: 2px solid var(--ink); background: var(--bg); --lift: 5px 5px 0 var(--ink); }
+  #selbar button { color: var(--ink); height: 34px; font-weight: 600; }
+  #selbar button:hover { background: var(--ink); color: var(--bg); }
+  #selbar .own { margin-left: 0; box-shadow: -2px 0 0 var(--ink); background: var(--signal); color: #fff; }
+  .st-box { border: 2px solid var(--ink); box-shadow: 10px 10px 0 var(--ink); }
+  kbd { border-radius: 0; border-color: var(--ink); }
+  @media (max-width: 980px) {
+    #panel { border-left: 0; border-bottom: 2px solid var(--ink); }
+    .sheet { padding: 28px 18px 120px; }
+    .top .btn.solid { padding: 0 14px; }
+  }
+</style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script src="ed.js"></script>
+</body>
+</html>

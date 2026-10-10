@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · C · Команда</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  #doc { max-width: 720px; margin: 0 auto; padding: 48px 20px 320px; }
+  #doc ::selection { background: #bfdbfe; }
+
+  #cmd {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 25;
+    width: min(720px, calc(100vw - 32px));
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12); padding: 12px;
+  }
+  #scope { display: none; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--sub); }
+  #scope.on { display: flex; }
+  #scope q { color: var(--ink); font-family: var(--ms); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+  #scope button { border: 0; background: none; cursor: pointer; color: var(--muted); }
+  .field { display: flex; gap: 8px; }
+  .field input { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 15px; outline: none; }
+  .field input:focus { border-color: var(--blue); }
+  #quick { margin-top: 10px; }
+  #status { margin-top: 10px; display: none; align-items: center; gap: 10px; font-size: 13px; padding-top: 10px; border-top: 1px solid var(--line); }
+  #status.on { display: flex; }
+  #status .sp { flex: 1; }
+  #status.err { color: var(--red); }
+  .spin { width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 999px; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #pop {
+    position: absolute; z-index: 28; display: none; width: 320px;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14); padding: 12px;
+  }
+  #pop.on { display: block; }
+  #pop p { margin: 6px 0 12px; font-size: 13px; line-height: 1.45; color: #334155; }
+  #pop .acts { display: flex; gap: 8px; justify-content: flex-end; }
+  .hint { text-align: center; color: var(--muted); font-size: 13px; margin: 0 0 28px; font-family: var(--ui); }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<main id="doc" class="ms"></main>
+<div id="pop"></div>
+
+<div id="cmd">
+  <div id="scope"><span>Лише для фрагмента:</span><q></q><button title="Зняти виділення">✕</button></div>
+  <form class="field" id="form">
+    <input id="q" autocomplete="off" placeholder="Що зробити з розділом?">
+    <button class="btn primary">Запустити</button>
+  </form>
+  <div class="chips" id="quick"></div>
+  <div id="status"></div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  O.header("c");
+  const CMDS = [
+    ["clarity", "Спростити мову", /спрост|ясн|прост|зрозум/i],
+    ["structure", "Додати підзаголовки", /заголов|структур/i],
+    ["interest", "Запропонувати врізки", /врізк|аналог|цікав|інтерес/i],
+    ["accent", "Розставити акценти", /акцент|жирн|виділ/i],
+    ["spell", "Перевірити правопис", /правопис|помилк|орфограф/i],
+    ["fact", "Перевірити факти", /факт/i]
+  ];
+  const shown = new Set();   // ids already "generated"
+  let scope = null;          // { block, text } when the editor selected a fragment
+  let busy = false;
+  let pop = null;
+  let msg = null;            // { text, err }
+
+  const $ = (id) => document.getElementById(id);
+  const doc = $("doc"), popEl = $("pop"), status = $("status"), scopeEl = $("scope"), input = $("q");
+  const visible = (s) => shown.has(s.id);
+
+  $("quick").innerHTML = CMDS.map(([k, label]) =>
+    `<button class="chip" data-k="${k}"><i style="background:${O.TYPES[k].color}"></i>${label}</button>`).join("");
+
+  function render() {
+    const hint = shown.size ? "" : `<p class="hint">Чистий рукопис. Оберіть команду внизу або виділіть фрагмент.</p>`;
+    doc.innerHTML = hint + O.doc({ show: visible, focus: pop });
+    renderPop();
+    renderStatus();
+  }
+
+  function renderStatus() {
+    const p = O.pending(visible);
+    status.className = "";
+    if (busy) {
+      status.className = "on";
+      status.innerHTML = `<span class="spin"></span><span>${busy}…</span>`;
+    } else if (msg) {
+      status.className = "on" + (msg.err ? " err" : "");
+      status.innerHTML = `<span>${msg.text}</span>`;
+    } else if (p.length) {
+      status.className = "on";
+      status.innerHTML = `<span>На розгляді: ${p.length}. Натисніть на правку в тексті, щоб побачити причину.</span><span class="sp"></span>
+        <button class="btn" data-a="rejected">Відхилити всі</button><button class="btn primary" data-a="accepted">Прийняти всі</button>`;
+    }
+  }
+
+  function renderPop() {
+    const s = pop && O.get(pop);
+    const el = s && s.status === "pending" && doc.querySelector(`[data-s="${pop}"]`);
+    if (!el) { pop = null; popEl.className = ""; return; }
+    const r = el.getBoundingClientRect();
+    popEl.innerHTML = `${O.tag(s.type)}<p>${O.esc(s.reason)}</p>
+      <div class="acts"><button class="btn" data-a="rejected">Відхилити</button><button class="btn primary" data-a="accepted">Прийняти</button></div>`;
+    popEl.className = "on";
+    popEl.style.top = r.bottom + window.scrollY + 8 + "px";
+    popEl.style.left = Math.max(12, Math.min(r.left + window.scrollX, window.innerWidth - 336)) + "px";
+  }
+
+  function run(type) {
+    if (busy) return;
+    const label = CMDS.find((c) => c[0] === type)[1];
+    const pool = O.S.filter((s) => s.type === type && !shown.has(s.id) && (!scope || s.block === scope.block));
+    busy = label; msg = null; pop = null;
+    render();
+    setTimeout(() => {
+      if (!pool.length) {
+        busy = false;
+        msg = { text: scope ? "Для цього фрагмента таких правок немає." : "Нових правок цього типу немає." };
+        return renderStatus();
+      }
+      let i = 0;
+      const timer = setInterval(() => {   // suggestions stream in one by one
+        shown.add(pool[i++].id);
+        if (i >= pool.length) { clearInterval(timer); busy = false; }
+        render();
+      }, 240);
+    }, 800);
+  }
+
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    const cmd = CMDS.find((c) => c[2].test(text));
+    if (!cmd) {
+      msg = { err: true, text: "Прототип розуміє лише готові команди нижче: довільний запит потребує моделі." };
+      return renderStatus();
+    }
+    input.value = "";
+    run(cmd[0]);
+  });
+  $("quick").addEventListener("click", (e) => { const b = e.target.closest("[data-k]"); if (b) run(b.dataset.k); });
+  status.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-a]");
+    if (b) O.set(O.pending(visible).map((s) => s.id), b.dataset.a);
+  });
+  popEl.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-a]");
+    if (b) O.set(pop, b.dataset.a);
+  });
+
+  function setScope(next) {
+    scope = next;
+    scopeEl.className = scope ? "on" : "";
+    if (scope) scopeEl.querySelector("q").textContent = scope.text;
+    input.placeholder = scope ? "Що зробити з цим фрагментом?" : "Що зробити з розділом?";
+  }
+  scopeEl.querySelector("button").onclick = () => setScope(null);
+
+  doc.addEventListener("mouseup", () => {
+    const sel = window.getSelection();
+    const text = sel.toString().trim();
+    if (sel.isCollapsed || text.length < 4) return;
+    const node = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+    const block = node.closest("[data-b]");
+    if (block) setScope({ block: block.dataset.b, text });
+  });
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#pop") || e.target.closest("#cmd")) return;
+    if (!window.getSelection().isCollapsed) return;   // keep a fresh text selection intact
+    const t = e.target.closest("#doc [data-s]");
+    const next = t ? t.dataset.s : null;
+    if (next !== pop) { pop = next; render(); }
+  });
+
+  O.on(render);
+  $("reset").onclick = () => { shown.clear(); msg = null; pop = null; setScope(null); O.reset(); };
+  render();
+</script>
+</body>
+</html>

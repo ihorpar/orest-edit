@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · 2 · Стрічка</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="r3.css">
+<style>
+  /* A toolbar like the one in a word processor: every function is a labelled button */
+  #rib { position: sticky; top: 48px; z-index: 20; background: var(--bone); border-bottom: 1px solid var(--line); }
+  .groups { display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: thin; }
+  .grp { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px 6px; border-right: 1px solid var(--line); flex: none; }
+  .grp:last-child { border-right: 0; }
+  .grp > span { font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--sub); }
+  .grp > div { display: flex; gap: 2px; align-items: center; }
+  .grp .switch { margin-left: 10px; }
+  .rb { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: none; border-radius: 7px; padding: 5px 5px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .rb:hover { background: #fff; border-color: var(--line); }
+  .rb.on { background: #fff; border-color: var(--ink); }
+  .rb i { width: 7px; height: 7px; border-radius: 999px; }
+  .rb em { font: 500 11px var(--mono); font-style: normal; color: var(--muted); min-width: 12px; text-align: center; }
+  .rb.st-wait em { background: var(--ink); color: #fff; border-radius: 999px; padding: 0 5px; }
+  .rb.st-done em { color: var(--green); }
+  .rb .spin { width: 9px; height: 9px; }
+  #sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 14px; border-top: 1px solid var(--line); background: #fff; font-size: 13px; }
+  #sub:empty { display: none; }
+  #sub .sp { flex: 1; }
+  #sub .ps { color: var(--sub); }
+
+  #doc { padding: 0 24px 120px; }
+  .row, #drawer { display: grid; grid-template-columns: minmax(0, 680px) minmax(0, 300px); gap: 32px; justify-content: center; }
+  #drawer { padding: 20px 0 0; }
+  #drawer:empty { display: none; }
+  #drawer > section { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; font-size: 13px; }
+  #drawer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  #drawer h2 { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 2px; }
+  .row:first-of-type { padding-top: 40px; }
+  @media (max-width: 1000px) {
+    #doc { padding: 0 16px 100px; }
+    .row, #drawer { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .notes { padding-bottom: 20px; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div id="rib"><div class="groups" id="groups"></div><div id="sub"></div></div>
+<main id="doc"><div id="drawer"></div><div id="rows"></div></main>
+
+<script src="shared.js"></script>
+<script src="r3.js"></script>
+<script>
+  O.header(2);
+  const $ = (id) => document.getElementById(id);
+  let open = null;   // "diag" | "fact" | "ask": which in-flow panel is shown above the text
+
+  const badge = (s) => (s.st === "run" ? `<span class="spin"></span>` : `<em>${s.st === "idle" ? "▷" : s.st === "done" ? "✓" : s.n}</em>`);
+  const rb = (k, label, s, on, dot) => `<button class="rb st-${s.st}${on ? " on" : ""}" data-rb="${k}" title="${s.text}">${dot ? `<i style="background:${P.color(k)}"></i>` : ""}${label}${badge(s)}</button>`;
+  const ov = (k) => { const s = P.ovState(k); return Object.assign(s, { st: s.st === "done" ? "wait" : s.st }); };
+
+  P.init(() => {
+    $("groups").innerHTML =
+      `<div class="grp"><span>Огляд</span><div>${rb("diag", "Діагностика", ov("diag"), open === "diag")}${rb("fact", "Факти", ov("fact"), open === "fact")}</div></div>` +
+      `<div class="grp"><span>Правки${P.shown.size ? " · " + P.progress().toLowerCase() : ""}</span><div>${P.PASSES.map(([k, label]) => rb(k, label, P.state(k), P.filter === k, true)).join("")}${P.shown.size ? P.quietSw() : ""}</div></div>` +
+      `<div class="grp"><span>Запит</span><div><button class="rb${open === "ask" ? " on" : ""}" data-rb="ask" title="До фрагмента: просто виділіть текст у рукописі">До всього розділу…</button></div></div>`;
+
+    // Contextual row for the chosen pass: its state, bulk decisions and re-run
+    const k = P.filter !== "all" && P.filter;
+    $("sub").innerHTML = k ? `${P.tag(k)}<span class="ps">${P.state(k).text}</span><span class="sp"></span>${P.bulk()}` +
+      rerun(k) + `<button class="btn ghost" data-filter="${k}">Показати всі типи</button>` : "";
+
+    const z = open === "ask" ? P.ZONES.ask : P.ZONES.ov;
+    $("drawer").innerHTML = !open ? "" : `<section><header><div><h2>${open === "ask" ? "Запит до всього розділу" : open === "diag" ? "Огляд · діагностика розділу" : "Огляд · перевірка фактів"}</h2><span class="zd">${z[1]}</span></div><button class="icon-btn" data-rb="${open}" title="Сховати">✕</button></header>` +
+      (open === "ask" ? P.askForm() : P[open] === "run" ? `<span class="zd">Читаю розділ…</span>` : P[open] !== "done" ? ""
+        : open === "diag" ? P.diagList() : O.S.filter((s) => s.type === "fact").map(P.finding).join("")) + `</section><div></div>`;
+
+    $("rows").innerHTML = O.blocks.map((b) =>
+      `<div class="row"><div class="ms">${O.blockHtml(b, P.opt())}</div><div class="notes">${P.notes(b)}</div></div>`).join("");
+  }, { reset: () => { open = null; } });
+
+  function rerun(k) { return P.LABEL[k] && k !== "fact" && !P.running.has(k) ? `<button class="btn ghost" data-run="${k}">↻ Запустити ще раз</button>` : ""; }
+
+  $("groups").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rb]");
+    if (b) press(b.dataset.rb);
+  });
+  $("drawer").addEventListener("click", (e) => { const b = e.target.closest("[data-rb]"); if (b) press(b.dataset.rb); });
+  function press(k) {
+    if (k === "diag" || k === "fact" || k === "ask") {
+      open = open === k ? null : k;
+      if (open && k !== "ask" && P[k] === "idle") P.overview(k); else P.emit();
+      if (open) window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    // A pass button starts the pass the first time, then shows its suggestions
+    const first = !P.ran.has(k) && !P.running.has(k);
+    P.filter = P.filter === k && !first ? "all" : k;
+    if (first) P.run(k); else P.emit();
+  }
+</script>
+</body>
+</html>

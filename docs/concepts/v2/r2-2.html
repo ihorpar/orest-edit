@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · раунд 2 · 2 · Очима читача</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .top {
+    position: sticky; top: 48px; z-index: 20;
+    display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+    padding: 10px 20px; background: var(--porcelain); border-bottom: 1px solid var(--line);
+  }
+  .score { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+  .score b { font: 700 28px/1 var(--ms); }
+  .score span { color: var(--sub); font-size: 12px; }
+  .strip { flex: 1 1 200px; display: flex; gap: 3px; min-width: 0; }
+  .strip button { flex: 1; height: 26px; border: 0; border-radius: 4px; cursor: pointer; color: #fff; font: 500 11px var(--mono); opacity: 0.85; }
+  .strip button:hover, .strip button.on { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
+
+  #doc { max-width: 760px; margin: 0 auto; padding: 36px 20px 120px; }
+  .blk { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 14px; margin-bottom: 6px; }
+  .gut { border: 0; background: none; padding: 6px 0 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-height: 60px; }
+  .gut em { flex: 1; width: 6px; border-radius: 3px; background: linear-gradient(to bottom, var(--c) var(--h), var(--line) var(--h)); }
+  .gut span { font: 500 11px var(--mono); color: var(--c); }
+  .body { padding: 6px 12px 2px; border-radius: 8px; cursor: pointer; }
+  .blk:not(.open) .body:hover { background: var(--bone); }
+  .blk.open .body { background: var(--t); cursor: default; padding-bottom: 14px; margin-bottom: 14px; }
+  .body .ms p { margin-bottom: 8px; }
+  .why { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 14px; font: 400 13px/1.45 var(--ui); letter-spacing: -0.01em; color: var(--c); }
+  .why u { color: var(--sub); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  .panel { font: 400 13px/1.45 var(--ui); letter-spacing: -0.01em; margin-top: 10px; }
+  .panel .lead { margin: 0 0 10px; color: var(--c); font-weight: 500; }
+  .foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .foot .ask { flex: 1 1 240px; }
+  @media (max-width: 520px) {
+    #doc { padding: 24px 10px 100px; }
+    .blk { grid-template-columns: 26px minmax(0, 1fr); gap: 0 6px; }
+    .body { padding: 6px 8px 2px; }
+    .top { padding: 8px 12px; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="top">
+  <div class="score" id="score"></div>
+  <div class="strip" id="strip"></div>
+  <button class="btn primary" id="next"></button>
+</div>
+<main id="doc"></main>
+
+<script src="shared.js"></script>
+<script>
+  O.header("r2-2");
+  // How much each accepted suggestion cools its paragraph.
+  const W = { clarity: 55, interest: 12, visual: 12, structure: 8, accent: 5, spell: 4, fact: 15 };
+  const paras = O.blocks.filter((b) => b.tag === "p");
+  let open = null, focus = null, vz = null, askErr = false;
+  const doc = document.getElementById("doc");
+
+  const heat = (b) => Math.max(8, O.READ[b.id].heat - O.S.filter((s) => s.block === b.id && s.status === "accepted").reduce((n, s) => n + W[s.type], 0));
+  const hue = (h) => Math.round(150 - h * 1.45);
+  const left = (b) => O.pending((s) => s.block === b.id);
+  const hottest = () => paras.filter((b) => left(b).length).sort((a, b) => heat(b) - heat(a))[0];
+
+  function panel(b, p) {
+    const text = p.filter((s) => s.type !== "visual");
+    return `<div class="panel">
+      ${p.length ? `<ul class="its">${p.map((s) => O.item(s, vz === s.id ? O.vz(s) : "")).join("")}</ul>` : `<p class="done">У цьому абзаці все вирішено.</p>`}
+      <div class="foot">
+        ${text.length > 1 ? `<button class="btn" data-all>Прийняти всі правки тексту · ${text.length}</button>` : ""}
+        <form class="ask"><input placeholder="Свій запит до цього абзацу…" autocomplete="off"><button class="btn">Надіслати</button></form>
+      </div>
+      ${askErr ? `<p class="err">Прототип не відповість: довільний запит потребує моделі.</p>` : ""}
+    </div>`;
+  }
+
+  function blk(b, i) {
+    if (b.tag !== "p") return `<div class="blk"><span></span><div class="ms" style="padding:0 12px">${O.blockHtml(b)}</div></div>`;
+    const h = heat(b), p = left(b), isOpen = open === b.id, r = O.READ[b.id];
+    const why = O.get(r.fix).status === "pending" ? r.why : "";
+    return `<section class="blk${isOpen ? " open" : ""}" data-blk="${b.id}" style="--c:hsl(${hue(h)} 65% 38%);--t:hsl(${hue(h)} 70% 97%)">
+      <button class="gut" data-go="${b.id}" title="Абзац ${i}. Складність для читача: ${h} зі 100"><em style="--h:${h}%"></em><span>${h}</span></button>
+      <div class="body">
+        <div class="ms">${O.blockHtml(b, isOpen ? { focus } : { show: () => false })}</div>
+        ${isOpen ? (why ? `<p class="why">Де спіткнеться читач: ${why}</p>` : "") + panel(b, p)
+          : p.length ? `<p class="why">${why ? `<span>${why}</span>` : ""}<u>Пропозицій: ${p.length}</u></p>` : ""}
+      </div></section>`;
+  }
+
+  function render() {
+    const avg = paras.reduce((n, b) => n + heat(b), 0) / paras.length;
+    const base = paras.reduce((n, b) => n + O.READ[b.id].heat, 0) / paras.length;
+    document.getElementById("score").innerHTML = `<b>${Math.round(100 - avg)}</b><span>зі 100 · легкість читання${avg < base ? ` · було ${Math.round(100 - base)}` : ""}</span>`;
+    document.getElementById("strip").innerHTML = paras.map((b, i) =>
+      `<button data-go="${b.id}" class="${open === b.id ? "on" : ""}" style="background:hsl(${hue(heat(b))} 65% 42%)" title="Абзац ${i + 1}. Складність: ${heat(b)}">${i + 1}</button>`).join("");
+    const hot = hottest();
+    const next = document.getElementById("next");
+    next.disabled = !hot;
+    next.textContent = hot ? "Найважче місце →" : "Усе вирішено";
+    doc.innerHTML = O.blocks.map(blk).join("");
+  }
+
+  function go(id) {
+    open = open === id ? null : id;
+    focus = null; vz = null; askErr = false;
+    render();
+    const el = doc.querySelector(".blk.open");
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  document.getElementById("next").onclick = () => { const b = hottest(); if (b) { open = null; go(b.id); } };
+  document.getElementById("strip").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });
+  doc.addEventListener("click", (e) => {
+    if (e.target.closest("[data-vz], [data-studio], .ask")) return;
+    const vo = e.target.closest("[data-vopen]");
+    if (vo) { vz = vz === vo.dataset.vopen ? null : vo.dataset.vopen; return render(); }
+    const t = e.target.closest("[data-s]"), a = e.target.closest("[data-a]");
+    if (t && a) return O.set(t.dataset.s, a.dataset.a);
+    if (e.target.closest("[data-all]")) return O.set(O.pending((s) => s.block === open && s.type !== "visual").map((s) => s.id), "accepted");
+    if (t) { focus = t.dataset.s; return render(); }
+    const g = e.target.closest("[data-go]");
+    if (g) return go(g.dataset.go);
+    const b = e.target.closest("[data-blk]");
+    if (b && b.dataset.blk !== open && window.getSelection().isCollapsed) go(b.dataset.blk);
+  });
+  doc.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!e.target.querySelector("input").value.trim()) return;
+    askErr = true;   // no model here, so say so instead of inventing an answer
+    render();
+  });
+
+  O.hover(doc);
+  O.on(render);
+  document.getElementById("reset").onclick = () => { open = null; focus = null; vz = null; askErr = false; O.reset(); };
+  render();
+</script>
+</body>
+</html>

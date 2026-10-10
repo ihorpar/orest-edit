@@ -30,7 +30,7 @@ The main job is to turn dense scientific language into simple, readable Ukrainia
 ## Tech and workflow notes
 - Current implementation is a web-only Next.js app in `apps/web`.
 - There is no active backend implementation in the current reset state.
-- After UI updates, validate the UI result in runtime; capture screenshots ONLY when explicitly requested. Do not take screenshots unless user asks you to.
+- After UI updates, validate the UI result in runtime, including visually: take screenshots whenever they help check layout or appearance. No separate permission is needed.
 - Treat `docs/CURRENT_STATE.md` as the first handoff document before making changes.
 
 ### Playwright screenshots

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · раунд 2 · 5 · Сторінка</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { background: #eceae4; }
+  .stage { display: grid; grid-template-columns: minmax(0, 660px) 240px; gap: 32px; justify-content: center; align-items: start; padding: 32px 16px 120px; }
+  #page { background: #fffefb; box-shadow: 0 1px 2px rgba(60, 50, 30, 0.12), 0 12px 40px rgba(60, 50, 30, 0.1); padding: 44px 64px 40px; font-size: 17px; line-height: 1.75; hyphens: auto; }
+  #page::before { content: "Розділ 3"; display: block; font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); margin-bottom: 36px; }
+  #page::after { content: "47"; display: block; text-align: center; font: 400 12px var(--ms); color: var(--muted); margin-top: 28px; }
+  #page ::selection { background: #bfdbfe; }
+  #page h1 { font-size: 32px; margin-bottom: 28px; }
+  #page > p { text-align: justify; }
+  #page > p:first-of-type::first-letter { float: left; font: 700 58px/0.82 var(--ms); padding: 6px 8px 0 0; }
+
+  /* Draft: pending changes are shown as their result, tinted until confirmed */
+  .dr { background: #fdf3c7; border-radius: 3px; box-shadow: 0 0 0 2px #fdf3c7; }
+  .dr:hover, .dr.is-focus { background: #fde68a; box-shadow: 0 0 0 2px #fde68a; }
+  .dr-b { display: block; }
+  aside.callout.dr { background: #fdf3c7; }
+  .slot-in { aspect-ratio: 16 / 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; border: 1px dashed #b45309; border-radius: 6px; padding: 12px; font: 400 13px/1.4 var(--ui); color: #92400e; }
+  .slot-in b { font-weight: 600; }
+  .slot-in u { margin-top: 6px; }
+  .fig.editing { border: 1px solid var(--ink); border-radius: 10px; padding: 16px; background: #fff; }
+  .fig.editing > p { margin: 0 0 12px; font: 400 13px/1.45 var(--ui); color: var(--sub); text-align: left; }
+  .fig.editing > .btn { margin-top: 10px; font-family: var(--ui); }
+
+  #check { position: sticky; top: 72px; font-size: 13px; }
+  #check h3 { font: 600 18px var(--ms); margin: 0 0 2px; }
+  #check .n { margin: 0 0 12px; color: var(--sub); }
+  #check ul { list-style: none; margin: 0 0 14px; padding: 0; }
+  #check li { display: flex; align-items: center; gap: 4px; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+  .go { flex: 1; display: flex; align-items: center; gap: 8px; border: 0; background: none; cursor: pointer; padding: 8px 0; text-align: left; min-width: 0; }
+  .go i { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+  .go span { margin-left: auto; font: 400 11px var(--mono); color: var(--sub); }
+  .go.ok span { color: var(--green); }
+  .go:disabled { cursor: default; color: var(--sub); }
+  .all { border: 0; background: none; cursor: pointer; font-size: 12px; color: var(--sub); text-decoration: underline; white-space: nowrap; padding: 4px; }
+  #check label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  #check .legend { margin: 12px 0 0; color: var(--sub); font-size: 12px; line-height: 1.5; }
+  #check .legend mark { background: #fdf3c7; padding: 0 3px; border-radius: 2px; }
+
+  #pop, #bub { position: absolute; z-index: 28; display: none; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14); }
+  #pop { width: min(340px, calc(100vw - 24px)); padding: 12px; }
+  #pop.on, #bub.on { display: block; }
+  #pop .was { font: 400 14px/1.5 var(--ms); margin: 8px 0 6px; }
+  #pop .was span { font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: block; }
+  #pop .was del { color: #991b1b; text-decoration-color: rgba(153, 27, 27, 0.4); }
+  #pop .was ins { display: none; }
+  #pop p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: #334155; }
+  #pop .acts { justify-content: flex-end; gap: 8px; }
+  #bub { padding: 6px; width: max-content; max-width: calc(100vw - 24px); }
+  #bub .ask input { width: 220px; }
+
+  @media (max-width: 960px) {
+    .stage { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 10px 100px; }
+    #check { position: static; order: -1; background: #fffefb; border-radius: 10px; padding: 12px 14px; }
+    #check ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 16px; }
+    #page { padding: 28px 22px; font-size: 16px; }
+    #page > p { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="stage">
+  <main id="page" class="ms"></main>
+  <aside id="check"></aside>
+</div>
+<div id="pop"></div>
+<div id="bub"></div>
+
+<script src="shared.js"></script>
+<script>
+  O.header("r2-5");
+  let reveal = false, pop = null, vz = null;
+  const cursor = {};
+  const $ = (id) => document.getElementById(id);
+  const page = $("page"), check = $("check"), popEl = $("pop"), bub = $("bub");
+  const f = (on) => (on ? " is-focus" : "");
+
+  // The page shows the result of every pending change; "reveal" swaps in the usual del/ins marks.
+  const draft = () => (reveal ? { focus: pop } : {
+    focus: pop,
+    mark: (s, on) => `<span class="sg dr${f(on)}" data-s="${s.id}">${O.applied(s)}</span>`,
+    render: {
+      structure: (s, ghost, on) => (ghost ? `<h2 class="sg dr dr-b${f(on)}" data-s="${s.id}">${O.esc(s.title)}</h2>` : O.heading(s)),
+      interest: (s, ghost, on) => (ghost ? O.callout(s).replace('class="callout"', `class="callout sg dr${f(on)}"`) : O.callout(s)),
+      visual: (s, ghost) => {
+        if (!ghost) return O.figure(s);
+        if (vz === s.id) return `<figure class="fig editing"><p>${O.esc(s.reason)}</p>${O.vz(s)}<button class="btn ghost" data-vclose>Згорнути</button></figure>`;
+        return `<figure class="fig sg dr dr-b" data-s="${s.id}">${s.gen ? O.frame(s) : `<div class="slot-in"><b>Місце для візуалу</b><span>${O.INTENTS[s.intent]}: ${O.esc(s.title)}</span><u>Натисніть, щоб створити</u></div>`}<figcaption data-cap="${s.id}">${O.esc(s.caption)}</figcaption></figure>`;
+      }
+    }
+  });
+
+  function render() {
+    if (vz && O.get(vz).status !== "pending") vz = null;
+    page.innerHTML = O.doc(draft());
+    const n = O.pending().length;
+    check.innerHTML = `<h3>До друку</h3>
+      <p class="n">${n ? `Незатверджених змін: ${n}` : "Усе затверджено. Сторінка готова."}</p>
+      <ul>${Object.keys(O.TYPES).map((k) => {
+        const c = O.pending((s) => s.type === k).length;
+        return `<li><button class="go${c ? "" : " ok"}" data-next="${k}"${c ? "" : " disabled"}><i style="background:${O.TYPES[k].color}"></i>${O.TYPES[k].label}<span>${c || "✓"}</span></button>` +
+          (c && k !== "visual" ? `<button class="all" data-all="${k}" title="Затвердити всі зміни цього типу">усі ✓</button>` : "") + `</li>`;
+      }).join("")}</ul>
+      <label><input type="checkbox" id="reveal"${reveal ? " checked" : ""}> Показати «було → стало»</label>
+      <p class="legend"><mark>Тонований текст</mark> — чернетка ШІ, ще не затверджена. Натисніть на нього, щоб побачити, що було і чому змінено.</p>`;
+    renderPop();
+  }
+
+  function renderPop() {
+    const s = pop && O.get(pop);
+    const el = s && s.status === "pending" && page.querySelector(`[data-s="${pop}"]`);
+    if (!el) { pop = null; popEl.className = ""; return; }
+    const r = el.getBoundingClientRect();
+    popEl.innerHTML = `${O.tag(s.type)}<div class="was"><span>${s.to ? "Було" : "Додано"}</span>${O.diff(s)}</div><p>${O.esc(s.reason)}</p>
+      <div class="acts"><button class="btn" data-a="rejected">Повернути як було</button>${s.type === "visual"
+        ? `<button class="btn primary" data-studio="${s.id}">Відкрити студію</button>` : `<button class="btn primary" data-a="accepted">Залишити</button>`}</div>`;
+    popEl.className = "on";
+    popEl.style.top = r.bottom + window.scrollY + 8 + "px";
+    popEl.style.left = Math.max(12, Math.min(r.left + window.scrollX, window.innerWidth - popEl.offsetWidth - 12)) + "px";
+  }
+
+  function open(s, scroll) {
+    if (s.type === "visual" && !reveal) { vz = s.id; pop = null; } else pop = s.id;
+    render();
+    const el = page.querySelector(s.id === vz ? ".fig.editing" : `[data-s="${s.id}"]`);
+    if (scroll && el) el.scrollIntoView({ block: "center" });
+    renderPop();   // position again after the scroll
+  }
+
+  check.addEventListener("click", (e) => {
+    const all = e.target.closest("[data-all]");
+    if (all) return O.set(O.pending((s) => s.type === all.dataset.all).map((s) => s.id), "accepted");
+    const nx = e.target.closest("[data-next]");
+    if (!nx) return;
+    e.stopPropagation();   // the outside-click handler would close the popover we are about to open
+    const k = nx.dataset.next, q = O.pending((s) => s.type === k);
+    cursor[k] = ((cursor[k] === undefined ? -1 : cursor[k]) + 1) % q.length;
+    open(q[cursor[k]], true);
+  });
+  check.addEventListener("change", (e) => { if (e.target.id === "reveal") { reveal = e.target.checked; vz = null; render(); } });
+  page.addEventListener("click", (e) => {
+    if (e.target.closest("[data-vz], [data-studio]")) return;
+    if (e.target.closest("[data-vclose]")) { vz = null; return render(); }
+    if (!window.getSelection().isCollapsed) return;
+    const t = e.target.closest("[data-s]");
+    const s = t && O.get(t.dataset.s);
+    if (s && s.status === "pending") { e.stopPropagation(); open(s); }
+  });
+  popEl.addEventListener("click", (e) => { const b = e.target.closest("[data-a]"); if (b) O.set(pop, b.dataset.a); });
+  document.addEventListener("click", (e) => {
+    if (pop && !e.target.closest("#pop, #check")) { pop = null; render(); }
+    if (!e.target.closest("#bub") && window.getSelection().isCollapsed) bub.className = "";
+  });
+
+  // Local edit: select text on the page, ask for a change to that fragment.
+  document.addEventListener("mouseup", (e) => {
+    if (e.target.closest("#bub")) return;
+    const sel = window.getSelection();
+    if (sel.isCollapsed || sel.toString().trim().length < 4 || !page.contains(sel.anchorNode) || sel.anchorNode.parentElement.closest("[data-vz]")) return;
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    bub.innerHTML = `<button class="btn" data-ask>✎ Змінити фрагмент…</button>`;
+    bub.className = "on";
+    bub.style.top = r.bottom + window.scrollY + 8 + "px";
+    bub.style.left = Math.max(12, Math.min(r.left + window.scrollX, window.innerWidth - 320)) + "px";
+  });
+  bub.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-ask]")) return;
+    bub.innerHTML = `<form class="ask"><input placeholder="Що змінити у виділеному?" autocomplete="off"><button class="btn primary">Надіслати</button></form>`;
+    bub.querySelector("input").focus();
+  });
+  bub.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!bub.querySelector("input").value.trim() || bub.querySelector(".err")) return;
+    bub.insertAdjacentHTML("beforeend", `<p class="err">Прототип не відповість: довільний запит потребує моделі.</p>`);   // no model here, so say so
+  });
+
+  O.on(render);
+  $("reset").onclick = () => { reveal = false; pop = null; vz = null; bub.className = ""; O.reset(); };
+  render();
+</script>
+</body>
+</html>

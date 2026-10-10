@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · B · Черга</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .bar {
+    position: sticky; top: 48px; z-index: 20;
+    padding: 10px 20px; background: var(--porcelain); border-bottom: 1px solid var(--line);
+  }
+  #doc { max-width: 720px; margin: 0 auto; padding: 40px 20px 300px; }
+  .sg.dim { border-bottom: 2px dotted #cbd5e1; border-radius: 0; }
+  .sg.dim:hover { background: var(--bone); }
+
+  #dock {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 25;
+    width: min(680px, calc(100vw - 32px));
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12); overflow: hidden;
+  }
+  .progress { height: 3px; background: var(--line); }
+  .progress i { display: block; height: 100%; background: var(--ink); transition: width 0.2s; }
+  .dock-body { padding: 14px 16px; }
+  .dock-top { display: flex; align-items: center; justify-content: space-between; }
+  .count { font: 400 11px var(--mono); color: var(--muted); }
+  .reason { margin: 8px 0 14px; font-size: 14px; line-height: 1.5; color: #1e293b; }
+  .dock-acts { display: flex; gap: 8px; align-items: center; }
+  .dock-acts .sp { flex: 1; }
+  .end { text-align: center; padding: 6px 0; }
+  .end b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .end span { color: var(--sub); font-size: 13px; }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="bar"><div class="chips" id="chips"></div></div>
+<main id="doc" class="ms"></main>
+<div id="dock"></div>
+
+<script src="shared.js"></script>
+<script>
+  O.header("b");
+  let filter = "all";
+  let focus = null;
+  const doc = document.getElementById("doc");
+  const dock = document.getElementById("dock");
+  const inFilter = (s) => filter === "all" || s.type === filter;
+  const queue = () => O.pending(inFilter);
+
+  function render(scroll) {
+    const q = queue();
+    if (!q.find((s) => s.id === focus)) focus = q.length ? q[0].id : null;
+    O.chips(document.getElementById("chips"), filter, (k) => { filter = k; render(true); });
+
+    // Only the focused suggestion is expanded; the rest stay as quiet dotted marks.
+    doc.innerHTML = O.doc({
+      focus,
+      show: (s) => inFilter(s) && (s.from ? true : s.id === focus),
+      mark: (s, focused) => focused ? O.mark(s, true) : `<span class="sg dim" data-s="${s.id}">${O.esc(s.from)}</span>`
+    });
+
+    const done = O.S.length - O.pending().length;
+    const bar = `<div class="progress"><i style="width:${(done / O.S.length) * 100}%"></i></div>`;
+    if (!focus) {
+      dock.innerHTML = bar + `<div class="dock-body end"><b>${O.pending().length ? "У цьому фільтрі все переглянуто" : "Чергу пройдено"}</b>
+        <span>Прийнято ${O.count("accepted")} · Відхилено ${O.count("rejected")}</span></div>`;
+      return;
+    }
+    const s = O.get(focus);
+    dock.innerHTML = bar + `<div class="dock-body">
+      <div class="dock-top">${O.tag(s.type)}<span class="count">${q.indexOf(s) + 1} з ${q.length}</span></div>
+      <p class="reason">${O.esc(s.reason)}</p>
+      <div class="dock-acts">
+        <button class="btn ghost" data-k="prev">← Назад</button>
+        <button class="btn ghost" data-k="next">Пропустити →</button>
+        <span class="sp"></span>
+        <button class="btn" data-k="rejected">Відхилити<kbd>⌫</kbd></button>
+        <button class="btn primary" data-k="accepted">Прийняти<kbd>↵</kbd></button>
+      </div></div>`;
+    if (scroll) {
+      const el = doc.querySelector(".is-focus");
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  function move(d) {
+    const q = queue();
+    if (!q.length) return;
+    const i = q.findIndex((s) => s.id === focus);
+    focus = q[(i + d + q.length) % q.length].id;
+    render(true);
+  }
+  function act(status) {
+    if (!focus) return;
+    const q = queue();
+    const id = focus;
+    const next = q[q.findIndex((s) => s.id === id) + 1] || q[0];
+    focus = next && next.id !== id ? next.id : null;
+    O.set(id, status);
+  }
+  function key(k) {
+    if (k === "prev") move(-1);
+    else if (k === "next") move(1);
+    else act(k);
+  }
+
+  dock.addEventListener("click", (e) => { const b = e.target.closest("[data-k]"); if (b) key(b.dataset.k); });
+  doc.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-s]");
+    if (t) { focus = t.dataset.s; render(false); }
+  });
+  document.addEventListener("keydown", (e) => {
+    const map = { Enter: "accepted", Backspace: "rejected", Delete: "rejected", ArrowRight: "next", ArrowLeft: "prev", j: "next", k: "prev" };
+    if (map[e.key]) { e.preventDefault(); key(map[e.key]); }
+  });
+  O.on(() => render(true));
+  render(false);
+</script>
+</body>
+</html>

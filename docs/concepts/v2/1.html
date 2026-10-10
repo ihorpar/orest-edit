@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orest Edit v2 · 1 · Панель редактора</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="r3.css">
+<style>
+  .app { display: grid; grid-template-columns: 264px minmax(0, 1fr); align-items: start; }
+  /* The rail sits beside the text, never over it */
+  #rail { position: sticky; top: 48px; height: calc(100vh - 48px); overflow-y: auto; padding: 4px 16px 24px; border-right: 1px solid var(--line); background: var(--bone); }
+  #doc { padding: 40px 24px 120px; min-width: 0; }
+  .row { display: grid; grid-template-columns: minmax(0, 660px) minmax(0, 280px); gap: 28px; justify-content: center; }
+  @media (max-width: 1000px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    #rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 16px; }
+    #doc { padding: 24px 16px 100px; }
+    .row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .notes { padding-bottom: 20px; }
+  }
+</style>
+</head>
+<body>
+<header id="hd"></header>
+<div class="app">
+  <aside id="rail"></aside>
+  <main id="doc"></main>
+</div>
+
+<script src="shared.js"></script>
+<script src="r3.js"></script>
+<script>
+  O.header(1);
+  const rail = document.getElementById("rail"), doc = document.getElementById("doc");
+  P.init(() => {
+    rail.innerHTML = P.zone("ov") + P.zone("ed") + P.zone("ask");
+    doc.innerHTML = O.blocks.map((b) =>
+      `<div class="row"><div class="ms">${O.blockHtml(b, P.opt())}</div><div class="notes">${P.notes(b)}</div></div>`).join("");
+  }, { foldMobile: true });
+</script>
+</body>
+</html>
