@@ -3356,3 +3356,73 @@ a.menuItem {
     transition: none !important;
   }
 }
+
+/* ---------- accept / reject beside a suggestion in the text ---------- */
+.ms [data-sg-controls] {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  vertical-align: middle;
+  user-select: none;
+  font: 400 13px/1 var(--f-ui);
+}
+
+.ms [data-sg-controls="inline"] {
+  margin-left: 6px;
+}
+
+.ms [data-sg-controls="block"] {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 18px;
+}
+
+.ms aside[data-sg-ghost="callout"] > [data-sg-controls] {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.ms [data-sg-controls] button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ms [data-sg-controls] svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ms [data-sg-controls] button[data-sg-decide="reject"]:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.ms [data-sg-controls] button[data-sg-decide="accept"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ms [data-sg-controls] button[data-sg-decide="accept"]:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
+.ms [data-sg-controls] button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

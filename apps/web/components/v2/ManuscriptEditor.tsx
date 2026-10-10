@@ -47,6 +47,10 @@ interface ManuscriptEditorProps {
   onReviewHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
   /** `Відкрити студію` on a ghost figure. */
   onStudioOpen?: (itemId: string) => void;
+  /** ✓ or ✕ pressed beside a suggestion in the text. */
+  onReviewDecide?: (itemId: string, decision: "accept" | "reject") => void;
+  acceptLabel?: string;
+  rejectLabel?: string;
   /** `Змінити` on a figure that is in the text. */
   onImageEdit?: (blockId: string) => void;
 }
@@ -70,6 +74,9 @@ export function ManuscriptEditor({
   onReviewDiffReport,
   onReviewHeadingChange,
   onStudioOpen,
+  onReviewDecide,
+  acceptLabel,
+  rejectLabel,
   onImageEdit
 }: ManuscriptEditorProps) {
   const latest = {
@@ -80,6 +87,7 @@ export function ManuscriptEditor({
     onReviewDiffReport,
     onReviewHeadingChange,
     onStudioOpen,
+    onReviewDecide,
     onImageEdit
   };
   const callbacks = useRef(latest);
@@ -99,10 +107,12 @@ export function ManuscriptEditor({
           onItemHover: (itemId) => callbacks.current.onReviewItemHover?.(itemId),
           onDiffReport: (report) => callbacks.current.onReviewDiffReport?.(report),
           onHeadingChange: (itemId, change) => callbacks.current.onReviewHeadingChange?.(itemId, change),
-          onStudioOpen: (itemId) => callbacks.current.onStudioOpen?.(itemId)
+          onStudioOpen: (itemId) => callbacks.current.onStudioOpen?.(itemId),
+          onDecide: (itemId, decision) => callbacks.current.onReviewDecide?.(itemId, decision),
+          decideLabels: acceptLabel && rejectLabel ? { accept: acceptLabel, reject: rejectLabel } : undefined
         }
       }),
-    [locale, placeholder, imageMissingLabel, imageEditLabel]
+    [locale, placeholder, imageMissingLabel, imageEditLabel, acceptLabel, rejectLabel]
   );
   const initialContent = useMemo(() => documentToTiptap(ensureDocumentHasBlocks(initialDocument)), [initialDocument]);
 

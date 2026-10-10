@@ -400,3 +400,19 @@ test("quiet mode: dimmed marks are traces only; a dimmed ghost is not drawn and 
   assert.equal(all.find((entry) => entry.spec.review === "block")?.attrs["data-sg-dim"], "");
   assert.deepEqual(getReviewDiffReport(state).drawn, ["sp-2"]);
 });
+
+test("accept / reject controls stand beside a phrase only while it is current or hovered", () => {
+  const accent = (overrides: Partial<ReviewMark>) =>
+    mark({ itemId: "a-1", inline: { type: "accent", blockId: "p-1", text: "тиск сну", occurrence: 1 }, ...overrides });
+  const controls = (state: EditorState) => decorations(state).filter((entry) => entry.spec.review === "controls");
+
+  assert.equal(controls(apply(createState(), setReviewMarks([accent({})]))).length, 0);
+  assert.equal(controls(apply(createState(), setReviewMarks([accent({ hot: true })]))).length, 1);
+
+  const focused = controls(apply(createState(), setReviewMarks([accent({ focused: true })])));
+  assert.equal(focused.length, 1);
+  assert.equal((focused[0]!.spec as { itemId: string }).itemId, "a-1");
+
+  // A dimmed trace (compact mode, not the current item) never gets them.
+  assert.equal(controls(apply(createState(), setReviewMarks([accent({ hot: true, dim: true })]))).length, 0);
+});

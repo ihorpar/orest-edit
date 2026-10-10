@@ -1115,6 +1115,18 @@ export function V2Workspace() {
     [openStudio]
   );
 
+  const { acceptItem: acceptReviewItem, rejectItem: rejectReviewItem } = review;
+  const handleDecide = useCallback(
+    (itemId: string, decision: "accept" | "reject") => {
+      if (decision === "accept") {
+        acceptReviewItem(itemId);
+      } else {
+        rejectReviewItem(itemId);
+      }
+    },
+    [acceptReviewItem, rejectReviewItem]
+  );
+
   const notifyFromPanel = useCallback(
     (tone: "info" | "error", message: string) => setToast({ tone, message, area: "overview" }),
     [setToast]
@@ -1392,6 +1404,9 @@ export function V2Workspace() {
                 onReviewItemHover={review.hoverItem}
                 onReviewDiffReport={setDiffReport}
                 onReviewHeadingChange={review.editHeading}
+                onReviewDecide={handleDecide}
+                acceptLabel={copy.edits.accept}
+                rejectLabel={copy.edits.reject}
               />
             ) : null}
             {!session && !blocked ? <span className={styles.srOnly}>{copy.loading}</span> : null}

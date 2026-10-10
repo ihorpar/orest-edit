@@ -100,6 +100,9 @@ export interface ReviewMarkHandlers {
   onHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
   /** `Відкрити студію` was pressed on a ghost figure. */
   onStudioOpen?: (itemId: string) => void;
+  /** ✓ or ✕ was pressed on the controls drawn beside a suggestion in the text. */
+  onDecide?: (itemId: string, decision: "accept" | "reject") => void;
+  decideLabels?: { accept: string; reject: string };
 }
 
 interface ReviewMarksPluginState {
@@ -119,7 +122,8 @@ export type ReviewDecorationSpec =
   | { review: "ins"; itemId: string; text: string; nodes: InlineNode[] }
   | { review: "ins-block"; itemId: string; block: Block }
   | { review: "ghost"; itemId: string; ghost: ReviewGhost }
-  | { review: "inline"; itemId: string; inline: ReviewInlineTarget; dim: boolean };
+  | { review: "inline"; itemId: string; inline: ReviewInlineTarget; dim: boolean }
+  | { review: "controls"; itemId: string };
 
 export const reviewMarksKey = new PluginKey<ReviewMarksPluginState>("v2ReviewMarks");
 
@@ -253,7 +257,7 @@ interface BlockEntry {
   pos: number;
 }
 
-type GhostHandlers = Pick<ReviewMarkHandlers, "onHeadingChange" | "onStudioOpen">;
+type GhostHandlers = Pick<ReviewMarkHandlers, "onHeadingChange" | "onStudioOpen" | "onDecide" | "decideLabels">;
 
 export function buildReviewDecorations(doc: ProseMirrorNode, marks: ReviewMark[]): DecorationSet {
   return buildReviewMarkState(doc, marks).decorations;
@@ -318,6 +322,13 @@ export function buildReviewMarkState(
 
     report.drawn.push(mark.itemId);
     decorations.push(...built.decorations);
+
+    const lastBlock = [...mark.blockIds].reverse().map((blockId) => blocks.get(blockId)).find(Boolean);
+
+    if (lastBlock) {
+      decorations.push(controlsWidget(lastBlock.pos + lastBlock.node.nodeSize, mark.itemId, handlers, "block"));
+    }
+
     built.struck.forEach((blockId) => struckBlocks.add(blockId));
     built.touched.forEach((blockId) => diffBlocks.add(blockId));
   }
@@ -326,7 +337,7 @@ export function buildReviewMarkState(
     const built = mark.ghost
       ? buildGhostDecoration(mark, mark.ghost, blocks, handlers)
       : mark.inline
-        ? buildInlineDecorations(mark, mark.inline, blocks)
+        ? buildInlineDecorations(mark, mark.inline, blocks, handlers)
         : null;
 
     if (!built) {
@@ -620,8 +631,9 @@ function buildGhostDecoration(
   return {
     complete: true,
     decorations: [
-      Decoration.widget(position, () => createGhostCallout(ghost, attributes), {
+      Decoration.widget(position, () => createGhostCallout(mark.itemId, ghost, attributes, handlers), {
         side: -1,
+        stopEvent: (event: Event) => isGhostControl(event.target),
         key: `sg-ghost-${mark.itemId}-${flags}-${hashText(JSON.stringify(ghost.block) + ghost.label)}`,
         ignoreSelection: true,
         review: "ghost",
@@ -640,7 +652,7 @@ function createGhostHeading(
   itemId: string,
   ghost: Extract<ReviewGhost, { type: "heading" }>,
   attributes: Record<string, string>,
-  handlers: Pick<ReviewMarkHandlers, "onHeadingChange">
+  handlers: GhostHandlers
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.setAttribute("data-sg-ghost", "heading");
@@ -693,6 +705,7 @@ function createGhostHeading(
     wrapper.append(title);
   }
 
+  wrapper.append(createDecisionControls(itemId, handlers, "ghost"));
   return wrapper;
 }
 
@@ -748,7 +761,12 @@ function createGhostFigure(
   return wrapper;
 }
 
-function createGhostCallout(ghost: Extract<ReviewGhost, { type: "callout" }>, attributes: Record<string, string>): HTMLElement {
+function createGhostCallout(
+  itemId: string,
+  ghost: Extract<ReviewGhost, { type: "callout" }>,
+  attributes: Record<string, string>,
+  handlers: GhostHandlers
+): HTMLElement {
   const wrapper = document.createElement("aside");
   wrapper.setAttribute("data-sg-ghost", "callout");
   wrapper.contentEditable = "false";
@@ -773,7 +791,72 @@ function createGhostCallout(ghost: Extract<ReviewGhost, { type: "callout" }>, at
     wrapper.append(line);
   }
 
+  wrapper.append(createDecisionControls(itemId, handlers, "ghost"));
   return wrapper;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function createControlIcon(paths: string[]): SVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+
+  return svg;
+}
+
+/**
+ * ✕ and ✓ beside a suggestion in the text, so it can be decided where it is read. They only report the
+ * press: whether the item may be accepted right now is still decided by the engine.
+ */
+function createDecisionControls(itemId: string, handlers: GhostHandlers, variant: "inline" | "block" | "ghost"): HTMLElement {
+  const wrapper = document.createElement("span");
+  wrapper.setAttribute("data-sg-controls", variant);
+  wrapper.setAttribute(REVIEW_ITEMS_ATTRIBUTE, itemId);
+  wrapper.contentEditable = "false";
+
+  const add = (decision: "accept" | "reject", label: string | undefined, paths: string[]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("data-sg-decide", decision);
+    button.setAttribute("data-sg-ghost-control", "");
+
+    if (label) {
+      button.title = label;
+      button.setAttribute("aria-label", label);
+    }
+
+    button.append(createControlIcon(paths));
+    // The caret and the selection in the manuscript stay where they are.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handlers.onDecide?.(itemId, decision);
+    });
+    wrapper.append(button);
+  };
+
+  add("reject", handlers.decideLabels?.reject, ["m6 6 12 12", "M18 6 6 18"]);
+  add("accept", handlers.decideLabels?.accept, ["m5 12.5 4.5 4.5L19 7.5"]);
+  return wrapper;
+}
+
+function controlsWidget(position: number, itemId: string, handlers: GhostHandlers, variant: "inline" | "block"): Decoration {
+  return Decoration.widget(position, () => createDecisionControls(itemId, handlers, variant), {
+    side: variant === "inline" ? 1 : -1,
+    key: `sg-controls-${itemId}-${variant}`,
+    ignoreSelection: true,
+    stopEvent: (event: Event) => isGhostControl(event.target),
+    review: "controls",
+    itemId
+  } satisfies { review: "controls"; itemId: string } & Record<string, unknown>);
 }
 
 /**
@@ -783,7 +866,8 @@ function createGhostCallout(ghost: Extract<ReviewGhost, { type: "callout" }>, at
 function buildInlineDecorations(
   mark: ReviewMark,
   target: ReviewInlineTarget,
-  blocks: Map<string, BlockEntry>
+  blocks: Map<string, BlockEntry>,
+  handlers: GhostHandlers = {}
 ): { decorations: Decoration[]; complete: boolean } | null {
   const entry = blocks.get(target.blockId);
 
@@ -822,7 +906,14 @@ function buildInlineDecorations(
     } satisfies ReviewDecorationSpec)
   ];
 
+  // Beside the phrase only while it is the current or the hovered one: dozens of marks stay quiet.
+  const withControls = !dim && (mark.focused || mark.hot);
+
   if (target.type === "accent") {
+    if (withControls) {
+      decorations.push(controlsWidget(to, mark.itemId, handlers, "inline"));
+    }
+
     return { decorations, complete: !dim };
   }
 
@@ -844,6 +935,10 @@ function buildInlineDecorations(
       nodes
     })
   );
+
+  if (withControls) {
+    decorations.push(controlsWidget(to, mark.itemId, handlers, "inline"));
+  }
 
   return { decorations, complete: true };
 }
