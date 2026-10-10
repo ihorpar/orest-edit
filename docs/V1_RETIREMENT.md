@@ -74,7 +74,7 @@ These live in shared code and affect v1 and v2 equally; decide on each before or
 Fixed on 2026-10-10 (shared code, so both versions benefit):
 
 - **Patch schema failure on OpenAI.** `POST /api/edit/patch` was rejected by OpenAI with `Invalid schema for response_format 'patch_operations' … Missing 'bold'`, so fragment rewrites (`Простіше`, `Коротше`, free text) failed on the default provider. Strict structured output requires every property to be listed in `required`; the nested rich-text schema did not. OpenAI now uses the same lightweight contract as Gemini (replacement strings, blocks rebuilt on the server) in `apps/web/lib/server/patch-service.ts`. Verified with a real request.
-- **Ukrainian clarify pattern.** `` is ASCII-only in JavaScript and never matched around Cyrillic, so the fragment router's `clarify` answer was English-only. Fixed in `apps/web/lib/editor/local-action-router.ts`.
+- **Ukrainian clarify pattern.** `\b` is ASCII-only in JavaScript and never matched around Cyrillic, so the fragment router's `clarify` answer was English-only. Fixed in `apps/web/lib/editor/local-action-router.ts`.
 - **Stand-in image prompt.** The image prompt endpoint substituted its own prompt when the model's output was unusable. It now returns an error instead (`parseImageDraftOutput` in `apps/web/lib/server/review-action-service.ts`).
 - **Headings lost on DOCX export → import.** Import did not recognise the heading styles the app's own export writes (`HeadingOne/Two/Three`). Fixed in `apps/web/lib/editor/import.ts`.
 
