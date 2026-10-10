@@ -24,6 +24,8 @@ const uk = {
   topbar: {
     editor: "Редактор",
     settings: "Налаштування",
+    newVersion: "Версія 2",
+    newVersionTitle: "Відкрити нову версію редактора",
     navigation: "Основна навігація",
     history: "Історія змін",
     model: "Модель AI",

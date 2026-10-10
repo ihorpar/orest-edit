@@ -188,6 +188,10 @@ export function TopBar({
           <Link href="/settings" className="mono-ui nav-link" data-active={activePath === "/settings"}>
             {copy.topbar.settings}
           </Link>
+          {/* A full page load, like the link back from /v2: the two editors keep separate drafts. */}
+          <a href="/v2" className="mono-ui nav-link" title={copy.topbar.newVersionTitle}>
+            {copy.topbar.newVersion}
+          </a>
         </nav>
       </div>
 

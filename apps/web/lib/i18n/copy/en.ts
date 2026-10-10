@@ -24,6 +24,8 @@ const en = {
   topbar: {
     editor: "Editor",
     settings: "Settings",
+    newVersion: "Version 2",
+    newVersionTitle: "Open the new version of the editor",
     navigation: "Primary navigation",
     history: "Change history",
     model: "AI model",
