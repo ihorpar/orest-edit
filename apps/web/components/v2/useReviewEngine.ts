@@ -1963,11 +1963,6 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
   const setQuiet = useCallback(
     (quiet: boolean) => {
       dispatch({ type: "quiet/set", quiet });
-
-      if (quiet) {
-        // The one mode that calls the model without a click on a card says so when it is switched on.
-        optionsRef.current.notify("info", optionsRef.current.copy.edits.quietNote);
-      }
     },
     [dispatch]
   );

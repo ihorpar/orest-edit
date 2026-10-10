@@ -106,7 +106,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             <span className={styles.spin} />
             {state.activeRun ? text.diagnosticsRunning : text.starting}
           </p>
-          <p className={styles.hint}>{text.diagnosticsRunningHint}</p>
         </div>
         {stopButton}
       </div>
@@ -132,7 +131,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             {modeSwitch}
           </div>
         </div>
-        {diagnosticsBusyNote ? <p className={styles.hint}>{diagnosticsBusyNote}</p> : null}
       </>
     );
   } else {
@@ -157,7 +155,7 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             type="button"
             className={styles.link}
             disabled={disabled || Boolean(diagnosticsBusyNote)}
-            title={diagnosticsBusyNote ?? text.rerunTitle}
+            title={diagnosticsBusyNote ?? undefined}
             onClick={() => review.runStep("diagnostics")}
           >
             {text.rerun}
@@ -165,7 +163,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
         </div>
       )}
       <h3 className={styles.sec}>{text.shortcuts}</h3>
-      <p className={styles.hint}>{text.shortcutsHint}</p>
       <div className={styles.quick}>
         {copy.edits.passList
           .filter((pass) => LIVE_PASSES.has(pass.id))
@@ -274,7 +271,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             <span className={styles.spin} />
             {state.activeRun ? text.factRunning : text.starting}
           </p>
-          <p className={styles.hint}>{text.factRunningHint}</p>
         </div>
         {stopButton}
       </div>
@@ -297,7 +293,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             {text.factCheckAction}
           </button>
         </div>
-        {factBusyNote ? <p className={styles.hint}>{factBusyNote}</p> : null}
       </>
     );
   } else {
@@ -327,7 +322,7 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             type="button"
             className={styles.link}
             disabled={disabled || Boolean(factBusyNote)}
-            title={factBusyNote ?? text.factRerunTitle}
+            title={factBusyNote ?? undefined}
             onClick={() => review.runStep("fact_check")}
           >
             {text.factRerun}
@@ -362,7 +357,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
             {text.copyAll}
           </button>
         </h3>
-        <p className={styles.hint}>{text.authorLead}</p>
         <ul className={styles.authors}>
           {overview.authorQueries.map((query) => (
             <li key={query.id} data-author-query={query.id}>
@@ -402,7 +396,6 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
   return (
     <>
       <h2>{text.title}</h2>
-      <p className={styles.lead}>{text.lead}</p>
       {diagnosticsBlock}
       {runNote(text.diagnosticsFailed, text.diagnosticsStopped, diagnostics)}
       {report}

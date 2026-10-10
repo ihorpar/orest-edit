@@ -437,7 +437,6 @@ function ItemStudio({
         <b>{text.generatingImage}</b>
         {/* Not read out every second: the counter is for the eye only. */}
         <span aria-hidden="true">{text.elapsed(elapsed)}</span>
-        <span>{text.generatingHint}</span>
         <button type="button" className={cx(styles.btn, styles.btnOutline, styles.btnSm)} data-studio-cancel onClick={() => review.cancelVisualGeneration(itemId)}>
           {text.cancel}
         </button>
@@ -447,7 +446,6 @@ function ItemStudio({
     view = (
       <div className={styles.ph} data-studio-preview="empty">
         <b>{text.previewEmpty}</b>
-        <span>{text.previewEmptyHint}</span>
       </div>
     );
   } else if (!image || image.state === "loading") {
@@ -652,11 +650,6 @@ function ItemStudio({
             onBlur={captionField.flush}
           />
         </label>
-        {stale && !generating ? (
-          <p className={styles.vzStale} role="status">
-            {text.staleNote}
-          </p>
-        ) : null}
         <div className={styles.vzRow}>
           <button
             type="button"

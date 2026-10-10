@@ -133,7 +133,7 @@ test("plural forms follow each language", () => {
   assert.equal(en.replace.count(1), "1 match");
   assert.equal(uk.historyPanel.count(22), "22 зміни");
   assert.equal(en.ask.outcomeDone(0), "The model proposed no edits");
-  assert.equal(en.ask.outcomeDone(3), "3 edits in the queue");
+  assert.equal(en.ask.outcomeDone(3), "3 edits");
 });
 
 test("dates are written in the interface language", () => {

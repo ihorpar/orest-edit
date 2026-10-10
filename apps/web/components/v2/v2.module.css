@@ -728,8 +728,9 @@
   border-top: 1px solid var(--line);
 }
 
-.lead + .starter {
-  margin-top: 18px;
+.lead + .starter,
+.body h2 + .starter {
+  margin-top: 14px;
   border-top: 0;
 }
 

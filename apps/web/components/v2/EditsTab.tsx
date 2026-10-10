@@ -179,14 +179,12 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
     list = (
       <div className={styles.empty}>
         <b>{text.waitingTitle}</b>
-        {text.waitingText}
       </div>
     );
   } else if (state.filter !== "all") {
     list = (
       <div className={styles.empty}>
         <b>{text.filterDoneTitle}</b>
-        {text.filterDoneText}
       </div>
     );
   } else if (anyPassFailed) {
@@ -194,28 +192,24 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
     list = (
       <div className={styles.empty}>
         <b>{text.emptyTitle}</b>
-        {text.emptyText}
       </div>
     );
   } else if (summary.decided > 0) {
     list = (
       <div className={styles.empty}>
         <b>{text.allDecidedTitle}</b>
-        {text.allDecidedText}
       </div>
     );
   } else if (anyPassRan) {
     list = (
       <div className={styles.empty}>
         <b>{text.noneFoundTitle}</b>
-        {text.noneFoundText}
       </div>
     );
   } else {
     list = (
       <div className={styles.empty}>
         <b>{text.emptyTitle}</b>
-        {text.emptyText}
       </div>
     );
   }
@@ -267,11 +261,6 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
           />
         ))}
       </ul>
-      {state.queue.length > 0 && state.queuePaused ? (
-        <p className={styles.pending} role="status">
-          {text.queuePausedNote}
-        </p>
-      ) : null}
       <h3 className={styles.sec}>
         {text.queue}
         {summary.open > 0 || state.quiet ? (
@@ -293,7 +282,6 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
           </button>
         ) : null}
       </h3>
-      {state.quiet ? <p className={styles.quietNote}>{text.quietNote}</p> : null}
       {staleVisuals > 0 ? (
         <div className={styles.filterbar} data-stale-visuals>
           <span>{text.staleVisualsNote(staleVisuals)}</span>
@@ -766,7 +754,6 @@ function ReviewCard({
               ))}
             </select>
           </label>
-          {calloutReady ? <em>{text.calloutOptionsHint}</em> : null}
         </div>
       ) : null}
       {focused && spell && !stale && spell.suggestions.length > 1 ? (

@@ -463,7 +463,6 @@ export function HistoryDialog({ copy, locale, entries, onClose }: HistoryDialogP
         </div>
       ) : (
         <>
-          <p className={styles.modalHint}>{text.lead}</p>
           {ordered.length === 0 ? (
             <p className={styles.modalEmpty} data-history-empty>
               {text.empty}
@@ -487,7 +486,7 @@ export function HistoryDialog({ copy, locale, entries, onClose }: HistoryDialogP
                 })}
               </ul>
               <p className={styles.modalHint}>
-                {text.count(ordered.length)}. {text.capNote(HISTORY_LIMIT)}
+                {text.count(ordered.length)}
               </p>
             </>
           )}

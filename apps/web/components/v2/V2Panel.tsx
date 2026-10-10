@@ -132,7 +132,7 @@ export const V2Panel = memo(function V2Panel({
         )}
       </div>
       <footer className={styles.foot}>
-        {copy.footer} · <a href="/settings">{copy.settings}</a>
+        <a href="/settings">{copy.settings}</a>
       </footer>
     </aside>
   );

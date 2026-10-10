@@ -134,7 +134,6 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
   return (
     <>
       <h2>{text.title}</h2>
-      <p className={styles.lead}>{text.lead}</p>
       {scope ? (
         <div className={cx(styles.scope, styles.scopeFrag)} data-scope="fragment">
           <span>{text.scopeFragment(where(scope.blockIds))}</span>
@@ -142,12 +141,10 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
             <V2Icon name="x" />
           </button>
           <q>{shortenQuote(scope.quote)}</q>
-          <em>{text.scopeWhole}</em>
         </div>
       ) : (
         <div className={styles.scope} data-scope="chapter">
           <span>{text.scope}</span>
-          <em>{text.scopeHint}</em>
         </div>
       )}
       <div className={styles.composer}>
@@ -201,7 +198,6 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
               {text.stop}
             </button>
           </div>
-          <p className={styles.hint}>{text.chapterRunningHint}</p>
         </>
       ) : null}
       {!running && run.status === "failed" && run.error ? (
@@ -223,7 +219,6 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
       {request.clarify ? (
         <div className={styles.clarify} data-clarify role="group" aria-label={text.clarifyTitle}>
           <b>{text.clarifyTitle}</b>
-          <p>{text.clarifyText}</p>
           <div className={styles.row}>
             {request.clarify.choices.map((choice) => (
               <button
@@ -245,7 +240,6 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
       {request.holes.length > 0 && !running ? (
         <>
           <h3 className={styles.sec}>{text.holesTitle}</h3>
-          <p className={styles.hint}>{text.holesLead}</p>
           <ul className={styles.holes}>
             {request.holes.map((hole) => {
               const action = request.plan?.[hole.index];
