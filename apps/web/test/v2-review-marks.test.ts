@@ -73,8 +73,10 @@ function mark(overrides: Partial<ReviewMark> & Pick<ReviewMark, "itemId" | "bloc
 }
 
 function decorations(state: EditorState): Array<{ from: number; to: number; spec: ReviewDecorationSpec; attrs: Record<string, string> }> {
+  // The accept / reject buttons beside a mark have their own tests (v2-review-edits); here only the marks.
   return getReviewDecorations(state)
     .find()
+    .filter((decoration: Decoration) => (decoration.spec as ReviewDecorationSpec).review !== "controls")
     .map((decoration: Decoration) => ({
       from: decoration.from,
       to: decoration.to,

@@ -32,7 +32,16 @@ export interface ReviewMark {
   inline?: ReviewInlineTarget;
   /** Quiet mode, not the current item: shown only as a faint dotted trace, and not counted as drawn. */
   dim?: boolean;
+  /**
+   * What the button beside ✕ does for a mark over whole blocks: `accept` applies the change that is drawn,
+   * `show` asks to see it (it is not prepared or not open yet), `busy` says it is being prepared. Without
+   * it the mark offers only ✕.
+   */
+  primary?: ReviewPrimaryAction;
 }
+
+export type ReviewPrimaryAction = "accept" | "show" | "busy";
+export type ReviewDecision = "accept" | "reject" | "show";
 
 export type ReviewGhost =
   | {
@@ -100,9 +109,9 @@ export interface ReviewMarkHandlers {
   onHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
   /** `Відкрити студію` was pressed on a ghost figure. */
   onStudioOpen?: (itemId: string) => void;
-  /** ✓ or ✕ was pressed on the controls drawn beside a suggestion in the text. */
-  onDecide?: (itemId: string, decision: "accept" | "reject") => void;
-  decideLabels?: { accept: string; reject: string };
+  /** A button of the controls drawn beside a suggestion in the text was pressed. */
+  onDecide?: (itemId: string, decision: ReviewDecision) => void;
+  decideLabels?: { accept: string; reject: string; show: string; busy: string };
 }
 
 interface ReviewMarksPluginState {
@@ -123,7 +132,7 @@ export type ReviewDecorationSpec =
   | { review: "ins-block"; itemId: string; block: Block }
   | { review: "ghost"; itemId: string; ghost: ReviewGhost }
   | { review: "inline"; itemId: string; inline: ReviewInlineTarget; dim: boolean }
-  | { review: "controls"; itemId: string };
+  | { review: "controls"; itemId: string; primary?: ReviewPrimaryAction };
 
 export const reviewMarksKey = new PluginKey<ReviewMarksPluginState>("v2ReviewMarks");
 
@@ -322,13 +331,6 @@ export function buildReviewMarkState(
 
     report.drawn.push(mark.itemId);
     decorations.push(...built.decorations);
-
-    const lastBlock = [...mark.blockIds].reverse().map((blockId) => blocks.get(blockId)).find(Boolean);
-
-    if (lastBlock) {
-      decorations.push(controlsWidget(lastBlock.pos + lastBlock.node.nodeSize, mark.itemId, handlers, "block"));
-    }
-
     built.struck.forEach((blockId) => struckBlocks.add(blockId));
     built.touched.forEach((blockId) => diffBlocks.add(blockId));
   }
@@ -350,6 +352,24 @@ export function buildReviewMarkState(
     if (built.complete) {
       report.drawn.push(mark.itemId);
     }
+  }
+
+  // Every suggestion over whole blocks has its buttons beside its first block. Where several start at the
+  // same block, the buttons belong to the one the block is showing: the current, else the hovered, else the first.
+  const claimed = new Set<string>();
+  const rank = (mark: ReviewMark) => (mark.focused ? 0 : mark.hot ? 1 : 2);
+
+  for (const mark of [...marks].sort((a, b) => rank(a) - rank(b))) {
+    const firstId = mark.dim ? undefined : mark.blockIds.find((blockId) => blocks.has(blockId));
+
+    if (!firstId || claimed.has(firstId)) {
+      continue;
+    }
+
+    claimed.add(firstId);
+    // A prepared change that could not be drawn is not offered for acceptance here either.
+    const primary = mark.primary === "accept" && !report.drawn.includes(mark.itemId) ? undefined : mark.primary;
+    decorations.push(controlsWidget(blocks.get(firstId)!.pos, mark.itemId, handlers, "block", primary));
   }
 
   for (const [blockId, blockMarks] of marksByBlock) {
@@ -705,7 +725,7 @@ function createGhostHeading(
     wrapper.append(title);
   }
 
-  wrapper.append(createDecisionControls(itemId, handlers, "ghost"));
+  wrapper.append(createDecisionControls(itemId, handlers, "ghost", "accept"));
   return wrapper;
 }
 
@@ -756,7 +776,11 @@ function createGhostFigure(
     event.preventDefault();
     handlers.onStudioOpen?.(itemId);
   });
-  wrapper.append(open);
+  // An illustration is accepted in its studio, where the image is seen; here it can only be declined.
+  const actions = document.createElement("div");
+  actions.setAttribute("data-sg-ghost-actions", "");
+  actions.append(open, createDecisionControls(itemId, handlers, "ghost"));
+  wrapper.append(actions);
 
   return wrapper;
 }
@@ -791,7 +815,7 @@ function createGhostCallout(
     wrapper.append(line);
   }
 
-  wrapper.append(createDecisionControls(itemId, handlers, "ghost"));
+  wrapper.append(createDecisionControls(itemId, handlers, "ghost", "accept"));
   return wrapper;
 }
 
@@ -815,13 +839,18 @@ function createControlIcon(paths: string[]): SVGElement {
  * ✕ and ✓ beside a suggestion in the text, so it can be decided where it is read. They only report the
  * press: whether the item may be accepted right now is still decided by the engine.
  */
-function createDecisionControls(itemId: string, handlers: GhostHandlers, variant: "inline" | "block" | "ghost"): HTMLElement {
+function createDecisionControls(
+  itemId: string,
+  handlers: GhostHandlers,
+  variant: "inline" | "block" | "ghost",
+  primary?: ReviewPrimaryAction
+): HTMLElement {
   const wrapper = document.createElement("span");
   wrapper.setAttribute("data-sg-controls", variant);
   wrapper.setAttribute(REVIEW_ITEMS_ATTRIBUTE, itemId);
   wrapper.contentEditable = "false";
 
-  const add = (decision: "accept" | "reject", label: string | undefined, paths: string[]) => {
+  const add = (decision: ReviewDecision, label: string | undefined, paths: string[]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("data-sg-decide", decision);
@@ -844,18 +873,54 @@ function createDecisionControls(itemId: string, handlers: GhostHandlers, variant
   };
 
   add("reject", handlers.decideLabels?.reject, ["m6 6 12 12", "M18 6 6 18"]);
-  add("accept", handlers.decideLabels?.accept, ["m5 12.5 4.5 4.5L19 7.5"]);
-  return wrapper;
+
+  if (primary === "accept") {
+    add("accept", handlers.decideLabels?.accept, ["m5 12.5 4.5 4.5L19 7.5"]);
+  } else if (primary === "show") {
+    add("show", handlers.decideLabels?.show, [
+      "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z",
+      "M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z"
+    ]);
+  } else if (primary === "busy") {
+    const busy = document.createElement("span");
+    busy.setAttribute("data-sg-busy-dot", "");
+    busy.setAttribute("role", "status");
+
+    if (handlers.decideLabels?.busy) {
+      busy.title = handlers.decideLabels.busy;
+      busy.setAttribute("aria-label", handlers.decideLabels.busy);
+    }
+
+    wrapper.append(busy);
+  }
+
+  if (variant === "ghost") {
+    return wrapper;
+  }
+
+  // Beside the text, not in it: a zero-size anchor, so the buttons never move a line or a paragraph.
+  const anchor = document.createElement(variant === "block" ? "div" : "span");
+  anchor.setAttribute("data-sg-controls-anchor", variant);
+  anchor.contentEditable = "false";
+  anchor.append(wrapper);
+  return anchor;
 }
 
-function controlsWidget(position: number, itemId: string, handlers: GhostHandlers, variant: "inline" | "block"): Decoration {
-  return Decoration.widget(position, () => createDecisionControls(itemId, handlers, variant), {
+function controlsWidget(
+  position: number,
+  itemId: string,
+  handlers: GhostHandlers,
+  variant: "inline" | "block",
+  primary?: ReviewPrimaryAction
+): Decoration {
+  return Decoration.widget(position, () => createDecisionControls(itemId, handlers, variant, primary), {
     side: variant === "inline" ? 1 : -1,
-    key: `sg-controls-${itemId}-${variant}`,
+    key: `sg-controls-${itemId}-${variant}-${primary ?? "none"}`,
     ignoreSelection: true,
     stopEvent: (event: Event) => isGhostControl(event.target),
     review: "controls",
-    itemId
+    itemId,
+    ...(primary ? { primary } : {})
   } satisfies { review: "controls"; itemId: string } & Record<string, unknown>);
 }
 
@@ -911,7 +976,7 @@ function buildInlineDecorations(
 
   if (target.type === "accent") {
     if (withControls) {
-      decorations.push(controlsWidget(to, mark.itemId, handlers, "inline"));
+      decorations.push(controlsWidget(to, mark.itemId, handlers, "inline", "accept"));
     }
 
     return { decorations, complete: !dim };
@@ -920,6 +985,11 @@ function buildInlineDecorations(
   const replacement = target.replacement;
 
   if (!replacement || dim) {
+    // A word with nothing to offer in its place can still be dismissed where it stands.
+    if (withControls) {
+      decorations.push(controlsWidget(to, mark.itemId, handlers, "inline"));
+    }
+
     return { decorations, complete: false };
   }
 
@@ -937,7 +1007,7 @@ function buildInlineDecorations(
   );
 
   if (withControls) {
-    decorations.push(controlsWidget(to, mark.itemId, handlers, "inline"));
+    decorations.push(controlsWidget(to, mark.itemId, handlers, "inline", "accept"));
   }
 
   return { decorations, complete: true };

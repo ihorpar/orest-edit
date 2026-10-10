@@ -416,3 +416,60 @@ test("accept / reject controls stand beside a phrase only while it is current or
   // A dimmed trace (compact mode, not the current item) never gets them.
   assert.equal(controls(apply(createState(), setReviewMarks([accent({ hot: true, dim: true })]))).length, 0);
 });
+
+test("every suggestion over whole blocks has its buttons beside its first block", () => {
+  const controls = (state: EditorState) =>
+    decorations(state)
+      .filter((entry) => entry.spec.review === "controls")
+      .map((entry) => {
+        const spec = entry.spec as { itemId: string; primary?: string };
+        return { itemId: spec.itemId, ...(spec.primary ? { primary: spec.primary } : {}) };
+      });
+
+  // Not prepared yet: ✕ and `Показати`. Being prepared: ✕ and the busy sign. Stale: ✕ alone.
+  assert.deepEqual(
+    controls(
+      apply(
+        createState(),
+        setReviewMarks([
+          mark({ itemId: "c-1", tone: "clarity", state: "pending", blockIds: ["p-1"], primary: "show" }),
+          mark({ itemId: "c-2", tone: "clarity", state: "preparing", blockIds: ["p-2"], primary: "busy" }),
+          mark({ itemId: "c-3", tone: "clarity", state: "stale", blockIds: ["p-3"] })
+        ])
+      )
+    ),
+    [
+      { itemId: "c-1", primary: "show" },
+      { itemId: "c-2", primary: "busy" },
+      { itemId: "c-3" }
+    ]
+  );
+
+  // Two suggestions that start at one paragraph share one set: the current one's.
+  assert.deepEqual(
+    controls(
+      apply(
+        createState(),
+        setReviewMarks([
+          mark({ itemId: "c-1", state: "pending", blockIds: ["p-1"], primary: "show" }),
+          mark({ itemId: "c-2", state: "pending", blockIds: ["p-1", "p-2"], primary: "show", focused: true })
+        ])
+      )
+    ).map((entry) => entry.itemId),
+    ["c-2"]
+  );
+
+  // `Прийняти` is never offered for a change that is not drawn; a dimmed trace has no buttons at all.
+  assert.deepEqual(
+    controls(
+      apply(
+        createState(),
+        setReviewMarks([
+          mark({ itemId: "c-1", state: "ready", blockIds: ["p-1"], primary: "accept" }),
+          mark({ itemId: "c-2", state: "pending", blockIds: ["p-2"], primary: "show", dim: true })
+        ])
+      )
+    ),
+    [{ itemId: "c-1" }]
+  );
+});

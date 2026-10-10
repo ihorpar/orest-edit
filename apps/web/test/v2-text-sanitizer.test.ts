@@ -157,7 +157,8 @@ function proposalFor(state: EditorState, blockId: string, newText: string) {
 const kinds = (state: EditorState) =>
   getReviewDecorations(state)
     .find()
-    .map((decoration) => (decoration.spec as ReviewDecorationSpec).review);
+    .map((decoration) => (decoration.spec as ReviewDecorationSpec).review)
+    .filter((review) => review !== "controls");
 
 test("a prepared change draws over a pasted paragraph, because editor and bridge read the same text", () => {
   const pasted = pasteOver(createState(), "p-2", Fragment.from(schema.text(PASTED)));

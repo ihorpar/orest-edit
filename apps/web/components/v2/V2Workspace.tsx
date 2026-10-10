@@ -51,7 +51,7 @@ import {
 } from "../../lib/v2/manuscript-session";
 import { sealHistory } from "../../lib/v2/review-apply";
 import { shouldScrollToFocus, type FocusScrollState } from "../../lib/v2/focus-scroll";
-import { getReviewDiffReport, isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDiffReport } from "../../lib/v2/review-marks";
+import { getReviewDiffReport, isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDecision, type ReviewDiffReport } from "../../lib/v2/review-marks";
 import { isOpenItem } from "../../lib/v2/store";
 import { isSelfDismissing, toastReducer, type V2Toast, type V2ToastEvent } from "../../lib/v2/toast";
 import { ensureDocumentBlockIds, tiptapToDocument, V2_MARK } from "../../lib/v2/tiptap-bridge";
@@ -1115,16 +1115,24 @@ export function V2Workspace() {
     [openStudio]
   );
 
-  const { acceptItem: acceptReviewItem, rejectItem: rejectReviewItem } = review;
+  const { acceptItem: acceptReviewItem, rejectItem: rejectReviewItem, showItem: showReviewItem } = review;
   const handleDecide = useCallback(
-    (itemId: string, decision: "accept" | "reject") => {
+    (itemId: string, decision: ReviewDecision) => {
       if (decision === "accept") {
         acceptReviewItem(itemId);
-      } else {
+      } else if (decision === "reject") {
         rejectReviewItem(itemId);
+      } else {
+        // The same step as `Показати` on the card: the change is prepared and drawn, nothing is applied.
+        setTab("edits");
+        showReviewItem(itemId);
       }
     },
-    [acceptReviewItem, rejectReviewItem]
+    [acceptReviewItem, rejectReviewItem, showReviewItem]
+  );
+  const decideLabels = useMemo(
+    () => ({ accept: copy.edits.accept, reject: copy.edits.reject, show: copy.edits.show, busy: copy.edits.preparing }),
+    [copy]
   );
 
   const notifyFromPanel = useCallback(
@@ -1405,8 +1413,7 @@ export function V2Workspace() {
                 onReviewDiffReport={setDiffReport}
                 onReviewHeadingChange={review.editHeading}
                 onReviewDecide={handleDecide}
-                acceptLabel={copy.edits.accept}
-                rejectLabel={copy.edits.reject}
+                decideLabels={decideLabels}
               />
             ) : null}
             {!session && !blocked ? <span className={styles.srOnly}>{copy.loading}</span> : null}

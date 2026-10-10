@@ -9,7 +9,7 @@ import {
   getSpellReplacement,
   type V2ReviewItem
 } from "./item-kinds.ts";
-import type { ReviewMark } from "./review-marks.ts";
+import type { ReviewMark, ReviewPrimaryAction } from "./review-marks.ts";
 import { getItemSource, selectQueue, type V2ReviewState } from "./store.ts";
 import { getStudioPhase, normalizeVisualIntent, type V2StudioPhase } from "./studio.ts";
 import type { BlockDiff } from "./word-diff.ts";
@@ -58,6 +58,9 @@ export function buildItemMarks(
       hot: state.hoverId === item.id,
       ...(state.quiet && !focused ? { dim: true } : {})
     };
+    // The button beside ✕ for a suggestion that is not drawn yet: the same step its card offers.
+    const before: ReviewPrimaryAction | undefined =
+      proposal?.status === "preparing" ? "busy" : stale || proposal?.status === "failed" ? undefined : "show";
 
     switch (getItemKind(item)) {
       case "heading": {
@@ -84,7 +87,7 @@ export function buildItemMarks(
           break;
         }
 
-        marks.push(base);
+        marks.push({ ...base, primary: before });
         break;
       }
 
@@ -109,7 +112,7 @@ export function buildItemMarks(
           break;
         }
 
-        marks.push(base);
+        marks.push({ ...base, primary: before });
         break;
       }
 
@@ -178,7 +181,7 @@ export function buildItemMarks(
 
       default: {
         const diff = focused && item.status === "ready" ? options.getDiff(item) : undefined;
-        marks.push(diff ? { ...base, diff } : base);
+        marks.push(diff ? { ...base, diff, primary: "accept" } : { ...base, primary: before });
       }
     }
   }
@@ -196,6 +199,7 @@ function sameMark(a: ReviewMark, b: ReviewMark): boolean {
     Boolean(a.dim) !== Boolean(b.dim) ||
     // A diff is cached per proposal, so the same proposal is the same array.
     a.diff !== b.diff ||
+    a.primary !== b.primary ||
     a.blockIds.length !== b.blockIds.length ||
     a.blockIds.some((blockId, index) => blockId !== b.blockIds[index])
   ) {

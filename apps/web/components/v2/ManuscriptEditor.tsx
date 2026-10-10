@@ -7,7 +7,7 @@ import { resolveEditorAssetUrl, createEditorAssetToken } from "../../lib/editor/
 import { ensureDocumentHasBlocks, type EditorDocument } from "../../lib/editor/document-model";
 import type { AppLocale } from "../../lib/i18n/product-locale";
 import { createDocumentNode, replaceDocumentContent } from "../../lib/v2/editor-commands";
-import { setReviewMarks, type ReviewDiffReport, type ReviewMark } from "../../lib/v2/review-marks";
+import { setReviewMarks, type ReviewDecision, type ReviewDiffReport, type ReviewMark } from "../../lib/v2/review-marks";
 import { documentToTiptap, tiptapToDocument } from "../../lib/v2/tiptap-bridge";
 import { createV2Extensions } from "../../lib/v2/tiptap-extensions";
 import styles from "./v2.module.css";
@@ -47,10 +47,9 @@ interface ManuscriptEditorProps {
   onReviewHeadingChange?: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
   /** `Відкрити студію` on a ghost figure. */
   onStudioOpen?: (itemId: string) => void;
-  /** ✓ or ✕ pressed beside a suggestion in the text. */
-  onReviewDecide?: (itemId: string, decision: "accept" | "reject") => void;
-  acceptLabel?: string;
-  rejectLabel?: string;
+  /** A button pressed beside a suggestion in the text. */
+  onReviewDecide?: (itemId: string, decision: ReviewDecision) => void;
+  decideLabels?: { accept: string; reject: string; show: string; busy: string };
   /** `Змінити` on a figure that is in the text. */
   onImageEdit?: (blockId: string) => void;
 }
@@ -75,8 +74,7 @@ export function ManuscriptEditor({
   onReviewHeadingChange,
   onStudioOpen,
   onReviewDecide,
-  acceptLabel,
-  rejectLabel,
+  decideLabels,
   onImageEdit
 }: ManuscriptEditorProps) {
   const latest = {
@@ -109,10 +107,10 @@ export function ManuscriptEditor({
           onHeadingChange: (itemId, change) => callbacks.current.onReviewHeadingChange?.(itemId, change),
           onStudioOpen: (itemId) => callbacks.current.onStudioOpen?.(itemId),
           onDecide: (itemId, decision) => callbacks.current.onReviewDecide?.(itemId, decision),
-          decideLabels: acceptLabel && rejectLabel ? { accept: acceptLabel, reject: rejectLabel } : undefined
+          decideLabels
         }
       }),
-    [locale, placeholder, imageMissingLabel, imageEditLabel, acceptLabel, rejectLabel]
+    [locale, placeholder, imageMissingLabel, imageEditLabel, decideLabels]
   );
   const initialContent = useMemo(() => documentToTiptap(ensureDocumentHasBlocks(initialDocument)), [initialDocument]);
 
