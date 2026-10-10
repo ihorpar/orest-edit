@@ -34,14 +34,14 @@ interface AskTabProps {
   onOpenEdits: () => void;
 }
 
-function formatTime(value: string): string {
+function formatTime(value: string, dateLocale: string): string {
   const date = value ? new Date(value) : null;
 
   if (!date || Number.isNaN(date.getTime())) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("uk-UA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(dateLocale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 /**
@@ -317,7 +317,7 @@ export function AskTab({ copy, review, document, disabled, scope, onClearScope, 
               <li key={entry.id} data-request={entry.id} data-request-outcome={entry.outcome.kind}>
                 <b>{entry.text}</b>
                 {entry.quote ? <q>{entry.quote}</q> : null}
-                <small>{[entry.scope === "chapter" ? text.scope : text.scopeFragment(entry.where ?? ""), formatTime(entry.at)].filter(Boolean).join(" · ")}</small>
+                <small>{[entry.scope === "chapter" ? text.scope : text.scopeFragment(entry.where ?? ""), formatTime(entry.at, copy.dateLocale)].filter(Boolean).join(" · ")}</small>
                 {renderOutcome(entry)}
                 {entry.outcome.kind === "done" && entry.outcome.count > 0 ? (
                   <>

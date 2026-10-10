@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import type { Editor } from "@tiptap/react";
 import { redo, redoDepth, undo, undoDepth } from "@tiptap/pm/history";
 import { TextSelection, type Command } from "@tiptap/pm/state";
 import { storeEditorAssetFromBlob } from "../../lib/editor/asset-store";
 import {
+  createEmptyParagraphBlock,
   documentToPlainText,
   ensureDocumentHasBlocks,
   getDocumentTextStats,
   getInlineText,
+  sanitizeEditorText,
   type EditorDocument
 } from "../../lib/editor/document-model";
 import { buildDocxFileName, deriveDocxFileNameBase, exportDocumentToDocx } from "../../lib/editor/docx-export";
@@ -22,22 +24,39 @@ import {
 import { buildImportFeedback } from "../../lib/editor/import-feedback";
 import { getEditorMessages } from "../../lib/i18n/editor-messages";
 import type { AppLocale } from "../../lib/i18n/product-locale";
-import { formatManuscriptStats, getV2Copy } from "../../lib/v2/copy";
+import { getNextRegion, planAnnouncements, type V2Region } from "../../lib/v2/a11y";
+import { formatV2Date, getV2Copy } from "../../lib/v2/copy";
 import {
   createV2Draft,
   getV2DraftStorageKey,
   hasV2DraftChangedElsewhere,
   loadInitialV2Draft,
+  restartUnreadableV2Draft,
   writeV2DraftIfUnchanged
 } from "../../lib/v2/draft-storage";
 import { getActiveBlockKind, insertImage, isMarkActive } from "../../lib/v2/editor-commands";
 import type { FragmentScope } from "../../lib/v2/fragment-actions";
+import { countTextMatches, replaceAllText, type ReplaceOutcome } from "../../lib/v2/global-replace";
+import { buildHistoryEntry, pushHistoryEntry, type V2HistoryEntry, type V2HistoryKind } from "../../lib/v2/history";
+import { getSaveDelay, getV2HotkeyAction, isPageShortcutBlocked } from "../../lib/v2/hotkeys";
+import {
+  canRestoreSnapshot,
+  createRecoverySnapshot,
+  describeRecoveryPromise,
+  INITIAL_GUARD_STATE,
+  manuscriptGuardReducer,
+  resolveManuscriptRequest,
+  type ManuscriptRequest,
+  type RecoverySnapshot
+} from "../../lib/v2/manuscript-session";
+import { sealHistory } from "../../lib/v2/review-apply";
 import { shouldScrollToFocus, type FocusScrollState } from "../../lib/v2/focus-scroll";
 import { getReviewDiffReport, isReviewDiffDrawn, REVIEW_ITEMS_ATTRIBUTE, type ReviewDiffReport } from "../../lib/v2/review-marks";
 import { isOpenItem } from "../../lib/v2/store";
 import { isSelfDismissing, toastReducer, type V2Toast, type V2ToastEvent } from "../../lib/v2/toast";
 import { ensureDocumentBlockIds, tiptapToDocument, V2_MARK } from "../../lib/v2/tiptap-bridge";
 import { useProductLocale } from "../providers/ProductLocaleProvider";
+import { ConfirmDialog, HistoryDialog, HotkeysDialog, ReplaceDialog } from "./Dialogs";
 import { LIVE_PASSES } from "./EditsTab";
 import { FormatToolbar, type ToolbarState } from "./FormatToolbar";
 import { V2Icon } from "./icons";
@@ -51,7 +70,8 @@ import styles from "./v2.module.css";
 type SaveState = "saved" | "saving" | "error";
 /** Why this tab must not write the draft: changed in another tab, unreadable in storage, or invalid for the editor. */
 type SaveBlock = "conflict" | "unreadable" | "content";
-type MenuId = "format" | "open" | "export";
+type MenuId = "format" | "open" | "export" | "more";
+type DialogId = "history" | "replace" | "hotkeys";
 
 interface EditorSession {
   key: number;
@@ -61,8 +81,48 @@ interface EditorSession {
 
 type ToastState = V2Toast;
 
-const SAVE_DELAY_MS = 400;
 const TOAST_MS = 6000;
+
+/** Time of day with seconds: two manuscripts replaced in the same minute must still be told apart. */
+function formatClock(value: string, dateLocale: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(dateLocale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
+}
+
+/** The first words of a kept manuscript, so the editor can tell which one a menu line brings back. */
+function describeSnapshot(snapshot: RecoverySnapshot): string {
+  const words = snapshot.document.blocks
+    .map((block) => (block.type === "paragraph" || block.type === "heading" ? getInlineText(block.content).trim() : ""))
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ");
+  return words.length > 32 ? `${words.slice(0, 32).trimEnd()}…` : words;
+}
+
+function createLocalId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Arrow keys inside an open menu; the menu's own Escape and outside click are handled by the page. */
+function handleMenuKeys(event: ReactKeyboardEvent<HTMLElement>) {
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)'));
+  const index = items.indexOf(window.document.activeElement as HTMLElement);
+  const next =
+    event.key === "ArrowDown"
+      ? items[(index + 1) % items.length]
+      : event.key === "ArrowUp"
+        ? items[(index - 1 + items.length) % items.length]
+        : event.key === "Home"
+          ? items[0]
+          : event.key === "End"
+            ? items[items.length - 1]
+            : null;
+
+  if (next) {
+    event.preventDefault();
+    next.focus();
+  }
+}
 
 const keepSelection = (event: MouseEvent) => event.preventDefault();
 
@@ -97,6 +157,8 @@ export function V2Workspace() {
   const sessionKeyRef = useRef(0);
   // `updatedAt` of the stored draft as this tab last read or wrote it; null while nothing is stored.
   const lastKnownUpdatedAtRef = useRef<string | null>(null);
+  // The exact text of the draft as this tab stored it last: a cheap way to see that nobody else wrote since.
+  const lastKnownRawRef = useRef<string | null>(null);
   const blockedRef = useRef<SaveBlock | null>(null);
 
   const [session, setSession] = useState<EditorSession | null>(null);
@@ -120,6 +182,22 @@ export function V2Workspace() {
   const [askScope, setAskScope] = useState<FragmentScope | null>(null);
   const [askDraft, setAskDraft] = useState("");
   const [askFocus, setAskFocus] = useState(0);
+  const [dialog, setDialog] = useState<DialogId | null>(null);
+  const [guard, sendGuard] = useReducer(manuscriptGuardReducer, INITIAL_GUARD_STATE);
+  // Accepted changes of this draft, oldest first; the ref is what a save reads between renders.
+  const historyRef = useRef<V2HistoryEntry[]>([]);
+  const [history, setHistoryState] = useState<V2HistoryEntry[]>([]);
+  const setHistory = useCallback((next: V2HistoryEntry[]) => {
+    historyRef.current = next;
+    setHistoryState(next);
+  }, []);
+  const [loadNonce, setLoadNonce] = useState(0);
+  // The interface language is known only in the browser (it is the editor's own choice, kept there), so
+  // nothing that depends on it is rendered on the server or in the first client render.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  // What a screen reader is told; the same text twice in a row is told again thanks to the counter.
+  const [announcement, setAnnouncement] = useState<{ text: string; id: number }>({ text: "", id: 0 });
   const contentError = blocked === "content";
   // Set below; the review engine and the save path need each other.
   const flushRef = useRef<() => EditorDocument | null>(() => null);
@@ -155,6 +233,7 @@ export function V2Workspace() {
       return liveEditor && !liveEditor.isDestroyed ? getReviewDiffReport(liveEditor.state).drawn : [];
     },
     livePasses: LIVE_PASSES,
+    onApplied: (change) => recordChangeRef.current(change),
     notify: (tone, message, action, area) => setToast({ tone, message, action, area }),
     resolveToast: (area) => sendToast({ type: "resolved", area }),
     onShowQueue: () => {
@@ -171,6 +250,33 @@ export function V2Workspace() {
   });
   const reviewRef = useRef(review);
   reviewRef.current = review;
+
+  /** Adds an accepted change to the history of the draft. Typing never comes here. */
+  const recordChange = useCallback(
+    (change: { kind: V2HistoryKind; before: EditorDocument; after: EditorDocument; source?: string | null; count?: number; find?: string; replacement?: string }) => {
+      const entry = buildHistoryEntry({ id: createLocalId("h"), at: new Date().toISOString(), ...change });
+
+      if (entry) {
+        setHistory(pushHistoryEntry(historyRef.current, entry));
+        scheduleSaveRef.current();
+      }
+    },
+    [setHistory]
+  );
+  const recordChangeRef = useRef(recordChange);
+  recordChangeRef.current = recordChange;
+
+  // One polite announcement per finished pass, prepared edit, finished image or failure. Nothing else.
+  const announcedStateRef = useRef(review.state);
+
+  useEffect(() => {
+    const messages = planAnnouncements(announcedStateRef.current, review.state, copy);
+    announcedStateRef.current = review.state;
+
+    if (messages.length > 0) {
+      setAnnouncement((current) => ({ text: messages.join(" "), id: current.id + 1 }));
+    }
+  }, [copy, review.state]);
 
   /** Stops every further write of the draft; the reason stays on screen until the page is reloaded. */
   const blockSaving = useCallback((reason: SaveBlock | null) => {
@@ -205,8 +311,9 @@ export function V2Workspace() {
         const result = writeV2DraftIfUnchanged(
           window.localStorage,
           locale,
-          createV2Draft(document, sourceNameRef.current, reviewRef.current.getPersisted()),
-          lastKnownUpdatedAtRef.current
+          createV2Draft(document, sourceNameRef.current, reviewRef.current.getPersisted(), { history: historyRef.current }),
+          lastKnownUpdatedAtRef.current,
+          lastKnownRawRef.current
         );
 
         if (result.status === "conflict") {
@@ -215,6 +322,7 @@ export function V2Workspace() {
         }
 
         lastKnownUpdatedAtRef.current = result.updatedAt;
+        lastKnownRawRef.current = result.raw;
         setSaveState("saved");
       } catch (error) {
         setSaveState("error");
@@ -262,7 +370,8 @@ export function V2Workspace() {
       window.clearTimeout(saveTimerRef.current);
     }
 
-    saveTimerRef.current = window.setTimeout(flush, SAVE_DELAY_MS);
+    // A long chapter is read and stored less often: both cost more there.
+    saveTimerRef.current = window.setTimeout(flush, getSaveDelay(liveEditorRef.current?.state.doc.content.size ?? 0));
   }, [flush]);
 
   flushRef.current = flush;
@@ -278,7 +387,20 @@ export function V2Workspace() {
 
   const handleContentError = useCallback(() => blockSaving("content"), [blockSaving]);
 
+  const loadedLocaleRef = useRef<AppLocale | null>(null);
+
   useEffect(() => {
+    if (loadedLocaleRef.current !== null && loadedLocaleRef.current !== locale) {
+      // The workspace now shows the draft of another language (the language can change under an open page,
+      // from `/settings` in another tab). Dialogs about the old draft close, and the manuscripts kept for
+      // recovery are let go: they belong to the other draft and must never be written into this one.
+      sendGuard({ type: "reset" });
+      setDialog(null);
+      setMenu(null);
+    }
+
+    loadedLocaleRef.current = locale;
+
     try {
       const initial = loadInitialV2Draft(window.localStorage, locale);
 
@@ -291,6 +413,7 @@ export function V2Workspace() {
 
       blockSaving(null);
       lastKnownUpdatedAtRef.current = initial.persisted ? initial.draft.updatedAt : null;
+      lastKnownRawRef.current = null;
       sourceNameRef.current = initial.draft.sourceName;
       setSourceName(initial.draft.sourceName);
       setSaveState(initial.writeError ? "error" : "saved");
@@ -302,6 +425,7 @@ export function V2Workspace() {
       startSession(locale, initial.draft.document);
       setAskScope(null);
       setAskDraft("");
+      setHistory(initial.draft.history ?? []);
       reviewRef.current.hydrate(initial.draft.review ?? null, initial.draft.document);
 
       // Work in progress is shown first: a run in flight or suggestions waiting for a decision.
@@ -314,7 +438,7 @@ export function V2Workspace() {
     } catch (error) {
       setToast({ tone: "error", message: describeError(error, copy.draftReadFailed) });
     }
-  }, [blockSaving, copy.draftReadFailed, copy.saveFailed, locale, startSession]);
+  }, [blockSaving, copy.draftReadFailed, copy.saveFailed, loadNonce, locale, setHistory, startSession]);
 
   // Another tab saving the same draft must never be overwritten from here.
   useEffect(() => {
@@ -397,6 +521,7 @@ export function V2Workspace() {
   }, [sendToast, toast]);
 
   const [toolbarState, setToolbarState] = useState<ToolbarState | null>(null);
+  const isReady = Boolean(session) && !blocked;
 
   useEffect(() => {
     if (!editor) {
@@ -446,29 +571,187 @@ export function V2Workspace() {
     editorRef.current?.run(command);
   }, []);
 
-  function replaceManuscript(document: EditorDocument, nextSourceName: string | null) {
+  const takeSnapshot = (reason: "clear" | "open"): RecoverySnapshot | null => {
+    const current = flush() ?? lastDocumentRef.current;
+
+    return current
+      ? createRecoverySnapshot({
+          id: createLocalId("r"),
+          reason,
+          locale,
+          draftKey: getV2DraftStorageKey(locale),
+          document: current,
+          sourceName: sourceNameRef.current,
+          review: review.getPersisted(),
+          history: historyRef.current,
+          at: new Date().toISOString()
+        })
+      : null;
+  };
+
+  /**
+   * Puts another document in place of the manuscript. With `reason`, what is replaced (text, suggestions,
+   * reports, history) is kept for this session and can be brought back from the `Ще` menu; the snapshot that
+   * was kept is returned (null when nothing was kept).
+   */
+  function replaceManuscript(document: EditorDocument, nextSourceName: string | null, reason?: "clear" | "open"): RecoverySnapshot | null {
     const nextDocument = ensureDocumentBlockIds(ensureDocumentHasBlocks(document));
 
     if (editorRef.current?.getEditor() && !contentError) {
+      const snapshot = reason ? takeSnapshot(reason) : null;
+
       // Throws when the document cannot be loaded; the source name changes only after it is in the editor.
       editorRef.current.replaceDocument(nextDocument);
       // Suggestions belonged to the previous text; a run in flight is cancelled with them.
       review.reset();
       setAskScope(null);
+      setHistory([]);
       sourceNameRef.current = nextSourceName;
       setSourceName(nextSourceName);
+      sendGuard({ type: "replaced", snapshot });
       flush();
-      return;
+      return snapshot;
     }
 
     // The stored draft could not be shown in the editor: the imported document starts a fresh session.
+    // Nothing is kept for recovery here, and the confirmation says so.
     blockSaving(null);
     review.reset();
     setAskScope(null);
+    setHistory([]);
     sourceNameRef.current = nextSourceName;
     setSourceName(nextSourceName);
     persist(nextDocument);
     startSession(locale, nextDocument);
+    return null;
+  }
+
+  /**
+   * Brings a replaced manuscript back (the most recent one unless another is named). What is on screen now
+   * takes a place in the recovery list, so bringing back is itself reversible.
+   */
+  function restoreReplaced(target?: RecoverySnapshot) {
+    const snapshot = target ?? guard.recovery[0];
+    setMenu(null);
+
+    if (!snapshot || !editorRef.current?.getEditor() || blocked) {
+      return;
+    }
+
+    // A snapshot goes back only into the draft it came from: never into another language's draft.
+    if (!canRestoreSnapshot(snapshot, { locale, draftKey: getV2DraftStorageKey(locale) })) {
+      setToast({ tone: "error", message: copy.confirm.restoreWrongLocale });
+      return;
+    }
+
+    try {
+      const swapped = takeSnapshot(snapshot.reason);
+
+      editorRef.current.replaceDocument(snapshot.document);
+      // Cancels whatever runs for the text that is leaving; the snapshot itself never carries a run.
+      review.reset();
+      review.hydrate(snapshot.review, snapshot.document);
+      setAskScope(null);
+      setHistory(snapshot.history);
+      sourceNameRef.current = snapshot.sourceName;
+      setSourceName(snapshot.sourceName);
+      sendGuard({ type: "restored", id: snapshot.id });
+      sendGuard({ type: "replaced", snapshot: swapped });
+      flush();
+      setToast({ tone: "info", message: copy.confirm.restored });
+    } catch (error) {
+      setToast({ tone: "error", message: describeError(error, copy.confirm.restoreFailed) });
+    }
+  }
+
+  function clearManuscript() {
+    try {
+      const snapshot = replaceManuscript({ version: 2, blocks: [createEmptyParagraphBlock()] }, null, "clear");
+      setToast({
+        tone: "info",
+        message: copy.confirm.cleared,
+        ...(snapshot ? { action: { label: copy.confirm.restore, run: () => restoreRef.current(snapshot) } } : {})
+      });
+    } catch (error) {
+      setToast({ tone: "error", message: describeError(error, copy.edits.unexpected) });
+    }
+  }
+
+  function startOpen(source: "file" | "clipboard") {
+    if (source === "file") {
+      fileInputRef.current?.click();
+    } else {
+      void importManuscript(readClipboard, null, messages.exportImport.clipboardReadFailed);
+    }
+  }
+
+  /** Clear, open and start over go through here: nothing of the three happens on one click. */
+  function requestManuscript(request: ManuscriptRequest) {
+    setMenu(null);
+
+    const decision = resolveManuscriptRequest(request, {
+      document: (isReady ? flush() : null) ?? lastDocumentRef.current,
+      review: session ? review.getPersisted() : null,
+      history: historyRef.current
+    });
+
+    if (decision === "confirm") {
+      sendGuard({ type: "requested", request });
+    } else if (request.kind === "open") {
+      startOpen(request.source);
+    }
+  }
+
+  function confirmManuscriptRequest() {
+    const request = guard.pending;
+    sendGuard({ type: "confirmed" });
+
+    if (!request) {
+      return;
+    }
+
+    if (request.kind === "clear") {
+      clearManuscript();
+    } else if (request.kind === "open") {
+      startOpen(request.source);
+    } else {
+      try {
+        restartUnreadableV2Draft(window.localStorage, locale);
+        // Whatever is stored now (the empty draft, or a draft another tab wrote meanwhile) is opened.
+        setLoadNonce((current) => current + 1);
+      } catch (error) {
+        setToast({ tone: "error", message: describeError(error, copy.confirm.restartFailed) });
+      }
+    }
+  }
+
+  const countMatches = useCallback((query: string) => {
+    const liveEditor = liveEditorRef.current;
+    return liveEditor && !liveEditor.isDestroyed ? countTextMatches(liveEditor.state.doc, sanitizeEditorText(query)) : 0;
+  }, []);
+
+  /** Replace all, as one undo step. Suggestions over the changed text go stale on the save that follows. */
+  function handleReplaceAll(rawQuery: string, rawReplacement: string): number {
+    const query = sanitizeEditorText(rawQuery);
+    const replacement = sanitizeEditorText(rawReplacement).replace(/\n/g, " ");
+    const before = flush();
+    let outcome: ReplaceOutcome | null = null;
+
+    if (!before || !editorRef.current?.run(replaceAllText(query, replacement, (result) => (outcome = result)), { focus: false })) {
+      return 0;
+    }
+
+    editorRef.current.run(sealHistory, { focus: false });
+
+    const after = flush();
+    const count = (outcome as ReplaceOutcome | null)?.count ?? 0;
+
+    if (after) {
+      recordChange({ kind: "globalReplace", before, after, count, find: query, replacement });
+    }
+
+    setToast({ tone: "info", message: copy.replace.done(count) });
+    return count;
   }
 
   async function importManuscript(load: () => Promise<ImportedDocumentResult>, nextSourceName: string | null, fallbackError: string) {
@@ -484,10 +767,11 @@ export function V2Workspace() {
         );
       }
 
-      replaceManuscript(imported.document, nextSourceName);
+      const snapshot = replaceManuscript(imported.document, nextSourceName, "open");
       setToast({
         tone: "info",
-        message: `${buildImportFeedback(imported.format, imported.warnings, locale).message} ${copy.replacedHint}`
+        message: buildImportFeedback(imported.format, imported.warnings, locale).message,
+        ...(snapshot ? { action: { label: copy.confirm.restore, run: () => restoreRef.current(snapshot) } } : {})
       });
     } catch (error) {
       setToast({ tone: "error", message: error instanceof Error && error.message ? error.message : fallbackError });
@@ -591,10 +875,12 @@ export function V2Workspace() {
     }
 
     const paragraphs = snapshot.blocks.filter((block) => block.type === "paragraph" && getInlineText(block.content).trim()).length;
-    return formatManuscriptStats(getDocumentTextStats(snapshot).words, paragraphs);
-  }, [snapshot]);
+    return copy.stats(getDocumentTextStats(snapshot).words, paragraphs);
+  }, [copy, snapshot]);
 
-  const isReady = Boolean(session) && !blocked;
+  const restoreRef = useRef(restoreReplaced);
+  restoreRef.current = restoreReplaced;
+
   const { focusItem } = review;
 
   // A click in a marked paragraph is first of all a caret placement: it focuses the suggestion (no model
@@ -653,6 +939,7 @@ export function V2Workspace() {
   const quiet = review.state.quiet;
   const { confirmFocused, moveFocus, rejectItem } = review;
   const studioOpen = review.studioTarget !== null;
+  const modalOpen = dialog !== null || guard.pending !== null;
 
   useEffect(() => {
     // With the studio open the keys belong to it: nothing is decided in the queue behind it.
@@ -666,6 +953,11 @@ export function V2Workspace() {
       }
 
       const target = event.target instanceof Element ? event.target : null;
+
+      // Nothing in the queue is decided from behind a dialog.
+      if (isPageShortcutBlocked({ modalOpen, studioOpen, dialogInDocument: window.document.querySelector("dialog[open]") !== null, target })) {
+        return;
+      }
 
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"]')) {
         return;
@@ -711,9 +1003,94 @@ export function V2Workspace() {
 
     window.document.addEventListener("keydown", handleKey);
     return () => window.document.removeEventListener("keydown", handleKey);
-  }, [confirmFocused, isReady, moveFocus, quiet, rejectItem, studioOpen, tab]);
+  }, [confirmFocused, isReady, modalOpen, moveFocus, quiet, rejectItem, studioOpen, tab]);
 
   const toggleMenu = (id: MenuId) => setMenu((current) => (current === id ? null : id));
+  const hasToast = toast !== null && blocked !== "conflict";
+
+  // Page shortcuts: find and replace, the list of shortcuts, moving between the parts of the page, and the
+  // way from a selection to its actions. They are off while the studio or a dialog has the keyboard.
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) {
+        return;
+      }
+
+      const action = getV2HotkeyAction(event);
+
+      if (!action) {
+        return;
+      }
+
+      // The browser's own meaning of these keys (history, quick find) is never wanted over the editor.
+      event.preventDefault();
+
+      if (
+        isPageShortcutBlocked({
+          modalOpen,
+          studioOpen,
+          dialogInDocument: window.document.querySelector("dialog[open]") !== null,
+          target: event.target instanceof Element ? event.target : null
+        })
+      ) {
+        return;
+      }
+
+      const root = rootRef.current;
+      const active = window.document.activeElement;
+
+      switch (action) {
+        case "replace":
+          if (isReady) {
+            setMenu(null);
+            setDialog("replace");
+          }
+          break;
+        case "hotkeys":
+          setMenu(null);
+          setDialog("hotkeys");
+          break;
+        case "composer":
+          root?.querySelector<HTMLElement>("[data-selbar] button")?.focus();
+          break;
+        case "region-next":
+        case "region-previous": {
+          const available = new Set<V2Region>(["panel"]);
+
+          if (isReady && liveEditorRef.current && !liveEditorRef.current.isDestroyed) {
+            available.add("manuscript");
+          }
+
+          if (hasToast) {
+            available.add("toast");
+          }
+
+          const current: V2Region | null = !(active instanceof Element)
+            ? null
+            : active.closest("[data-v2-toast]")
+              ? "toast"
+              : active.closest("[data-v2-panel]")
+                ? "panel"
+                : active.closest("[data-v2-stage]")
+                  ? "manuscript"
+                  : null;
+          const next = getNextRegion(current, available, action === "region-previous");
+
+          if (next === "manuscript") {
+            liveEditorRef.current?.view.focus();
+          } else if (next === "panel") {
+            root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+          } else if (next === "toast") {
+            root?.querySelector<HTMLElement>("[data-v2-toast] button")?.focus();
+          }
+          break;
+        }
+      }
+    };
+
+    window.document.addEventListener("keydown", handleKey);
+    return () => window.document.removeEventListener("keydown", handleKey);
+  }, [hasToast, isReady, modalOpen, studioOpen]);
 
   // `Свій запит` in the composer: the fragment becomes the scope of the `Запит` tab and the field takes focus.
   const handleOwnRequest = useCallback((scope: FragmentScope) => {
@@ -743,6 +1120,10 @@ export function V2Workspace() {
     [setToast]
   );
   const clearAskScope = useCallback(() => setAskScope(null), []);
+
+  if (!mounted) {
+    return <div className={styles.root} aria-busy="true" />;
+  }
 
   return (
     <div className={styles.root} ref={rootRef}>
@@ -790,20 +1171,111 @@ export function V2Workspace() {
         >
           <V2Icon name="redo" />
         </button>
-        <button type="button" className={`${styles.tb} ${styles.wide}`} title={copy.historyPending} disabled>
+        <button
+          type="button"
+          className={styles.tb}
+          title={copy.historyTitle}
+          aria-label={copy.history}
+          aria-haspopup="dialog"
+          disabled={!isReady}
+          data-v2-history
+          onClick={() => {
+            setMenu(null);
+            setDialog("history");
+          }}
+        >
           <V2Icon name="clock" />
-          <span>{copy.history}</span>
+          <span className={styles.wide}>{copy.history}</span>
         </button>
+        <span className={styles.menuAnchor} data-v2-menu>
+          <button
+            type="button"
+            className={styles.tb}
+            title={copy.moreTitle}
+            aria-label={copy.more}
+            aria-haspopup="menu"
+            aria-expanded={menu === "more"}
+            data-v2-more
+            onClick={() => toggleMenu("more")}
+          >
+            <V2Icon name="more" />
+          </button>
+          {menu === "more" ? (
+            <div className={styles.menu} role="menu" aria-label={copy.more} onKeyDown={handleMenuKeys}>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.menuItem}
+                autoFocus
+                disabled={!isReady}
+                data-more="replace"
+                onClick={() => {
+                  setMenu(null);
+                  setDialog("replace");
+                }}
+              >
+                {copy.menuMore.replace}
+                <kbd>Ctrl+H</kbd>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.menuItem}
+                data-more="hotkeys"
+                onClick={() => {
+                  setMenu(null);
+                  setDialog("hotkeys");
+                }}
+              >
+                {copy.menuMore.hotkeys}
+                <kbd>Ctrl+/</kbd>
+              </button>
+              {guard.recovery.length > 0 ? (
+                <p className={styles.menuNote} data-more-recovery={guard.recovery.length}>
+                  {copy.menuMore.recoveryHeld(guard.recovery.length)}
+                </p>
+              ) : null}
+              {guard.recovery.map((snapshot, index) => (
+                <button
+                  key={snapshot.id}
+                  type="button"
+                  role="menuitem"
+                  className={styles.menuItem}
+                  disabled={!isReady}
+                  data-more="restore"
+                  data-restore-index={index}
+                  onClick={() => restoreReplaced(snapshot)}
+                >
+                  {copy.menuMore.restoreOne(snapshot.reason, formatClock(snapshot.at, copy.dateLocale), describeSnapshot(snapshot))}
+                </button>
+              ))}
+              <button
+                type="button"
+                role="menuitem"
+                className={`${styles.menuItem} ${styles.menuItemDanger}`}
+                disabled={!isReady}
+                data-more="clear"
+                onClick={() => requestManuscript({ kind: "clear" })}
+              >
+                {copy.menuMore.clear}
+              </button>
+              <a role="menuitem" className={`${styles.menuItem} ${styles.narrowOnly}`} href="/editor">
+                {copy.classic}
+              </a>
+            </div>
+          ) : null}
+        </span>
         <span className={styles.vr} />
         <a className={`${styles.btn} ${styles.btnGhost} ${styles.wide}`} href="/editor" title={copy.classicTitle}>
           {copy.classic}
         </a>
-        <span className={`${styles.menuAnchor} ${styles.wide}`} data-v2-menu>
+        <span className={styles.menuAnchor} data-v2-menu>
           <button
             type="button"
             className={`${styles.btn} ${styles.btnGhost}`}
             aria-haspopup="menu"
             aria-expanded={menu === "open"}
+            data-v2-open
             disabled={!session || busy !== null || blocked === "conflict"}
             onClick={() => toggleMenu("open")}
           >
@@ -811,15 +1283,23 @@ export function V2Workspace() {
             {copy.open}
           </button>
           {menu === "open" ? (
-            <div className={styles.menu} role="menu">
-              <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); fileInputRef.current?.click(); }}>
+            <div className={styles.menu} role="menu" aria-label={copy.open} onKeyDown={handleMenuKeys}>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.menuItem}
+                autoFocus
+                data-open="file"
+                onClick={() => requestManuscript({ kind: "open", source: "file" })}
+              >
                 {copy.openFile}
               </button>
               <button
                 type="button"
                 role="menuitem"
                 className={styles.menuItem}
-                onClick={() => void importManuscript(readClipboard, null, messages.exportImport.clipboardReadFailed)}
+                data-open="clipboard"
+                onClick={() => requestManuscript({ kind: "open", source: "clipboard" })}
               >
                 {copy.openClipboard}
               </button>
@@ -832,6 +1312,7 @@ export function V2Workspace() {
             className={`${styles.btn} ${styles.btnSolid}`}
             aria-haspopup="menu"
             aria-expanded={menu === "export"}
+            data-v2-export
             disabled={!isReady || busy !== null}
             onClick={() => toggleMenu("export")}
           >
@@ -839,11 +1320,11 @@ export function V2Workspace() {
             <span>{copy.export}</span>
           </button>
           {menu === "export" ? (
-            <div className={styles.menu} role="menu">
-              <button type="button" role="menuitem" className={styles.menuItem} onClick={() => void handleExportDocx()}>
+            <div className={styles.menu} role="menu" aria-label={copy.export} onKeyDown={handleMenuKeys}>
+              <button type="button" role="menuitem" className={styles.menuItem} autoFocus data-export="docx" onClick={() => void handleExportDocx()}>
                 {copy.exportDocx}
               </button>
-              <button type="button" role="menuitem" className={styles.menuItem} onClick={handleExportTxt}>
+              <button type="button" role="menuitem" className={styles.menuItem} data-export="txt" onClick={handleExportTxt}>
                 {copy.exportTxt}
               </button>
             </div>
@@ -858,7 +1339,7 @@ export function V2Workspace() {
         />
       </header>
       <div className={styles.app}>
-        <main className={styles.stage} ref={stageRef}>
+        <main className={styles.stage} ref={stageRef} data-v2-stage>
           <FormatToolbar
             copy={copy}
             state={isReady ? toolbarState : null}
@@ -878,7 +1359,19 @@ export function V2Workspace() {
             }}
           >
             {contentError ? <p className={styles.sheetError} role="alert">{copy.contentError}</p> : null}
-            {blocked === "unreadable" ? <p className={styles.sheetError} role="alert">{copy.draftUnreadable}</p> : null}
+            {blocked === "unreadable" ? (
+              <div className={styles.sheetError} role="alert" data-v2-unreadable>
+                <p>{copy.draftUnreadable}</p>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnOutline}`}
+                  data-v2-restart
+                  onClick={() => requestManuscript({ kind: "restart" })}
+                >
+                  {copy.confirm.restart}
+                </button>
+              </div>
+            ) : null}
             {session && !contentError ? (
               <ManuscriptEditor
                 key={session.key}
@@ -928,6 +1421,24 @@ export function V2Workspace() {
       {review.studioTarget ? (
         <VisualStudio copy={copy} locale={locale} review={review} target={review.studioTarget} disabled={!isReady} />
       ) : null}
+      {dialog === "history" ? <HistoryDialog copy={copy} locale={locale} entries={history} onClose={() => setDialog(null)} /> : null}
+      {dialog === "replace" ? (
+        <ReplaceDialog copy={copy} countMatches={countMatches} onReplace={handleReplaceAll} onClose={() => setDialog(null)} />
+      ) : null}
+      {dialog === "hotkeys" ? <HotkeysDialog copy={copy} onClose={() => setDialog(null)} /> : null}
+      {guard.pending ? (
+        <ConfirmDialog
+          copy={copy}
+          request={guard.pending}
+          promise={describeRecoveryPromise(guard.pending, guard, !contentError)}
+          locale={locale}
+          onConfirm={confirmManuscriptRequest}
+          onCancel={() => sendGuard({ type: "cancelled" })}
+        />
+      ) : null}
+      <div className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true" data-v2-live data-studio-outside>
+        <span key={announcement.id}>{announcement.text}</span>
+      </div>
       {blocked === "conflict" ? (
         <div className={styles.notice} role="alert" data-studio-outside>
           <span>{copy.conflict}</span>
@@ -940,7 +1451,9 @@ export function V2Workspace() {
         <div
           className={`${styles.toast} ${toast.tone === "error" ? styles.toastError : ""}`}
           role={toast.tone === "error" ? "alert" : "status"}
+          aria-label={copy.a11y.toast}
           data-studio-outside
+          data-v2-toast
         >
           <span>{toast.message}</span>
           {toast.action ? (
@@ -950,8 +1463,10 @@ export function V2Workspace() {
               onClick={(event) => {
                 // Not left focused: in quiet mode the next Enter belongs to the current suggestion.
                 event.currentTarget.blur();
-                toast.action?.run();
+                // Taken down first, so a message the action itself shows (a refusal, a confirmation) stays up.
+                const action = toast.action;
                 setToast(null);
+                action?.run();
               }}
             >
               {toast.action.label}

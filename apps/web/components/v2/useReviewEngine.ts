@@ -66,8 +66,9 @@ import {
   type FragmentApiMessages,
   type FragmentScope
 } from "../../lib/v2/fragment-actions";
+import type { V2HistoryKind } from "../../lib/v2/history";
 import { getItemKind, hasCalloutDraft, needsProposalCall, type V2ReviewItem } from "../../lib/v2/item-kinds";
-import { buildItemMarks } from "../../lib/v2/item-marks";
+import { buildItemMarks, stabilizeMarks } from "../../lib/v2/item-marks";
 import { buildFactCheck, createAuthorQuery, normalizeFactCheckRows } from "../../lib/v2/overview";
 import { applyReviewEdits, replaceAnchoredBlocks, resolveReplacementBlocks, sealHistory } from "../../lib/v2/review-apply";
 import type { ReviewMark } from "../../lib/v2/review-marks";
@@ -91,6 +92,7 @@ import {
   findFigureItem,
   getFigureBlockId,
   getItemPassId,
+  getItemSource,
   getRunIdForStep,
   getRunStepId,
   isOpenItem,
@@ -103,6 +105,7 @@ import {
   selectReviewBusy,
   selectRunningPassId,
   selectRunningRunId,
+  selectStaleVisuals,
   serializeReviewState,
   shouldPersistAfter,
   type V2PassId,
@@ -159,6 +162,19 @@ interface ReviewEngineOptions {
   resolveToast: (area: V2ToastArea) => void;
   /** The result of a request about a fragment is in the queue: show `Правки` and let go of the selection. */
   onShowQueue: () => void;
+  /** An accepted change is in the manuscript: the text before and after it, for the change history. */
+  onApplied?: (change: AppliedManuscriptChange) => void;
+}
+
+/** One accepted change, as the change history records it. */
+export interface AppliedManuscriptChange {
+  kind: V2HistoryKind;
+  before: EditorDocument;
+  after: EditorDocument;
+  /** The pass or source the change came from. */
+  source?: string | null;
+  /** How many suggestions a bulk accept applied. */
+  count?: number;
 }
 
 /** How a preparation ended, for callers that wait for it (requests about a fragment). */
@@ -226,6 +242,8 @@ export interface ReviewEngine {
   stopPass: (passId: V2PassId) => void;
   /** Accepts every visible result of the filtered pass as one manuscript step. */
   acceptAll: () => void;
+  /** Rejects every illustration that lost its place in the text, in one step. Adds no rejected ideas. */
+  dismissStaleVisuals: () => void;
   editHeading: (itemId: string, change: { title?: string; headingLevel?: 2 | 3 }) => void;
   /** Changes kind or depth of a callout; a draft written for the old choice is prepared again. */
   setCalloutOptions: (itemId: string, change: { calloutKind?: EditorialCalloutKind; calloutDepth?: EditorialCalloutDepth }) => void;
@@ -939,6 +957,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
       if (after) {
         dispatch({ type: "items/reconciled", ...withContext(after) });
+        optionsRef.current.onApplied?.({ kind: "visual", before, after, source: getItemSource(item) });
       }
 
       setStudioTarget(null);
@@ -959,6 +978,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
       const { item, studio } = found;
       const change = { assetId: found.studio.asset.assetId, alt: studio.alt.trim() || item.title, caption: studio.caption.trim() };
+      const before = getDocument();
 
       if (!runCommand(updateFigure(blockId, change))) {
         notify("error", readFigure(blockId) ? copy.studio.replaceSame : copy.studio.figureGone, undefined, "accept");
@@ -971,6 +991,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
       if (after) {
         dispatch({ type: "items/reconciled", ...withContext(after) });
+
+        if (before) {
+          optionsRef.current.onApplied?.({ kind: "visualReplace", before, after, source: getItemSource(item) });
+        }
       }
 
       notify("info", copy.studio.replaced);
@@ -987,6 +1011,8 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         return;
       }
 
+      const before = getDocument();
+
       if (!runCommand(removeFigure(blockId))) {
         notify("error", copy.studio.figureGone, undefined, "accept");
         return;
@@ -999,6 +1025,10 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       if (after) {
         // The image block is gone, so the illustration is open again, with everything its studio had.
         dispatch({ type: "items/reconciled", ...withContext(after) });
+
+        if (before) {
+          optionsRef.current.onApplied?.({ kind: "visualRemove", before, after, source: "visual" });
+        }
       }
 
       notify("info", copy.studio.removed);
@@ -1007,13 +1037,21 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
   );
 
   const saveFigureCaption = useCallback((blockId: string, caption: string): boolean => {
-    const { copy, runCommand, notify, canWrite } = optionsRef.current;
+    const { copy, runCommand, notify, canWrite, getDocument } = optionsRef.current;
+    const before = getDocument();
 
     if (!canWrite() || !runCommand(updateFigure(blockId, { caption: caption.trim() }))) {
       return false;
     }
 
     runCommand(sealHistory);
+
+    const after = getDocument();
+
+    if (before && after) {
+      optionsRef.current.onApplied?.({ kind: "caption", before, after, source: "visual" });
+    }
+
     notify("info", copy.studio.captionSaved);
     return true;
   }, []);
@@ -1638,6 +1676,13 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
         if (after) {
           // Other suggestions in the same block are re-read at once, not on the next save.
           dispatch({ type: "items/reconciled", ...withContext(after) });
+          const kind = getItemKind(item);
+          optionsRef.current.onApplied?.({
+            kind: kind === "heading" || kind === "accent" || kind === "callout" || kind === "spell" ? kind : "replace",
+            before,
+            after,
+            source: getItemSource(item)
+          });
         }
 
         notify("info", copy.edits.accepted);
@@ -1690,6 +1735,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
       if (after) {
         dispatch({ type: "items/reconciled", ...withContext(after) });
+        optionsRef.current.onApplied?.({ kind: "replace", before, after, source: getItemSource(item) });
       }
 
       notify("info", copy.edits.accepted);
@@ -1736,10 +1782,42 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
     if (after) {
       dispatch({ type: "items/reconciled", ...withContext(after) });
+      optionsRef.current.onApplied?.({
+        kind: "bulk",
+        before,
+        after,
+        source: getItemSource(byId.get(plans[0]!.itemId)!),
+        count: plans.length
+      });
     }
 
     notify("info", copy.edits.bulkAccepted(plans.length));
   }, [dispatch, withContext]);
+
+  const dismissStaleVisuals = useCallback(() => {
+    const { copy, notify } = optionsRef.current;
+    const itemIds = selectStaleVisuals(stateRef.current).map((item) => item.id);
+
+    if (itemIds.length === 0) {
+      return;
+    }
+
+    for (const itemId of itemIds) {
+      cancelVisualPrompt(itemId);
+      cancelVisualGeneration(itemId);
+    }
+
+    dispatch({ type: "items/staleDismissed", at: new Date().toISOString() });
+    // One action brings the whole batch back, with the prompts and images the cards had.
+    notify("info", copy.edits.staleDismissed(itemIds.length), {
+      label: copy.edits.restore,
+      run: () => {
+        for (const itemId of itemIds) {
+          dispatch({ type: "item/restored", itemId });
+        }
+      }
+    });
+  }, [cancelVisualGeneration, cancelVisualPrompt, dispatch]);
 
   const rejectItem = useCallback(
     (itemId: string) => {
@@ -2432,6 +2510,7 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
 
   const { locale, copy } = options;
 
+  const marksRef = useRef<ReviewMark[]>([]);
   const marks = useMemo<ReviewMark[]>(() => {
     const cache = diffCacheRef.current;
     const liveProposalIds = new Set<string>();
@@ -2476,67 +2555,136 @@ export function useReviewEngine(options: ReviewEngineOptions): ReviewEngine {
       }
     }
 
-    return result;
+    // The same array when nothing about the marks changed, so the editor does not redraw them.
+    const stable = stabilizeMarks(marksRef.current, result);
+    marksRef.current = stable;
+    return stable;
   }, [copy, locale, state]);
 
-  return {
-    state,
-    marks,
-    focusSource,
-    focusSequence,
-    getPersisted,
-    hydrate,
-    reset,
-    reconcile,
-    runPass,
-    runStep,
-    setDiagnosticsMode,
-    runChapterRequest,
-    retryRequestAction,
-    runFragmentAction,
-    cancelFragment,
-    answerClarify,
-    dismissClarify,
-    addAuthorQuery,
-    setAuthorQueryNote,
-    removeAuthorQuery,
-    revealItem,
-    stopRun,
-    runAll,
-    stopAll,
-    resumeQueue,
-    clearQueue,
-    stopPass,
-    acceptAll,
-    editHeading,
-    setCalloutOptions,
-    chooseSuggestion,
-    addToDictionary,
-    setQuiet,
-    moveFocus,
-    confirmFocused,
-    focusItem,
-    showItem,
-    hoverItem,
-    prepareItem,
-    acceptItem,
-    rejectItem,
-    setFilter,
-    setInstruction,
-    studioTarget,
-    openStudio,
-    openFigure,
-    closeStudio,
-    setStudioField,
-    prepareVisualPrompt,
-    cancelVisualPrompt,
-    generateVisual,
-    cancelVisualGeneration,
-    insertVisual,
-    replaceVisual,
-    removeVisual,
-    saveFigureCaption,
-    readFigure,
-    findFigureBlockId
-  };
+  // One object for as long as nothing in it changes: components that take the engine can skip re-rendering.
+  return useMemo<ReviewEngine>(
+    () => ({
+      state,
+      marks,
+      focusSource,
+      focusSequence,
+      getPersisted,
+      hydrate,
+      reset,
+      reconcile,
+      runPass,
+      runStep,
+      setDiagnosticsMode,
+      runChapterRequest,
+      retryRequestAction,
+      runFragmentAction,
+      cancelFragment,
+      answerClarify,
+      dismissClarify,
+      addAuthorQuery,
+      setAuthorQueryNote,
+      removeAuthorQuery,
+      revealItem,
+      stopRun,
+      runAll,
+      stopAll,
+      resumeQueue,
+      clearQueue,
+      stopPass,
+      acceptAll,
+      dismissStaleVisuals,
+      editHeading,
+      setCalloutOptions,
+      chooseSuggestion,
+      addToDictionary,
+      setQuiet,
+      moveFocus,
+      confirmFocused,
+      focusItem,
+      showItem,
+      hoverItem,
+      prepareItem,
+      acceptItem,
+      rejectItem,
+      setFilter,
+      setInstruction,
+      studioTarget,
+      openStudio,
+      openFigure,
+      closeStudio,
+      setStudioField,
+      prepareVisualPrompt,
+      cancelVisualPrompt,
+      generateVisual,
+      cancelVisualGeneration,
+      insertVisual,
+      replaceVisual,
+      removeVisual,
+      saveFigureCaption,
+      readFigure,
+      findFigureBlockId
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      state,
+      marks,
+      focusSource,
+      focusSequence,
+      getPersisted,
+      hydrate,
+      reset,
+      reconcile,
+      runPass,
+      runStep,
+      setDiagnosticsMode,
+      runChapterRequest,
+      retryRequestAction,
+      runFragmentAction,
+      cancelFragment,
+      answerClarify,
+      dismissClarify,
+      addAuthorQuery,
+      setAuthorQueryNote,
+      removeAuthorQuery,
+      revealItem,
+      stopRun,
+      runAll,
+      stopAll,
+      resumeQueue,
+      clearQueue,
+      stopPass,
+      acceptAll,
+      dismissStaleVisuals,
+      editHeading,
+      setCalloutOptions,
+      chooseSuggestion,
+      addToDictionary,
+      setQuiet,
+      moveFocus,
+      confirmFocused,
+      focusItem,
+      showItem,
+      hoverItem,
+      prepareItem,
+      acceptItem,
+      rejectItem,
+      setFilter,
+      setInstruction,
+      studioTarget,
+      openStudio,
+      openFigure,
+      closeStudio,
+      setStudioField,
+      prepareVisualPrompt,
+      cancelVisualPrompt,
+      generateVisual,
+      cancelVisualGeneration,
+      insertVisual,
+      replaceVisual,
+      removeVisual,
+      saveFigureCaption,
+      readFigure,
+      findFigureBlockId
+    ]
+  );
 }

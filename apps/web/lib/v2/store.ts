@@ -353,6 +353,7 @@ interface DocumentContext {
 
 export type V2ReviewAction =
   | { type: "hydrate"; persisted: V2PersistedReview | null }
+  | { type: "items/staleDismissed"; at: string }
   | { type: "reset" }
   /**
    * The launcher was pressed; the server has not answered yet. `passId` names what runs: a pass, or one of
@@ -541,6 +542,11 @@ export function selectOpenItems(state: V2ReviewState, passId?: V2PassId): V2Revi
 }
 
 /** The visible queue: open items of the filtered pass, in manuscript order. */
+/** Illustrations that lost their place in the text: all that can be done with them is to reject them. */
+export function selectStaleVisuals(state: V2ReviewState): V2ReviewItem[] {
+  return state.items.filter((item) => item.status === "stale" && getItemKind(item) === "visual");
+}
+
 export function selectQueue(state: V2ReviewState): V2ReviewItem[] {
   return state.filter === "all" ? selectOpenItems(state) : selectOpenItems(state, state.filter);
 }
@@ -1243,7 +1249,10 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
         return state;
       }
 
-      const headingLevel = action.headingLevel ?? draft?.headingLevel ?? 3;
+      // The level the item has, also while its title is empty (`draft` is null then): typing the first letter
+      // of a new title must not flip H2 to H3, which would also re-create the ghost being typed in.
+      const storedLevel = (item.subsectionDraft?.headingLevel ?? item.headingLevel) === 2 ? 2 : 3;
+      const headingLevel = action.headingLevel ?? draft?.headingLevel ?? storedLevel;
 
       // An emptied title is kept as typed: the suggestion then has nothing to insert until a title is back.
       return settleItems({
@@ -1393,6 +1402,24 @@ function reduce(state: V2ReviewState, action: V2ReviewAction): V2ReviewState {
           addedIdea: rejectedIdeas !== state.rejectedIdeas
         }
       });
+    }
+
+    case "items/staleDismissed": {
+      // Not a judgement about the idea: the place for the illustration is gone, so no rejected idea is kept.
+      let next = state;
+
+      for (const item of selectStaleVisuals(state)) {
+        // Kept in memory like a single rejection, so the whole batch can be taken back from its message.
+        next = decide(next, item, {
+          itemId: item.id,
+          passId: getItemPassId(item),
+          outcome: "rejected",
+          at: action.at,
+          restore: { status: item.status, addedIdea: false }
+        });
+      }
+
+      return next;
     }
 
     case "item/restored": {

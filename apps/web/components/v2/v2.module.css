@@ -13,7 +13,8 @@
   --line-strong: #c8c6be;
   --ink: #1f1f1c;
   --ink-2: #55544e;
-  --ink-3: #8a8982;
+  /* Darker than the prototype's #8a8982: small secondary text has to reach 4.5:1 on the tinted surfaces too. */
+  --ink-3: #6b6a63;
   --accent: #1f4d3a;
   --accent-ink: #ffffff;
   --accent-soft: #e3ede7;
@@ -2738,6 +2739,613 @@
 
   .stBox {
     padding: 14px;
+  }
+}
+
+/* ---------- dialogs: history, find and replace, hotkeys, confirmations ---------- */
+.modal {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(86vh, 860px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--r) + 4px);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 14px/1.5 var(--f-ui);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.modal[open] {
+  display: flex;
+}
+
+.modal::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.modalWide {
+  width: min(960px, calc(100vw - 32px));
+}
+
+.modalBox {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px 22px;
+  overflow-y: auto;
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.modalHead h2 {
+  margin: 0;
+  font: italic 500 23px/1.2 var(--f-text);
+}
+
+.modalText p {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.modalFoot {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btnDanger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--surface);
+}
+
+.btnDanger:hover {
+  background: color-mix(in srgb, var(--bad) 86%, var(--ink));
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.modalForm label {
+  margin: 10px 0 5px;
+  color: var(--ink-2);
+  font: 600 12.5px/1.2 var(--f-ui);
+}
+
+.modalForm label:first-child {
+  margin-top: 0;
+}
+
+.modalForm input {
+  width: 100%;
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 15px/1.2 var(--f-ui);
+}
+
+.root .modalForm input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  outline: none;
+}
+
+.modalStatus {
+  min-height: 21px;
+  margin: 10px 0 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.modalStatusBad {
+  color: var(--bad);
+}
+
+.modalHint {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.modalEmpty {
+  margin: 18px 0 6px;
+  padding: 22px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.hotkeys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 6px 32px;
+}
+
+.hotkeys h3 {
+  margin: 12px 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ink);
+  font: 600 11.5px/1 var(--f-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hotkeys dl {
+  margin: 0;
+}
+
+.hotkeys dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.hotkeys dt {
+  flex: none;
+  order: 2;
+}
+
+.hotkeys dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.hotkeys kbd,
+.menuItem kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font: 500 12px/1.3 var(--f-ui);
+  white-space: nowrap;
+}
+
+.histList {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.histList button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 16px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 11px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: 400 13.5px/1.35 var(--f-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.histList button:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.histList b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.histList span,
+.histList time {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.histList svg {
+  color: var(--ink-3);
+}
+
+.cmpBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.cmpBar b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cmp {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 14px;
+}
+
+.cmpSide {
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  font: 400 16px/1.6 var(--f-text);
+  overflow-wrap: anywhere;
+}
+
+.cmpSide h3 {
+  margin: 0 0 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--ink);
+  font: 600 11.5px/1 var(--f-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cmpSide p,
+.cmpSide ul,
+.cmpSide ol {
+  margin: 0 0 10px;
+}
+
+.cmpSide ul,
+.cmpSide ol {
+  padding-left: 22px;
+}
+
+.cmpSide del {
+  color: var(--del-fg);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.cmpSide ins {
+  color: var(--ins-fg);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+}
+
+.cmpHeading {
+  font-weight: 700;
+}
+
+.cmpCallout {
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+}
+
+.cmpMeta {
+  color: var(--ink-2);
+  font: 400 13px/1.45 var(--f-ui);
+}
+
+.menu {
+  max-width: min(440px, calc(100vw - 16px));
+}
+
+.menu .menuItem[data-more="restore"] {
+  white-space: normal;
+}
+
+.menuNote {
+  margin: 4px 0 2px;
+  padding: 6px 10px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font: 500 12px/1.3 var(--f-ui);
+}
+
+.menuItemDanger {
+  color: var(--bad);
+}
+
+a.menuItem {
+  text-decoration: none;
+}
+
+.menuItem:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.menuItem:disabled:hover {
+  background: none;
+}
+
+.narrowOnly {
+  display: none;
+}
+
+.sheetError p {
+  margin: 0 0 14px;
+}
+
+/* A stale suggestion differs from a waiting one by the line itself, not only by its colour. */
+.ms [data-sg="stale"] {
+  text-decoration-style: dashed;
+}
+
+.staleTag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px dashed var(--ink-3);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font: 500 11px/1.4 var(--f-ui);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The diagnostics starter: the text keeps a readable measure; the mode switch drops under it when tight. */
+.starter {
+  flex-wrap: wrap;
+}
+
+.starterMain {
+  flex: 1 1 200px;
+}
+
+/* Diagnostics has two controls: they take their own row under the text, the action first. */
+.starter[data-overview="diagnostics"] .starterMain {
+  flex-basis: 100%;
+}
+
+.starter[data-overview="diagnostics"] .starterMain p {
+  max-width: 44ch;
+}
+
+.starter[data-overview="diagnostics"] .starterSide {
+  flex: 1 1 100%;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* On the tinted surfaces (the focused card, the pass the queue is filtered by) the lighter tones and the
+   warning colour are a step darker, so their text keeps 4.5:1 there as it does on white. */
+.card.isFocus,
+.passOn {
+  --t-clarity: #25684b;
+  --t-visual: #963f66;
+  --t-accent: #1a6877;
+  --t-formatting: #755a1a;
+  --warn: #80520b;
+}
+
+/* ---------- tablet: the same two columns, tighter ---------- */
+@media (max-width: 1180px) {
+  .root {
+    --panel-w: 400px;
+  }
+
+  .panel {
+    padding-right: 14px;
+  }
+
+  .body {
+    padding: 22px 20px 30px;
+  }
+
+  .sheet {
+    margin: 6px 14px 72px;
+    padding: 56px 48px 130px 72px;
+  }
+
+  .fmt {
+    padding: 0 16px;
+  }
+
+  .crumb span {
+    display: none;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1180px) {
+  .passOn,
+  .passOn:hover,
+  .card.isFocus {
+    margin: 0 -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 980px) {
+  .root {
+    --panel-w: 344px;
+  }
+
+  .app {
+    grid-template-columns: minmax(0, 1fr) var(--panel-w);
+  }
+
+  .panel {
+    position: sticky;
+    top: var(--top-h);
+    height: calc(100vh - var(--top-h));
+    order: 0;
+    padding: 6px 10px 12px 0;
+  }
+
+  .body {
+    max-height: none;
+    padding: 18px 16px 26px;
+    border-left: 1px solid var(--line-strong);
+    border-right: 1px solid var(--line-strong);
+  }
+
+  .fmt {
+    display: flex;
+    padding: 0 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stats {
+    display: none;
+  }
+
+  .sheet {
+    margin: 4px 10px 56px;
+    padding: 36px 26px 120px 30px;
+    box-shadow: 0 0 0 1px rgba(40, 40, 35, 0.08), 0 2px 3px rgba(40, 40, 35, 0.08);
+  }
+
+  .tab {
+    gap: 6px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 980px) {
+  .narrowOnly {
+    display: flex;
+  }
+
+  .cmp {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- phone: one column, nothing lost ---------- */
+@media (max-width: 720px) {
+  .sheet {
+    margin: 0;
+    padding: 28px 18px 120px;
+    box-shadow: none;
+  }
+
+  .panel {
+    padding: 0;
+  }
+
+  .body {
+    padding: 20px 16px 24px;
+  }
+
+  .top {
+    gap: 2px;
+    padding: 0 8px 0 10px;
+  }
+
+  .logo {
+    margin-right: 4px;
+  }
+
+  .logo span {
+    display: none;
+  }
+
+  .top .btn {
+    padding: 0 10px;
+  }
+
+  .top .btnSolid span {
+    display: none;
+  }
+
+  .tb {
+    min-width: 36px;
+    height: 36px;
+  }
+
+  .fmt {
+    display: flex;
+    position: static;
+    padding: 0 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .fmtBtn {
+    min-width: 36px;
+    height: 36px;
+    flex: none;
+  }
+
+  .stats {
+    display: none;
+  }
+
+  .menu {
+    max-width: calc(100vw - 16px);
+  }
+
+  .menuItem {
+    white-space: normal;
+  }
+
+  .toast,
+  .notice {
+    left: 8px;
+    right: 8px;
+    bottom: 12px;
+    width: auto;
+    max-width: none;
+    transform: none;
+    flex-wrap: wrap;
+  }
+
+  .modalBox {
+    padding: 16px 16px 18px;
+  }
+
+  .histList button {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    gap: 2px 10px;
+  }
+
+  .histList b {
+    white-space: normal;
+  }
+
+  .histList span,
+  .histList time {
+    grid-column: 1;
+  }
+
+  .histList svg {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+
+  .starterSide {
+    align-items: flex-start;
   }
 }
 

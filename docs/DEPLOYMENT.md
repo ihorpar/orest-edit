@@ -32,6 +32,12 @@ Supported server-side keys:
 - `APP_PASSWORD` (enables in-app password gate for `/editor`, `/settings`, and API routes)
 - `REVIEW_RUN_CAPABILITY_SECRET` (required in production; a random secret used to bind review run IDs to the browser that started them)
 
+Build-time client variables:
+- `NEXT_PUBLIC_OREST_DEFAULT_EDITOR` — which editor `/` opens. `v2` redirects `/` to `/v2`; unset or any other value redirects to `/editor` (the default). Both editors stay reachable by URL either way.
+  - It is a `NEXT_PUBLIC_*` value: Next.js inlines it during `next build`, and `/` is prerendered. Changing it on the host does nothing until the app is rebuilt and redeployed (on Vercel: change the variable, then trigger a new deployment; with the GitHub Actions fallback, set it for the `vercel build --prod` step).
+  - Steps for switching the default and for removing the classic editor later: `docs/V1_RETIREMENT.md`.
+- `NEXT_PUBLIC_OREST_APP_LOCALE` — initial interface language (`uk` or `en`) before the user chooses one on `/settings`; also build-time.
+
 Local developer behavior:
 - provider keys are resolved server-side from environment values
 - for local workspace runs, the server also reads the repo-root `.env` and `.env.local`

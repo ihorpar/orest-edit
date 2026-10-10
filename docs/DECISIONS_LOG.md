@@ -2,6 +2,53 @@
 
 This file keeps only durable, active product and architecture decisions. Temporary implementation notes, superseded options, and migration-only details belong elsewhere.
 
+## 2026-10-10
+
+### A second editor (`/v2`) ships next to the classic one
+Decision: v2 ("Папір", `docs/concepts/v2/d1.html`) is a route in the same Next.js app. It reuses auth, settings, every `/api/edit/*` endpoint and the pure helpers in `lib/editor/`; it never changes the classic editor, the server, the prompts or the classic drafts. The default entry point is chosen at build time by `NEXT_PUBLIC_OREST_DEFAULT_EDITOR` (`v2`, anything else means the classic editor). Each version stays reachable by URL. Removing v1 is described in `docs/V1_RETIREMENT.md`.
+
+Reason: the client compares both versions before one is retired. One app keeps retirement to a redirect flip plus deletions. Tradeoff: the classic global CSS is loaded on `/v2`, so v2 styles are a scoped CSS module.
+
+### v2 manuscript is Tiptap/ProseMirror with stable block ids
+Decision: the v2 manuscript is a ProseMirror document bridged to `EditorDocument` (`lib/v2/tiptap-bridge.ts`); every top-level block keeps its `id` through edits, splits and merges. AI suggestions are decorations, never document content.
+
+Reason: the classic hand-rolled `contentEditable` surface is the source of the caret, selection and list defects, and inline diffs are native to ProseMirror decorations.
+
+### v2 keeps its own draft and only reads the classic one
+Decision: v2 stores its draft under `orest-v2-draft-{locale}-v1`. When there is no v2 draft, it copies the classic `document` once. It never writes or removes a classic `localStorage` key. Images go to the shared IndexedDB store `orest-editor-assets-v1`, additively.
+
+Reason: a classic draft must never be corrupted by v2, while DOCX export and copied documents need the same image store.
+
+### v2 spends model calls only on an explicit action, and accepts only what is drawn
+Decision: a proposal is prepared only by an explicit action on its card (or by quiet mode for the current and the next item, at most two in flight, never after a reload). Opening the illustration studio is free. A queue or run restored from a draft never starts by itself; only a run that was in flight resumes polling. A suggestion can be accepted only while its result is actually drawn in the manuscript, including bulk accept, which is limited to passes whose result is already visible (structure, accents, spelling).
+
+Reason: every proposal is a paid call, and diff-first means nothing reaches the text unseen.
+
+### v2 generates images with one synchronous request
+Decision: v2 does not use the asynchronous image job path. A generation in flight at reload is reported as interrupted and is not resumed. Generated image sources are limited to PNG/JPEG/WebP up to 20 MB, `https` without credentials, and never overwrite an existing asset record.
+
+Reason: the server's image job store is an in-memory map per function instance, so a poll can miss its job on serverless hosting.
+
+### v2 never deletes images from the browser's asset store
+Decision: v2 only adds records to the shared IndexedDB store `orest-editor-assets-v1`. Images that nothing refers to any more (rejected or regenerated illustrations, replaced documents) are intentionally left there. An automatic cleanup written during Milestone 6 was removed before acceptance.
+
+Reason: the draft in `localStorage` is not the only holder of an image. A recovery snapshot kept in memory after a clear, and the undo history of any open tab, can still need an image the stored draft no longer mentions; the removed cleanup judged only by stored drafts and by the age of the asset, so it could delete such an image and make a cleared manuscript impossible to restore. Reclaiming browser storage is not worth any risk to a manuscript's images. A safe cleanup is an open item in `docs/V1_RETIREMENT.md`.
+
+### v2 replaces the whole manuscript only after a confirmation, and keeps what it replaced for the session
+Decision: clearing the document, opening another text over a non-empty manuscript and starting over after an unreadable draft each ask first, naming what goes (text, suggestions, reports, questions for the author, history). The last three manuscripts a clear or an open replaced are kept in memory until the page is reloaded or the interface language changes, and can be brought back; a snapshot never carries a run or a launch queue, and it goes back only into the language draft it was taken from. The confirmation states what will be recoverable, including when nothing will be (a stored draft the editor could not show) and when the oldest kept manuscript will be dropped. An unreadable draft is replaced only by `Почати заново`, and only while it is still unreadable.
+
+Reason: these are the only actions that discard the editor's work in one step.
+
+### v2 change history is a log of accepts, not an undo stack
+Decision: `Історія` records one entry per accepted change (a bulk accept and a global replace are one entry each) with the changed blocks before and after, capped at 50 entries and a size budget inside the draft. Manual typing is not logged. Undo stays the editor's own and does not remove an entry.
+
+Reason: parity with the classic compare history at a bounded storage cost.
+
+### v2 tertiary text is darker than the prototype
+Decision: `--ink-3` is `#6b6a63` (prototype: `#8a8982`), and the lighter suggestion tones and the warning colour are a step darker on the tinted surfaces (focused card, filtered pass).
+
+Reason: small secondary text has to reach WCAG AA (4.5:1) on white and on the tints.
+
 ## 2026-10-06
 
 ### Provider presets moved to GPT-6.1 Sol / GPT-6 Luna, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5

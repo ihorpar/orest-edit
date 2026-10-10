@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import type { Editor } from "@tiptap/react";
 import type { V2Copy } from "../../lib/v2/copy";
 import { FRAGMENT_QUICK_ACTIONS, type FragmentScope } from "../../lib/v2/fragment-actions";
@@ -73,11 +73,13 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
 
     let timer: number | null = null;
     let pointerDown = false;
+    // The bar itself may hold the keyboard (reached with Alt+F10): the selection it is about is still there.
+    const hasFocus = () => editor.view.hasFocus() || Boolean(barRef.current?.contains(window.document.activeElement));
 
     const read = (): Placement | null => {
       const container = containerRef.current;
 
-      if (editor.isDestroyed || !editor.isEditable || !container || !editor.view.hasFocus()) {
+      if (editor.isDestroyed || !editor.isEditable || !container || !hasFocus()) {
         return null;
       }
 
@@ -113,7 +115,7 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
       cancel();
 
       // Gone at once when there is nothing selected; shown only after the selection has settled.
-      if (editor.isDestroyed || !editor.view.hasFocus() || editor.state.selection.empty) {
+      if (editor.isDestroyed || !hasFocus() || editor.state.selection.empty) {
         setPlacement(null);
         return;
       }
@@ -138,7 +140,12 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
         update();
       }
     };
-    const handleBlur = () => {
+    const handleBlur = ({ event }: { event: FocusEvent }) => {
+      // Focus that moves into the bar keeps it: that is the keyboard's way to the actions.
+      if (event.relatedTarget instanceof Node && barRef.current?.contains(event.relatedTarget)) {
+        return;
+      }
+
       cancel();
       setPlacement(null);
     };
@@ -147,8 +154,15 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
     dom.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("mouseup", handlePointerUp);
     window.addEventListener("resize", update);
+    // The transaction that reports a blur comes before the focus has landed anywhere: `handleBlur` judges it.
+    const handleTransaction = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
+      if (!transaction.getMeta("blur")) {
+        update();
+      }
+    };
+
     editor.on("selectionUpdate", update);
-    editor.on("transaction", update);
+    editor.on("transaction", handleTransaction);
     editor.on("focus", update);
     editor.on("blur", handleBlur);
 
@@ -158,7 +172,7 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
       window.removeEventListener("mouseup", handlePointerUp);
       window.removeEventListener("resize", update);
       editor.off("selectionUpdate", update);
-      editor.off("transaction", update);
+      editor.off("transaction", handleTransaction);
       editor.off("focus", update);
       editor.off("blur", handleBlur);
     };
@@ -184,6 +198,43 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
 
   const running = review.state.request.fragment;
 
+  /** Arrows walk the actions, Escape goes back to the text; the selection stays where it is. */
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button"));
+    const index = buttons.indexOf(window.document.activeElement as HTMLElement);
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      editor?.view.focus();
+      return;
+    }
+
+    const next =
+      event.key === "ArrowRight"
+        ? buttons[(index + 1) % buttons.length]
+        : event.key === "ArrowLeft"
+          ? buttons[(index - 1 + buttons.length) % buttons.length]
+          : event.key === "Home"
+            ? buttons[0]
+            : event.key === "End"
+              ? buttons[buttons.length - 1]
+              : null;
+
+    if (next) {
+      event.preventDefault();
+      event.stopPropagation();
+      next.focus();
+    }
+  };
+
+  /** An action started from the keyboard hands the keyboard back to the text before the bar goes away. */
+  const leaveBar = () => {
+    if (barRef.current?.contains(window.document.activeElement)) {
+      editor?.view.focus();
+    }
+  };
+
   return (
     <div
       ref={barRef}
@@ -194,6 +245,15 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
       style={{ top: placement.top, left: left ?? Math.max(EDGE_PX, placement.left), visibility: left === null ? "hidden" : undefined }}
       // Pressing a button must not take the selection away from the manuscript.
       onMouseDown={keepSelection}
+      onKeyDown={handleKeyDown}
+      onBlur={(event) => {
+        // The keyboard left the bar for something that is neither the bar nor the text: the bar goes.
+        const next = event.relatedTarget;
+
+        if (!(next instanceof Node) || (!event.currentTarget.contains(next) && !editor?.view.dom.contains(next))) {
+          setPlacement(null);
+        }
+      }}
     >
       {running ? (
         <>
@@ -201,14 +261,25 @@ export function SelectionComposer({ editor, copy, review, containerRef, onOwnReq
             <span className={styles.spin} />
             {text.fragmentRunning(running.label)}
           </span>
-          <button type="button" className={styles.selbarOwn} onClick={() => review.cancelFragment()}>
+          <button
+            type="button"
+            className={styles.selbarOwn}
+            onClick={() => {
+              leaveBar();
+              review.cancelFragment();
+            }}
+          >
             {text.cancel}
           </button>
         </>
       ) : (
         <>
           {FRAGMENT_QUICK_ACTIONS.map((action) => (
-            <button key={action} type="button" data-quick={action} onClick={() => review.runFragmentAction(action, placement.scope)}>
+            <button key={action} type="button" data-quick={action} onClick={() => {
+                leaveBar();
+                review.runFragmentAction(action, placement.scope);
+              }}
+            >
               {text.quick[action]}
             </button>
           ))}

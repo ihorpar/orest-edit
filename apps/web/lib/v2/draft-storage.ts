@@ -9,6 +9,7 @@ import {
   getLocaleStorageSuffix,
   type AppLocale
 } from "../i18n/product-locale.ts";
+import { coerceHistory, type V2HistoryEntry } from "./history.ts";
 import { coercePersistedReview, type V2PersistedReview } from "./store.ts";
 
 /**
@@ -26,7 +27,14 @@ export interface V2DraftState {
    * saved before the engine existed; such drafts open with an empty queue.
    */
   review?: V2PersistedReview;
+  /** Accepted changes of this draft, oldest first. Absent in drafts saved before the history existed. */
+  history?: V2HistoryEntry[];
   updatedAt: string;
+}
+
+/** The parts of a draft beside the text and the suggestion engine. */
+export interface V2DraftExtras {
+  history?: V2HistoryEntry[];
 }
 
 export type V2DraftSource = "v2" | "v1" | "empty";
@@ -46,7 +54,10 @@ export type V2InitialDraft =
   /** The v2 key holds something that cannot be read as a v2 draft. Nothing was copied or written. */
   | { status: "unreadable" };
 
-export type V2DraftWriteResult = { status: "written"; updatedAt: string } | { status: "conflict" };
+export type V2DraftWriteResult =
+  /** `raw` is exactly what the key holds now; pass it to the next write as `lastKnownRaw`. */
+  | { status: "written"; updatedAt: string; raw: string }
+  | { status: "conflict" };
 
 type DraftReader = Pick<Storage, "getItem">;
 type DraftStorage = Pick<Storage, "getItem" | "setItem">;
@@ -58,13 +69,15 @@ export function getV2DraftStorageKey(locale: AppLocale): string {
 export function createV2Draft(
   document: EditorDocument,
   sourceName: string | null = null,
-  review?: V2PersistedReview | null
+  review?: V2PersistedReview | null,
+  extras: V2DraftExtras = {}
 ): V2DraftState {
   return {
     version: 1,
     document,
     sourceName,
     ...(review ? { review } : {}),
+    ...(extras.history && extras.history.length > 0 ? { history: extras.history } : {}),
     updatedAt: new Date().toISOString()
   };
 }
@@ -84,6 +97,7 @@ export function inspectV2Draft(storage: DraftReader, locale: AppLocale): V2Draft
   }
 
   const review = coercePersistedReview(parsed.review);
+  const history = coerceHistory(parsed.history);
 
   return {
     status: "ok",
@@ -92,6 +106,7 @@ export function inspectV2Draft(storage: DraftReader, locale: AppLocale): V2Draft
       document: sanitizeEditorDocumentText(parsed.document),
       sourceName: typeof parsed.sourceName === "string" && parsed.sourceName.trim() ? parsed.sourceName : null,
       ...(review ? { review } : {}),
+      ...(history.length > 0 ? { history } : {}),
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString()
     }
   };
@@ -127,9 +142,16 @@ export function writeV2DraftIfUnchanged(
   storage: DraftStorage,
   locale: AppLocale,
   draft: V2DraftState,
-  lastKnownUpdatedAt: string | null
+  lastKnownUpdatedAt: string | null,
+  /**
+   * The exact text this tab wrote last. When the key still holds it, nothing changed elsewhere and the
+   * stored draft does not have to be parsed again to find that out (it is large on a long chapter).
+   */
+  lastKnownRaw?: string | null
 ): V2DraftWriteResult {
-  if (hasV2DraftChangedElsewhere(storage, locale, lastKnownUpdatedAt)) {
+  const unchanged = typeof lastKnownRaw === "string" && storage.getItem(getV2DraftStorageKey(locale)) === lastKnownRaw;
+
+  if (!unchanged && hasV2DraftChangedElsewhere(storage, locale, lastKnownUpdatedAt)) {
     return { status: "conflict" };
   }
 
@@ -137,8 +159,9 @@ export function writeV2DraftIfUnchanged(
   const updatedAt =
     draft.updatedAt === lastKnownUpdatedAt ? new Date(new Date(draft.updatedAt).getTime() + 1).toISOString() : draft.updatedAt;
 
-  writeV2Draft(storage, locale, { ...draft, updatedAt });
-  return { status: "written", updatedAt };
+  const raw = JSON.stringify({ ...draft, updatedAt });
+  storage.setItem(getV2DraftStorageKey(locale), raw);
+  return { status: "written", updatedAt, raw };
 }
 
 /** Read-only look at the v1 draft: returns its document, or null when there is no usable v1 draft. */
@@ -195,6 +218,27 @@ export function loadInitialV2Draft(storage: DraftStorage, locale: AppLocale): V2
     source: "empty",
     persisted: false
   };
+}
+
+export type V2DraftRestartResult =
+  /** The unreadable data was replaced with an empty draft, which is now stored. */
+  | { status: "restarted"; draft: V2DraftState }
+  /** The stored draft is readable (or absent): nothing was touched. */
+  | { status: "not_needed" };
+
+/**
+ * `Почати заново`: replaces a v2 draft that cannot be read with an empty one. It acts only on an unreadable
+ * draft, so a draft another tab has repaired or rewritten in the meantime is never thrown away. Throws when
+ * the browser refuses the write.
+ */
+export function restartUnreadableV2Draft(storage: DraftStorage, locale: AppLocale): V2DraftRestartResult {
+  if (inspectV2Draft(storage, locale).status !== "unreadable") {
+    return { status: "not_needed" };
+  }
+
+  const draft = createV2Draft({ version: 2, blocks: [createEmptyParagraphBlock()] });
+  writeV2Draft(storage, locale, draft);
+  return { status: "restarted", draft };
 }
 
 function parseJson(raw: string | null): Record<string, unknown> | null {

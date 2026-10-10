@@ -27,6 +27,7 @@ import {
   getItemSource,
   planRunAll,
   selectBulkCandidates,
+  selectStaleVisuals,
   selectPassOpenCount,
   selectPassState,
   selectQueue,
@@ -119,6 +120,7 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
   const runAllPlan = planRunAll(state, LIVE_PASSES);
   const canRunAll = runAllPlan.queue.length > 0 || runAllPlan.spell;
   const bulk = selectBulkCandidates(state, diffReport.drawn);
+  const staleVisuals = selectStaleVisuals(state).length;
 
   const renderCard = (item: V2ReviewItem, quiet = false) => {
     const fresh = !seen.current.has(item.id);
@@ -292,6 +294,21 @@ export function EditsTab({ copy, locale, review, diffReport, document, disabled 
         ) : null}
       </h3>
       {state.quiet ? <p className={styles.quietNote}>{text.quietNote}</p> : null}
+      {staleVisuals > 0 ? (
+        <div className={styles.filterbar} data-stale-visuals>
+          <span>{text.staleVisualsNote(staleVisuals)}</span>
+          <button
+            type="button"
+            className={cx(styles.btn, styles.btnOutline, styles.btnSm)}
+            disabled={disabled}
+            title={text.dismissStaleTitle}
+            data-dismiss-stale
+            onClick={() => review.dismissStaleVisuals()}
+          >
+            {text.dismissStale(staleVisuals)}
+          </button>
+        </div>
+      ) : null}
       {filterName ? (
         <div className={styles.filterbar}>
           <span>
@@ -680,7 +697,10 @@ function ReviewCard({
           {source ? <V2Icon name={SOURCE_ICON[source]} /> : null}
           {passName}
         </span>
-        <span className={styles.where}>{where}</span>
+        <span className={styles.where}>
+          {where}
+          {stale ? <span className={styles.staleTag}>{text.staleTag}</span> : null}
+        </span>
       </header>
       <div className={styles.what}>{what}</div>
       <p className={styles.why}>{reason}</p>

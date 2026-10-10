@@ -28,14 +28,14 @@ interface OverviewTabProps {
   onNotify: (tone: "info" | "error", message: string) => void;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, dateLocale: string): string {
   const date = value ? new Date(value) : null;
 
   if (!date || Number.isNaN(date.getTime())) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("uk-UA", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(dateLocale, { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 /**
@@ -144,7 +144,7 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
       <h3 className={styles.sec}>
         {text.diagnostics}
         <span className={styles.secMeta}>
-          {text.reportMeta(overview.diagnostics.mode === "extended" ? text.modeExtended : text.modeConcise, formatDate(overview.diagnostics.at))}
+          {text.reportMeta(overview.diagnostics.mode === "extended" ? text.modeExtended : text.modeConcise, formatDate(overview.diagnostics.at, copy.dateLocale))}
         </span>
       </h3>
       <div className={styles.report}>
@@ -309,7 +309,7 @@ export function OverviewTab({ copy, review, document, chapterTitle, disabled, on
       <h3 className={styles.sec}>
         {text.factCheck}
         <span className={styles.secMeta}>
-          {[findings.length > 0 ? text.factCount(findings.length) : null, formatDate(overview.factCheck.at)].filter(Boolean).join(" · ")}
+          {[findings.length > 0 ? text.factCount(findings.length) : null, formatDate(overview.factCheck.at, copy.dateLocale)].filter(Boolean).join(" · ")}
         </span>
       </h3>
       {findings.length > 0 ? (

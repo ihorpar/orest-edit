@@ -27,26 +27,26 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 
 ## Current State
 
-- Status: Active
-- Plan revision: r1 (2026-10-09)
-- Canonical plan: `.plans/v2-paper-editor.md` in the main working tree. Plan owner: the orchestrator session. Executors report evidence; only the orchestrator checks off tasks.
-- Current milestone: 6 — Parity, polish and handover (assigned 2026-10-10, in progress). Milestones 1–5 accepted and committed on `v2`.
-- Next action: receive the Milestone 6 executor report, run the required final independent review, accept or return fixes, commit, then verify every Definition of Done item and prepare the final intent-review packet for the owner.
-- Open owner decision: whether to fix the server bug in `apps/web/lib/server/patch-service.ts` (see findings) — it is outside this plan's scope because it changes shared server code used by v1.
+- Status: Complete (implementation complete, accepted and integrated on branch `v2`; NOT pushed, NOT deployed; owner's intent review pending)
+- Plan revision: r1 (2026-10-09), closed 2026-10-10
+- Canonical plan: `.plans/done/v2-paper-editor.md`. Plan owner: the orchestrator session.
+- Current milestone: none — all six milestones accepted and committed on `v2`.
+- Next action (owner): look at `/v2` next to `/editor`, decide on the open items in the Completion Summary, then push/deploy when ready.
+- Open owner decisions: fixing the shared server issues listed in `docs/V1_RETIREMENT.md` (first of all `/api/edit/patch` failing on OpenAI); whether the darker tertiary text is acceptable; when to show the client.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
 - Orchestrator may decide: implementation choices, simplifications within scope, reordering independent tasks. Needs the owner: changing hard constraints or required outcomes, weakening acceptance, pushes/deploys, anything touching v1 behaviour.
 
 ## Definition of Done
 
-- [ ] `/v2` offers the full editor in the "Папір" design: manual editing, the three tabs, every pass, quiet mode, selection composer, illustration studio, open/export.
-- [ ] Every AI feature in v2 calls the existing `/api/edit/*` endpoints for real; no sample data, no synthetic fallbacks; provider errors are shown as errors.
-- [ ] v1 is unchanged: `/editor` and `/settings` behave and look as before; v1 drafts are never written by v2; `npm run test -w @orest/web` still passes all pre-existing tests.
-- [ ] Switching the default editor is one setting (`NEXT_PUBLIC_OREST_DEFAULT_EDITOR`), documented, with v1 as the default; each version stays reachable by URL.
-- [ ] `npm run typecheck -w @orest/web`, `npm run test -w @orest/web` and `npm run build -w @orest/web` pass; new v2 logic has unit tests registered in the `test` script.
-- [ ] Runtime QA with a real provider key on a real chapter covers: run a pass, accept, reject, undo, reload mid-run, quiet mode, chapter request, fragment request, generate and insert an illustration, DOCX export.
-- [ ] Visual fidelity to `d1.html` confirmed by screenshots at 1440px for idle, queue, quiet mode, `Запит` and studio states; material deviations are listed and justified.
-- [ ] Docs updated: `docs/CURRENT_STATE.md`, `docs/DECISIONS_LOG.md`, `docs/DEPLOYMENT.md` (switch), and a v1 retirement runbook.
+- [x] `/v2` offers the full editor in the "Папір" design: manual editing, the three tabs, every pass, quiet mode, selection composer, illustration studio, open/export.
+- [x] Every AI feature in v2 calls the existing `/api/edit/*` endpoints for real; no sample data, no synthetic fallbacks; provider errors are shown as errors.
+- [x] v1 is unchanged: `/editor` and `/settings` behave and look as before; v1 drafts are never written by v2; `npm run test -w @orest/web` still passes all pre-existing tests.
+- [x] Switching the default editor is one setting (`NEXT_PUBLIC_OREST_DEFAULT_EDITOR`), documented, with v1 as the default; each version stays reachable by URL.
+- [x] `npm run typecheck -w @orest/web`, `npm run test -w @orest/web` and `npm run build -w @orest/web` pass; new v2 logic has unit tests registered in the `test` script.
+- [x] Runtime QA with a real provider key on a real chapter covers: run a pass, accept, reject, undo, reload mid-run, quiet mode, chapter request, fragment request, generate and insert an illustration, DOCX export.
+- [x] Visual fidelity to `d1.html` confirmed by screenshots at 1440px for idle, queue, quiet mode, `Запит` and studio states; material deviations are listed and justified.
+- [x] Docs updated: `docs/CURRENT_STATE.md`, `docs/DECISIONS_LOG.md`, `docs/DEPLOYMENT.md` (switch), and a v1 retirement runbook.
 
 ## Milestone 1 - Foundation and editor engine
 
@@ -115,12 +115,14 @@ Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass) and the suit
 
 Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 
-- [ ] 6.1 Change history (compare `Було`/`Стало`), global replace (`Ctrl/Cmd+H`), hotkeys popup, clear-document with confirmation and recovery.
-- [ ] 6.2 English copy catalog; v2 follows the app locale.
-- [ ] 6.3 Responsive layout (tablet first, phone degrades gracefully), accessibility (focus, labels, reduced motion), loading/empty/error states for every tab.
-- [ ] 6.4 Fidelity pass against `d1.html`; performance check on a ~140k-character chapter.
-- [ ] 6.5 Docs: `docs/CURRENT_STATE.md`, `docs/DECISIONS_LOG.md`, `docs/DEPLOYMENT.md`, and `docs/V1_RETIREMENT.md` listing exactly what to flip and delete if the client chooses v2.
-- [ ] 6.6 Verify: every Definition of Done item on the integrated result; a scripted browser QA (`qa:v2`) for the main flow.
+- [x] 6.1 Change history (compare `Було`/`Стало`), global replace (`Ctrl/Cmd+H`), hotkeys popup, clear-document with confirmation and recovery.
+- [x] 6.2 English copy catalog; v2 follows the app locale.
+- [x] 6.3 Responsive layout (tablet first, phone degrades gracefully), accessibility (focus, labels, reduced motion), loading/empty/error states for every tab.
+- [x] 6.4 Fidelity pass against `d1.html`; performance check on a ~140k-character chapter.
+- [x] 6.5 Docs: `docs/CURRENT_STATE.md`, `docs/DECISIONS_LOG.md`, `docs/DEPLOYMENT.md`, and `docs/V1_RETIREMENT.md` listing exactly what to flip and delete if the client chooses v2.
+- [x] 6.6 Verify: every Definition of Done item on the integrated result; a scripted browser QA (`qa:v2`) for the main flow.
+
+Accepted 2026-10-10. Evidence: orchestrator re-ran typecheck (pass), the suite (843/843) and a production build (pass; `/v2` 194 kB, `/editor` 62.4 kB route size), confirmed `git diff` is empty for every v1 folder, and looked at `/v2` idle at 1440px; executor ran real-key QA of every 6.1 feature, English end to end, tablet and phone walkthroughs without horizontal scroll, a keyboard-only walkthrough, reduced-motion and contrast audits, 140k-character measurements (production build: no long task in any scenario), a real `Структура` run on a 40k chapter showing cards arriving incrementally across polls, and `qa:v2` (16/16 free, 17/17 with the paid flag); `/editor` byte-identical by screenshot against a HEAD copy; final independent review found no blocker and five should-fix defects, all resolved (the automatic asset cleanup was removed outright). Real calls spent: 2 `Структура` runs, plus an estimated 3–5 short validation pings sent unintentionally by the classic `/settings` page during QA. Not verified at runtime: history entries for illustration insert/replace, the live region with a real screen reader, the `blocked === "content"` open-file promise, a damaged history entry in the dialog.
 
 ## Key Decisions & Unexpected Findings
 
@@ -175,10 +177,24 @@ Depends on: 4, 5. Mode: proceed. Independent review: required (final).
 - Finding: `Скасувати` during generation only stops waiting; the server has no cancel, so the call may still be billed (the UI says so).
 - Finding (M5 interfaces): `apps/web/lib/v2/studio.ts` (state machine, `isStudioTouched`), `visual-api.ts` (`generateImage`, limits), `figure-apply.ts`, `components/v2/VisualStudio.tsx`; `item.studio`, `visualPrefs`, `findFigureItem`, `isKeptOnReplace` in the store; QA hooks `data-studio*`, `data-sg-studio`, `data-figure-edit`, `data-card-state`.
 - Carried into Milestone 6: unreferenced image assets are never deleted (decide a safe cleanup or document it); per-keystroke store work while typing in the studio (measure in 6.4); toast buttons unreachable by keyboard while the studio is open; touched-but-stale illustration cards accumulate until rejected; studio responsive layout under 800 px untested; no live-region announcement when an image completes.
+- Decision (orchestrator, 2026-10-10): v2 never deletes image asset records. An automatic cleanup was built and removed after review: it could delete images that a recovery snapshot or another tab still needed. Unreferenced images stay in the browser's asset store; a safe cleanup is an open item in `docs/V1_RETIREMENT.md`.
+- Decision (orchestrator, 2026-10-10): the session keeps the last three replaced/cleared manuscripts for recovery, bound to their locale; confirmations state exactly what will be recoverable.
+- Decision (orchestrator, 2026-10-10): tertiary text and four tint tones are darker than the prototype to meet WCAG AA (owner may overrule).
+- Finding: the ghost-heading input re-creation from Milestone 3 was caused by `item/headingEdited` falling back to H3 when the title was empty; fixed in Milestone 6.
+- Finding: the classic `/settings` page sends a real model check 500 ms after it opens; `qa:v2` answers that request locally.
 - Deferred to 6.3: a keyboard path to the selection composer and to fragment scope.
 - Deferred to 6.1: confirmation before `Відкрити` replaces the manuscript; a "discard and start over" action for an unreadable v2 draft.
 - Assumption: v1 items for `structure` arrive with ready heading drafts and `emphasis` items carry exact targets (per `docs/CURRENT_STATE.md`). Resolve: confirm against real responses in Milestone 3.
 
 ## Completion Summary
 
-_Not complete._
+What changed: a second editor at `/v2` in the "Папір" design, built in six milestones on branch `v2` (commits `9b1cc67`, `d7f871d`, `e3b97bc`, `128e80a` and the Milestone 6 commit, on top of the prototype and plan commits). It has a Tiptap manuscript bridged to `EditorDocument` with stable block ids; three tabs (`Огляд`, `Правки`, `Запит`); seven passes with a launch queue, inline word-level diffs, ghost headings/callouts/figures, bulk accept where the result is visible, quiet mode; diagnostics, fact-check and author queries; chapter and fragment requests with a selection composer; an illustration studio with real generation; change history, global replace, hotkeys, confirmations with three-level recovery; Ukrainian and English; tablet/phone layouts and keyboard paths. v1 (`/editor`, `/settings`, server, prompts, drafts) is unchanged; the default editor is switched by `NEXT_PUBLIC_OREST_DEFAULT_EDITOR` at build time.
+
+How it was verified: every milestone was implemented by a fresh executor, reviewed independently (blocking and should-fix findings fixed before acceptance), and cross-checked by the orchestrator (typecheck, full suite, screenshots). Final state: typecheck pass, 843/843 tests (503 of them v2), production build pass, `qa:v2` 16/16. Real-backend QA across milestones covered each pass, accept/reject/undo, reload mid-run, quiet mode, diagnostics, fact-check, chapter and fragment requests, image generation and insert, DOCX export with an image.
+
+Left outside the plan or open:
+- Not pushed and not deployed.
+- Shared server issues found and deliberately not fixed (they affect v1 equally; listed in `docs/V1_RETIREMENT.md`): `/api/edit/patch` fails on OpenAI, the default provider, so fragment rewrites fail on default settings; the Ukrainian clarify pattern never matches; a stand-in image prompt is substituted silently; the image job store is in-memory.
+- Known v2 limits: proposals are prepared per card on explicit action; diagnostics is prose, not typed findings; bulk accept only for structure, accents and spelling; unreferenced images are never cleaned up; cancelling an image generation does not stop billing; real-backend QA used a six-paragraph sample and a 40k synthetic chapter, not an author's real 140k chapter.
+- Deviations from the prototype are listed per milestone above and in `docs/CURRENT_STATE.md`.
+- Incident: a Milestone 4 executor wiped the built-in browser pane's storage for `127.0.0.1:3000`; the repository was not affected.

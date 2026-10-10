@@ -1,7 +1,32 @@
 import type { AppLocale } from "../i18n/product-locale.ts";
+import { EN } from "./copy-en.ts";
 
-/** v2 interface copy. Ukrainian only for now; the English catalog is a later milestone. */
+/**
+ * v2 interface copy. Ukrainian is the source catalog and defines the shape (`V2Copy`); the English catalog
+ * in `copy-en.ts` is typed against it, so a key missing there fails the type check.
+ */
+const PASS_IDS = ["structure", "clarity", "interest", "formatting", "visual", "accent", "spell"] as const;
+
+/** Passes shown as rows in the `Правки` tab. */
+export type V2PassRowId = (typeof PASS_IDS)[number];
+
+export interface V2PassCopy {
+  id: V2PassRowId;
+  name: string;
+  text: string;
+}
+
+/** One line of the hotkeys popup: the keys (already written for display) and what they do. */
+export interface V2HotkeyCopy {
+  keys: string;
+  text: string;
+}
+
 const UK = {
+  /** BCP 47 tag for dates and numbers. */
+  dateLocale: "uk-UA",
+  stats: (words: number, paragraphs: number): string =>
+    `${words} ${pluralizeUk(words, "слово", "слова", "слів")} · ${paragraphs} ${pluralizeUk(paragraphs, "абзац", "абзаци", "абзаців")}`,
   brand: "Orest Edit",
   untitledSource: "Рукопис",
   untitledChapter: "Без заголовка",
@@ -11,7 +36,161 @@ const UK = {
   undo: "Скасувати",
   redo: "Повторити",
   history: "Історія",
-  historyPending: "Історія змін з’явиться в одному з наступних оновлень",
+  historyTitle: "Прийняті зміни цієї чернетки",
+  more: "Ще",
+  moreTitle: "Пошук і заміна, гарячі клавіші, очищення",
+  menuMore: {
+    replace: "Знайти й замінити",
+    hotkeys: "Гарячі клавіші",
+    clear: "Очистити документ",
+    recoveryHeld: (count: number): string =>
+      `Можна повернути: ${count} ${pluralizeUk(count, "замінений документ", "замінені документи", "замінених документів")}`,
+    restoreOne: (reason: "clear" | "open", time: string, excerpt: string): string =>
+      `${reason === "clear" ? "Повернути очищений о" : "Повернути замінений о"} ${time}${excerpt ? ` — «${excerpt}»` : ""}`
+  },
+  historyPanel: {
+    title: "Історія змін",
+    lead: "Прийняті пропозиції та заміни в цій чернетці. Те, що ви набрали вручну, сюди не потрапляє.",
+    empty: "Тут з’являться прийняті правки: що змінено, де і коли.",
+    before: "Було",
+    after: "Стало",
+    nothingBefore: "Цього блоку не було — його додано.",
+    nothingAfter: "Блок прибрано з тексту.",
+    back: "До списку",
+    close: "Закрити",
+    open: (label: string): string => `Порівняти: ${label}`,
+    count: (count: number): string => `${count} ${pluralizeUk(count, "зміна", "зміни", "змін")}`,
+    capNote: (limit: number): string => `Зберігаються останні зміни, не більше ніж ${limit}.`,
+    blocks: (count: number): string => `${count} ${pluralizeUk(count, "блок", "блоки", "блоків")}`,
+    image: "Зображення",
+    divider: "Роздільник",
+    table: "Таблиця",
+    kinds: {
+      replace: "Правка тексту",
+      heading: "Підзаголовок",
+      accent: "Акцент",
+      callout: "Врізка",
+      spell: "Правопис",
+      visual: "Ілюстрація",
+      visualReplace: "Заміна ілюстрації",
+      visualRemove: "Ілюстрацію прибрано",
+      caption: "Підпис ілюстрації",
+      bulk: "Прийнято разом",
+      globalReplace: "Пошук і заміна"
+    },
+    bulkLabel: (name: string, count: number): string => `${name} · ${count}`,
+    replaceLabel: (find: string, replacement: string): string => `«${find}» → «${replacement}»`
+  },
+  replace: {
+    title: "Знайти й замінити",
+    find: "Знайти",
+    with: "Замінити на",
+    hint: "Шукає точний збіг з урахуванням регістру в абзацах, заголовках, списках і врізках.",
+    count: (count: number): string => `${count} ${pluralizeUk(count, "збіг", "збіги", "збігів")}`,
+    none: "Нічого не знайдено.",
+    typeQuery: "Введіть, що шукати.",
+    same: "Текст заміни такий самий, як шуканий: змінювати нічого.",
+    action: "Замінити всі",
+    done: (count: number): string =>
+      `Замінено ${count} ${pluralizeUk(count, "збіг", "збіги", "збігів")}. Усе разом можна повернути одним «Скасувати».`,
+    failed: "Замінити не вдалося: текст змінився. Нічого не змінено.",
+    close: "Закрити"
+  },
+  hotkeys: {
+    title: "Гарячі клавіші",
+    close: "Закрити",
+    macNote: "На Mac замість Ctrl — клавіша ⌘.",
+    groups: [
+      {
+        title: "Текст",
+        items: [
+          { keys: "Ctrl+B", text: "Напівжирний" },
+          { keys: "Ctrl+I", text: "Курсив" },
+          { keys: "Ctrl+Z", text: "Скасувати" },
+          { keys: "Ctrl+Shift+Z / Ctrl+Y", text: "Повторити" },
+          { keys: "Shift+Enter", text: "Новий рядок у тому самому абзаці" },
+          { keys: "Ctrl+H", text: "Знайти й замінити" }
+        ]
+      },
+      {
+        title: "Виділений фрагмент",
+        items: [
+          { keys: "Alt+F10", text: "Перейти до дій для виділеного тексту" },
+          { keys: "← →", text: "Наступна чи попередня дія" },
+          { keys: "Esc", text: "Повернутися до тексту" }
+        ]
+      },
+      {
+        title: "Панель і черга",
+        items: [
+          { keys: "F6", text: "Перейти між текстом, панеллю і повідомленням" },
+          { keys: "← →", text: "Сусідня вкладка (коли фокус на вкладках)" },
+          { keys: "Enter", text: "На картці: показати правку" },
+          { keys: "Ctrl+/", text: "Цей список" }
+        ]
+      },
+      {
+        title: "Тихий режим",
+        items: [
+          { keys: "Enter", text: "Прийняти показану правку або підготувати її" },
+          { keys: "Backspace / Delete", text: "Відхилити" },
+          { keys: "← →", text: "Попередня чи наступна пропозиція" }
+        ]
+      },
+      {
+        title: "Студія ілюстрації",
+        items: [
+          { keys: "Enter", text: "На картці ілюстрації: відкрити студію" },
+          { keys: "Tab", text: "Наступний елемент студії або повідомлення" },
+          { keys: "Esc", text: "Закрити студію" }
+        ]
+      }
+    ] as Array<{ title: string; items: V2HotkeyCopy[] }>
+  },
+  confirm: {
+    cancel: "Скасувати",
+    clearTitle: "Очистити документ?",
+    clearText:
+      "Буде прибрано текст розділу, усі пропозиції в черзі, звіти діагностики й перевірки фактів, запити до автора, попередні запити та історію змін. Проходи, що зараз виконуються, буде зупинено.",
+    recoveryKept:
+      "Поточний документ із пропозиціями та історією можна буде повернути через меню «Ще» — доки сторінку не перезавантажено й мову інтерфейсу не змінено. Зберігаються три останні замінені документи.",
+    recoveryDropsOldest: (time: string): string => `Три вже збережено: найстаріший із них (${time}) після цього повернути буде неможливо.`,
+    recoveryNone: "Чернетку, яка зараз збережена, не вдалося відкрити, тому зберегти її для повернення неможливо: після заміни її не повернути.",
+    clearAction: "Очистити",
+    openTitle: "Замінити поточний текст?",
+    openText:
+      "Новий текст стане на місце поточного. Пропозиції в черзі, звіти діагностики й перевірки фактів, запити до автора, попередні запити та історію змін буде прибрано. Проходи, що зараз виконуються, буде зупинено.",
+    openAction: "Замінити",
+    restartTitle: "Почати заново?",
+    restartText:
+      "Збережену чернетку нової версії не вдається прочитати. Якщо почати заново, пошкоджені дані буде видалено з цього браузера й відкриється порожній документ. Повернути їх після цього не можна. Чернетку класичної версії це не зачіпає.",
+    restartAction: "Видалити й почати заново",
+    restart: "Почати заново",
+    restartFailed: "Не вдалося почати заново.",
+    cleared: "Документ очищено.",
+    restore: "Повернути",
+    restored: "Попередній документ повернуто разом із пропозиціями та історією.",
+    restoreFailed: "Не вдалося повернути попередній документ.",
+    restoreWrongLocale:
+      "Цей документ належить чернетці іншою мовою інтерфейсу, тому сюди його не повернуто. Чернетку цієї мови не змінено."
+  },
+  a11y: {
+    panel: "Помічник редактора",
+    toast: "Повідомлення",
+    live: {
+      passDone: (name: string, count: number): string =>
+        count > 0
+          ? `«${name}»: готово, ${count} ${pluralizeUk(count, "пропозиція", "пропозиції", "пропозицій")}.`
+          : `«${name}»: готово, пропозицій немає.`,
+      passFailed: (name: string): string => `«${name}»: не завершено, сталася помилка.`,
+      proposalReady: "Правку підготовлено й показано в тексті.",
+      proposalFailed: "Правку не підготовлено: сталася помилка.",
+      imageReady: "Зображення готове.",
+      imageFailed: "Зображення не згенеровано: сталася помилка.",
+      promptReady: "Промпт для ілюстрації готовий.",
+      promptFailed: "Промпт для ілюстрації не підготовлено: сталася помилка."
+    }
+  },
   classic: "Класична версія",
   classicTitle: "Відкрити попередню версію редактора",
   open: "Відкрити",
@@ -20,7 +199,6 @@ const UK = {
   export: "Експорт",
   exportDocx: "Word (.docx)",
   exportTxt: "Текст (.txt)",
-  replacedHint: "Попередній текст можна повернути через «Скасувати».",
   dismiss: "Закрити",
   loading: "Відкриваю чернетку…",
   placeholder: "Почніть писати або відкрийте файл.",
@@ -223,7 +401,14 @@ const UK = {
     dictionaryFailed: "Не вдалося додати слово у словник.",
     dictionaryReadFailed: "Не вдалося прочитати словник правопису; слова з нього можуть бути позначені як помилки.",
     spellEmpty: "У розділі немає абзаців чи заголовків із текстом, які можна перевірити.",
-    summaryOpen: (count: number) => (count === 1 ? "правка чекає" : "чекають рішення"),
+    summaryOpen: (count: number): string => (count === 1 ? "правка чекає" : "чекають рішення"),
+    staleTag: "застаріла",
+    staleVisualsNote: (count: number): string =>
+      `${count} ${pluralizeUk(count, "ілюстрація втратила", "ілюстрації втратили", "ілюстрацій втратили")} місце в тексті: абзац видалено.`,
+    dismissStale: (count: number): string => `Прибрати ці ілюстрації · ${count}`,
+    dismissStaleTitle:
+      "Прибирає з черги всі ілюстрації, для яких у тексті вже немає місця, разом з їхніми промптами та згенерованими зображеннями. Одразу після цього все можна повернути.",
+    staleDismissed: (count: number): string => `Прибрано ілюстрацій без місця в тексті: ${count} — разом із промптами та зображеннями.`,
     summaryDecided: (count: number) => `вирішено ${count}`,
     whereParagraph: (label: string) => `абз. ${label}`,
     whereHeading: "заголовок",
@@ -271,7 +456,7 @@ const UK = {
       { id: "visual", name: "Ілюстрації", text: "Схеми й малюнки до складних місць" },
       { id: "accent", name: "Акценти", text: "Ключові фрази напівжирним" },
       { id: "spell", name: "Правопис", text: "Орфографія та одруківки" }
-    ]
+    ] as V2PassCopy[]
   },
   studio: {
     label: "Студія ілюстрації",
@@ -372,7 +557,7 @@ const UK = {
     send: "Надіслати",
     empty: "Напишіть, що саме зробити: порожній запит не надсилається.",
     examples: "Наприклад",
-    ideas: ["Скороти вступ удвічі", "Додай приклад із життя", "Поясни терміни простіше"],
+    ideas: ["Скороти вступ удвічі", "Додай приклад із життя", "Поясни терміни простіше"] as string[],
     quickTitle: "Швидкі дії для фрагмента",
     quick: {
       simplify: "Простіше",
@@ -432,14 +617,14 @@ const UK = {
   },
   footer: "Чернетка зберігається в цьому браузері",
   settings: "налаштування"
-} as const;
+};
 
 export type V2Copy = typeof UK;
-/** Passes shown as rows in the `Правки` tab. */
-export type V2PassRowId = V2Copy["edits"]["passList"][number]["id"];
 
-export function getV2Copy(_locale: AppLocale): V2Copy {
-  return UK;
+const CATALOGS: Record<AppLocale, V2Copy> = { uk: UK, en: EN };
+
+export function getV2Copy(locale: AppLocale): V2Copy {
+  return CATALOGS[locale] ?? UK;
 }
 
 /** Ukrainian plural: 1 слово, 2 слова, 5 слів. */
@@ -458,6 +643,17 @@ export function pluralizeUk(count: number, one: string, few: string, many: strin
   return many;
 }
 
-export function formatManuscriptStats(words: number, paragraphs: number): string {
-  return `${words} ${pluralizeUk(words, "слово", "слова", "слів")} · ${paragraphs} ${pluralizeUk(paragraphs, "абзац", "абзаци", "абзаців")}`;
+export function formatManuscriptStats(words: number, paragraphs: number, locale: AppLocale = "uk"): string {
+  return getV2Copy(locale).stats(words, paragraphs);
+}
+
+/** A stored ISO time as the interface shows it; empty when the value is not a date. */
+export function formatV2Date(value: string | undefined, locale: AppLocale, month: "long" | "short" = "long"): string {
+  const date = value ? new Date(value) : null;
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(getV2Copy(locale).dateLocale, { day: "numeric", month, hour: "2-digit", minute: "2-digit" }).format(date);
 }

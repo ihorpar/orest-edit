@@ -1,8 +1,9 @@
 "use client";
 
-import type { RefObject } from "react";
+import { memo, useRef, type RefObject } from "react";
 import type { EditorDocument } from "../../lib/editor/document-model";
 import type { AppLocale } from "../../lib/i18n/product-locale";
+import { getTabForKey } from "../../lib/v2/a11y";
 import type { V2Copy } from "../../lib/v2/copy";
 import type { FragmentScope } from "../../lib/v2/fragment-actions";
 import type { ReviewDiffReport } from "../../lib/v2/review-marks";
@@ -46,7 +47,7 @@ interface V2PanelProps {
  * Right-hand panel with the three tabs: `Огляд` reads the chapter, `Правки` is the one queue of suggestions,
  * `Запит` takes the editor's own instruction. All three drive the same suggestion engine.
  */
-export function V2Panel({
+export const V2Panel = memo(function V2Panel({
   copy,
   locale,
   tab,
@@ -65,10 +66,11 @@ export function V2Panel({
 }: V2PanelProps) {
   const openCount = selectOpenItems(review.state).length;
   const openEdits = () => onTabChange("edits");
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   return (
-    <aside className={styles.panel}>
-      <nav className={styles.tabs} role="tablist">
+    <aside className={styles.panel} aria-label={copy.a11y.panel} data-v2-panel>
+      <div className={styles.tabs} role="tablist" aria-label={copy.a11y.panel} ref={tabsRef}>
         {TABS.map(({ id, icon }) => (
           <button
             key={id}
@@ -77,16 +79,31 @@ export function V2Panel({
             id={`v2-tab-${id}`}
             aria-selected={tab === id}
             aria-controls="v2-panel-body"
+            // One stop in the tab order; the arrows move between the tabs and open them.
+            tabIndex={tab === id ? 0 : -1}
             className={`${styles.tab} ${tab === id ? styles.tabOn : ""}`}
             onClick={() => onTabChange(id)}
+            onKeyDown={(event) => {
+              const next = getTabForKey(
+                TABS.map((entry) => entry.id),
+                id,
+                event.key
+              );
+
+              if (next && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                event.preventDefault();
+                onTabChange(next);
+                tabsRef.current?.querySelector<HTMLElement>(`#v2-tab-${next}`)?.focus();
+              }
+            }}
           >
             <V2Icon name={icon} />
             <span>{copy.tabs[id]}</span>
             {id === "edits" && openCount > 0 ? <b>{openCount}</b> : null}
           </button>
         ))}
-      </nav>
-      <div className={styles.body} id="v2-panel-body" role="tabpanel" aria-labelledby={`v2-tab-${tab}`} data-view={tab}>
+      </div>
+      <div className={styles.body} id="v2-panel-body" role="tabpanel" aria-labelledby={`v2-tab-${tab}`} data-view={tab} tabIndex={-1}>
         {tab === "overview" ? (
           <OverviewTab
             copy={copy}
@@ -119,4 +136,4 @@ export function V2Panel({
       </footer>
     </aside>
   );
-}
+});

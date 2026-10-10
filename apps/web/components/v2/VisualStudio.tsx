@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createEditorAssetToken, resolveEditorAssetUrl } from "../../lib/editor/asset-store";
 import type { EditorialVisualIntent } from "../../lib/editor/review-contract";
 import { getVisualImageQualityOptions, getVisualStylePresetOptions } from "../../lib/editor/settings";
@@ -23,6 +23,65 @@ import styles from "./v2.module.css";
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 const INTENTS: EditorialVisualIntent[] = ["infographic", "illustration"];
+/** How long a studio text field waits after the last key before it hands its text to the suggestion store. */
+const FIELD_COMMIT_DELAY_MS = 200;
+
+/**
+ * A text field that is typed in locally and handed to the store a moment after the last key, at once on
+ * `flush` (blur, any action of the studio) and when the field goes away. Typing then costs one small render
+ * instead of a pass through the whole suggestion state on every key. When the store changes the text itself
+ * (a prepared prompt), that text replaces what is in the field.
+ */
+function useBufferedText(stored: string, commit: (text: string) => void) {
+  const [local, setLocal] = useState(stored);
+  const localRef = useRef(stored);
+  // The text the store is known to have: what it gave us, or what we last sent it.
+  const knownRef = useRef(stored);
+  const timerRef = useRef<number | null>(null);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  const cancel = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const flush = useCallback(() => {
+    cancel();
+
+    if (localRef.current !== knownRef.current) {
+      knownRef.current = localRef.current;
+      commitRef.current(localRef.current);
+    }
+  }, []);
+
+  const change = useCallback(
+    (text: string) => {
+      localRef.current = text;
+      setLocal(text);
+      cancel();
+      timerRef.current = window.setTimeout(flush, FIELD_COMMIT_DELAY_MS);
+    },
+    [flush]
+  );
+
+  useEffect(() => {
+    if (stored !== knownRef.current) {
+      cancel();
+      knownRef.current = stored;
+      localRef.current = stored;
+      setLocal(stored);
+    }
+  }, [stored]);
+
+  // Nothing typed is lost when the studio closes.
+  useEffect(() => flush, [flush]);
+
+  return { value: local, change, flush };
+}
+
 const FOCUSABLE = 'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex="0"]';
 
 interface VisualStudioProps {
@@ -116,7 +175,11 @@ export function VisualStudio({ copy, locale, review, target, disabled }: VisualS
     page.body.style.overflow = "hidden";
     box.focus();
 
-    const focusables = () => Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE));
+    // The message at the bottom of the page (and its buttons: `Повернути`, `Закрити`) is part of the dialog's
+    // keyboard round, after its own controls: it is on screen above the studio and must be reachable.
+    const toastButtons = () => Array.from(page.querySelectorAll<HTMLElement>("[data-v2-toast] button"));
+    const focusables = () => [...Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)), ...toastButtons()];
+    const inScope = (node: unknown) => node instanceof Node && (box.contains(node) || (node instanceof Element && node.closest("[data-v2-toast]") !== null));
 
     // Capture phase on the document: the keys are seen here wherever focus happens to be.
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -127,7 +190,7 @@ export function VisualStudio({ copy, locale, review, target, disabled }: VisualS
         return;
       }
 
-      const inside = event.target instanceof Node && box.contains(event.target);
+      const inside = inScope(event.target);
 
       if (event.key === "Tab") {
         const items = focusables();
@@ -138,7 +201,7 @@ export function VisualStudio({ copy, locale, review, target, disabled }: VisualS
         if (!first || !last) {
           event.preventDefault();
           box.focus();
-        } else if (!inside || !box.contains(active)) {
+        } else if (!inside || !inScope(active)) {
           event.preventDefault();
           (event.shiftKey ? last : first).focus();
         } else if (event.shiftKey && (active === first || active === box)) {
@@ -162,7 +225,7 @@ export function VisualStudio({ copy, locale, review, target, disabled }: VisualS
     };
 
     const handleFocusIn = (event: FocusEvent) => {
-      if (event.target instanceof Node && !box.contains(event.target)) {
+      if (!inScope(event.target)) {
         box.focus();
       }
     };
@@ -225,7 +288,9 @@ export function VisualStudio({ copy, locale, review, target, disabled }: VisualS
     const box = boxRef.current;
     const active = window.document.activeElement;
 
-    if (box && (!active || !box.contains(active) || (active instanceof HTMLElement && active.matches(":disabled")))) {
+    const inToast = active instanceof Element && active.closest("[data-v2-toast]") !== null;
+
+    if (box && !inToast && (!active || !box.contains(active) || (active instanceof HTMLElement && active.matches(":disabled")))) {
       box.focus();
     }
   });
@@ -280,7 +345,7 @@ function ItemStudio({
   locale,
   review,
   item,
-  studio,
+  studio: stored,
   disabled
 }: {
   copy: V2Copy;
@@ -292,6 +357,25 @@ function ItemStudio({
 }) {
   const text = copy.studio;
   const itemId = item.id;
+  const { setStudioField } = review;
+  const promptField = useBufferedText(
+    stored.prompt,
+    useCallback((prompt: string) => setStudioField(itemId, { prompt }), [itemId, setStudioField])
+  );
+  const captionField = useBufferedText(
+    stored.caption,
+    useCallback((caption: string) => setStudioField(itemId, { caption }), [itemId, setStudioField])
+  );
+  // What the studio shows and judges by is the text as typed, also in the moment before the store has it.
+  const studio = useMemo<V2StudioData>(
+    () => (stored.prompt === promptField.value && stored.caption === captionField.value ? stored : { ...stored, prompt: promptField.value, caption: captionField.value }),
+    [captionField.value, promptField.value, stored]
+  );
+  /** Every action of the studio works with the text as typed. */
+  const flushFields = () => {
+    promptField.flush();
+    captionField.flush();
+  };
   const preview = getStudioPreview(studio);
   const busy = isStudioBusy(studio);
   const generating = studio.generation.status === "generating" ? studio.generation : null;
@@ -351,7 +435,8 @@ function ItemStudio({
       <div className={cx(styles.ph, styles.phBusy)} role="status" data-studio-preview="generating">
         <span className={styles.spin} />
         <b>{text.generatingImage}</b>
-        <span>{text.elapsed(elapsed)}</span>
+        {/* Not read out every second: the counter is for the eye only. */}
+        <span aria-hidden="true">{text.elapsed(elapsed)}</span>
         <span>{text.generatingHint}</span>
         <button type="button" className={cx(styles.btn, styles.btnOutline, styles.btnSm)} data-studio-cancel onClick={() => review.cancelVisualGeneration(itemId)}>
           {text.cancel}
@@ -436,7 +521,10 @@ function ItemStudio({
                 className={studio.intent === intent ? styles.vzSegOn : undefined}
                 aria-pressed={studio.intent === intent}
                 disabled={lockSettings}
-                onClick={() => review.setStudioField(itemId, { intent })}
+                onClick={() => {
+                flushFields();
+                review.setStudioField(itemId, { intent });
+              }}
               >
                 {text.intents[intent]}
               </button>
@@ -451,7 +539,10 @@ function ItemStudio({
                 aria-pressed={studio.quality === option.value}
                 title={option.hint}
                 disabled={lockSettings}
-                onClick={() => review.setStudioField(itemId, { quality: option.value })}
+                onClick={() => {
+                flushFields();
+                review.setStudioField(itemId, { quality: option.value });
+              }}
               >
                 {option.label}
               </button>
@@ -468,7 +559,8 @@ function ItemStudio({
             readOnly={busy}
             disabled={disabled}
             data-studio-prompt
-            onChange={(event) => review.setStudioField(itemId, { prompt: event.target.value })}
+            onChange={(event) => promptField.change(event.target.value)}
+            onBlur={promptField.flush}
           />
         </label>
         {preparing ? (
@@ -483,7 +575,10 @@ function ItemStudio({
         {studio.promptState.status === "failed" ? (
           <p className={styles.cardError} role="alert">
             <b>{text.promptFailed}</b> {studio.promptState.message}{" "}
-            <button type="button" className={styles.link} disabled={disabled} onClick={() => review.prepareVisualPrompt(itemId)}>
+            <button type="button" className={styles.link} disabled={disabled} onClick={() => {
+                flushFields();
+                review.prepareVisualPrompt(itemId);
+              }}>
               {text.promptRetry}
             </button>
           </p>
@@ -497,7 +592,10 @@ function ItemStudio({
               title={text.promptPrepareTitle}
               disabled={disabled || !canPreparePrompt(studio)}
               data-studio-prepare
-              onClick={() => review.prepareVisualPrompt(itemId)}
+              onClick={() => {
+                flushFields();
+                review.prepareVisualPrompt(itemId);
+              }}
             >
               {text.promptPrepare}
             </button>
@@ -511,7 +609,10 @@ function ItemStudio({
               className={cx(styles.chip, studio.style === option.value && styles.chipOn)}
               aria-pressed={studio.style === option.value}
               disabled={lockSettings}
-              onClick={() => review.setStudioField(itemId, { style: option.value })}
+              onClick={() => {
+                flushFields();
+                review.setStudioField(itemId, { style: option.value });
+              }}
             >
               <i className={styles.sw} data-style={option.value} />
               {option.label}
@@ -530,7 +631,10 @@ function ItemStudio({
               title={text.promptRefreshTitle}
               disabled={disabled || !canPreparePrompt(studio)}
               data-studio-refresh
-              onClick={() => review.prepareVisualPrompt(itemId)}
+              onClick={() => {
+                flushFields();
+                review.prepareVisualPrompt(itemId);
+              }}
             >
               {text.promptRefresh}
             </button>
@@ -544,7 +648,8 @@ function ItemStudio({
             placeholder={text.captionPlaceholder}
             disabled={disabled}
             data-studio-caption
-            onChange={(event) => review.setStudioField(itemId, { caption: event.target.value })}
+            onChange={(event) => captionField.change(event.target.value)}
+            onBlur={captionField.flush}
           />
         </label>
         {stale && !generating ? (
@@ -559,7 +664,10 @@ function ItemStudio({
             disabled={disabled || !canGenerate(studio)}
             title={!studio.prompt.trim() ? text.generateNeedsPrompt : undefined}
             data-studio-generate
-            onClick={() => review.generateVisual(itemId)}
+            onClick={() => {
+                flushFields();
+                review.generateVisual(itemId);
+              }}
           >
             {studio.asset ? text.regenerate : text.generate}
           </button>
@@ -571,7 +679,10 @@ function ItemStudio({
                 disabled={!canPlace}
                 title={blocker ?? undefined}
                 data-studio-replace
-                onClick={() => review.replaceVisual(itemId, shownAssetId)}
+                onClick={() => {
+                flushFields();
+                review.replaceVisual(itemId, shownAssetId);
+              }}
               >
                 {text.replace}
               </button>
@@ -581,7 +692,10 @@ function ItemStudio({
                   className={cx(styles.btn, styles.btnOutline)}
                   disabled={disabled}
                   data-studio-caption-save
-                  onClick={() => review.saveFigureCaption(figureBlockId, studio.caption)}
+                  onClick={() => {
+                flushFields();
+                review.saveFigureCaption(figureBlockId, studio.caption);
+              }}
                 >
                   {text.captionSave}
                 </button>
@@ -602,7 +716,10 @@ function ItemStudio({
                 disabled={!canPlace}
                 title={blocker ?? undefined}
                 data-studio-insert
-                onClick={() => review.insertVisual(itemId, shownAssetId)}
+                onClick={() => {
+                flushFields();
+                review.insertVisual(itemId, shownAssetId);
+              }}
               >
                 {text.insert}
               </button>

@@ -185,3 +185,43 @@ export function buildItemMarks(
 
   return marks;
 }
+
+function sameMark(a: ReviewMark, b: ReviewMark): boolean {
+  if (
+    a.itemId !== b.itemId ||
+    a.tone !== b.tone ||
+    a.state !== b.state ||
+    a.focused !== b.focused ||
+    a.hot !== b.hot ||
+    Boolean(a.dim) !== Boolean(b.dim) ||
+    // A diff is cached per proposal, so the same proposal is the same array.
+    a.diff !== b.diff ||
+    a.blockIds.length !== b.blockIds.length ||
+    a.blockIds.some((blockId, index) => blockId !== b.blockIds[index])
+  ) {
+    return false;
+  }
+
+  // Ghosts and inline targets are small and rebuilt on every pass: compared by content.
+  return (
+    (a.ghost === b.ghost || JSON.stringify(a.ghost) === JSON.stringify(b.ghost)) &&
+    (a.inline === b.inline || JSON.stringify(a.inline) === JSON.stringify(b.inline))
+  );
+}
+
+/**
+ * Keeps the previous list of marks when the new one says the same. Most changes of the suggestion state
+ * (a progress tick of a run, a key typed in the studio, a card's refine field) leave the marks as they
+ * were; handing the editor the same array then costs nothing, where a new one rebuilds every decoration.
+ */
+export function stabilizeMarks(previous: ReviewMark[], next: ReviewMark[]): ReviewMark[] {
+  if (previous === next) {
+    return previous;
+  }
+
+  if (previous.length !== next.length) {
+    return next;
+  }
+
+  return next.every((mark, index) => sameMark(previous[index]!, mark)) ? previous : next;
+}

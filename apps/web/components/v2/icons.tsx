@@ -24,7 +24,8 @@ const PATHS = {
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   fact: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
   arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
-  x: <><path d="m6 6 12 12" /><path d="M18 6 6 18" /></>
+  x: <><path d="m6 6 12 12" /><path d="M18 6 6 18" /></>,
+  more: <><circle cx="5" cy="12" r="1.1" fill="currentColor" /><circle cx="12" cy="12" r="1.1" fill="currentColor" /><circle cx="19" cy="12" r="1.1" fill="currentColor" /></>
 } satisfies Record<string, ReactNode>;
 
 export type V2IconName = keyof typeof PATHS;

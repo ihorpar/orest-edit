@@ -1,11 +1,48 @@
 # CURRENT_STATE
 
-Date: 2026-08-18
+Date: 2026-10-10
 Status: Active handoff
 
 Latest completed implementation plan: `docs/plans/EXECPLAN_DIAGNOSTICS_DEPTH_MODES.md`. Previous completed plan: `docs/plans/EXECPLAN_CUSTOM_REQUEST_PLAN_GENERATE.md`. Do not treat `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`, `docs/plans/EXECPLAN_MULTI_STEP_EDITORIAL_REVIEW_WORKFLOW.md`, or `.plans/durable-review-workflow.md` as the current build checklist.
 
-## What exists now
+## v2 editor (`/v2`) — parallel version, added 2026-10-10
+
+A second editor lives at `/v2` next to the classic one at `/editor`. The classic editor, `/settings`, every `/api/*` route, the prompts and the classic browser drafts are unchanged; everything below this section describes the classic editor. Plan and acceptance records: `.plans/v2-paper-editor.md`. Retirement steps if the client chooses v2: `docs/V1_RETIREMENT.md`.
+
+How to reach it:
+- `/v2` by URL (behind the same password gate). The header of v2 links back to `/editor`.
+- `/` redirects to `/editor` unless the build sets `NEXT_PUBLIC_OREST_DEFAULT_EDITOR=v2` (see `docs/DEPLOYMENT.md`).
+
+What exists in v2:
+- Design "Папір" (`docs/concepts/v2/d1.html`): a manuscript sheet and a right panel with three tabs — `Огляд` (read-only: diagnostics report, fact-check, questions for the author), `Правки` (one queue for every pass), `Запит` (the editor's own instruction for the chapter or a selected fragment).
+- Manuscript on Tiptap/ProseMirror (`components/v2/ManuscriptEditor.tsx`, bridge `lib/v2/tiptap-bridge.ts`) with stable block ids for all eight block types, paragraph numbers, a formatting toolbar, undo/redo.
+- Passes with visible launchers and state: `Структура`, `Ясність`, `Врізки`, `Списки`, `Ілюстрації`, `Акценти`, `Правопис`; `Запустити всі` queues them client-side. All of them call the existing `/api/edit/*` endpoints.
+- Suggestions are ProseMirror decorations, never document content: word-level del/ins diffs, ghost headings/callouts/figures, inline accents and spelling marks. A proposal is prepared only by an explicit action; accept works only for a result that is drawn in the text; every accept is one undo step.
+- Quiet mode (one card at a time, keyboard), the selection composer (exists only while text is selected; `Alt+F10` reaches it from the keyboard), the illustration studio (prompt, style, speed, caption; one synchronous image request).
+- `Історія`: accepted changes of the draft (every accept kind, a bulk accept as one entry, illustration insert/replace/remove, caption, global replace) with `Було` / `Стало`; kept in the v2 draft, capped at 50 entries. Manual typing is not logged, and undoing an accepted change does not remove its entry.
+- Find and replace (`Ctrl/Cmd+H`, exact case-sensitive match, one undo step), a hotkeys popup (`Ctrl/Cmd+/`), clear document and `Відкрити` behind a confirmation that says what will be recoverable, with a session-only recovery of the last three replaced manuscripts (listed in the `Ще` menu; each goes back only into the language draft it came from), `Почати заново` for an unreadable v2 draft.
+- English catalog (`lib/v2/copy-en.ts`, typed against the Ukrainian one); v2 follows the app locale chosen on `/settings`, including request `locale`, spellcheck, dates, plurals and the draft key.
+- Tablet layout (two columns down to 721 px), phone layout (one column, panel above the text); tablist with arrow keys, `F6` between text / panel / message, a polite live region for finished passes, prepared edits, images and failures; `prefers-reduced-motion` respected.
+- Scripted QA: `npm run qa:v2 -w @orest/web` (free flows by default, `QA_V2_PAID=1` adds one real `Структура` pass).
+
+Storage used by v2:
+- `localStorage` `orest-v2-draft-{locale}-v1`: document, source name, suggestion state, history. The classic draft keys are only read (once, to copy the document into an empty v2 draft) and never written. Opening `/v2` with an existing v2 draft writes nothing.
+- IndexedDB `orest-editor-assets-v1` (shared with the classic editor): v2 only adds images. It never deletes a record: images nothing refers to any more are intentionally left in the browser's store (see the open items in `docs/V1_RETIREMENT.md`).
+
+What does not exist in v2:
+- No server-side persistence, no multi-chapter projects, no DOCX tracked-changes export (same as the classic editor).
+- No resume of an image generation interrupted by a reload (the request is synchronous; the UI says it was interrupted and sends nothing again).
+- Diagnostics is the model's markdown report, not structured findings; pass shortcuts sit beside the report.
+- Proposals are prepared one at a time on request (plus the next one in quiet mode), not all at once.
+- The recovery after clear/open lasts until the page is reloaded or the interface language changes, and holds three manuscripts at most.
+- No cleanup of unreferenced images in the browser's asset store.
+- Type of a suggestion in the text is shown by colour only; its name and icon are on the card it is linked to.
+
+Known issues shared with the classic editor (server side, not fixed; listed in `docs/V1_RETIREMENT.md`): `/api/edit/patch` fails on OpenAI with a response-schema error, so fragment rewrites (`Простіше`, `Коротше`, free text) fail on default settings; the Ukrainian `clarify` pattern of the fragment router never matches; the image prompt endpoint can substitute a stand-in prompt; the image job store is in memory.
+
+Validation state (2026-10-10): `typecheck`, `test` (842/842) and `build` pass. Runtime checks with real key presses in a throwaway browser context cover the parity features, English end to end, tablet 820×1180 / 1024×768 and phone 390×844 without horizontal page scroll, a keyboard-only walkthrough, reduced motion, and a 140k-character chapter with ~110 open suggestions. One real `Структура` run on a 40k-character chapter confirmed cards streaming in while the run was still going, accept and undo mid-run, and resume after a reload. See the plan file for what was not verified at runtime.
+
+## What exists now (classic editor, `/editor`)
 - A web-only Next.js app under `apps/web`
 - The `Структура` step is heading-insert only: recommendation cards are limited to `subsection`, AI chooses H2 or H3 (`headingLevel`), existing headings are not edited, and non-subsection types from a Structure run are filtered server-side
 - Focused recommendation steps hard-filter card types server-side by allowlist (`structure`→subsection; `formatting`→list+callout; `clarity`→rewrite/simplify/expand; `interest`→callout+expand; `visuals`→visual; `emphasis`→rewrite). `final_editing` / `Власний запит` keeps all executable types unfiltered
@@ -275,6 +312,7 @@ Latest completed implementation plan: `docs/plans/EXECPLAN_DIAGNOSTICS_DEPTH_MOD
 4. Expand automated/runtime QA to cover the new `Акценти` inline layer together with existing spellcheck overlays so multiple inline suggestion systems can coexist safely.
 
 ## Last validated state
+- v2 editor (`/v2`), 2026-10-10: see the validation paragraph of the v2 section above. The classic editor was not changed by that work: `git status` shows no classic source, server, prompt or middleware file modified, and `/editor` and `/settings` render as before.
 - `npm run typecheck -w @orest/web` and `npm run test -w @orest/web` (339/339) passed on 2026-10-06 after the GPT-6 / Gemini 3.8 / Claude 5.5 preset refresh, conditional retired-id migration, and app-language selector fix (`docs/plans/EXECPLAN_MODEL_REFRESH_LOCALE_FIX.md`).
 - Authenticated Playwright runtime QA on 2026-10-06 against local dev server `http://127.0.0.1:3001` confirmed: Settings renders Ukrainian default, dismissed language confirm resets the selector to `uk` and repeat selection still works, accept switches UI to English (`document.lang=en`), GPT-6 / Gemini 3.8 / Claude 5.5 presets render per provider with no retired ids, and switch back to Ukrainian works (12/12 checks).
 - `npm run typecheck -w @orest/web`, `npm run test -w @orest/web` (283/283), and `npm run build -w @orest/web` passed on 2026-08-12 after incremental chunked review closeout (M1–M5 of `docs/plans/EXECPLAN_INCREMENTAL_CHUNKED_REVIEW.md`). Suite now includes `review-chunk-runtime`, `review-run-merge`, and `review-run-progress`.
