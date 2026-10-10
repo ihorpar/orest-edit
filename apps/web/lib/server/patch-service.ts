@@ -46,6 +46,10 @@ const fallbackGlossary: Array<{
 
 const preserveListStructurePatterns = /(спис|перел(ік|іч)|bullet|таблиц|table|скорот|стисл|ущільн|корот)/i;
 
+// OpenAI strict structured output requires every property of every object to be listed in
+// `required`, so the nested rich-text block schema it used to get was rejected outright
+// ("Invalid schema for response_format 'patch_operations' ... Missing 'bold'"). It now uses the
+// same lightweight contract as Gemini: plain replacement strings, blocks rebuilt on the server.
 const openAiSchema = {
   type: "object",
   additionalProperties: false,
@@ -56,129 +60,12 @@ const openAiSchema = {
         type: "object",
         additionalProperties: false,
         properties: {
-          blockIds: {
-            type: "array",
-            items: { type: "string" }
-          },
-          newBlocks: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                id: { type: "string" },
-                type: {
-                  type: "string",
-                  enum: ["paragraph", "heading", "bullet_list", "ordered_list", "image", "callout", "divider", "table"]
-                },
-                level: { type: "integer", enum: [1, 2, 3] },
-                content: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      text: { type: "string" },
-                      bold: { type: "boolean" },
-                      italic: { type: "boolean" },
-                      link: { type: "string" }
-                    },
-                    required: ["text"]
-                  }
-                },
-                items: {
-                  type: "array",
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        text: { type: "string" },
-                        bold: { type: "boolean" },
-                        italic: { type: "boolean" },
-                        link: { type: "string" }
-                      },
-                      required: ["text"]
-                    }
-                  }
-                },
-                assetId: { type: "string" },
-                alt: { type: "string" },
-                caption: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      text: { type: "string" },
-                      bold: { type: "boolean" },
-                      italic: { type: "boolean" },
-                      link: { type: "string" }
-                    },
-                    required: ["text"]
-                  }
-                },
-                kind: { type: "string" },
-                title: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      text: { type: "string" },
-                      bold: { type: "boolean" },
-                      italic: { type: "boolean" },
-                      link: { type: "string" }
-                    },
-                    required: ["text"]
-                  }
-                },
-                body: {
-                  type: "array",
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        text: { type: "string" },
-                        bold: { type: "boolean" },
-                        italic: { type: "boolean" },
-                        link: { type: "string" }
-                      },
-                      required: ["text"]
-                    }
-                  }
-                },
-                rows: {
-                  type: "array",
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        additionalProperties: false,
-                        properties: {
-                          text: { type: "string" },
-                          bold: { type: "boolean" },
-                          italic: { type: "boolean" },
-                          link: { type: "string" }
-                        },
-                        required: ["text"]
-                      }
-                    }
-                  }
-                }
-              },
-              required: ["type"]
-            }
-          },
+          blockIds: { type: "array", items: { type: "string" } },
+          replacements: { type: "array", items: { type: "string" } },
           reason: { type: "string" },
           type: { type: "string", enum: ["clarity", "structure", "terminology", "source", "tone"] }
         },
-        required: ["blockIds", "newBlocks", "reason", "type"]
+        required: ["blockIds", "replacements", "reason", "type"]
       }
     }
   },
@@ -413,8 +300,8 @@ async function createOpenAiOperations(request: PatchRequest, apiKey: string, fet
       },
       body: JSON.stringify({
         ...buildOpenAiRequestModelFields(profile),
-        instructions: buildSystemPrompt(request),
-        input: buildUserPrompt(request),
+        instructions: buildGeminiSystemPrompt(request),
+        input: buildGeminiUserPrompt(request),
         text: {
           format: {
             type: "json_schema",
@@ -724,10 +611,6 @@ function inferCombinedType(blocks: Block[]): PatchOperationType {
 
 function createTextNode(text: string): InlineNode {
   return { text };
-}
-
-function buildSystemPrompt(request: PatchRequest): string {
-  return buildPatchSystemPrompt(request.locale ?? "uk", request.basePrompt);
 }
 
 function buildGeminiSystemPrompt(request: PatchRequest): string {

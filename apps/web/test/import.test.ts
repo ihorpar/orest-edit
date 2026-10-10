@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
 
+import type { EditorDocument } from "../lib/editor/document-model.ts";
 import { importDocxArrayBuffer, importPlainTextToDocument } from "../lib/editor/import.ts";
 
 test("importPlainTextToDocument maps headings, paragraphs, and lists into blocks", () => {
@@ -324,4 +325,26 @@ test("importDocxArrayBuffer preserves numeric DOCX text nodes inside citations",
 
   assert.equal(block?.type, "paragraph");
   assert.equal(block?.type === "paragraph" ? block.content.map((node) => node.text).join("") : "", "Текст перед цитатою [5]");
+});
+
+test("importDocxArrayBuffer keeps heading levels from the app's own DOCX export", async () => {
+  const { exportDocumentToDocx } = await import("../lib/editor/docx-export.ts");
+  const source: EditorDocument = {
+    version: 2,
+    blocks: [
+      { id: "h1", type: "heading", level: 1, content: [{ text: "Назва розділу" }] },
+      { id: "p1", type: "paragraph", content: [{ text: "Перший абзац." }] },
+      { id: "h2", type: "heading", level: 2, content: [{ text: "Підрозділ" }] },
+      { id: "h3", type: "heading", level: 3, content: [{ text: "Пункт" }] },
+      { id: "p2", type: "paragraph", content: [{ text: "Другий абзац." }] }
+    ]
+  };
+
+  const exported = await exportDocumentToDocx({ document: source });
+  const result = await importDocxArrayBuffer(await exported.blob.arrayBuffer());
+
+  assert.deepEqual(
+    result.document.blocks.map((block) => (block.type === "heading" ? `h${block.level}` : block.type)),
+    ["h1", "paragraph", "h2", "h3", "paragraph"]
+  );
 });

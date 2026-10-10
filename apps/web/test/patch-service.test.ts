@@ -257,10 +257,10 @@ test("generatePatchResponse preserves line breaks inside a single replacement bl
   );
 });
 
-test("generatePatchResponse sends strict OpenAI patch schema with closed objects", async () => {
+test("generatePatchResponse sends an OpenAI patch schema that satisfies strict structured output", async () => {
   let requestBody = "";
 
-  await generatePatchResponse(createRequest({ apiKey: "openai-test-key" }), {
+  const response = await generatePatchResponse(createRequest({ apiKey: "openai-test-key" }), {
     fetchImpl: async (_input, init) => {
       requestBody = typeof init?.body === "string" ? init.body : "";
 
@@ -270,7 +270,7 @@ test("generatePatchResponse sends strict OpenAI patch schema with closed objects
             operations: [
               {
                 blockIds: ["p1"],
-                newBlocks: [{ type: "paragraph", content: [{ text: "Пояснений блок." }] }],
+                replacements: ["Пояснений блок."],
                 reason: "Спростив блок.",
                 type: "clarity"
               }
@@ -284,31 +284,44 @@ test("generatePatchResponse sends strict OpenAI patch schema with closed objects
   });
 
   const payload = JSON.parse(requestBody) as {
-    text?: {
-      format?: {
-        schema?: {
-          properties?: {
-            operations?: {
-              items?: {
-                additionalProperties?: boolean;
-                properties?: {
-                  newBlocks?: {
-                    items?: {
-                      additionalProperties?: boolean;
-                    };
-                  };
-                };
-              };
-            };
-          };
-        };
-      };
-    };
+    instructions?: string;
+    text?: { format?: { strict?: boolean; schema?: unknown } };
   };
 
-  assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.additionalProperties, false);
-  assert.equal(payload.text?.format?.schema?.properties?.operations?.items?.properties?.newBlocks?.items?.additionalProperties, false);
+  // Strict mode rejects the whole request unless every object is closed and lists all of its
+  // properties as required.
+  const violations: string[] = [];
+  const visit = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") {
+      return;
+    }
+    const schema = node as { type?: string; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: boolean; items?: unknown };
+    if (schema.type === "object") {
+      const keys = Object.keys(schema.properties ?? {});
+      if (schema.additionalProperties !== false) {
+        violations.push(`${path}: additionalProperties must be false`);
+      }
+      for (const key of keys) {
+        if (!schema.required?.includes(key)) {
+          violations.push(`${path}: "${key}" is not required`);
+        }
+        visit(schema.properties?.[key], `${path}.${key}`);
+      }
+    }
+    visit(schema.items, `${path}[]`);
+  };
+  visit(payload.text?.format?.schema, "schema");
+
+  assert.equal(payload.text?.format?.strict, true);
+  assert.deepEqual(violations, []);
+  assert.match(payload.instructions ?? "", /newBlocks/);
   assert.equal("temperature" in payload, false);
+  assert.equal(response.error, undefined);
+  assert.equal(response.operations[0]?.newBlocks[0]?.type, "paragraph");
+  assert.equal(
+    response.operations[0]?.newBlocks[0]?.type === "paragraph" ? response.operations[0].newBlocks[0].content[0]?.text : "",
+    "Пояснений блок."
+  );
 });
 
 test("generatePatchResponse does not return synthetic list rewrite when API key is missing", async () => {

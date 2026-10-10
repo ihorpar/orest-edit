@@ -770,7 +770,6 @@ async function createImagePromptProposal(
       ? await runAnthropicTextPrompt(request.modelId, apiKey, prompt, fetchImpl)
       : await runOpenAiTextPrompt(request.modelId, apiKey, prompt, fetchImpl, request.locale ?? "uk");
   const parsed = parseImageDraftOutput(result, {
-    prompt: buildFallbackImagePrompt(locale, excerpt, request.item.recommendation, visualIntent, visualStyleGuide),
     caption: "",
     alt: request.item.title
   });
@@ -1202,33 +1201,30 @@ function normalizeGeneratedImagePrompt(raw: string): string {
     .trim();
 }
 
+// The image prompt must come from the model. Caption and alt may fall back to neutral defaults,
+// but a stand-in prompt would be synthetic output presented as the model's (see AGENTS.md: fail loud).
 function parseImageDraftOutput(
   rawOutput: string,
-  fallback: { prompt: string; caption: string; alt: string }
+  fallback: { caption: string; alt: string }
 ): { prompt: string; caption: string; alt: string } {
   const parsedObject = parseLooseJsonObject(rawOutput);
   const objectPrompt = parsedObject ? pickString(parsedObject, ["prompt", "imagePrompt", "promptText", "text", "content"]) : null;
   const objectCaption = parsedObject ? pickString(parsedObject, ["caption", "imageCaption", "figcaption"]) : null;
   const objectAlt = parsedObject ? pickString(parsedObject, ["alt", "altText", "alt_text"]) : null;
 
-  const fallbackPromptValue = normalizeGeneratedImagePrompt(fallback.prompt) || fallback.prompt.trim();
   const fallbackCaptionValue = sanitizeImageCaption(fallback.caption);
   const fallbackAltValue = sanitizeImageAlt(fallback.alt);
+  const structured = Boolean(objectPrompt || objectCaption || objectAlt);
+  const prompt = normalizeGeneratedImagePrompt(structured ? objectPrompt ?? "" : rawOutput);
 
-  if (objectPrompt || objectCaption || objectAlt) {
-    return {
-      prompt: normalizeGeneratedImagePrompt(objectPrompt ?? fallbackPromptValue) || fallbackPromptValue,
-      caption: sanitizeImageCaption(objectCaption ?? fallbackCaptionValue),
-      alt: sanitizeImageAlt(objectAlt ?? fallbackAltValue)
-    };
+  if (!prompt) {
+    throw new Error("Провайдер не повернув придатний image prompt.");
   }
 
-  const plainPrompt = normalizeGeneratedImagePrompt(rawOutput);
-
   return {
-    prompt: plainPrompt || fallbackPromptValue,
-    caption: fallbackCaptionValue,
-    alt: fallbackAltValue
+    prompt,
+    caption: sanitizeImageCaption((structured ? objectCaption : null) ?? fallbackCaptionValue),
+    alt: sanitizeImageAlt((structured ? objectAlt : null) ?? fallbackAltValue)
   };
 }
 

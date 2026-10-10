@@ -83,7 +83,8 @@ const TEXT_INTENT_LABELS: Record<AppLocale, Record<LocalActionTextIntent, string
 
 const REGEXES = {
   uk: {
-    clarify: /\b(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)\b/i,
+    // \b is ASCII-only in JavaScript and never matches around Cyrillic, so bound the phrase by letters instead.
+    clarify: /(?<![\p{L}\p{N}])(щось|якось|як[- ]?небудь|на твій розсуд|сам виріши|обери сам)(?![\p{L}\p{N}])/iu,
     spellcheck: /(правопис|орфограф|помилк|описк|grammar|spell)/i,
     callout: /(врізк|врезк|бокс|сайдбар|виноск)/i,
     visual: /(візуал|зображ|картин|ілюстрац|схем|інфограф)/i,

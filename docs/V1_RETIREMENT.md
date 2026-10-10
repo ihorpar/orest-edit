@@ -67,14 +67,20 @@ Do this as its own change with before/after screenshots of every v2 state at 144
 - English: switch on `/settings`, check `/v2`, switch back.
 - No request to `/api/edit/*` on load or reload of `/v2`.
 
-## Open server-side issues shared by both versions (not fixed)
+## Open issues shared by both versions
 
-These live in shared server code. They affect v1 and v2 equally and were left alone on purpose while both versions coexist; decide on each before or during retirement.
+These live in shared code and affect v1 and v2 equally; decide on each before or during retirement.
 
-1. **Patch schema failure on OpenAI.** `POST /api/edit/patch` answers 502 `Invalid schema for response_format 'patch_operations' … Missing 'bold'` on OpenAI (the default provider), so fragment rewrites (`Простіше`, `Коротше`, free text) fail on default settings. Fix belongs in `apps/web/lib/server/patch-service.ts`. v2 shows the server's message verbatim.
-2. **Ukrainian clarify pattern.** The pattern in `apps/web/lib/editor/local-action-router.ts` uses `\b` around Cyrillic and never matches, so the router's `clarify` answer is effectively English-only.
-3. **Stand-in image prompt.** `createImagePromptProposal` in `apps/web/lib/server/review-action-service.ts` substitutes a stand-in prompt when the model's output is unusable; the client can detect only a fully empty answer. This conflicts with the fail-loud rule.
-4. **In-memory image job store.** The asynchronous image job path keeps jobs in a per-instance map, so a poll can miss its job on serverless hosting. v2 (like v1) uses one synchronous request instead; a generation in flight at reload is reported as interrupted and not resumed.
-5. **DOCX round trip.** Export then import does not preserve headings or callouts (they return as paragraphs); this is in `lib/editor/docx-export.ts` / `import.ts`.
-6. **Settings page pings the model on every open.** `/settings` calls `/api/settings/validate` when it loads, which sends a small real request (up to 16 output tokens) to the chosen provider. Automated checks that open `/settings` should answer that request themselves, as `qa:v2` does.
-7. **Unreferenced images are never deleted.** v2 (like v1) only adds records to IndexedDB `orest-editor-assets-v1`; images of rejected or regenerated illustrations and of replaced documents stay there. An automatic cleanup was built and removed in Milestone 6 because it could delete an image that an in-memory recovery snapshot or another tab's undo history still needed. A safe cleanup needs an owner decision and a design that knows about every holder of an image: all drafts of both versions and languages, every open tab's recovery snapshots and undo history (for example a cross-tab lease or a manual "free up space" action that runs with one tab open).
+Fixed on 2026-10-10 (shared code, so both versions benefit):
+
+- **Patch schema failure on OpenAI.** `POST /api/edit/patch` was rejected by OpenAI with `Invalid schema for response_format 'patch_operations' … Missing 'bold'`, so fragment rewrites (`Простіше`, `Коротше`, free text) failed on the default provider. Strict structured output requires every property to be listed in `required`; the nested rich-text schema did not. OpenAI now uses the same lightweight contract as Gemini (replacement strings, blocks rebuilt on the server) in `apps/web/lib/server/patch-service.ts`. Verified with a real request.
+- **Ukrainian clarify pattern.** `` is ASCII-only in JavaScript and never matched around Cyrillic, so the fragment router's `clarify` answer was English-only. Fixed in `apps/web/lib/editor/local-action-router.ts`.
+- **Stand-in image prompt.** The image prompt endpoint substituted its own prompt when the model's output was unusable. It now returns an error instead (`parseImageDraftOutput` in `apps/web/lib/server/review-action-service.ts`).
+- **Headings lost on DOCX export → import.** Import did not recognise the heading styles the app's own export writes (`HeadingOne/Two/Three`). Fixed in `apps/web/lib/editor/import.ts`.
+
+Still open:
+
+1. **Callouts lost on DOCX export → import.** A callout comes back as plain paragraphs; import has no notion of the exported callout styles.
+2. **In-memory image job store.** The asynchronous image job path keeps jobs in a per-instance map, so a poll can miss its job on serverless hosting. v2 (like v1) uses one synchronous request instead; a generation in flight at reload is reported as interrupted and not resumed.
+3. **Settings page pings the model on every open.** `/settings` calls `/api/settings/validate` when it loads, which sends a small real request (up to 16 output tokens) to the chosen provider. Automated checks that open `/settings` should answer that request themselves, as `qa:v2` does.
+4. **Unreferenced images are never deleted.** v2 (like v1) only adds records to IndexedDB `orest-editor-assets-v1`; images of rejected or regenerated illustrations and of replaced documents stay there. An automatic cleanup was built and removed in Milestone 6 because it could delete an image that an in-memory recovery snapshot or another tab's undo history still needed. A safe cleanup needs an owner decision and a design that knows about every holder of an image: all drafts of both versions and languages, every open tab's recovery snapshots and undo history (for example a cross-tab lease or a manual "free up space" action that runs with one tab open).

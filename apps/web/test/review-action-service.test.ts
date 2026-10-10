@@ -2351,3 +2351,52 @@ test("generateReviewAction uses Anthropic headers and parses subsection output",
   assert.match(requestPrompt, /Рекомендація:/i);
   assert.match(requestPrompt, /Щільний абзац/i);
 });
+
+test("generateReviewAction fails loud when the model returns no usable image prompt", async () => {
+  const document: EditorDocument = {
+    version: 2,
+    blocks: [{ id: "p1", type: "paragraph", content: [{ text: "Опиши відмінності між блідістю шкіри та пігментацією." }] }]
+  };
+  const revision = deriveManuscriptRevisionState(document);
+
+  for (const outputText of ['{"caption":"Підпис без промпта","alt":"Альт"}', "   "]) {
+    const response = await generateReviewAction(
+      {
+        document,
+        currentRevision: revision,
+        provider: "openai",
+        modelId: "gpt-6-luna",
+        apiKey: "test-key",
+        item: {
+          id: "review-visual-empty",
+          reviewSessionId: "review-session-1",
+          documentRevisionId: revision.documentRevisionId,
+          changeLevel: 3,
+          title: "Додати порівняльний візуал",
+          reason: "Матеріал легше сприймається у порівнянні.",
+          recommendation: "Покажи поруч два стани шкіри в одному порівняльному візуалі.",
+          recommendationType: "visual",
+          suggestedAction: "prepare_visual",
+          priority: "medium",
+          anchor: {
+            blockIds: ["p1"],
+            generationBlockRange: { start: 0, end: 0 },
+            excerpt: "Опиши відмінності між блідістю шкіри та пігментацією.",
+            fingerprint: computeAnchorFingerprint(document, ["p1"])
+          },
+          insertionPoint: { mode: "after", anchorBlockId: "p1" },
+          visualIntent: "infographic",
+          status: "pending"
+        }
+      },
+      {
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ output_text: outputText }), { status: 200, headers: { "content-type": "application/json" } })
+      }
+    );
+
+    // No stand-in prompt may be presented as the model's.
+    assert.ok(response.error, `expected an error for output ${JSON.stringify(outputText)}`);
+    assert.equal(response.proposal.imageDraft?.prompt ?? "", "");
+  }
+});

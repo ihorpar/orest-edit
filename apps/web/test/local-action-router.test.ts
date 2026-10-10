@@ -125,3 +125,12 @@ test("local action descriptions expose user-facing copy", () => {
   assert.match(getLocalActionCalloutDepthDescription("deep"), /Докладно/i);
   assert.match(getLocalActionVisualDescription("infographic"), /структурований візуал/i);
 });
+
+test("local action router asks for clarification on vague Ukrainian prompts", () => {
+  for (const prompt of ["Зроби щось із цим абзацом", "Покращ якось", "Вирішуй на твій розсуд", "обери сам"]) {
+    assert.equal(inferLocalActionRoute({ prompt, locale: "uk" }).executor, "clarify", prompt);
+  }
+
+  // The vague word must stand alone: it is not matched inside another word.
+  assert.equal(inferLocalActionRoute({ prompt: "Поясни, чому дещось не так", locale: "uk" }).executor, "patch");
+});

@@ -1018,6 +1018,11 @@ function resolveHeadingLevel(styleValue: string, headingLevelByStyleId: Map<stri
   }
 
   const normalizedLower = normalized.toLowerCase();
+  const ownExportLevel = OWN_EXPORT_HEADING_STYLES[normalizedLower];
+
+  if (ownExportLevel) {
+    return ownExportLevel;
+  }
 
   if (normalizedLower.endsWith("heading1") || normalizedLower === "h1") {
     return 1;
@@ -1034,6 +1039,8 @@ function resolveHeadingLevel(styleValue: string, headingLevelByStyleId: Map<stri
   return null;
 }
 
+const OWN_EXPORT_HEADING_STYLES: Record<string, 1 | 2 | 3> = { headingone: 1, headingtwo: 2, headingthree: 3 };
+
 function resolveHeadingLevelFromStyleMetadata(styleId: string, styleName: string, outlineLevel: number): 1 | 2 | 3 | null {
   const normalizedStyleId = styleId.trim().toLowerCase();
   const normalizedStyleName = styleName.trim().toLowerCase();
@@ -1044,6 +1051,13 @@ function resolveHeadingLevelFromStyleMetadata(styleId: string, styleName: string
 
   if (Number.isInteger(outlineLevel) && outlineLevel >= 0 && outlineLevel <= 2) {
     return (outlineLevel + 1) as 1 | 2 | 3;
+  }
+
+  // The app's own DOCX export names its heading styles HeadingOne/Two/Three (docx-export.ts).
+  const ownExportLevel = OWN_EXPORT_HEADING_STYLES[normalizedStyleId] ?? OWN_EXPORT_HEADING_STYLES[normalizedStyleName.replace(/\s+/g, "")];
+
+  if (ownExportLevel) {
+    return ownExportLevel;
   }
 
   if (normalizedStyleName === "heading 1" || normalizedStyleId === "heading1" || normalizedStyleId === "1" || normalizedStyleId === "h1") {

@@ -32,7 +32,7 @@ Exclusions: deleting or refactoring v1; changing server prompts or API contracts
 - Canonical plan: `.plans/done/v2-paper-editor.md`. Plan owner: the orchestrator session.
 - Current milestone: none — all six milestones accepted and committed on `v2`.
 - Next action (owner): look at `/v2` next to `/editor`, decide on the open items in the Completion Summary, then push/deploy when ready.
-- Open owner decisions: fixing the shared server issues listed in `docs/V1_RETIREMENT.md` (first of all `/api/edit/patch` failing on OpenAI); whether the darker tertiary text is acceptable; when to show the client.
+- Open owner decisions: whether the darker tertiary text is acceptable; when to show the client.
 - Blocker: None.
 - Workspace: single working tree `C:\Projects\oboz-ai\orest-edit`, branch `v2` (from `master` at `dcb52ae`). Commits to `v2` are authorized by the owner (2026-10-10); pushing is not. The orchestrator commits each milestone when it is accepted; executors still do not touch git state. Worktree exception: executors run one at a time in this tree, so no per-milestone worktrees.
 - Orchestrator may decide: implementation choices, simplifications within scope, reordering independent tasks. Needs the owner: changing hard constraints or required outcomes, weakening acceptance, pushes/deploys, anything touching v1 behaviour.
@@ -194,7 +194,8 @@ How it was verified: every milestone was implemented by a fresh executor, review
 
 Left outside the plan or open:
 - Not pushed and not deployed.
-- Shared server issues found and deliberately not fixed (they affect v1 equally; listed in `docs/V1_RETIREMENT.md`): `/api/edit/patch` fails on OpenAI, the default provider, so fragment rewrites fail on default settings; the Ukrainian clarify pattern never matches; a stand-in image prompt is substituted silently; the image job store is in-memory.
+- Post-plan fix (2026-10-10, on the owner's instruction "if there is a bug, we fix it"): the shared-code bugs found during the plan were fixed in commit after `0bce4d9` — the OpenAI patch schema (verified with a real request), the Ukrainian clarify pattern, the stand-in image prompt, and heading loss on DOCX export → import. The bullet below is kept for history.
+- Shared server issues found and at the time deliberately not fixed (they affect v1 equally; listed in `docs/V1_RETIREMENT.md`): `/api/edit/patch` fails on OpenAI, the default provider, so fragment rewrites fail on default settings; the Ukrainian clarify pattern never matches; a stand-in image prompt is substituted silently; the image job store is in-memory.
 - Known v2 limits: proposals are prepared per card on explicit action; diagnostics is prose, not typed findings; bulk accept only for structure, accents and spelling; unreferenced images are never cleaned up; cancelling an image generation does not stop billing; real-backend QA used a six-paragraph sample and a 40k synthetic chapter, not an author's real 140k chapter.
 - Deviations from the prototype are listed per milestone above and in `docs/CURRENT_STATE.md`.
 - Incident: a Milestone 4 executor wiped the built-in browser pane's storage for `127.0.0.1:3000`; the repository was not affected.
